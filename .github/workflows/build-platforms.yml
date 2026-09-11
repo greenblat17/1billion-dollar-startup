@@ -1,0 +1,107 @@
+name: Build platforms
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Android build
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: cmp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Android app
+        run: ./gradlew :app:androidApp:assembleDebug
+
+  desktop:
+    name: Desktop build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_task: packageDeb
+            gradle_wrapper: ./gradlew
+          - os: macos-14
+            artifact_task: packageDmg
+            gradle_wrapper: ./gradlew
+          - os: windows-latest
+            artifact_task: packageMsi
+            gradle_wrapper: ./gradlew.bat
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        working-directory: cmp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build Desktop app
+        run: ${{ matrix.gradle_wrapper }} :app:desktopApp:${{ matrix.artifact_task }}
+
+  ios:
+    name: iOS build
+    runs-on: macos-14
+
+    defaults:
+      run:
+        working-directory: cmp
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build iOS simulator app
+        run: |
+          xcodebuild \
+            -project app/iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
