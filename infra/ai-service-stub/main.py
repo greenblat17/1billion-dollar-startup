@@ -1,5 +1,5 @@
-from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import JSONResponse, Response
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 import threading
 import time
 import uuid
@@ -33,17 +33,10 @@ async def create_clip(
 
 
 @app.get("/v1/clips/{job_id}")
-def get_clip(job_id: str) -> JSONResponse | dict[str, str]:
+def get_clip(job_id: str) -> dict[str, str]:
     job = jobs.get(job_id)
     if job is None:
-        return JSONResponse(
-            status_code=404,
-            content={
-                "jobId": job_id,
-                "status": "error",
-                "error": {"code": "not_found", "message": "unknown job"},
-            },
-        )
+        raise HTTPException(status_code=404, detail="unknown job")
     return {"jobId": job_id, "status": job["status"]}
 
 

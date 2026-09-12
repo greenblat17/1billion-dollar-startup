@@ -14,6 +14,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
+import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
 import org.slf4j.LoggerFactory
 
 class TelegramPollingBot(
@@ -23,7 +24,9 @@ class TelegramPollingBot(
     private val log = LoggerFactory.getLogger(TelegramPollingBot::class.java)
 
     suspend fun startPolling() {
-        val bot = telegramBot(token)
+        val bot = telegramBot(token) {
+            logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token)
+        }
         bot.buildBehaviourWithLongPolling {
             onCommand("start") { message ->
                 reply(message, START_INFO_TEXT)
