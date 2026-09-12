@@ -20,7 +20,7 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 class HttpClipClient(
-    private val baseUrl: String,
+    baseUrl: String,
     private val http: HttpClient,
     private val pollInterval: Duration = 300.milliseconds,
     private val timeout: Duration = 90.seconds,
