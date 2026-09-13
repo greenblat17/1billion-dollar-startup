@@ -27,6 +27,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(sessionClipQueue: Ses
     val log = LoggerFactory.getLogger("TelegramHandlers")
     onCommand("start") { message ->
         reply(message, START_INFO_TEXT)
+        log.info("Replied to /start for tg-{}", message.chat.id)
     }
     onContentMessage { message ->
         when (val content = message.content) {
@@ -44,11 +45,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(sessionClipQueue: Ses
                         },
                     )
                     when (result) {
-                        ClipSubmitResult.QueueFull -> reply(message, QUEUE_FULL_TEXT)
-                        is ClipSubmitResult.Completed -> sendVoice(
-                            message.chat.id,
-                            result.reply.bytes.asMultipartFile(result.reply.fileName),
-                        )
+                        ClipSubmitResult.QueueFull -> {
+                            reply(message, QUEUE_FULL_TEXT)
+                            log.info("Voice queue is full for {}", sessionId.value)
+                        }
+                        is ClipSubmitResult.Completed -> {
+                            sendVoice(
+                                message.chat.id,
+                                result.reply.bytes.asMultipartFile(result.reply.fileName),
+                            )
+                            log.info("Sent voice reply for {}", sessionId.value)
+                        }
                     }
                 } catch (error: Throwable) {
                     log.error("Failed to handle voice for {}", sessionId.value, error)

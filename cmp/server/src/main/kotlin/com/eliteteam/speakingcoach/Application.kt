@@ -99,13 +99,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
         }
     }
     server.start(wait = false)
-    log.info("Starting Telegram webhook at {}", webhookUrl)
     registerTelegramWebhook(
         bot = behaviourContext,
         webhookUrl = webhookUrl,
         webhookSecret = webhookSecret,
         certificateFile = File(config.tlsCertPath),
     )
+    log.info("Telegram webhook registered at {}", webhookUrl)
     try {
         awaitCancellation()
     } finally {
