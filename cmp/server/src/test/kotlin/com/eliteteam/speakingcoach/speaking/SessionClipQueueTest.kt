@@ -18,7 +18,7 @@ class SessionClipQueueTest {
             processor = { _, clip ->
                 order += String(clip.bytes)
                 delay(50.milliseconds)
-                clip
+                ClipReply(emptyList(), clip)
             },
             scope = this,
             maxQueuedPerUser = 3,
@@ -37,7 +37,7 @@ class SessionClipQueueTest {
         val queue = SessionClipQueue(
             processor = { _, clip ->
                 delay(200.milliseconds)
-                clip
+                ClipReply(emptyList(), clip)
             },
             scope = this,
             maxQueuedPerUser = 1,
@@ -57,7 +57,7 @@ class SessionClipQueueTest {
         val queue = SessionClipQueue(
             processor = { _, clip ->
                 delay(80.milliseconds)
-                clip
+                ClipReply(emptyList(), clip)
             },
             scope = this,
             maxQueuedPerUser = 3,

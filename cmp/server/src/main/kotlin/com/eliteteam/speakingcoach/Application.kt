@@ -20,11 +20,8 @@ import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
 import io.ktor.server.request.header
 import io.ktor.server.response.respond
-import io.ktor.server.response.respondText
-import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
@@ -62,11 +59,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
         }
     }
     val webhookScope = newTelegramWebhookScope()
+    val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp)
     val sessionClipQueue = SessionClipQueue(
-        processor = HttpClipClient(config.aiServiceBaseUrl, aiHttp),
+        processor = ai,
         scope = webhookScope,
     )
-    val behaviourContext = buildTelegramWebhookBehaviour(token, sessionClipQueue, webhookScope)
+    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
         File(config.tlsKeyPath),
@@ -86,13 +84,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     ) {
-        routing {
-            get("/") {
-                call.respondText(sayHello("Ktor"))
-            }
-            get("/health") {
-                call.respondText("ok")
-            }
+        installSpeakingCoachHttp {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }
@@ -117,13 +109,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
 }
 
 fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
-    routing {
-        get("/") {
-            call.respondText(sayHello("Ktor"))
-        }
-        get("/health") {
-            call.respondText("ok")
-        }
+    installSpeakingCoachHttp {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
             post("/telegram/webhook") {

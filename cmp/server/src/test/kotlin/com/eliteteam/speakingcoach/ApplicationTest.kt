@@ -56,6 +56,15 @@ class ApplicationTest {
         assertEquals(HttpStatusCode.Forbidden, response.status)
     }
 
+    @Test
+    fun swaggerUiIsServed() = testApplication {
+        application {
+            module()
+        }
+        val response = client.get("/swagger")
+        assertEquals(HttpStatusCode.OK, response.status)
+    }
+
     private fun webhookTestConfig() = AppConfig(
         telegramBotToken = null,
         telegramWebhookUrl = "https://localhost/telegram/webhook",

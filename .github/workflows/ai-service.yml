@@ -40,7 +40,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: ai-service-stub
-          path: infra/ai-service-stub
+          path: |
+            infra/ai-service-stub
           if-no-files-found: error
           retention-days: 1
 
@@ -82,6 +83,7 @@ jobs:
             vps-upload/Dockerfile \
             vps-upload/main.py \
             vps-upload/requirements.txt \
+            vps-upload/greeting.ogg \
             vps-upload/deploy-remote.sh \
             "${AI_SERVICE_USER}@${AI_SERVICE_HOST}:/opt/ai-service/"
           ssh "${SSH_OPTS[@]}" "${AI_SERVICE_USER}@${AI_SERVICE_HOST}" \

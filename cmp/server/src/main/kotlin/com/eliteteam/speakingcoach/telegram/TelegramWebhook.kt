@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import dev.inmo.tgbotapi.bot.TelegramBot
 import dev.inmo.tgbotapi.extensions.api.webhook.setWebhookInfo
@@ -14,7 +15,9 @@ import io.ktor.server.request.header
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.openapi.describe
 import io.ktor.server.routing.post
+import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
@@ -31,6 +34,7 @@ internal fun newTelegramWebhookScope(): CoroutineScope =
 
 internal suspend fun buildTelegramWebhookBehaviour(
     token: String,
+    ai: HttpClipClient,
     sessionClipQueue: SessionClipQueue,
     scope: CoroutineScope,
 ): BehaviourContext {
@@ -41,7 +45,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(sessionClipQueue)
+        installSpeakingCoachHandlers(ai, sessionClipQueue)
     }
 }
 
@@ -53,6 +57,7 @@ internal fun Route.installSpeakingCoachWebhook(
     val transformer = webhookScope.updateHandlerWithMediaGroupsAdaptation(
         behaviourContext.asUpdateReceiver,
     )
+    @OptIn(ExperimentalKtorApi::class)
     post {
         if (call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER) != secret) {
             call.respond(HttpStatusCode.Forbidden)
@@ -70,6 +75,17 @@ internal fun Route.installSpeakingCoachWebhook(
         } catch (error: Throwable) {
             log.error("Failed to handle Telegram webhook", error)
             call.respond(HttpStatusCode.InternalServerError)
+        }
+    }.describe {
+        summary = "Telegram webhook"
+        description = "Accepts Bot API updates. Requires X-Telegram-Bot-Api-Secret-Token."
+        parameters {
+            header(TELEGRAM_WEBHOOK_SECRET_HEADER) { required = true }
+        }
+        responses {
+            HttpStatusCode.OK { description = "Update accepted" }
+            HttpStatusCode.Forbidden { description = "Wrong or missing secret" }
+            HttpStatusCode.InternalServerError { description = "Update could not be parsed" }
         }
     }
 }
