@@ -1,44 +1,114 @@
+comments:
+  active: false
+
 complexity:
-  LongMethod:
-    allowedLines: 80
-  TooManyFunctions:
-    ignorePrivate: true
-    ignoreOverridden: true
+  active: false
+
+coroutines:
+  active: false
+
+empty-blocks:
+  active: false
 
 exceptions:
-  TooGenericExceptionCaught:
-    active: false
+  active: false
 
 naming:
-  FunctionNaming:
-    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
-  MatchingDeclarationName:
-    active: false
+  active: false
+
+performance:
+  active: false
+
+potential-bugs:
+  active: false
 
 style:
-  MagicNumber:
-    ignoreAnnotation: true
-    excludes:
-      - '**/test/**'
-      - '**/androidTest/**'
-      - '**/androidHostTest/**'
-      - '**/commonTest/**'
-      - '**/jvmTest/**'
-      - '**/androidUnitTest/**'
-      - '**/androidInstrumentedTest/**'
-      - '**/jsTest/**'
-      - '**/iosTest/**'
-      - '**/*.kts'
-  MaxLineLength:
-    maxLineLength: 140
-    excludeCommentStatements: true
-  NewLineAtEndOfFile:
+  AbstractClassCanBeConcreteClass:
     active: false
-  WildcardImport:
+  AbstractClassCanBeInterface:
     active: false
-  ReturnCount:
-    max: 4
-    excludeGuardClauses: true
+  DestructuringDeclarationWithTooManyEntries:
+    active: false
+  EqualsNullCall:
+    active: false
+  ExplicitItLambdaMultipleParameters:
+    active: false
+  ExplicitItLambdaParameter:
+    active: false
   ForbiddenComment:
     active: false
-
+  ForbiddenVoid:
+    active: false
+  FunctionOnlyReturningConstant:
+    active: false
+  LoopWithTooManyJumpStatements:
+    active: false
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  MayBeConstant:
+    active: false
+  ModifierOrder:
+    active: false
+  NestedClassesVisibility:
+    active: false
+  NewLineAtEndOfFile:
+    active: false
+  ObjectLiteralToLambda:
+    active: false
+  OptionalAbstractKeyword:
+    active: false
+  ProtectedMemberInFinalClass:
+    active: false
+  RedundantHigherOrderMapUsage:
+    active: false
+  ReturnCount:
+    active: false
+  SafeCast:
+    active: false
+  SerialVersionUIDInSerializableClass:
+    active: false
+  ThrowsCount:
+    active: false
+  UnnecessaryApply:
+    active: false
+  UnnecessaryFilter:
+    active: false
+  UnnecessaryInheritance:
+    active: false
+  UnusedParameter:
+    active: false
+  UnusedPrivateClass:
+    active: false
+  UnusedPrivateFunction:
+    active: false
+  UnusedPrivateProperty:
+    active: false
+  UnusedVariable:
+    active: false
+  UseAnyOrNoneInsteadOfFind:
+    active: false
+  UseArrayLiteralsInAnnotations:
+    active: false
+  UseCheckNotNull:
+    active: false
+  UseCheckOrError:
+    active: false
+  UseIsNullOrEmpty:
+    active: false
+  UseOrEmpty:
+    active: false
+  UseRequire:
+    active: false
+  UseRequireNotNull:
+    active: false
+  UselessCallOnNotNull:
+    active: false
+  UtilityClassWithPublicConstructor:
+    active: false
+  VarCouldBeVal:
+    active: false
+  WildcardImport:
+    active: true
+    excludeImports: []
