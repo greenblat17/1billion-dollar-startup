@@ -20,8 +20,10 @@ import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
 import io.ktor.server.request.header
 import io.ktor.server.response.respond
+import io.ktor.server.routing.openapi.hide
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
+import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
@@ -41,6 +43,7 @@ suspend fun main() {
     }
 }
 
+@OptIn(ExperimentalKtorApi::class)
 private suspend fun startWebhookServer(config: AppConfig) {
     val log = LoggerFactory.getLogger("Application")
     val token = checkNotNull(config.telegramBotToken) {
@@ -84,10 +87,10 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     ) {
-        installSpeakingCoachHttp {
+        installSpeakingCoachHttp(config.aiServiceBaseUrl) {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
-            }
+            }.hide()
         }
     }
     server.start(wait = false)
@@ -108,8 +111,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
     }
 }
 
+@OptIn(ExperimentalKtorApi::class)
 fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
-    installSpeakingCoachHttp {
+    installSpeakingCoachHttp(config.aiServiceBaseUrl) {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
             post("/telegram/webhook") {
@@ -119,7 +123,7 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
                     return@post
                 }
                 call.respond(HttpStatusCode.ServiceUnavailable)
-            }
+            }.hide()
         }
     }
 }

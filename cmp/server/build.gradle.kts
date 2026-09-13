@@ -25,7 +25,6 @@ dependencies {
     implementation(libs.ktor.clientCio)
     implementation(libs.ktor.clientContentNegotiation)
     implementation(libs.ktor.serializationJson)
-    implementation(libs.ktor.serverCors)
     implementation(libs.ktor.serverSwagger)
     implementation(libs.ktor.serverRoutingOpenapi)
     implementation(libs.kotlinx.serialization.json)
