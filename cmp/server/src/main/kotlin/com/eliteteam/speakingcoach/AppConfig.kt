@@ -13,6 +13,11 @@ data class AppConfig(
         get() = !telegramWebhookUrl.isNullOrBlank()
 
     init {
+        if (!telegramBotToken.isNullOrBlank()) {
+            require(!telegramWebhookUrl.isNullOrBlank()) {
+                "TELEGRAM_WEBHOOK_URL is required when TELEGRAM_BOT_TOKEN is set"
+            }
+        }
         if (usesWebhook) {
             require(!telegramWebhookSecret.isNullOrBlank()) {
                 "TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_WEBHOOK_URL is set"
