@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload detekt reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: detekt-reports
           path: cmp/**/build/reports/detekt/**
@@ -94,7 +94,7 @@ jobs:
         run: ./gradlew :app:androidApp:assembleDebug
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: android-debug-apk
           path: cmp/app/androidApp/build/outputs/apk/debug/*.apk
@@ -164,7 +164,7 @@ jobs:
         run: ./gradlew :app:desktopApp:${{ matrix.task }}
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
@@ -211,7 +211,7 @@ jobs:
           ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/iosApp-simulator.zip"
 
       - name: Upload simulator app
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ios-simulator-app
           path: ${{ runner.temp }}/iosApp-simulator.zip
@@ -241,7 +241,7 @@ jobs:
         run: ./gradlew :server:buildFatJar
 
       - name: Upload fat JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: server-all
           path: cmp/server/build/libs/server-all.jar

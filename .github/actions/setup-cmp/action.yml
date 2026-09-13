@@ -18,7 +18,7 @@ runs:
 
     - name: Cache Kotlin/Native
       if: runner.os == 'macOS'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.konan
         key: konan-${{ runner.os }}-${{ hashFiles('cmp/gradle/libs.versions.toml', 'cmp/gradle/wrapper/gradle-wrapper.properties') }}
@@ -26,7 +26,7 @@ runs:
           konan-${{ runner.os }}-
 
     - name: Set up Gradle
-      uses: gradle/actions/setup-gradle@v4
+      uses: gradle/actions/setup-gradle@v5
       with:
         # Default action behavior is read-only off main; we write from test/detekt jobs
         # so later jobs in this run can restore dependencies without downloading again.
