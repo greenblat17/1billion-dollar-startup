@@ -331,32 +331,35 @@ jobs:
             const owner = context.repo.owner
             const repo = context.repo.repo
             const currentRunId = context.runId
+            const workflowId = 'build-platforms.yml'
             const branch =
               context.payload.pull_request?.head?.ref ??
               context.ref.replace(/^refs\/heads\//, '')
 
-            const artifacts = await github.paginate(
-              github.rest.actions.listArtifactsForRepo,
-              { owner, repo, per_page: 100 },
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRuns,
+              { owner, repo, workflow_id: workflowId, branch, per_page: 100 },
             )
+            const staleRunIds = runs
+              .map((run) => run.id)
+              .filter((id) => id !== currentRunId)
 
-            const stale = artifacts.filter((artifact) => {
-              const run = artifact.workflow_run
-              return run && run.id !== currentRunId && run.head_branch === branch
-            })
-
-            if (stale.length === 0) {
-              core.info(`No previous artifacts to drop for ${branch}`)
+            if (staleRunIds.length === 0) {
+              core.info(`No previous ${workflowId} artifacts to drop for ${branch}`)
               return
             }
 
-            for (const artifact of stale) {
-              core.info(
-                `Deleting ${artifact.name} from run ${artifact.workflow_run.id}`,
+            for (const runId of staleRunIds) {
+              const artifacts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id: runId, per_page: 100 },
               )
-              await github.rest.actions.deleteArtifact({
-                owner,
-                repo,
-                artifact_id: artifact.id,
-              })
+              for (const artifact of artifacts) {
+                core.info(`Deleting ${artifact.name} from ${workflowId} run ${runId}`)
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id,
+                })
+              }
             }
