@@ -1,0 +1,11 @@
+.git
+.idea
+.kotlin
+**/.gradle
+**/build
+**/.kotlin
+**/.DS_Store
+*.iml
+.env
+.env.*
+!.env.example
