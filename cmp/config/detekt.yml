@@ -1,0 +1,44 @@
+complexity:
+  LongMethod:
+    allowedLines: 80
+  TooManyFunctions:
+    ignorePrivate: true
+    ignoreOverridden: true
+
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+
+naming:
+  FunctionNaming:
+    functionPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  MatchingDeclarationName:
+    active: false
+
+style:
+  MagicNumber:
+    ignoreAnnotation: true
+    excludes:
+      - '**/test/**'
+      - '**/androidTest/**'
+      - '**/androidHostTest/**'
+      - '**/commonTest/**'
+      - '**/jvmTest/**'
+      - '**/androidUnitTest/**'
+      - '**/androidInstrumentedTest/**'
+      - '**/jsTest/**'
+      - '**/iosTest/**'
+      - '**/*.kts'
+  MaxLineLength:
+    maxLineLength: 140
+    excludeCommentStatements: true
+  NewLineAtEndOfFile:
+    active: false
+  WildcardImport:
+    active: false
+  ReturnCount:
+    max: 4
+    excludeGuardClauses: true
+  ForbiddenComment:
+    active: false
+

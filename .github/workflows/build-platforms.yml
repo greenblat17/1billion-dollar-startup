@@ -2,11 +2,35 @@ name: Build platforms
 
 on:
   workflow_dispatch:
-  pull_request:
+    inputs:
+      android:
+        description: Android test and debug APK
+        type: boolean
+        default: true
+      desktop:
+        description: Desktop test and Deb/Dmg/Msi
+        type: boolean
+        default: true
+      ios:
+        description: iOS simulator test and app zip
+        type: boolean
+        default: true
+      server:
+        description: Server test and fat JAR
+        type: boolean
+        default: true
+      deploy:
+        description: Stub server deploy after fat JAR
+        type: boolean
+        default: false
   push:
     branches:
       - main
       - master
+    paths:
+      - 'cmp/**'
+      - '.github/workflows/build-platforms.yml'
+      - '.github/actions/setup-cmp/**'
 
 permissions:
   contents: read
@@ -16,87 +40,142 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  android:
-    name: Android build
+  detekt:
+    name: Detekt
     runs-on: ubuntu-latest
-
     defaults:
       run:
+        shell: bash
         working-directory: cmp
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Run detekt
+        run: ./gradlew detekt
+
+      - name: Upload detekt reports
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          distribution: zulu
-          java-version: 21
+          name: detekt-reports
+          path: cmp/**/build/reports/detekt/**
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+  android:
+    name: Android
+    needs: detekt
+    if: github.event_name == 'push' || inputs.android == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - name: Build Android app
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :app:shared:testAndroidHostTest
+
+      - name: Package
         run: ./gradlew :app:androidApp:assembleDebug
 
-  desktop:
-    name: Desktop build
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: cmp/app/androidApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  desktop-test:
+    name: Desktop test
+    needs: detekt
+    if: github.event_name == 'push' || inputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :app:shared:jvmTest :app:desktopApp:test
+
+  desktop-package:
+    name: Desktop package (${{ matrix.label }})
+    needs: desktop-test
+    if: github.event_name == 'push' || inputs.desktop == 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_task: packageDeb
-            gradle_wrapper: ./gradlew
+            label: linux
+            task: packageDeb
+            artifact: desktop-deb
+            path: cmp/app/desktopApp/build/compose/binaries/main/deb/**
           - os: macos-14
-            artifact_task: packageDmg
-            gradle_wrapper: ./gradlew
+            label: macos
+            task: packageDmg
+            artifact: desktop-dmg
+            path: cmp/app/desktopApp/build/compose/binaries/main/dmg/**
           - os: windows-latest
-            artifact_task: packageMsi
-            gradle_wrapper: ./gradlew.bat
+            label: windows
+            task: packageMsi
+            artifact: desktop-msi
+            path: cmp/app/desktopApp/build/compose/binaries/main/msi/**
     runs-on: ${{ matrix.os }}
-
     defaults:
       run:
+        shell: bash
         working-directory: cmp
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Package
+        run: ./gradlew :app:desktopApp:${{ matrix.task }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
         with:
-          distribution: zulu
-          java-version: 21
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Desktop app
-        run: ${{ matrix.gradle_wrapper }} :app:desktopApp:${{ matrix.artifact_task }}
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 7
 
   ios:
-    name: iOS build
+    name: iOS
+    needs: detekt
+    if: github.event_name == 'push' || inputs.ios == 'true'
     runs-on: macos-15
-
     defaults:
       run:
+        shell: bash
         working-directory: cmp
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: 21
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
@@ -104,7 +183,10 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Build iOS simulator app
+      - name: Test
+        run: ./gradlew :app:shared:iosSimulatorArm64Test
+
+      - name: Package
         run: |
           xcodebuild \
             -project app/iosApp/iosApp.xcodeproj \
@@ -112,5 +194,57 @@ jobs:
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/ios-derived" \
             CODE_SIGNING_ALLOWED=NO \
             build
+          APP_PATH="$RUNNER_TEMP/ios-derived/Build/Products/Debug-iphonesimulator/cmp.app"
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/iosApp-simulator.zip"
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-app
+          path: ${{ runner.temp }}/iosApp-simulator.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  server-package:
+    name: Server
+    needs: detekt
+    if: github.event_name == 'push' || inputs.server == 'true' || inputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :server:test
+
+      - name: Package
+        run: ./gradlew :server:buildFatJar
+
+      - name: Upload fat JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-all
+          path: cmp/server/build/libs/server-all.jar
+          if-no-files-found: error
+          retention-days: 7
+
+  server-deploy:
+    name: Server deploy (stub)
+    needs: server-package
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy stub
+        run: |
+          echo "Server deploy is not implemented yet."
+          true
