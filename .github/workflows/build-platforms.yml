@@ -257,9 +257,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: deploy
     env:
-      VPS_HOST: ${{ secrets.VPS_HOST }}
-      VPS_USER: ${{ secrets.VPS_USER }}
-      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
+      CMP_SERVER_USER: ${{ secrets.CMP_SERVER_USER }}
+      CMP_SERVER_SSH_KEY: ${{ secrets.CMP_SERVER_SSH_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
       TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL || vars.TELEGRAM_WEBHOOK_URL }}
@@ -285,14 +285,14 @@ jobs:
           set -euo pipefail
           KEY="$RUNNER_TEMP/vps_key"
           install -m 600 /dev/null "$KEY"
-          printf '%s\n' "$VPS_SSH_KEY" > "$KEY"
+          printf '%s\n' "$CMP_SERVER_SSH_KEY" > "$KEY"
           SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
           scp "${SSH_OPTS[@]}" \
             vps-upload/server-all.jar \
             vps-upload/Dockerfile.runtime \
             vps-upload/deploy-remote.sh \
-            "${VPS_USER}@${VPS_HOST}:/opt/speaking-coach/"
-          ssh "${SSH_OPTS[@]}" "${VPS_USER}@${VPS_HOST}" \
+            "${CMP_SERVER_USER}@${CMP_SERVER_HOST}:/opt/speaking-coach/"
+          ssh "${SSH_OPTS[@]}" "${CMP_SERVER_USER}@${CMP_SERVER_HOST}" \
             TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
             TELEGRAM_WEBHOOK_SECRET="$TELEGRAM_WEBHOOK_SECRET" \
             TELEGRAM_WEBHOOK_URL="$TELEGRAM_WEBHOOK_URL" \
