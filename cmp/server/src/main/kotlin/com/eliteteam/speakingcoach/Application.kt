@@ -4,7 +4,8 @@ import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.telegram.TELEGRAM_WEBHOOK_SECRET_HEADER
 import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
-import com.eliteteam.speakingcoach.telegram.includeSpeakingCoachWebhook
+import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
+import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
@@ -24,9 +25,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.serialization.json.Json
@@ -63,12 +61,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
             )
         }
     }
-    val telegramScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val webhookScope = newTelegramWebhookScope()
     val sessionClipQueue = SessionClipQueue(
         processor = HttpClipClient(config.aiServiceBaseUrl, aiHttp),
-        scope = telegramScope,
+        scope = webhookScope,
     )
-    val behaviourContext = buildTelegramWebhookBehaviour(token, sessionClipQueue)
+    val behaviourContext = buildTelegramWebhookBehaviour(token, sessionClipQueue, webhookScope)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
         File(config.tlsKeyPath),
@@ -96,7 +94,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 call.respondText("ok")
             }
             route("/telegram/webhook") {
-                includeSpeakingCoachWebhook(behaviourContext)
+                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }
         }
     }
@@ -112,7 +110,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         awaitCancellation()
     } finally {
         behaviourContext.cancel()
-        telegramScope.cancel()
+        webhookScope.cancel()
         aiHttp.close()
         server.stop()
     }
