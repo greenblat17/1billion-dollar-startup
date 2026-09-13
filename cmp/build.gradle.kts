@@ -17,8 +17,6 @@ plugins {
 val detektPluginId = libs.plugins.detekt.get().pluginId
 
 subprojects {
-    if (!file("src").isDirectory) return@subprojects
-
     pluginManager.apply(detektPluginId)
     extensions.configure<DetektExtension> {
         buildUponDefaultConfig.set(true)
