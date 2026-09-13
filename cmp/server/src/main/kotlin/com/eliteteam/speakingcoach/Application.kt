@@ -26,6 +26,7 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -140,6 +141,7 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
                 updates = updates,
                 scope = this@module,
             )
+            awaitCancellation()
         }
     } else {
         launch {
