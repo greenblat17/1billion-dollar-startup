@@ -31,8 +31,8 @@ docker build -f Dockerfile.runtime -t speaking-coach:local "$BUILD"
 rm -rf "$BUILD"
 docker rm -f speaking-coach >/dev/null 2>&1 || true
 docker run -d --name speaking-coach --restart unless-stopped \
+  --network host \
   --env-file "$APP/.env" \
-  -p 443:443 \
   -v "$APP/tls.crt:$APP/tls.crt:ro" \
   -v "$APP/tls.key:$APP/tls.key:ro" \
   speaking-coach:local
