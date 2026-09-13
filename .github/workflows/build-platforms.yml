@@ -251,10 +251,70 @@ jobs:
   server-deploy:
     name: Server deploy (stub)
     needs: server-package
-    if: github.event_name == 'workflow_dispatch' && inputs.deploy == 'true'
+    if: ${{ !cancelled() && needs.server-package.result == 'success' }}
     runs-on: ubuntu-latest
+    environment: deploy
     steps:
       - name: Deploy stub
-        run: |
-          echo "Server deploy is not implemented yet."
-          true
+        run: echo "2 + 2 = $((2 + 2))"
+
+  drop-old-artifacts:
+    name: Drop previous artifacts
+    needs:
+      - detekt
+      - android
+      - desktop-test
+      - desktop-package
+      - ios
+      - server-package
+    if: >-
+      ${{
+        github.event_name != 'workflow_dispatch' &&
+        !cancelled() &&
+        needs.detekt.result != 'failure' &&
+        needs.android.result != 'failure' &&
+        needs.desktop-test.result != 'failure' &&
+        needs.desktop-package.result != 'failure' &&
+        needs.ios.result != 'failure' &&
+        needs.server-package.result != 'failure'
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete artifacts from older runs on this branch
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const currentRunId = context.runId
+            const branch =
+              context.payload.pull_request?.head?.ref ??
+              context.ref.replace(/^refs\/heads\//, '')
+
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 },
+            )
+
+            const stale = artifacts.filter((artifact) => {
+              const run = artifact.workflow_run
+              return run && run.id !== currentRunId && run.head_branch === branch
+            })
+
+            if (stale.length === 0) {
+              core.info(`No previous artifacts to drop for ${branch}`)
+              return
+            }
+
+            for (const artifact of stale) {
+              core.info(
+                `Deleting ${artifact.name} from run ${artifact.workflow_run.id}`,
+              )
+              await github.rest.actions.deleteArtifact({
+                owner,
+                repo,
+                artifact_id: artifact.id,
+              })
+            }
