@@ -64,7 +64,7 @@ jobs:
           name: detekt-reports
           path: cmp/**/build/reports/detekt/**
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1
 
   android:
     name: Android
@@ -94,7 +94,7 @@ jobs:
           name: android-debug-apk
           path: cmp/app/androidApp/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   desktop-test:
     name: Desktop test
@@ -128,16 +128,19 @@ jobs:
             task: packageDeb
             artifact: desktop-deb
             path: cmp/app/desktopApp/build/compose/binaries/main/deb/**
+            cache-read-only: 'true'
           - os: macos-14
             label: macos
             task: packageDmg
             artifact: desktop-dmg
             path: cmp/app/desktopApp/build/compose/binaries/main/dmg/**
+            cache-read-only: 'false'
           - os: windows-latest
             label: windows
             task: packageMsi
             artifact: desktop-msi
             path: cmp/app/desktopApp/build/compose/binaries/main/msi/**
+            cache-read-only: 'false'
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -149,6 +152,8 @@ jobs:
 
       - name: Set up CMP
         uses: ./.github/actions/setup-cmp
+        with:
+          cache-read-only: ${{ matrix.cache-read-only }}
 
       - name: Package
         run: ./gradlew :app:desktopApp:${{ matrix.task }}
@@ -159,7 +164,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.path }}
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   ios:
     name: iOS
@@ -206,7 +211,7 @@ jobs:
           name: ios-simulator-app
           path: ${{ runner.temp }}/iosApp-simulator.zip
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   server-package:
     name: Server
@@ -236,7 +241,7 @@ jobs:
           name: server-all
           path: cmp/server/build/libs/server-all.jar
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 1
 
   server-deploy:
     name: Server deploy (stub)
