@@ -2,62 +2,43 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
+import com.eliteteam.speakingcoach.telegram.TELEGRAM_WEBHOOK_SECRET_HEADER
 import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
-import com.eliteteam.speakingcoach.telegram.installTelegramWebhookRoute
+import com.eliteteam.speakingcoach.telegram.includeSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
-import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationStarted
-import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
+import io.ktor.server.request.header
+import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
 
 private val tlsStorePassword = "ktor".toCharArray()
 
-fun main() {
+suspend fun main() {
     val config = AppConfig.fromEnv()
     if (config.usesWebhook) {
-        val keyStore = loadPemKeyStore(
-            File(config.tlsCertPath),
-            File(config.tlsKeyPath),
-            tlsStorePassword,
-        )
-        embeddedServer(
-            factory = Netty,
-            configure = {
-                sslConnector(
-                    keyStore = keyStore,
-                    keyAlias = TLS_KEY_ALIAS,
-                    keyStorePassword = { tlsStorePassword },
-                    privateKeyPassword = { tlsStorePassword },
-                ) {
-                    host = "0.0.0.0"
-                    port = config.serverPort
-                }
-            },
-        ) {
-            module(config)
-        }.start(wait = true)
+        startWebhookServer(config)
     } else {
         embeddedServer(Netty, port = config.serverPort, host = "0.0.0.0") {
             module(config)
@@ -65,8 +46,13 @@ fun main() {
     }
 }
 
-fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
+private suspend fun startWebhookServer(config: AppConfig) {
     val log = LoggerFactory.getLogger("Application")
+    val token = checkNotNull(config.telegramBotToken) {
+        "TELEGRAM_BOT_TOKEN is required when TELEGRAM_WEBHOOK_URL is set"
+    }
+    val webhookUrl = checkNotNull(config.telegramWebhookUrl)
+    val webhookSecret = checkNotNull(config.telegramWebhookSecret)
     val aiHttp = HttpClient(CIO) {
         expectSuccess = false
         install(ContentNegotiation) {
@@ -78,25 +64,61 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
         }
     }
     val telegramScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    var webhookBehaviour: BehaviourContext? = null
-    monitor.subscribe(ApplicationStopped) {
-        webhookBehaviour?.cancel()
-        telegramScope.cancel()
-        aiHttp.close()
-    }
-
     val sessionClipQueue = SessionClipQueue(
         processor = HttpClipClient(config.aiServiceBaseUrl, aiHttp),
         scope = telegramScope,
     )
-
-    val token = config.telegramBotToken
-    if (!token.isNullOrBlank()) {
-        webhookBehaviour = runBlocking {
-            buildTelegramWebhookBehaviour(token, sessionClipQueue)
+    val behaviourContext = buildTelegramWebhookBehaviour(token, sessionClipQueue)
+    val keyStore = loadPemKeyStore(
+        File(config.tlsCertPath),
+        File(config.tlsKeyPath),
+        tlsStorePassword,
+    )
+    val server = embeddedServer(
+        factory = Netty,
+        configure = {
+            sslConnector(
+                keyStore = keyStore,
+                keyAlias = TLS_KEY_ALIAS,
+                keyStorePassword = { tlsStorePassword },
+                privateKeyPassword = { tlsStorePassword },
+            ) {
+                host = "0.0.0.0"
+                port = config.serverPort
+            }
+        },
+    ) {
+        routing {
+            get("/") {
+                call.respondText(sayHello("Ktor"))
+            }
+            get("/health") {
+                call.respondText("ok")
+            }
+            route("/telegram/webhook") {
+                includeSpeakingCoachWebhook(behaviourContext)
+            }
         }
     }
+    server.start(wait = false)
+    log.info("Starting Telegram webhook at {}", webhookUrl)
+    registerTelegramWebhook(
+        bot = behaviourContext,
+        webhookUrl = webhookUrl,
+        webhookSecret = webhookSecret,
+        certificateFile = File(config.tlsCertPath),
+    )
+    try {
+        awaitCancellation()
+    } finally {
+        behaviourContext.cancel()
+        telegramScope.cancel()
+        aiHttp.close()
+        server.stop()
+    }
+}
 
+fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
     routing {
         get("/") {
             call.respondText(sayHello("Ktor"))
@@ -106,28 +128,14 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
         }
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
-            route("/telegram/webhook") {
-                installTelegramWebhookRoute(webhookSecret, webhookBehaviour)
+            post("/telegram/webhook") {
+                val provided = call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER)
+                if (provided != webhookSecret) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@post
+                }
+                call.respond(HttpStatusCode.ServiceUnavailable)
             }
-        }
-    }
-
-    if (token.isNullOrBlank()) {
-        log.warn("TELEGRAM_BOT_TOKEN is not set; Telegram bot will not start")
-        return
-    }
-    val url = checkNotNull(config.telegramWebhookUrl)
-    val secret = checkNotNull(config.telegramWebhookSecret)
-    val behaviour = checkNotNull(webhookBehaviour)
-    monitor.subscribe(ApplicationStarted) {
-        telegramScope.launch {
-            log.info("Starting Telegram webhook at {}", url)
-            registerTelegramWebhook(
-                bot = behaviour,
-                webhookUrl = url,
-                webhookSecret = secret,
-                certificateFile = File(config.tlsCertPath),
-            )
         }
     }
 }
