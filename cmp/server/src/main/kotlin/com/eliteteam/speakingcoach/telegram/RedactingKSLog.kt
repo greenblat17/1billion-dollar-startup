@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.telegram
 
 import dev.inmo.kslog.common.KSLog
 import dev.inmo.kslog.common.LogLevel
+import dev.inmo.tgbotapi.utils.isCausedByCancellation
 
 private val telegramBotTokenInUrl = Regex("/bot\\d+:[A-Za-z0-9_-]+")
 
@@ -15,6 +16,9 @@ internal class RedactingKSLog(
     private val token: String,
 ) : KSLog {
     override fun performLog(level: LogLevel, tag: String?, message: Any, throwable: Throwable?) {
+        if (throwable?.isCausedByCancellation() == true) {
+            return
+        }
         val text = buildString {
             append(redactTelegramBotToken(message.toString(), token))
             if (throwable != null) {

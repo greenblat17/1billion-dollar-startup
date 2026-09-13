@@ -1,0 +1,114 @@
+comments:
+  active: false
+
+complexity:
+  active: false
+
+coroutines:
+  active: false
+
+empty-blocks:
+  active: false
+
+exceptions:
+  active: false
+
+naming:
+  active: false
+
+performance:
+  active: false
+
+potential-bugs:
+  active: false
+
+style:
+  AbstractClassCanBeConcreteClass:
+    active: false
+  AbstractClassCanBeInterface:
+    active: false
+  DestructuringDeclarationWithTooManyEntries:
+    active: false
+  EqualsNullCall:
+    active: false
+  ExplicitItLambdaMultipleParameters:
+    active: false
+  ExplicitItLambdaParameter:
+    active: false
+  ForbiddenComment:
+    active: false
+  ForbiddenVoid:
+    active: false
+  FunctionOnlyReturningConstant:
+    active: false
+  LoopWithTooManyJumpStatements:
+    active: false
+  MagicNumber:
+    active: false
+  MaxLineLength:
+    active: false
+  MayBeConstant:
+    active: false
+  ModifierOrder:
+    active: false
+  NestedClassesVisibility:
+    active: false
+  NewLineAtEndOfFile:
+    active: false
+  ObjectLiteralToLambda:
+    active: false
+  OptionalAbstractKeyword:
+    active: false
+  ProtectedMemberInFinalClass:
+    active: false
+  RedundantHigherOrderMapUsage:
+    active: false
+  ReturnCount:
+    active: false
+  SafeCast:
+    active: false
+  SerialVersionUIDInSerializableClass:
+    active: false
+  ThrowsCount:
+    active: false
+  UnnecessaryApply:
+    active: false
+  UnnecessaryFilter:
+    active: false
+  UnnecessaryInheritance:
+    active: false
+  UnusedParameter:
+    active: false
+  UnusedPrivateClass:
+    active: false
+  UnusedPrivateFunction:
+    active: false
+  UnusedPrivateProperty:
+    active: false
+  UnusedVariable:
+    active: false
+  UseAnyOrNoneInsteadOfFind:
+    active: false
+  UseArrayLiteralsInAnnotations:
+    active: false
+  UseCheckNotNull:
+    active: false
+  UseCheckOrError:
+    active: false
+  UseIsNullOrEmpty:
+    active: false
+  UseOrEmpty:
+    active: false
+  UseRequire:
+    active: false
+  UseRequireNotNull:
+    active: false
+  UselessCallOnNotNull:
+    active: false
+  UtilityClassWithPublicConstructor:
+    active: false
+  VarCouldBeVal:
+    active: false
+  WildcardImport:
+    active: true
+    excludeImports: []

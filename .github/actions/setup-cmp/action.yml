@@ -1,0 +1,33 @@
+name: Setup CMP
+description: Zulu JDK 21 and Gradle for the cmp project
+
+inputs:
+  cache-read-only:
+    description: Restore the Gradle cache without writing a new entry
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: zulu
+        java-version: 21
+
+    - name: Cache Kotlin/Native
+      if: runner.os == 'macOS'
+      uses: actions/cache@v5
+      with:
+        path: ~/.konan
+        key: konan-${{ runner.os }}-${{ hashFiles('cmp/gradle/libs.versions.toml', 'cmp/gradle/wrapper/gradle-wrapper.properties') }}
+        restore-keys: |
+          konan-${{ runner.os }}-
+
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v5
+      with:
+        # Default action behavior is read-only off main; we write from test/detekt jobs
+        # so later jobs in this run can restore dependencies without downloading again.
+        cache-read-only: ${{ inputs.cache-read-only == 'true' }}

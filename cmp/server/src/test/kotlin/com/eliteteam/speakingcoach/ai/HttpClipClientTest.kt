@@ -20,7 +20,38 @@ import kotlin.time.Duration.Companion.milliseconds
 class HttpClipClientTest {
 
     @Test
-    fun submitsClipThenPollsUntilAudioIsReady() = runTest {
+    fun startsSessionThenDownloadsGreetingAudio() = runTest {
+        val engine = MockEngine { request ->
+            when {
+                request.method == HttpMethod.Post && request.url.encodedPath == "/v1/sessions" -> {
+                    respond(
+                        content = """{"sessionId":"s-1","greeting":{"text":"Hi!"}}""",
+                        status = HttpStatusCode.Created,
+                        headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                    )
+                }
+                request.method == HttpMethod.Get &&
+                    request.url.encodedPath == "/v1/sessions/s-1/greeting/audio" -> {
+                    respond(
+                        content = byteArrayOf(7, 8),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf(HttpHeaders.ContentType, "audio/ogg"),
+                    )
+                }
+                else -> error("Unexpected request ${request.method} ${request.url}")
+            }
+        }
+        val http = client(engine)
+        val greeting = HttpClipClient("http://ai.local", http).startSession()
+
+        assertEquals("s-1", greeting.sessionId.value)
+        assertEquals("Hi!", greeting.text)
+        assertEquals(byteArrayOf(7, 8).toList(), greeting.audio.bytes.toList())
+        http.close()
+    }
+
+    @Test
+    fun submitsClipThenPollsUntilNotesAndAudioAreReady() = runTest {
         var polls = 0
         val engine = MockEngine { request ->
             when {
@@ -33,9 +64,13 @@ class HttpClipClientTest {
                 }
                 request.method == HttpMethod.Get && request.url.encodedPath == "/v1/clips/job-1" -> {
                     polls += 1
-                    val status = if (polls < 2) "pending" else "ok"
+                    val body = if (polls < 2) {
+                        """{"jobId":"job-1","status":"pending"}"""
+                    } else {
+                        """{"jobId":"job-1","status":"ok","result":{"notes":["Better: went to"]}}"""
+                    }
                     respond(
-                        content = """{"jobId":"job-1","status":"$status"}""",
+                        content = body,
                         status = HttpStatusCode.OK,
                         headers = headersOf(HttpHeaders.ContentType, "application/json"),
                     )
@@ -50,9 +85,7 @@ class HttpClipClientTest {
                 else -> error("Unexpected request ${request.method} ${request.url}")
             }
         }
-        val http = HttpClient(engine) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-        }
+        val http = client(engine)
         val client = HttpClipClient(
             baseUrl = "http://ai.local",
             http = http,
@@ -65,8 +98,13 @@ class HttpClipClientTest {
             AudioClip(byteArrayOf(9), "audio/ogg", "voice.ogg"),
         )
 
-        assertEquals(byteArrayOf(1, 2, 3).toList(), reply.bytes.toList())
-        assertEquals("audio/ogg", reply.contentType)
+        assertEquals(listOf("Better: went to"), reply.notes)
+        assertEquals(byteArrayOf(1, 2, 3).toList(), reply.audio.bytes.toList())
+        assertEquals("audio/ogg", reply.audio.contentType)
         http.close()
+    }
+
+    private fun client(engine: MockEngine) = HttpClient(engine) {
+        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 }
