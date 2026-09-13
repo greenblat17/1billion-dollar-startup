@@ -108,7 +108,9 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
                         UpdateDeserializationStrategy,
                         call.receiveText(),
                     )
-                    webhookUpdates.asUpdateReceiver(update)
+                    this@module.launch {
+                        webhookUpdates.asUpdateReceiver(update)
+                    }
                     call.respond(HttpStatusCode.OK)
                 } catch (error: Throwable) {
                     log.error("Failed to handle Telegram webhook", error)
@@ -136,6 +138,7 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
                 certificateFile = File(config.tlsCertPath),
                 sessionClipQueue = sessionClipQueue,
                 updates = updates,
+                scope = this@module,
             )
         }
     } else {
