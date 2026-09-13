@@ -31,6 +31,11 @@ on:
       - 'cmp/**'
       - '.github/workflows/build-platforms.yml'
       - '.github/actions/setup-cmp/**'
+  pull_request:
+    paths:
+      - 'cmp/**'
+      - '.github/workflows/build-platforms.yml'
+      - '.github/actions/setup-cmp/**'
 
 permissions:
   contents: read
@@ -69,7 +74,7 @@ jobs:
   android:
     name: Android
     needs: detekt
-    if: github.event_name == 'push' || inputs.android == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.android == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -99,7 +104,7 @@ jobs:
   desktop-test:
     name: Desktop test
     needs: detekt
-    if: github.event_name == 'push' || inputs.desktop == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.desktop == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,7 +123,7 @@ jobs:
   desktop-package:
     name: Desktop package (${{ matrix.label }})
     needs: desktop-test
-    if: github.event_name == 'push' || inputs.desktop == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.desktop == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -169,7 +174,7 @@ jobs:
   ios:
     name: iOS
     needs: detekt
-    if: github.event_name == 'push' || inputs.ios == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.ios == 'true'
     runs-on: macos-15
     defaults:
       run:
@@ -216,7 +221,7 @@ jobs:
   server-package:
     name: Server
     needs: detekt
-    if: github.event_name == 'push' || inputs.server == 'true' || inputs.deploy == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true' || inputs.deploy == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
