@@ -2,14 +2,36 @@ package com.eliteteam.speakingcoach
 
 data class AppConfig(
     val telegramBotToken: String?,
+    val telegramWebhookUrl: String?,
+    val telegramWebhookSecret: String?,
     val aiServiceBaseUrl: String,
     val serverPort: Int,
+    val tlsCertPath: String,
+    val tlsKeyPath: String,
 ) {
+    val usesWebhook: Boolean
+        get() = !telegramWebhookUrl.isNullOrBlank()
+
+    init {
+        if (usesWebhook) {
+            require(!telegramWebhookSecret.isNullOrBlank()) {
+                "TELEGRAM_WEBHOOK_SECRET is required when TELEGRAM_WEBHOOK_URL is set"
+            }
+        }
+    }
+
     companion object {
+        const val DEFAULT_TLS_CERT_PATH = "/opt/speaking-coach/tls.crt"
+        const val DEFAULT_TLS_KEY_PATH = "/opt/speaking-coach/tls.key"
+
         fun fromEnv(): AppConfig = AppConfig(
             telegramBotToken = env("TELEGRAM_BOT_TOKEN")?.takeIf { it.isNotBlank() },
+            telegramWebhookUrl = env("TELEGRAM_WEBHOOK_URL")?.takeIf { it.isNotBlank() },
+            telegramWebhookSecret = env("TELEGRAM_WEBHOOK_SECRET")?.takeIf { it.isNotBlank() },
             aiServiceBaseUrl = env("AI_SERVICE_BASE_URL") ?: "http://127.0.0.1:8090",
             serverPort = env("SERVER_PORT")?.toIntOrNull() ?: 8080,
+            tlsCertPath = env("TLS_CERT_PATH")?.takeIf { it.isNotBlank() } ?: DEFAULT_TLS_CERT_PATH,
+            tlsKeyPath = env("TLS_KEY_PATH")?.takeIf { it.isNotBlank() } ?: DEFAULT_TLS_KEY_PATH,
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

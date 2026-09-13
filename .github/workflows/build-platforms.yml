@@ -20,7 +20,7 @@ on:
         type: boolean
         default: true
       deploy:
-        description: Stub server deploy after fat JAR
+        description: Deploy fat JAR to VPS after Approve
         type: boolean
         default: false
   push:
@@ -29,11 +29,13 @@ on:
       - master
     paths:
       - 'cmp/**'
+      - 'infra/server/**'
       - '.github/workflows/build-platforms.yml'
       - '.github/actions/setup-cmp/**'
   pull_request:
     paths:
       - 'cmp/**'
+      - 'infra/server/**'
       - '.github/workflows/build-platforms.yml'
       - '.github/actions/setup-cmp/**'
 
@@ -249,14 +251,54 @@ jobs:
           retention-days: 1
 
   server-deploy:
-    name: Server deploy (stub)
+    name: Server deploy
     needs: server-package
     if: ${{ !cancelled() && needs.server-package.result == 'success' }}
     runs-on: ubuntu-latest
     environment: deploy
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+      TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL || vars.TELEGRAM_WEBHOOK_URL }}
+      AI_SERVICE_BASE_URL: ${{ secrets.AI_SERVICE_BASE_URL || vars.AI_SERVICE_BASE_URL }}
     steps:
-      - name: Deploy stub
-        run: echo "2 + 2 = $((2 + 2))"
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download fat JAR
+        uses: actions/download-artifact@v6
+        with:
+          name: server-all
+          path: vps-upload
+
+      - name: Stage runtime files
+        run: |
+          cp infra/server/Dockerfile.runtime vps-upload/Dockerfile.runtime
+          cp infra/server/deploy-remote.sh vps-upload/deploy-remote.sh
+          chmod +x vps-upload/deploy-remote.sh
+
+      - name: Copy files and restart container
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$VPS_SSH_KEY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          scp "${SSH_OPTS[@]}" \
+            vps-upload/server-all.jar \
+            vps-upload/Dockerfile.runtime \
+            vps-upload/deploy-remote.sh \
+            "${VPS_USER}@${VPS_HOST}:/opt/speaking-coach/"
+          ssh "${SSH_OPTS[@]}" "${VPS_USER}@${VPS_HOST}" \
+            TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN" \
+            TELEGRAM_WEBHOOK_SECRET="$TELEGRAM_WEBHOOK_SECRET" \
+            TELEGRAM_WEBHOOK_URL="$TELEGRAM_WEBHOOK_URL" \
+            AI_SERVICE_BASE_URL="$AI_SERVICE_BASE_URL" \
+            bash /opt/speaking-coach/deploy-remote.sh
+
 
   drop-old-artifacts:
     name: Drop previous artifacts
