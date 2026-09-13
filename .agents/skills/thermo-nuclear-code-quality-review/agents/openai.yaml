@@ -1,0 +1,7 @@
+interface:
+  display_name: "Thermo-Nuclear Code Quality Review"
+  short_description: "Run an exceptionally strict maintainability review"
+  default_prompt: "Use $thermo-nuclear-code-quality-review to audit the current branch changes."
+
+policy:
+  allow_implicit_invocation: false
