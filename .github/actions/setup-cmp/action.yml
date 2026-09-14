@@ -31,3 +31,24 @@ runs:
         # Default action behavior is read-only off main; we write from test/detekt jobs
         # so later jobs in this run can restore dependencies without downloading again.
         cache-read-only: ${{ inputs.cache-read-only == 'true' }}
+
+    - name: Use faster Gradle settings on CI
+      shell: bash
+      run: |
+        gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        mkdir -p "$gradle_home"
+        if [ "${RUNNER_OS}" = "macOS" ]; then
+          workers=3
+          gradle_xmx=4g
+          kotlin_xmx=2g
+        else
+          workers=4
+          gradle_xmx=6g
+          kotlin_xmx=3g
+        fi
+        cat >> "$gradle_home/gradle.properties" <<EOF
+        org.gradle.parallel=true
+        org.gradle.workers.max=${workers}
+        org.gradle.jvmargs=-Xmx${gradle_xmx} -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+        kotlin.daemon.jvmargs=-Xmx${kotlin_xmx}
+        EOF
