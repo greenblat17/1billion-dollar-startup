@@ -35,6 +35,10 @@ class ClipPipeline:
         self._tts = tts
         self._dialogue = dialogue
 
+    @property
+    def tts(self) -> TextToSpeech:
+        return self._tts
+
     async def run(
         self,
         session_id: str,

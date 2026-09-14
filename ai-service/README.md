@@ -4,7 +4,11 @@ Python FastAPI service that turns a Telegram voice clip into a spoken English re
 
 `STT (Groq) → LLM (OpenAI, dialogue by sessionId) → TTS (OpenAI)`
 
-Clip contract matches the stub: `POST /v1/clips` (202) → poll `GET /v1/clips/{jobId}` → `GET /v1/clips/{jobId}/audio`.
+Clip contract matches the stub:
+
+- `POST /v1/sessions` → 201 `{ sessionId, greeting.text }`
+- `GET /v1/sessions/{sessionId}/greeting/audio`
+- `POST /v1/clips` (202) → poll `GET /v1/clips/{jobId}` → `GET /v1/clips/{jobId}/audio`
 
 ## Local run
 

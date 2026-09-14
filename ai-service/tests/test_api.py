@@ -5,6 +5,14 @@ from fastapi.testclient import TestClient
 from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
 
 
+def _start_session(client: TestClient) -> str:
+    response = client.post("/v1/sessions")
+    assert response.status_code == 201
+    body = response.json()
+    assert "greeting" in body and "text" in body["greeting"]
+    return body["sessionId"]
+
+
 def _wait_status(client: TestClient, job_id: str) -> dict:
     for _ in range(50):
         response = client.get(f"/v1/clips/{job_id}")
@@ -30,12 +38,35 @@ def test_unknown_job_is_404() -> None:
         assert client.get("/v1/clips/missing/audio").status_code == 404
 
 
-def test_clip_contract_returns_audio() -> None:
-    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]))
+def test_unknown_session_clip_is_404() -> None:
+    app, _, _, _ = build_app()
     with TestClient(app) as client:
         created = client.post(
             "/v1/clips",
-            data={"sessionId": "tg-1"},
+            data={"sessionId": "missing"},
+            files={"audio": ("voice.ogg", b"fake-ogg", "audio/ogg")},
+        )
+        assert created.status_code == 404
+
+
+def test_session_greeting_audio() -> None:
+    tts = FakeTts()
+    app, _, _, tts = build_app(tts=tts)
+    with TestClient(app) as client:
+        session_id = _start_session(client)
+        audio = client.get(f"/v1/sessions/{session_id}/greeting/audio")
+        assert audio.status_code == 200
+        assert audio.content.startswith(b"OggS")
+        assert client.get("/v1/sessions/missing/greeting/audio").status_code == 404
+
+
+def test_clip_contract_returns_audio() -> None:
+    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]))
+    with TestClient(app) as client:
+        session_id = _start_session(client)
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id},
             files={"audio": ("voice.ogg", b"fake-ogg", "audio/ogg")},
         )
         assert created.status_code == 202
@@ -45,6 +76,7 @@ def test_clip_contract_returns_audio() -> None:
         assert body["jobId"] == job_id
         assert body["transcript"] == "I went to the shop"
         assert body["replyText"] == "Got it: I went to the shop"
+        assert body["result"]["notes"] == []
         assert "timingsMs" in body
         audio = client.get(f"/v1/clips/{job_id}/audio")
         assert audio.status_code == 200
@@ -58,9 +90,10 @@ def test_empty_transcript_clarifies_without_llm() -> None:
     tts = FakeTts()
     app, _, llm, tts = build_app(stt=FakeStt([""]), llm=llm, tts=tts)
     with TestClient(app) as client:
+        session_id = _start_session(client)
         created = client.post(
             "/v1/clips",
-            data={"sessionId": "tg-1"},
+            data={"sessionId": session_id},
             files={"audio": ("voice.ogg", b"silence", "audio/ogg")},
         )
         job_id = created.json()["jobId"]
@@ -75,9 +108,10 @@ def test_second_clip_includes_dialogue_history() -> None:
     llm = FakeLlm()
     app, _, llm, _ = build_app(stt=FakeStt(["my name is Alex", "what is my name"]))
     with TestClient(app) as client:
+        session_id = _start_session(client)
         first = client.post(
             "/v1/clips",
-            data={"sessionId": "tg-7"},
+            data={"sessionId": session_id},
             files={"audio": ("voice.ogg", b"one", "audio/ogg")},
         )
         first_id = first.json()["jobId"]
@@ -85,7 +119,7 @@ def test_second_clip_includes_dialogue_history() -> None:
 
         second = client.post(
             "/v1/clips",
-            data={"sessionId": "tg-7"},
+            data={"sessionId": session_id},
             files={"audio": ("voice.ogg", b"two", "audio/ogg")},
         )
         second_id = second.json()["jobId"]

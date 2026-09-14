@@ -12,6 +12,7 @@ from app.dialogue import DialogueStore
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
 from app.pipeline import ClipPipeline
+from app.sessions import GREETING_TEXT, SessionRegistry
 from app.stt import GroqSpeechToText
 from app.tts import OpenAiTextToSpeech
 
@@ -28,6 +29,9 @@ def create_app(
     logging.basicConfig(level=settings.log_level)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
+    sessions = SessionRegistry()
+    greeting_audio: bytes | None = None
+    greeting_lock = asyncio.Lock()
     tasks: set[asyncio.Task[None]] = set()
 
     app = FastAPI()
@@ -39,11 +43,28 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.post("/v1/sessions", status_code=201)
+    def create_session() -> dict:
+        session_id = sessions.create()
+        return {"sessionId": session_id, "greeting": {"text": GREETING_TEXT}}
+
+    @app.get("/v1/sessions/{session_id}/greeting/audio")
+    async def greeting_audio_route(session_id: str) -> Response:
+        if not sessions.exists(session_id):
+            raise HTTPException(status_code=404, detail="unknown session")
+        nonlocal greeting_audio
+        async with greeting_lock:
+            if greeting_audio is None:
+                greeting_audio = await clip_pipeline.tts.synthesize(GREETING_TEXT)
+            return Response(content=greeting_audio, media_type=CONTENT_TYPE_OGG)
+
     @app.post("/v1/clips", status_code=202)
     async def create_clip(
         sessionId: str = Form(),
         audio: UploadFile = File(),
     ) -> dict[str, str]:
+        if not sessions.exists(sessionId):
+            raise HTTPException(status_code=404, detail="unknown session")
         payload = await audio.read()
         if not payload:
             raise HTTPException(status_code=400, detail="empty audio")
