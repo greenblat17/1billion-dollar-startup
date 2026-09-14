@@ -7,8 +7,8 @@ APP=/opt/ai-service
 
 OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}"
 LLM_MODEL="${LLM_MODEL:-openai/gpt-4o-mini}"
-TTS_MODEL="${TTS_MODEL:-openai/gpt-4o-mini-tts-2025-12-15}"
-TTS_VOICE="${TTS_VOICE:-coral}"
+TTS_MODEL="${TTS_MODEL:-hexgrad/kokoro-82m}"
+TTS_VOICE="${TTS_VOICE:-af_heart}"
 TTS_RESPONSE_FORMAT="${TTS_RESPONSE_FORMAT:-mp3}"
 
 umask 077

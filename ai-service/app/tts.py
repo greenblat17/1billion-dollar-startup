@@ -33,14 +33,17 @@ class OpenAiTextToSpeech:
         self._ffmpeg_bin = ffmpeg_bin
 
     async def synthesize(self, text: str) -> bytes:
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "voice": self._voice,
+            "input": text,
+            "response_format": self._response_format,
+        }
+        if self._model.startswith("openai/"):
+            kwargs["instructions"] = TTS_INSTRUCTIONS
+
         async def call() -> Any:
-            return await self._client.audio.speech.create(
-                model=self._model,
-                voice=self._voice,
-                input=text,
-                response_format=self._response_format,
-                instructions=TTS_INSTRUCTIONS,
-            )
+            return await self._client.audio.speech.create(**kwargs)
 
         response = await once_on_retryable(call)
         payload = await _audio_bytes(response)
