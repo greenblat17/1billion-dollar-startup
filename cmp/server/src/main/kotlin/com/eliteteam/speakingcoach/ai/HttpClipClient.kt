@@ -2,12 +2,15 @@ package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
+import com.eliteteam.speakingcoach.speaking.ClipReply
+import com.eliteteam.speakingcoach.speaking.SessionGreeting
 import com.eliteteam.speakingcoach.speaking.SessionId
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.http.Headers
 import io.ktor.http.HttpHeaders
@@ -27,13 +30,35 @@ class HttpClipClient(
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
 
-    override suspend fun process(sessionId: SessionId, clip: AudioClip): AudioClip {
+    suspend fun startSession(): SessionGreeting {
+        val response = http.post("$root/v1/sessions")
+        if (response.status != HttpStatusCode.Created && !response.status.isSuccess()) {
+            error("ai-service POST /v1/sessions returned ${response.status}")
+        }
+        val created = response.body<SessionCreatedResponse>()
+        val audio = http.get("$root/v1/sessions/${created.sessionId}/greeting/audio")
+        if (!audio.status.isSuccess()) {
+            error("ai-service GET greeting audio returned ${audio.status}")
+        }
+        val contentType = audio.headers[HttpHeaders.ContentType] ?: "audio/ogg"
+        return SessionGreeting(
+            sessionId = SessionId(created.sessionId),
+            text = created.greeting.text,
+            audio = AudioClip(
+                bytes = audio.bodyAsBytes(),
+                contentType = contentType.substringBefore(';'),
+                fileName = "greeting.ogg",
+            ),
+        )
+    }
+
+    override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
         val jobId = submit(sessionId, clip)
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
-                ClipJobStatus.Ok -> return downloadAudio(jobId)
+                is ClipJobStatus.Ok -> return ClipReply(status.notes, downloadAudio(jobId))
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
         }
@@ -72,7 +97,7 @@ class HttpClipClient(
         val body = response.body<ClipStatusResponse>()
         return when (body.status) {
             "pending" -> ClipJobStatus.Pending
-            "ok" -> ClipJobStatus.Ok
+            "ok" -> ClipJobStatus.Ok(body.result?.notes.orEmpty())
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
         }
@@ -94,6 +119,6 @@ class HttpClipClient(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data object Ok : ClipJobStatus
+    data class Ok(val notes: List<String>) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }
