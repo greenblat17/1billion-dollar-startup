@@ -2,7 +2,7 @@
 
 Python FastAPI service that turns a Telegram voice clip into a spoken English reply:
 
-`STT (Groq) → LLM (OpenAI, dialogue by sessionId) → TTS (OpenAI)`
+`STT (Groq) → LLM (OpenRouter / OpenAI models) → TTS (OpenRouter)`
 
 Clip contract matches the stub:
 
@@ -19,6 +19,7 @@ source .venv/bin/activate
 pip install -r requirements-dev.txt
 export GROQ_API_KEY=...
 export OPENAI_API_KEY=...
+# OpenRouter, default in the app: OPENAI_BASE_URL=https://openrouter.ai/api/v1
 uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8090
 ```
 

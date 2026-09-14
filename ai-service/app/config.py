@@ -49,13 +49,14 @@ class Settings:
         return Settings(
             groq_api_key=_env("GROQ_API_KEY"),
             openai_api_key=_env("OPENAI_API_KEY"),
-            openai_base_url=_env("OPENAI_BASE_URL", "https://api.openai.com/v1") or "https://api.openai.com/v1",
+            openai_base_url=_env("OPENAI_BASE_URL", "https://openrouter.ai/api/v1") or "https://openrouter.ai/api/v1",
             groq_base_url=_env("GROQ_BASE_URL", "https://api.groq.com/openai/v1") or "https://api.groq.com/openai/v1",
             stt_model=_env("STT_MODEL", "whisper-large-v3") or "whisper-large-v3",
-            llm_model=_env("LLM_MODEL", "gpt-5.6-luna") or "gpt-5.6-luna",
-            tts_model=_env("TTS_MODEL", "gpt-4o-mini-tts") or "gpt-4o-mini-tts",
+            llm_model=_env("LLM_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
+            tts_model=_env("TTS_MODEL", "openai/gpt-4o-mini-tts-2025-12-15")
+            or "openai/gpt-4o-mini-tts-2025-12-15",
             tts_voice=_env("TTS_VOICE", "coral") or "coral",
-            tts_response_format=_env("TTS_RESPONSE_FORMAT", "opus") or "opus",
+            tts_response_format=_env("TTS_RESPONSE_FORMAT", "mp3") or "mp3",
             ffmpeg_bin=_env("FFMPEG_BIN", "ffmpeg") or "ffmpeg",
             dialogue_ttl_seconds=_int_env("DIALOGUE_TTL_SECONDS", 86400),
             dialogue_max_messages=_int_env("DIALOGUE_MAX_MESSAGES", 40),

@@ -101,7 +101,17 @@ def _build_pipeline(settings: Settings) -> ClipPipeline:
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required")
     groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
-    openai_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    openai_headers = {}
+    if "openrouter.ai" in settings.openai_base_url:
+        openai_headers = {
+            "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
+            "X-Title": "Speaking Coach",
+        }
+    openai_client = AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        default_headers=openai_headers or None,
+    )
     return ClipPipeline(
         stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
         llm=OpenAiChatModel(openai_client, settings.llm_model),

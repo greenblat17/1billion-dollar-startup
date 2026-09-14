@@ -19,6 +19,7 @@ Telegram-бот работает только через webhook (TLS + `TELEGRA
 AI_SERVICE_BASE_URL=http://ai-service:8090
 GROQ_API_KEY=...
 OPENAI_API_KEY=...
+# OpenRouter key in OPENAI_API_KEY
 docker compose --profile llm up --build
 ```
 
