@@ -20,6 +20,7 @@ class PipelineResult:
     transcript: str
     reply_text: str
     timings_ms: dict[str, int]
+    notes: list[str]
 
 
 class ClipPipeline:
@@ -67,13 +68,22 @@ class ClipPipeline:
                 transcript=stt_result.text,
                 reply_text=CLARIFY_TEXT,
                 timings_ms=timings,
+                notes=[],
             )
 
         llm_started = time.perf_counter()
+        notes: list[str] = []
+
+        async def generate(history, user_text: str) -> str:
+            turn = await self._llm.complete(history, user_text)
+            notes.clear()
+            notes.extend(turn.notes)
+            return turn.reply_text
+
         reply_text = await self._dialogue.complete_turn(
             session_id,
             stt_result.text,
-            self._llm.complete,
+            generate,
         )
         llm_ms = _elapsed_ms(llm_started)
 
@@ -91,6 +101,7 @@ class ClipPipeline:
             transcript=stt_result.text,
             reply_text=reply_text,
             timings_ms=timings,
+            notes=list(notes),
         )
 
 

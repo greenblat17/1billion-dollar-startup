@@ -15,6 +15,7 @@ class ClipJob:
     reply_content_type: str = "audio/ogg"
     transcript: str | None = None
     reply_text: str | None = None
+    notes: list[str] = field(default_factory=list)
     timings_ms: dict[str, int] | None = None
     error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.monotonic)
@@ -27,7 +28,7 @@ class ClipJob:
         if self.error is not None:
             payload["error"] = self.error
         if self.status == "ok":
-            payload["result"] = {"notes": []}
+            payload["result"] = {"notes": list(self.notes)}
         if self.transcript is not None:
             payload["transcript"] = self.transcript
         if self.reply_text is not None:

@@ -100,6 +100,7 @@ def test_empty_transcript_clarifies_without_llm() -> None:
         body = _wait_status(client, job_id)
         assert body["status"] == "ok"
         assert body["replyText"] == "I didn't catch that. Could you say it again?"
+        assert body["result"]["notes"] == []
         assert llm.calls == []
         assert tts.texts == ["I didn't catch that. Could you say it again?"]
 
@@ -129,3 +130,26 @@ def test_second_clip_includes_dialogue_history() -> None:
     second_history, second_user = llm.calls[1]
     assert second_user == "what is my name"
     assert second_history == ["my name is Alex", "Got it: my name is Alex"]
+
+
+def test_clip_includes_coaching_notes() -> None:
+    notes = [
+        "You said: I was in Turkey last summer with my friends.",
+        "Better: I went to Turkey last summer with my friends.",
+        "We usually say 'went to' here.",
+    ]
+    llm = FakeLlm(notes=notes)
+    app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
+    with TestClient(app) as client:
+        session_id = _start_session(client)
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id},
+            files={"audio": ("voice.ogg", b"voice", "audio/ogg")},
+        )
+        body = _wait_status(client, created.json()["jobId"])
+        assert body["status"] == "ok"
+        assert body["result"]["notes"] == notes
+        assert body["replyText"] == "Got it: I was in Turkey last summer"
+        assert tts.texts == ["Got it: I was in Turkey last summer"]
+

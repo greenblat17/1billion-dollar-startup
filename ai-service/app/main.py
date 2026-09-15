@@ -141,6 +141,7 @@ async def _run_job(
         )
         job.transcript = result.transcript
         job.reply_text = result.reply_text
+        job.notes = list(result.notes)
         job.timings_ms = result.timings_ms
         job.reply_audio = result.audio
         job.reply_content_type = CONTENT_TYPE_OGG
