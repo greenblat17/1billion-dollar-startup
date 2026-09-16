@@ -19,6 +19,8 @@ logback = "1.6.3"
 material3 = "1.12.0-alpha03"
 tgbotapi = "36.1.0"
 kotlinx-serialization = "1.11.0"
+stabilityAnalyzer = "0.14.0"
+hotReload = "1.2.0"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -54,6 +56,8 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
 tgbotapi = { module = "dev.inmo:tgbotapi", version.ref = "tgbotapi" }
+hot-reload-core = { module = "org.jetbrains.compose.hot-reload:hot-reload-core", version.ref = "hotReload" }
+compose-stability-runtime = { module = "com.github.skydoves:compose-stability-runtime", version.ref = "stabilityAnalyzer" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
@@ -65,3 +69,4 @@ kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref =
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ktor = { id = "io.ktor.plugin", version.ref = "ktor" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }
+stabilityAnalyzer = { id = "com.github.skydoves.compose.stability.analyzer", version.ref = "stabilityAnalyzer" }
