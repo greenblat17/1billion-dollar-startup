@@ -1,10 +1,10 @@
 ---
 name: compose-stability-analyzer
 description: >
-  Instrument Compose Multiplatform UI with compose-stability-analyzer so
-  @TraceRecomposition logs parameter and state changes. Use with desktop Hot Reload
-  MCP get_logs to see why a composable recomposed. Use when debugging extra
-  recompositions, skippable/unstable params, or adding the analyzer plugin.
+  Instrument Compose Multiplatform UI with compose-stability-analyzer
+  (@TraceRecomposition, plugin 0.14.0, desktop ChrRecompositionLogger). Use when
+  adding the analyzer, annotating a screen, or traces are missing from Hot Reload
+  MCP get_logs. For the click → get_logs verify loop, also read compose-hot-reload.
   Skip without Compose UI. Do not install the IntelliJ gutter plugin as a substitute.
   Do not enable trace-all by default.
 ---
@@ -48,7 +48,9 @@ fun Screen(state: UiState) { /* ... */ }
 - `threshold` — skip the first N compositions (default 1). Use 2–3 to hide initial setup.
 - `traceStates = true` — log `mutableStateOf` / `derivedStateOf` (`[state]`), not only params. JVM/Android also append `← method (File.kt:line)` on state writes.
 
-Annotate the screens you are debugging. Do not sprinkle every child. `@IgnoreStabilityReport` is for previews/debug-only composables you do not want in `stabilityDump`.
+Annotate the screens you are debugging, not every child. The annotation only logs when **that** function re-executes. State must be read in the annotated body (not only inside `MaterialTheme { }` / another child lambda), or the parent skips and `get_logs` stays silent.
+
+`@IgnoreStabilityReport` is for previews/debug-only composables you do not want in `stabilityDump`.
 
 ## Desktop MCP bridge
 
@@ -56,7 +58,7 @@ Default JVM logger is `println` and does **not** reach Hot Reload MCP `get_logs`
 
 Do not append to `main.chr.log` with a second file writer.
 
-## Read logs (agent loop)
+## Read logs
 
 Line shape:
 
@@ -67,16 +69,11 @@ Line shape:
   └─ State changes: [showContent]
 ```
 
-`changed` = this is why it recomposed. `unstable` = skip is unlikely. `stable` = not the cause.
+`changed` = why it ran. `unstable` = skip is unlikely. `stable` = not the cause.
 
-With Hot Reload MCP (`compose-hot-reload`):
+MCP interaction loop (click → `get_logs` → decide if the tree was quiet): skill `compose-hot-reload`.
 
-1. `status` / screenshot / semantic tree.
-2. Interact (`click` / `type_text`).
-3. `get_logs` (raise `limit` if needed) and grep `[Recomposition`.
-4. If those lines are missing, they may still be on `hotRun` stdout.
-
-Compiler-plugin edits (new annotation, plugin apply) need a **process restart** of `hotRun`, not only `await_reload`.
+If `[Recomposition` is missing from `get_logs` after a real UI change: not `hotRun` (fallback `println` / stdout), `setEnabled(false)`, annotation on a skipped parent, or plugin/annotation added without **restarting** `hotRun`.
 
 ## Stability files (optional)
 
