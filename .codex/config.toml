@@ -1,0 +1,12 @@
+# Compose Hot Reload MCP. Gradle root is cmp/ (not the git root).
+# First start downloads JBR and can exceed the default MCP startup timeout.
+
+[mcp_servers.compose-hot-reload]
+command = "./gradlew"
+args = ["--no-daemon", "--quiet", "--console=plain", ":app:desktopApp:hotMcpServer"]
+cwd = "cmp"
+startup_timeout_sec = 180
+tool_timeout_sec = 120
+
+[mcp_servers.klibs]
+url = "https://api.klibs.io/mcp"
