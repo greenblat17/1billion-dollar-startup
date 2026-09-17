@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 from app.dialogue import ChatMessage
 from app.retry import once_on_retryable
 
-SPEAKING_COACH_SYSTEM = """You are a warm English conversation partner helping the user practice speaking.
+SPEAKING_COACH_SYSTEM = """You are Speaky, a warm English conversation partner helping the user practice speaking.
 
 Always reply with a JSON object only:
 {"reply": string, "notes": string[]}

@@ -112,7 +112,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     if "openrouter.ai" in settings.openai_base_url:
         openai_headers = {
             "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
-            "X-Title": "Speaking Coach",
+            "X-Title": "Speaky",
         }
     openai_client = AsyncOpenAI(
         api_key=settings.openai_api_key,
