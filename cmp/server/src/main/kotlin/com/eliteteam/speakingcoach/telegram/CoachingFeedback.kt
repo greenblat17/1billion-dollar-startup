@@ -39,16 +39,24 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
         blockquote {
             var index = 0
             for (span in spans) {
-                if (span.start > index) {
-                    regular(text.substring(index, span.start))
+                val before = text.substring(index, span.start).trim()
+                if (before.isNotEmpty()) {
+                    regular(before)
+                    regular("\n\n")
                 }
                 strikethrough(span.wrong)
                 regular(" ")
                 bold(span.better)
                 index = span.end
+                if (text.substring(index).isNotBlank()) {
+                    regular("\n\n")
+                }
             }
             if (index < text.length) {
-                regular(text.substring(index))
+                val tail = text.substring(index).trim()
+                if (tail.isNotEmpty()) {
+                    regular(tail)
+                }
             }
         }
     }
