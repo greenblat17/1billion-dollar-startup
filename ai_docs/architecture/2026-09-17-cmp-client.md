@@ -1,7 +1,7 @@
 # Устройство CMP-клиента
 
 **Дата:** 2026-09-17  
-**Статус:** снимок раскладки; UI ещё шаблон `App()`, speaking-сессии в приложении нет  
+**Статус:** UI-оболочка в `:app:shared` (тема, Nav3, табы, мок-экраны). HTTP-клиент к `:server` ещё не вызван — `SpeakingCoachClient` с `TODO()`  
 **Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
@@ -37,7 +37,9 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
             :core                    Kotlin без Compose
 ```
 
-`:server` — соседний модуль в `cmp/`, не зависимость shared. Когда появится экран, shared ходит в сервер по HTTP, не вшивает ktgbotapi.
+`:server` — соседний модуль в `cmp/`, не зависимость shared. Shared ходит в сервер по HTTP (ещё не подключено), не вшивает ktgbotapi.
+
+Навигация: Welcome → Main (табы Home / History / Profile) → Call → Review `0…4`. Данные экранов — `MockSpeakingData`. Контракт: `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient`.
 
 ## Модули клиента
 
@@ -57,7 +59,7 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 Он не протекает в androidApp / desktopApp / iosApp: хост вызывает уже собранный `App()`. Desktop `SandboxHost` сам пишет Material3 — у `:app:desktopApp` свой `implementation(libs.compose.material3)`. `compose.desktop.currentOs` — окно JVM, не M3. Не делать `api` Compose из shared «на все приложения».
 
-Ресурсы: `cmp/app/shared/src/commonMain/composeResources/` (сейчас `drawable/`). Строки и шрифты — туда же (`values/`, `font/`), не `androidApp/res`. На android-таргете shared: `androidResources { enable = true }`.
+Ресурсы: `cmp/app/shared/src/commonMain/composeResources/` (`drawable/`, `values/strings.xml`). Шрифты — туда же (`font/`), не `androidApp/res`. На android-таргете shared: `androidResources { enable = true }`.
 
 ## Как смотрим UI до недели 2
 
@@ -70,4 +72,4 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 ## Чего в CMP-коде ещё нет
 
-Экрана разговора, записи/плеера, клиента к `:server`, Nav3, Koin, `AppTheme`, каталога строк. Целевой стиль, когда появятся экраны: MVVM + UDF, Navigation 3 (Maven `org.jetbrains.androidx.navigation3`, импорты `androidx.navigation3.*`), Koin — скилл `cmp-mvvm`. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.
+Записи/плеера, живого таймера звонка, HTTP к `:server` (методы клиента — `TODO()`). Микрофон / VAD — `expect`/`actual`, сейчас только `getPlatform()`. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.

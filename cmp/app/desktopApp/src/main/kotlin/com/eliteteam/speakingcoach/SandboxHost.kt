@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.eliteteam.speakingcoach.ui.theme.AppTheme
 
 /**
  * Isolated host for one shared widget plus mocks. Same `:app:desktopApp` / MCP —
@@ -31,12 +30,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SandboxHost() {
     var dark by remember { mutableStateOf(false) }
-    val colorScheme = if (dark) darkColorScheme() else lightColorScheme()
-    MaterialTheme(colorScheme = colorScheme) {
+    AppTheme(darkTheme = dark) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colorScheme.background)
+                .background(MaterialTheme.colorScheme.background)
                 .safeContentPadding(),
         ) {
             Button(onClick = { dark = !dark }) {
