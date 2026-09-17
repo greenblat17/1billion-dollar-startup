@@ -2,7 +2,7 @@
 
 **Дата:** 2026-09-17  
 **Статус:** снимок раскладки; UI ещё шаблон `App()`, speaking-сессии в приложении нет  
-**Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
+**Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
 ## Зачем CMP в этом продукте
@@ -15,7 +15,7 @@ Speaking Coach учит **говорить** по-английски: разго
 
 Неделя 1 плана — Telegram как клиент, наш код — `:server` (голос → clip HTTP → `ai-service` STT→LLM→TTS → голосовой ответ). Native UI в тот срез не входил.
 
-CMP — это **неделя 2**: тот же backend и тот же clip/session контракт, но пользовательский интерфейс — мобильное приложение (Android и iOS). Экран разговора как Zoom: пользователь говорит, AI отвечает голосом, приложение снова слушает — без кнопки «отправить» на каждую реплику. Desktop в продукте не цель; JVM-окно нужно, чтобы собирать и смотреть тот же shared UI.
+CMP — это **неделя 2**: тот же backend и тот же clip/session контракт, но пользовательский интерфейс — мобильное приложение (Android и iOS). Макеты экранов: `ai_docs/design/2026-09-17-mobile-ui.md` (Welcome / Home / Call / разбор). Экран разговора как Zoom: пользователь говорит, AI отвечает голосом, приложение снова слушает — без кнопки «отправить» на каждую реплику. Desktop в продукте не цель; JVM-окно нужно, чтобы собирать и смотреть тот же shared UI.
 
 Не дублировать Telegram-бота в Compose. Не делать ядром экраны упражнений (неделя 4, по желанию после разбора).
 

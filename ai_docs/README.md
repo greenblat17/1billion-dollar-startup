@@ -6,6 +6,7 @@ be found without relying on conversation history.
 
 ## Structure
 
+- `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.
 - `architecture/` - system design, component boundaries, data flows, and important technical
   decisions.
 - `bugs/` - bug reports, investigation notes, root-cause analyses, and documented fixes or
@@ -25,6 +26,7 @@ Use date-prefixed, task-specific filenames:
 
 ```text
 architecture/2026-09-13-audio-processing-pipeline.md
+design/2026-09-17-mobile-ui.md
 bugs/2026-09-13-telegram-audio-upload-failure.md
 integrations/2026-09-13-ai-service-api.md
 plans/2026-09-13-live-feedback-plan.md
