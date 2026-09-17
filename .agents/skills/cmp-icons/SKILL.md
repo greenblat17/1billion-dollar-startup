@@ -29,19 +29,19 @@ https://raw.githubusercontent.com/google/material-design-icons/master/symbols/an
 
 Example that works: `.../symbols/android/mic/materialsymbolsoutlined/mic_24px.xml`. Style folder can be `materialsymbolsrounded` or `materialsymbolssharp`. If the URL 404s, list `symbols/android/` on GitHub for the real directory name.
 
-The stock file uses `android:tint="?attr/colorControlNormal"` and `android:fillColor="@android:color/white"` — those break CMP. Rewrite to `android:fillColor="#000000"` and drop `tint` / `@android:` refs.
+The stock file uses `android:tint="?attr/colorControlNormal"` and `android:fillColor="@android:color/white"`. CMP’s vector parser **ignores** `android:tint` and only accepts `#…` colors (not `@android:` / `@color/`). For Material Symbols: `android:fillColor="#000000"`, drop `tint`, then tint in Compose. Multi-color illustrations may keep their own `#hex` fills (e.g. nav_cupcake `cupcake.xml`).
 
 If fetch fails or the glyph is custom/branded: **ask the user** for XML. Do not invent `pathData`. Do not approximate with Kotlin `materialPath`.
 
 ## File rules
 
-- Path: `cmp/app/shared/src/commonMain/composeResources/drawable/ic_<name>.xml` (hyphens in the filename become `_` on `Res.drawable`).
-- `android:fillColor="#000000"`. Strip `android:tint` and other Android color attrs. Tint in Compose.
-- No `@color/` / `@drawable/` Android references.
-- Prefer XML vector, not SVG (SVG is missing on Android in `painterResource`) and not PNG for UI glyphs.
+- Path: `cmp/app/shared/src/commonMain/composeResources/drawable/ic_<name>.xml`. Generated names: `-` → `_`; camelCase kept; a leading digit gets `_` (`3-foo.xml` → `Res.drawable._3_foo`).
+- Material Symbols: `android:fillColor="#000000"`. Strip `android:tint` (ignored anyway). Tint in Compose.
+- No `@color/` / `@drawable/` Android references (parser cannot link external resources).
+- Prefer XML vector, not SVG (`painterResource` SVG errors on Android) and not PNG for UI glyphs.
 - Not `androidApp/src/main/res` for shared icons (that is launcher/platform chrome).
 
-Build or IDE sync so `Res.drawable.ic_<name>` exists. Do not dump hundreds of icons: `Res.drawable` accessors can hit bytecode size limits.
+Build or IDE sync so `Res.drawable.ic_<name>` exists. The generator splits accessors into 100-item files; still do not dump the whole Material Symbols set. `painterResource` does **not** need `@OptIn(ExperimentalResourceApi)`. This module already has `androidResources { enable = true }` — keep it.
 
 ## In UI
 
