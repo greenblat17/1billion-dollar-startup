@@ -4,17 +4,18 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 
-// Sampled from ai_docs/design/screens/ (2026-09-17 Releva mockups).
-private val RelevaBlue = Color(0xFF1870F8)
+// Median / cluster samples from ai_docs/design/screens/*.png (2026-09-17 Releva mockups).
+private val RelevaBlue = Color(0xFF1874FC)
 private val RelevaOnBlue = Color(0xFFFFFFFF)
-private val RelevaBlueSoft = Color(0xFFE8E8F8)
-private val RelevaBlueMist = Color(0xFFF2F6FF)
-private val RelevaCream = Color(0xFFF8F8F0)
-private val RelevaInk = Color(0xFF151918)
-private val RelevaMuted = Color(0xFFA8A8B0)
-private val RelevaCard = Color(0xFFFDFDFD)
-private val RelevaOutline = Color(0xFFE4E6EE)
-private val RelevaHangup = Color(0xFFF83030)
+private val RelevaBlueSoft = Color(0xFFE9EFFD)
+private val RelevaBlueMist = Color(0xFFECF0FC)
+private val RelevaBlueWash = Color(0xFFF0F4FC)
+private val RelevaCream = Color(0xFFFBFAF6)
+private val RelevaInk = Color(0xFF0E1020)
+private val RelevaMuted = Color(0xFF9B9EA4)
+private val RelevaCard = Color(0xFFFCFCFC)
+private val RelevaOutline = Color(0xFFE4E4E4)
+private val RelevaHangup = Color(0xFFFC3434)
 
 internal val LightColorScheme = lightColorScheme(
     primary = RelevaBlue,
@@ -34,8 +35,8 @@ internal val LightColorScheme = lightColorScheme(
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = RelevaCard,
     surfaceContainer = RelevaCard,
-    surfaceContainerHigh = RelevaBlueMist,
-    surfaceContainerHighest = RelevaBlueSoft,
+    surfaceContainerHigh = RelevaBlueWash,
+    surfaceContainerHighest = RelevaBlueMist,
     outline = RelevaOutline,
     outlineVariant = RelevaOutline,
     error = RelevaHangup,

@@ -11,13 +11,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -48,18 +47,30 @@ fun WelcomeWidget(
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset(x = 40.dp, y = 80.dp)
-                .size(220.dp)
-                .clip(CircleShape)
-                .background(scheme.primary.copy(alpha = 0.08f)),
+                .offset(x = 48.dp, y = 36.dp)
+                .size(280.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            scheme.surfaceContainerHigh,
+                            scheme.background.copy(alpha = 0f),
+                        ),
+                    ),
+                ),
         )
         Box(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .offset(x = (-60).dp, y = (-180).dp)
-                .size(200.dp)
-                .clip(CircleShape)
-                .background(scheme.primary.copy(alpha = 0.06f)),
+                .offset(x = (-72).dp, y = (-140).dp)
+                .size(260.dp)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            scheme.surfaceContainerHigh,
+                            scheme.background.copy(alpha = 0f),
+                        ),
+                    ),
+                ),
         )
         Column(
             modifier = Modifier

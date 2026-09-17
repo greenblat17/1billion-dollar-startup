@@ -64,6 +64,7 @@ fun SecondaryButton(
             .height(56.dp),
         shape = PillShape,
         colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
             contentColor = MaterialTheme.colorScheme.onBackground,
         ),
     ) {

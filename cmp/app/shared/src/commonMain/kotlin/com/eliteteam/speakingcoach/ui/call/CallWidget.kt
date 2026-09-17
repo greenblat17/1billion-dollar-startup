@@ -62,9 +62,9 @@ fun CallWidget(
     ) {
         Spacer(Modifier.height(72.dp))
         Box(contentAlignment = Alignment.Center) {
-            Ring(220.dp, scheme.primary.copy(alpha = 0.06f))
-            Ring(176.dp, scheme.primary.copy(alpha = 0.10f))
-            Ring(132.dp, scheme.primary.copy(alpha = 0.16f))
+            Ring(220.dp, scheme.surfaceContainerHigh)
+            Ring(176.dp, scheme.primaryContainer)
+            Ring(132.dp, scheme.primaryContainer)
             Box(
                 modifier = Modifier
                     .size(96.dp)
