@@ -46,7 +46,7 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 | Модуль | Роль |
 | --- | --- |
 | `:app:shared` | Весь UI разговора (потом — результаты, onboarding). Таргеты: `android`, `jvm()`, iOS framework `Shared`. Код экранов — `commonMain`. Микрофон, плеер, конец реплики — `expect`/`actual` (`androidMain` / `jvmMain` / `iosMain`), сейчас только `getPlatform()`. |
-| `:app:androidApp` | `MainActivity.setContent { App() }`. |
+| `:app:androidApp` | `MainActivity.setContent { App() }`. `configChanges=uiMode` — смена темы без recreate; window theme DayNight с `windowBackground` как у `AppTheme` (cream / ink). |
 | `:app:iosApp` | SwiftUI → `MainViewController()` → `App()`. |
 | `:app:desktopApp` | `Window { App() }` или `SandboxHost`. Не второй клиент и не копия виджетов. |
 | `:core` | Общий Kotlin без UI. Shared берёт как `api`. |
