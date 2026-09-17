@@ -13,7 +13,16 @@ description: >
 
 Target architecture for shared Compose UI. Debug loop: skills `compose-widget-sandbox` and `compose-hot-reload`. Library versions: MCP `klibs` / skill `kmp-libraries-expert` — do not guess Maven coordinates.
 
-Do not confuse with `code-structure` (Ktor actions vs services).
+Do not confuse with `code-structure` (Ktor **server** actions vs services). HTTP from the app: skill `cmp-ktor-client`.
+
+## implementation vs api
+
+Two classpaths people mix up:
+
+1. **Targets of `:app:shared`** (android / jvm / ios). `commonMain.implementation(libs.compose.material3)` is on every target of **this** module, so `App()` compiles for iOS.
+2. **Host modules** (`androidApp`, `desktopApp`). They `implementation(project(":app:shared"))` and see only shared’s **`api`** dependencies. Today that is `:core`. Compose, Koin, Nav3, Kermit, Ktor client stay `implementation` in shared — they do **not** leak to hosts.
+
+If a **host file** uses a library (desktop `SandboxHost` + Material3), add `implementation` on **that host**. Do not flip shared Compose (or Ktor) to `api` so “all apps get it”.
 
 Ideas (UDF, layers, ViewModel as state holder): [nowinandroid Architecture Learning Journey](https://github.com/android/nowinandroid/blob/main/docs/ArchitectureLearningJourney.md). Copy the **ideas**, not the Android stack. Current NIA UI is already Navigation **3** + Hilt — still do not copy its Maven coords or DI.
 
@@ -41,9 +50,7 @@ Packages live in `:app:shared` `commonMain` (`ui/`, ViewModel/UiState next to th
 
 ## DI: Koin (not Hilt)
 
-`io.insert-koin`. Compile-time graph: `koin-annotations` / `koin-core-annotations` on the **same major line** as the compiler (query klibs). Do not pair annotations 4.x with leftover `koin-ksp-compiler` 2.3.x.
-
-Compose: `koin-compose`, `koin-compose-viewmodel`. Nav3 entries: `koin-compose-navigation3`.
+Skill `cmp-koin`. `io.insert-koin` + compiler plugin (not Hilt, not `koin-ksp-compiler`). Compose: `koinViewModel()` / `koinInject()`. Logging: skill `cmp-kermit`. Tests: skill `cmp-test`.
 
 ## Navigation 3
 
@@ -60,7 +67,7 @@ Pin versions with klibs at add time. JetBrains `navigation3-ui` may be beta whil
 | Hilt, `@HiltViewModel` | Koin + annotations / compile-time |
 | Nav3 Maven `androidx.navigation3:*` | JetBrains `org.jetbrains.androidx.navigation3:*` (same `androidx.navigation3` imports) |
 | Lifecycle / Compose Maven `androidx.lifecycle` / `androidx.compose` in commonMain | `org.jetbrains.androidx.lifecycle:*`, `org.jetbrains.compose` (imports still `androidx.*`) |
-| WorkManager, Room, Proto DataStore, Retrofit, OkHttp as defaults | No; HTTP client is Ktor |
+| WorkManager, Room, Proto DataStore, Retrofit, OkHttp as defaults | No; HTTP is Ktor (skill `cmp-ktor-client`) |
 | `:feature:*:api/impl` module zoo, `demo`/`prod` flavors, Roborazzi, FCM | No |
 
 Lifecycle in this repo is already `org.jetbrains.androidx.lifecycle:*` on `commonMain`. Keep it that way.
