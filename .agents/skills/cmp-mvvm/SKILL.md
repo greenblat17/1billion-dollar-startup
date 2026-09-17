@@ -11,7 +11,7 @@ description: >
 
 # CMP MVVM
 
-Target architecture for shared Compose UI. Debug loop: skills `compose-widget-sandbox` and `compose-hot-reload`. Library versions: MCP `klibs` / skill `kmp-libraries-expert` — do not guess Maven coordinates.
+Target architecture for shared Compose UI. Debug loop: skills `compose-widget-sandbox` and `compose-hot-reload`. Library versions: MCP `klibs` / skill `kmp-libraries-expert` — do not guess Maven coordinates. Screens and flow: `ai_docs/README.md` then `ai_docs/design/` (and `architecture/` if the change touches navigation or client/server boundaries). Do not ship the Compose template when mockups exist.
 
 Do not confuse with `code-structure` (Ktor **server** actions vs services). HTTP from the app: skill `cmp-ktor-client`.
 

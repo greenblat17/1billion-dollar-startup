@@ -4,6 +4,10 @@ This directory is the working documentation hub for the Speaking Coach applicati
 project knowledge close to the code so decisions, implementation context, and ongoing work can
 be found without relying on conversation history.
 
+Agents: start here, then open the linked docs for the current task. Do not skip this tree
+when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
+these files, not only in chat.
+
 ## Structure
 
 - `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.
