@@ -1,3 +1,5 @@
+import org.gradle.api.Task
+import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -82,4 +84,25 @@ kotlin {
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
+}
+
+// Compiler plugin stays for @TraceRecomposition. Do not let stabilityCheck ride
+// on `check`: the 0.14.0 task graph does not understand AGP KMP library
+// (`compileAndroidMain`) and fails Gradle 9 implicit-dependency validation.
+// This module has no *.stability CI baseline.
+afterEvaluate {
+    tasks.named("check").configure {
+        setDependsOn(
+            dependsOn.filterNot { dep ->
+                val name = when (dep) {
+                    is Task -> dep.name
+                    is TaskProvider<*> -> dep.name
+                    else -> dep.toString()
+                }
+                name.contains("stabilityCheck")
+            },
+        )
+    }
+    tasks.named("stabilityCheck").configure { enabled = false }
+    tasks.named("stabilityDump").configure { enabled = false }
 }

@@ -78,3 +78,5 @@ If `[Recomposition` is missing from `get_logs` after a real UI change: not `hotR
 ## Stability files (optional)
 
 After compile: `./gradlew :<uiModule>:stabilityDump` then `stabilityCheck`. Commit `*.stability` only if the project already uses that CI contract. Not required for the Hot Reload loop.
+
+This repo unhooks `:app:shared:stabilityCheck` from `check` and disables dump/check: plugin 0.14.0 + AGP KMP library (`compileAndroidMain`) fails Gradle 9 implicit-dependency validation. Do not re-attach it. Keep the plugin for `@TraceRecomposition`.
