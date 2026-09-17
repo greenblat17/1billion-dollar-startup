@@ -37,6 +37,7 @@ import cmp.app.shared.generated.resources.ic_call_end
 import cmp.app.shared.generated.resources.ic_closed_caption
 import cmp.app.shared.generated.resources.ic_mic
 import cmp.app.shared.generated.resources.ic_mic_off
+import com.eliteteam.speakingcoach.ui.components.AmbientBlob
 import com.eliteteam.speakingcoach.ui.components.RelevaLogo
 import com.eliteteam.speakingcoach.ui.mock.MockSpeakingData
 import com.eliteteam.speakingcoach.ui.theme.AppTheme
@@ -62,7 +63,8 @@ fun CallWidget(
     ) {
         Spacer(Modifier.height(72.dp))
         Box(contentAlignment = Alignment.Center) {
-            Ring(220.dp, scheme.surfaceContainerHigh)
+            AmbientBlob(modifier = Modifier.size(280.dp))
+            Ring(220.dp, scheme.primaryContainer)
             Ring(176.dp, scheme.primaryContainer)
             Ring(132.dp, scheme.primaryContainer)
             Box(
@@ -130,7 +132,7 @@ private fun Ring(size: Dp, color: Color) {
         modifier = Modifier
             .size(size)
             .clip(CircleShape)
-            .border(2.dp, color, CircleShape),
+            .border(1.dp, color, CircleShape),
     )
 }
 

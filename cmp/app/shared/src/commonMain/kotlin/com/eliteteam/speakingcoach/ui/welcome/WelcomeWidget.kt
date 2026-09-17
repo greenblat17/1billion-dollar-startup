@@ -16,7 +16,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -26,6 +25,7 @@ import cmp.app.shared.generated.resources.welcome_headline
 import cmp.app.shared.generated.resources.welcome_headline_accent
 import cmp.app.shared.generated.resources.welcome_legal
 import cmp.app.shared.generated.resources.welcome_start
+import com.eliteteam.speakingcoach.ui.components.AmbientBlob
 import com.eliteteam.speakingcoach.ui.components.PrimaryButton
 import com.eliteteam.speakingcoach.ui.components.RelevaLogo
 import com.eliteteam.speakingcoach.ui.components.SecondaryButton
@@ -44,33 +44,31 @@ fun WelcomeWidget(
             .fillMaxSize()
             .background(scheme.background),
     ) {
-        Box(
+        AmbientBlob(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .offset(x = 48.dp, y = 36.dp)
-                .size(280.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            scheme.surfaceContainerHigh,
-                            scheme.background.copy(alpha = 0f),
-                        ),
-                    ),
-                ),
+                .offset(x = 88.dp, y = (-48).dp)
+                .size(400.dp),
         )
-        Box(
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 8.dp, y = 72.dp)
+                .size(280.dp),
+            color = scheme.secondaryContainer,
+        )
+        AmbientBlob(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .offset(x = (-72).dp, y = (-140).dp)
-                .size(260.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            scheme.surfaceContainerHigh,
-                            scheme.background.copy(alpha = 0f),
-                        ),
-                    ),
-                ),
+                .offset(x = (-140).dp, y = (-96).dp)
+                .size(440.dp),
+        )
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-20).dp, y = (-176).dp)
+                .size(260.dp),
+            color = scheme.secondaryContainer,
         )
         Column(
             modifier = Modifier

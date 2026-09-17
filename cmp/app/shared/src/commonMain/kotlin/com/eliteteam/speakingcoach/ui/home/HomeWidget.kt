@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -51,6 +53,7 @@ import cmp.app.shared.generated.resources.topic_random
 import cmp.app.shared.generated.resources.topic_travel
 import cmp.app.shared.generated.resources.topic_work
 import cmp.app.shared.generated.resources.when_today
+import com.eliteteam.speakingcoach.ui.components.AmbientBlob
 import com.eliteteam.speakingcoach.ui.components.PrimaryButton
 import com.eliteteam.speakingcoach.ui.components.RelevaLogo
 import com.eliteteam.speakingcoach.ui.mock.MockSpeakingData
@@ -79,19 +82,11 @@ fun HomeWidget(
             .fillMaxSize()
             .background(scheme.background),
     ) {
-        Box(
+        AmbientBlob(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .offset(x = (-80).dp, y = 80.dp)
-                .size(240.dp)
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            scheme.surfaceContainerHigh,
-                            scheme.background.copy(alpha = 0f),
-                        ),
-                    ),
-                ),
+                .offset(x = (-120).dp, y = 120.dp)
+                .size(300.dp),
         )
         Column(
             modifier = Modifier
@@ -134,25 +129,33 @@ fun HomeWidget(
             color = scheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
+        val mist = scheme.primaryContainer
+        val soft = scheme.secondaryContainer
+        val highlight = scheme.surfaceContainerLowest
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .background(scheme.primaryContainer),
+                .drawWithCache {
+                    val wash = Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.00f to highlight,
+                            0.36f to mist,
+                            1.00f to soft,
+                        ),
+                        center = Offset(size.width * 0.9f, size.height * 0.08f),
+                        radius = size.maxDimension * 0.95f,
+                    )
+                    onDrawBehind { drawRect(wash) }
+                },
         ) {
-            Box(
+            AmbientBlob(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 36.dp, y = (-28).dp)
-                    .size(180.dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                scheme.surfaceContainerLowest.copy(alpha = 0.7f),
-                                scheme.primaryContainer.copy(alpha = 0f),
-                            ),
-                        ),
-                    ),
+                    .offset(x = 48.dp, y = (-36).dp)
+                    .size(240.dp),
+                color = scheme.surfaceContainerLowest,
+                bloom = scheme.surfaceContainerLowest,
             )
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
