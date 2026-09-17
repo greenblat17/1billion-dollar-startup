@@ -29,7 +29,7 @@ Widget (dumb UI)  <-  Screen (collect StateFlow, lambdas)
               Repository / optional UseCase
 ```
 
-- **Widget** — no ViewModel, no repository. Colors / type from `MaterialTheme` (skill `cmp-theme`). Skill `compose-widget-sandbox`. Icons: skill `cmp-icons`.
+- **Widget** — no ViewModel, no repository. Colors / type from `MaterialTheme` (skill `cmp-theme`). Copy: skill `cmp-strings`. Skill `compose-widget-sandbox`. Icons: skill `cmp-icons`.
 - **Screen** — Nav3 `entry` + `koinViewModel()` (or `koin-compose-navigation3`). `collectAsStateWithLifecycle()`. User events are lambdas into the ViewModel. No business logic.
 - **ViewModel** — subclass `ViewModel`. One hot `StateFlow<UiState>` (`stateIn` / `MutableStateFlow`). Intents are methods, not a sealed event bus unless needed. Work in `viewModelScope`.
 - **UiState** — immutable `data class` or sealed `Loading` / `Success` / `Error`. App data below the UI is the source of truth.

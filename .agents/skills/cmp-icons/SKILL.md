@@ -48,12 +48,12 @@ Build or IDE sync so `Res.drawable.ic_<name>` exists. Do not dump hundreds of ic
 ```kotlin
 Icon(
     painter = painterResource(Res.drawable.ic_mic),
-    contentDescription = "Microphone",
+    contentDescription = stringResource(Res.string.cd_mic),
     tint = MaterialTheme.colorScheme.onSurface,
 )
 ```
 
-Decorative: `contentDescription = null`. Theme/sandbox dark mode works because fill is black and `tint` comes from `ColorScheme` (skill `cmp-theme`).
+Decorative: `contentDescription = null`. Meaningful `contentDescription`: skill `cmp-strings`, not a Kotlin literal. Theme/sandbox dark mode works because fill is black and `tint` comes from `ColorScheme` (skill `cmp-theme`).
 
 ## Do not
 

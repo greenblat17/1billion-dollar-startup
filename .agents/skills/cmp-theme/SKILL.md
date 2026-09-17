@@ -7,9 +7,9 @@ description: >
   MaterialTheme(colorScheme, typography) wrapper — not LocalContext
   dynamic color, res/font, or Downloadable Fonts. Use when adding a
   theme, ColorScheme, Typography, dark mode, seed color, or custom
-  font. Skip icon XML (cmp-icons) and widget sandbox chrome
-  (compose-widget-sandbox). Do not hardcode colors or FontFamily in
-  widgets.
+  font. Skip icon XML (cmp-icons), UI copy (cmp-strings), and widget
+  sandbox chrome (compose-widget-sandbox). Do not hardcode colors or
+  FontFamily in widgets.
 ---
 
 # CMP theme
