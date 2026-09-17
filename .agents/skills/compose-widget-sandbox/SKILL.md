@@ -15,7 +15,7 @@ description: >
 
 Widget lives once in `:app:shared`. Debug it in the same `:app:desktopApp` window (`SandboxHost`), not a second Gradle target and not IDE Preview.
 
-MCP / viewport / `get_logs`: skill `compose-hot-reload`. Annotation install: skill `compose-stability-analyzer`.
+MCP / viewport / `get_logs`: skill `compose-hot-reload`. Annotation install: skill `compose-stability-analyzer`. Screen + ViewModel + Nav3 + Koin: skill `cmp-mvvm`.
 
 Skip: tweak an already-wired screen with no new widget → `App()` + hot-reload MCP only.
 
@@ -27,7 +27,7 @@ Skip: tweak an already-wired screen with no new widget → `App()` + hot-reload 
 4. Same `hotRun` / MCP. Pixel **412×915**. Click, type, fill states. `@TraceRecomposition` on **the widget under test**, not every child. `get_logs` + `[Recomposition`.
 5. Click sandbox chrome `Theme: light` / `Theme: dark`. Screenshot and interact again. Do not finish on light only.
 6. `TableWidgetPreview.kt` (name = widget + `Preview`) next to the widget: `@Preview` light and dark, mocks **inside** the Preview so IDE Interactive works for the human. Do not treat Preview as agent verification. Do not ask the user to "check Interactive Preview".
-7. Restore `SandboxContent` to the empty stub (leave the widget in shared). Wire it into the screen. `runSandbox = false`. Final check in `App()`.
+7. Restore `SandboxContent` to the empty stub (leave the widget in shared). Wire it into the screen (`cmp-mvvm`: ViewModel + Nav3 + Koin). `runSandbox = false`. Final check in `App()`.
 
 ## Sandbox chrome
 
