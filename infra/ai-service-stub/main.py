@@ -9,9 +9,9 @@ import uuid
 app = FastAPI()
 GREETING_AUDIO = Path(__file__).with_name("greeting.ogg").read_bytes()
 GREETING_TEXT = (
-    "Hey! 👋 I'm Speaky, your English practice buddy. "
-    "Let's improve your English in real conversations. "
-    "Ready? Send a voice message and tell me a bit about yourself. 😊"
+    "Hey! 👋\n"
+    "I'm Speaky, your English practice buddy. Let's improve your English in real conversations\n"
+    "Ready? Send a voice message and tell me a bit about yourself 😊"
 )
 NOTE_POOL = [
     "You said: I was in Turkey last summer with my friends.",

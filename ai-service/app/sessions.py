@@ -1,7 +1,7 @@
 GREETING_TEXT = (
-    "Hey! 👋 I'm Speaky, your English practice buddy. "
-    "Let's improve your English in real conversations. "
-    "Ready? Send a voice message and tell me a bit about yourself. 😊"
+    "Hey! 👋\n"
+    "I'm Speaky, your English practice buddy. Let's improve your English in real conversations\n"
+    "Ready? Send a voice message and tell me a bit about yourself 😊"
 )
 
 GREETING_VOICE_TEXT = (

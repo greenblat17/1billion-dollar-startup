@@ -67,8 +67,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.info("Voice queue is full for {}", sessionId.value)
                         }
                         is ClipSubmitResult.Completed -> {
-                            if (result.reply.notes.isNotEmpty()) {
-                                reply(message, result.reply.notes.joinToString("\n\n"))
+                            if (result.reply.transcript.isNotBlank()) {
+                                reply(
+                                    message,
+                                    coachingEntities(result.reply.transcript, result.reply.notes),
+                                )
                             }
                             sendVoice(
                                 message.chat.id,

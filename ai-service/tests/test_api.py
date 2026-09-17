@@ -156,11 +156,7 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    notes = [
-        "You said: I was in Turkey last summer with my friends.",
-        "Better: I went to Turkey last summer with my friends.",
-        "We usually say 'went to' here.",
-    ]
+    notes = ["I was in Turkey last summer|||I went to Turkey last summer"]
     llm = FakeLlm(notes=notes)
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with TestClient(app) as client:

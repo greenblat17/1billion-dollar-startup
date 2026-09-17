@@ -120,7 +120,7 @@ class HttpClipClientTest {
                     val body = if (polls < 2) {
                         """{"jobId":"job-1","status":"pending"}"""
                     } else {
-                        """{"jobId":"job-1","status":"ok","result":{"notes":["Better: went to"]}}"""
+                        """{"jobId":"job-1","status":"ok","result":{"notes":["I go|||I went"],"transcript":"I go to shop"},"transcript":"I go to shop"}"""
                     }
                     respond(
                         content = body,
@@ -151,7 +151,8 @@ class HttpClipClientTest {
             AudioClip(byteArrayOf(9), "audio/ogg", "voice.ogg"),
         )
 
-        assertEquals(listOf("Better: went to"), reply.notes)
+        assertEquals(listOf("I go|||I went"), reply.notes)
+        assertEquals("I go to shop", reply.transcript)
         assertEquals(byteArrayOf(1, 2, 3).toList(), reply.audio.bytes.toList())
         assertEquals("audio/ogg", reply.audio.contentType)
         http.close()
