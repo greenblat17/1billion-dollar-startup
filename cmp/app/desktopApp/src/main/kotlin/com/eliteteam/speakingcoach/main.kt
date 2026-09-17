@@ -4,6 +4,9 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import com.skydoves.compose.stability.runtime.ComposeStabilityAnalyzer
 
+/** `true` only while debugging one widget in [SandboxHost]. Default is the real [App]. */
+private const val runSandbox = false
+
 fun main() {
     ComposeStabilityAnalyzer.setLogger(ChrRecompositionLogger())
     application {
@@ -11,7 +14,7 @@ fun main() {
             onCloseRequest = ::exitApplication,
             title = "cmp",
         ) {
-            App()
+            if (runSandbox) SandboxHost() else App()
         }
     }
 }

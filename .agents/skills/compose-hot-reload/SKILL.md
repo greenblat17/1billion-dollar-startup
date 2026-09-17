@@ -1,6 +1,6 @@
 ---
 name: compose-hot-reload
-description: "Drive the running Compose Multiplatform desktop JVM UI via compose-hot-reload MCP (screenshot, semantic tree, click/type/scroll, reload, logs). Default window is Pixel 8 412×915 via resize_window; use a desktop size only when the task is explicitly desktop. After UI interaction or a skip/stability edit, read get_logs for [Recomposition] to see why a composable ran. Use when editing or verifying Compose UI on desktop, debugging extra recompositions, or checking that a parent skipped. Skip Android emulator, iOS, web-only, or projects with no JVM/desktop window."
+description: "Drive the running Compose Multiplatform desktop JVM UI via compose-hot-reload MCP (screenshot, semantic tree, click/type/scroll, reload, logs). Default window is Pixel 8 412×915 via resize_window; use a desktop size only when the task is explicitly desktop. After UI interaction or a skip/stability edit, read get_logs for [Recomposition] to see why a composable ran. New widget / SandboxHost / TableWidget: skill compose-widget-sandbox. Use when editing or verifying Compose UI on desktop, debugging extra recompositions, or checking that a parent skipped. Skip Android emulator, iOS, web-only, or projects with no JVM/desktop window."
 ---
 
 # Compose Hot Reload MCP
@@ -78,6 +78,8 @@ After `status` / `list_windows`, if size is not already the target, `resize_wind
 Do not use 360×800 as the default: that is the statistical budget-Android bucket, not a Pixel. Compose `@Preview` phone / Chrome "Pixel 8" is 412×915.
 
 Do not leave the default maximized/wide `hotRun` window when verifying mobile UI. Compact-width bugs (wrap, overflow, tap targets) are invisible at 960+.
+
+New widget from scratch (file in shared, `SandboxHost`, both themes, then IDE `@Preview`): skill `compose-widget-sandbox`. This skill only drives the window.
 
 ## Recomposition
 
