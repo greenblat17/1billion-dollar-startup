@@ -53,7 +53,7 @@ Icon(
 )
 ```
 
-Decorative: `contentDescription = null`. Theme/sandbox dark mode works because fill is black and `tint` comes from `ColorScheme`.
+Decorative: `contentDescription = null`. Theme/sandbox dark mode works because fill is black and `tint` comes from `ColorScheme` (skill `cmp-theme`).
 
 ## Do not
 

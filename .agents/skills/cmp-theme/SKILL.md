@@ -1,0 +1,85 @@
+---
+name: cmp-theme
+description: >
+  Put Compose Multiplatform Material 3 color and type tokens in shared
+  ui/theme (Color.kt, Type.kt, Theme.kt) and load fonts from
+  composeResources/font. Copy nowinandroid’s token files and
+  MaterialTheme(colorScheme, typography) wrapper — not LocalContext
+  dynamic color, res/font, or Downloadable Fonts. Use when adding a
+  theme, ColorScheme, Typography, dark mode, seed color, or custom
+  font. Skip icon XML (cmp-icons) and widget sandbox chrome
+  (compose-widget-sandbox). Do not hardcode colors or FontFamily in
+  widgets.
+---
+
+# CMP theme
+
+Shared look lives in `:app:shared` `commonMain`, not `androidApp/res`. Example to copy (ideas, not Android APIs): [nowinandroid `core/designsystem/.../theme`](https://github.com/android/nowinandroid/tree/main/core/designsystem/src/main/kotlin/com/google/samples/apps/nowinandroid/core/designsystem/theme) — `Color.kt`, `Type.kt`, `Theme.kt`. Fonts: [Using multiplatform resources](https://www.jetbrains.com/help/kotlin-multiplatform-dev/compose-multiplatform-resources-usage.html) (Fonts).
+
+This repo still uses default `MaterialTheme { }` in `App()` and `SandboxHost`. When you add a real theme, replace those with `AppTheme`.
+
+## Layout
+
+```text
+cmp/app/shared/src/commonMain/kotlin/.../ui/theme/
+  Color.kt      named palettes + Light / Dark ColorScheme
+  Type.kt       M3 Typography slots (fontFamily from composeResources)
+  Theme.kt      AppTheme(darkTheme) -> MaterialTheme(...)
+cmp/app/shared/src/commonMain/composeResources/font/   TTF/OTF only
+```
+
+Do not add a `:core:designsystem` Android module. Do not invent extra `CompositionLocal`s (`LocalGradientColors`, `LocalBackgroundTheme`, `LocalTintTheme`) unless the UI actually needs them — NIA has those for its own chrome.
+
+## Color
+
+Named tokens like NIA (`Purple40`), then `lightColorScheme(...)` / `darkColorScheme(...)`. Widgets read `MaterialTheme.colorScheme.*` only — never `Color(0xFF…)` in a screen.
+
+Seed / brand hex: [Material Theme Builder](https://material-foundation.github.io/material-theme-builder/) export, or ask the user. Do not guess brand colors.
+
+`AppTheme(darkTheme: Boolean = isSystemInDarkTheme())` picks light vs dark. Sandbox chrome still owns the toggle: `AppTheme(darkTheme = dark) { … }` — do not call leftover `lightColorScheme()` / `darkColorScheme()` next to it.
+
+## Type
+
+Map M3 slots (`displayLarge` … `labelSmall`) with size / weight / lineHeight like NIA [`Type.kt`](https://raw.githubusercontent.com/android/nowinandroid/main/core/designsystem/src/main/kotlin/com/google/samples/apps/nowinandroid/core/designsystem/theme/Type.kt). Do **not** copy NIA’s `textDirection = Ltr` / `textAlign = Left` (breaks RTL).
+
+UI: `Text(..., style = MaterialTheme.typography.bodyLarge)`. Color for text comes from the scheme (`colorScheme.onSurface`), not a hardcoded `Color.Black`.
+
+M3 `Typography` has no `defaultFontFamily` — set `fontFamily` on each slot you care about (or `copy` from `MaterialTheme.typography`).
+
+## Fonts
+
+Google Fonts UI is JS-only — use it for the **family name**. Then fetch files from [google/fonts](https://github.com/google/fonts) (`ofl/<family>`, `apache/<family>`, or `ufl/<family>`). List the directory, download `.ttf` / `.otf`. Variable fonts are OK (CMP supports them). Rename to `[a-z0-9_].ttf` before dropping in `composeResources/font` (brackets in `Inter[opsz,wght].ttf` break `Res.font`).
+
+`org.jetbrains.compose.resources.Font` is `@Composable`, so `FontFamily` / `Typography` that use it must be `@Composable` too:
+
+```kotlin
+@Composable
+fun appTypography(): Typography {
+    val family = FontFamily(
+        Font(Res.font.inter_regular, FontWeight.Normal),
+        Font(Res.font.inter_semibold, FontWeight.SemiBold),
+    )
+    return MaterialTheme.typography.copy(
+        bodyLarge = MaterialTheme.typography.bodyLarge.copy(fontFamily = family),
+        titleLarge = MaterialTheme.typography.titleLarge.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
+    )
+}
+```
+
+If the family 404s or is custom/licensed: **ask the user** for the files. Do not invent a font. Do not add only Regular and fake Bold with `FontWeight.Bold`.
+
+## Do not copy from nowinandroid
+
+| nowinandroid | This project |
+| --- | --- |
+| `dynamicLightColorScheme(LocalContext.current)` / `Build.VERSION_CODES.S` | Static light/dark schemes in commonMain |
+| `androidTheme` second brand | One product scheme unless the user asks |
+| `res/font`, `R.font`, `androidx.compose.ui.text.googlefonts` | `composeResources/font` + `Res.font` |
+| `:core:designsystem` Android module | `ui/theme` in `:app:shared` |
+
+## Do not
+
+- Hardcoded colors / `FontFamily` inside widgets (sandbox dark toggle will lie)
+- `androidApp/src/main/res/font` for shared type
+- WOFF/WOFF2 as the shared format (not on Android)
+- Mixing default `MaterialTheme { }` with `AppTheme` in the same tree
