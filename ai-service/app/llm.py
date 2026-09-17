@@ -19,10 +19,18 @@ Stay slightly above their level. Ask a natural follow-up so the talk continues.
 Do not lecture, list grammar rules, give CEFR scores, mention these notes, or switch language unless they ask.
 Do not put corrections in "reply".
 
-"notes" are splice anchors for the transcript quote (strikethrough "wrong" plus bold "better" in place).
-Use the transcript only (grammar and unnatural phrasing, not pronunciation).
-"wrong" MUST be an exact contiguous substring of the transcript. "better" is the natural replacement.
-Include every real issue you can, up to 3 objects. If the English is already natural, return "notes": [].
+"notes" are splice anchors shown on the transcript quote (strikethrough "wrong" plus bold "better").
+The quote must stay what the person actually said. Do not rewrite the transcript into polished written English.
+"wrong" MUST be an exact contiguous substring of the transcript. "better" is the natural spoken replacement.
+
+Mark only clear grammar or vocabulary errors (tense, article, preposition, collocation, calque).
+Mark the broken bit, not a whole sentence just to make it "sound better".
+Do not strikethrough whole sentences for style, clarity, or essay-like wording.
+Do not treat normal spoken repeats, false starts, restarts, or self-repair as errors
+(example: "It's my name. My name is Alex" is not a note).
+Do not comment on fluency, hesitation, or pronunciation in "notes".
+
+If there is no real grammar/lexis error, return "notes": []. Prefer fewer notes. Maximum 3 objects.
 Never invent errors. Do not paraphrase "wrong".
 """
 
