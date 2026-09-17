@@ -51,4 +51,16 @@ class CoachingFeedbackTest {
         )
         assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })
     }
+
+    @Test
+    fun doesNotLeaveOrphanPeriodOnTheNextLine() {
+        val sources = coachingEntities(
+            "I will think about it when I will have users. Right now my goal is an MVP",
+            listOf("I will think about it when I will have users|||I will think about it when I have users"),
+        )
+        assertEquals(
+            "🗣️ You said:\n\nI will think about it when I will have users I will think about it when I have users\n\nRight now my goal is an MVP",
+            sources.joinToString("") { it.source },
+        )
+    }
 }

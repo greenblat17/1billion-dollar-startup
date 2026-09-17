@@ -47,7 +47,7 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
                 strikethrough(span.wrong)
                 regular(" ")
                 bold(span.better)
-                index = span.end
+                index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
                     regular("\n\n")
                 }
@@ -87,4 +87,17 @@ private fun correctionSpans(transcript: String, corrections: List<Correction>): 
         }
     }
     return chosen.sortedBy { it.start }
+}
+
+private val TRAILING_PUNCT = setOf('.', '!', '?', ',', ';')
+
+private fun skipTrailingPunct(text: String, from: Int): Int {
+    var index = from
+    while (index < text.length && text[index].isWhitespace()) {
+        index++
+    }
+    if (index < text.length && text[index] in TRAILING_PUNCT) {
+        return index + 1
+    }
+    return from
 }
