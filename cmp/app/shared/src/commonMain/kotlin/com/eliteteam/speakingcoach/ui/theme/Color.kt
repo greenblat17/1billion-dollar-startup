@@ -43,30 +43,39 @@ internal val LightColorScheme = lightColorScheme(
     onError = RelevaOnBlue,
 )
 
-// Mockups have no dark frames. Tones below are the Material 3 dark mapping of the
-// same sampled blue seed — not a second brand palette.
+// Mockups have no dark frames. Same roles as light: brand blue CTA, cards
+// lighter than the ink background, quiet navy washes — not M3 pastel invert.
+private val RelevaNight = Color(0xFF0E1020)
+private val RelevaNightCard = Color(0xFF1C2030)
+private val RelevaNightMist = Color(0xFF1B2740)
+private val RelevaNightSoft = Color(0xFF243352)
+private val RelevaNightWash = Color(0xFF2A3148)
+private val RelevaNightLine = Color(0xFF3D4458)
+private val RelevaNightText = Color(0xFFF2F3F7)
+private val RelevaNightMuted = Color(0xFF9AA0B0)
+
 internal val DarkColorScheme = darkColorScheme(
-    primary = Color(0xFFADC6FF),
-    onPrimary = Color(0xFF002E69),
-    primaryContainer = Color(0xFF00439A),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFFADC6FF),
-    onSecondary = Color(0xFF002E69),
-    secondaryContainer = Color(0xFF1A2740),
-    onSecondaryContainer = Color(0xFFD6E3FF),
-    background = Color(0xFF121318),
-    onBackground = Color(0xFFE3E2E6),
-    surface = Color(0xFF121318),
-    onSurface = Color(0xFFE3E2E6),
-    surfaceVariant = Color(0xFF2C2F36),
-    onSurfaceVariant = Color(0xFFC4C6D0),
-    surfaceContainerLowest = Color(0xFF0D0E13),
-    surfaceContainerLow = Color(0xFF1A1B21),
-    surfaceContainer = Color(0xFF1E2026),
-    surfaceContainerHigh = Color(0xFF1A2740),
-    surfaceContainerHighest = Color(0xFF243047),
-    outline = Color(0xFF8E9099),
-    outlineVariant = Color(0xFF43474E),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
+    primary = RelevaBlue,
+    onPrimary = RelevaOnBlue,
+    primaryContainer = RelevaNightMist,
+    onPrimaryContainer = RelevaNightText,
+    secondary = RelevaBlue,
+    onSecondary = RelevaOnBlue,
+    secondaryContainer = RelevaNightSoft,
+    onSecondaryContainer = RelevaNightText,
+    background = RelevaNight,
+    onBackground = RelevaNightText,
+    surface = RelevaNight,
+    onSurface = RelevaNightText,
+    surfaceVariant = RelevaNightCard,
+    onSurfaceVariant = RelevaNightMuted,
+    surfaceContainerLowest = RelevaNightCard,
+    surfaceContainerLow = RelevaNightCard,
+    surfaceContainer = RelevaNightCard,
+    surfaceContainerHigh = RelevaNightWash,
+    surfaceContainerHighest = RelevaNightMist,
+    outline = RelevaNightLine,
+    outlineVariant = RelevaNightLine,
+    error = RelevaHangup,
+    onError = RelevaOnBlue,
 )

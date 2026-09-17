@@ -131,7 +131,7 @@ fun HomeWidget(
         Spacer(Modifier.height(24.dp))
         val mist = scheme.primaryContainer
         val soft = scheme.secondaryContainer
-        val highlight = scheme.surfaceContainerLowest
+        val highlight = scheme.surfaceContainerHigh
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -154,8 +154,7 @@ fun HomeWidget(
                     .align(Alignment.TopEnd)
                     .offset(x = 48.dp, y = (-36).dp)
                     .size(240.dp),
-                color = scheme.surfaceContainerLowest,
-                bloom = scheme.surfaceContainerLowest,
+                color = scheme.surfaceContainerHigh,
             )
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
