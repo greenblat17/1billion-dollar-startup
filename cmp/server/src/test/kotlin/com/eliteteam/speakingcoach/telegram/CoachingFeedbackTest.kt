@@ -16,7 +16,7 @@ class CoachingFeedbackTest {
     @Test
     fun quotesTranscriptWhenThereAreNoNotes() {
         val sources = coachingEntities("Hello there", emptyList())
-        assertEquals("You said:\nHello there", sources.joinToString("") { it.source })
+        assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })
     }
 
     @Test
@@ -26,7 +26,7 @@ class CoachingFeedbackTest {
             listOf("I was in Turkey|||I went to Turkey"),
         )
         assertEquals(
-            "You said:\nI was in Turkey I went to Turkey last summer",
+            "🗣️ You said:\n\nI was in Turkey I went to Turkey last summer",
             sources.joinToString("") { it.source },
         )
     }
@@ -38,7 +38,7 @@ class CoachingFeedbackTest {
             listOf("I go|||I went", "I was|||I got"),
         )
         assertEquals(
-            "You said:\nI go I went to shop and I was I got tired",
+            "🗣️ You said:\n\nI go I went to shop and I was I got tired",
             sources.joinToString("") { it.source },
         )
     }
@@ -49,6 +49,6 @@ class CoachingFeedbackTest {
             "Hello there",
             listOf("xyz|||abc"),
         )
-        assertEquals("You said:\nHello there", sources.joinToString("") { it.source })
+        assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })
     }
 }

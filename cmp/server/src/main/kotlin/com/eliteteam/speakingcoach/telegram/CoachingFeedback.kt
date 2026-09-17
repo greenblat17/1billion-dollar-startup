@@ -34,7 +34,8 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
     val text = transcript.trim()
     val spans = correctionSpans(text, parseCorrections(notes).take(3))
     return buildEntities {
-        regularln("You said:")
+        regularln("🗣️ You said:")
+        regularln("")
         blockquote {
             var index = 0
             for (span in spans) {
