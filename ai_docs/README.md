@@ -39,6 +39,7 @@ architecture/2026-09-13-audio-processing-pipeline.md
 design/2026-09-17-mobile-ui.md
 bugs/2026-09-13-telegram-audio-upload-failure.md
 integrations/2026-09-13-ai-service-api.md
+plans/2026-09-19-mobile-mvp-backend.md
 plans/2026-09-13-live-feedback-plan.md
 researches/2026-09-13-speech-to-text-options.md
 summaries/2026-09-13-speaking-session-context.md
