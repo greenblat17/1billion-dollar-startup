@@ -28,7 +28,10 @@ class ClipJob:
         if self.error is not None:
             payload["error"] = self.error
         if self.status == "ok":
-            payload["result"] = {"notes": list(self.notes)}
+            payload["result"] = {
+                "notes": list(self.notes),
+                "transcript": self.transcript or "",
+            }
         if self.transcript is not None:
             payload["transcript"] = self.transcript
         if self.reply_text is not None:

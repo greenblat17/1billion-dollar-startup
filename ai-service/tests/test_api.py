@@ -53,10 +53,15 @@ def test_session_greeting_audio() -> None:
     tts = FakeTts()
     app, _, _, tts = build_app(tts=tts)
     with TestClient(app) as client:
-        session_id = _start_session(client)
+        response = client.post("/v1/sessions")
+        body = response.json()
+        session_id = body["sessionId"]
+        assert "Speaky, your English practice buddy" in body["greeting"]["text"]
+        assert "this is actually my voice" not in body["greeting"]["text"]
         audio = client.get(f"/v1/sessions/{session_id}/greeting/audio")
         assert audio.status_code == 200
         assert audio.content.startswith(b"OggS")
+        assert any("this is actually my voice" in text for text in tts.texts)
         assert client.get("/v1/sessions/missing/greeting/audio").status_code == 404
 
 
@@ -151,11 +156,7 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    notes = [
-        "You said: I was in Turkey last summer with my friends.",
-        "Better: I went to Turkey last summer with my friends.",
-        "We usually say 'went to' here.",
-    ]
+    notes = ["I was in Turkey last summer|||I went to Turkey last summer"]
     llm = FakeLlm(notes=notes)
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with TestClient(app) as client:

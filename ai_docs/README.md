@@ -1,23 +1,22 @@
 # Speaking Coach AI Docs
 
-This directory is the working documentation hub for the Speaking Coach application. It keeps
-project knowledge close to the code so decisions, implementation context, and ongoing work can
-be found without relying on conversation history.
+Working documentation next to the code. A coding agent in a new session should start at:
+
+**`summaries/2026-09-18-agent-start-here.md`**
+
+Глобальная архитектура (диаграммы): **`architecture.md`**. Деплой на VPS: **`deploy.md`**.
+
+Then dated architecture + integrations `2026-09-18-*`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
 ## Structure
 
-- `architecture/` - system design, component boundaries, data flows, and important technical
-  decisions.
-- `bugs/` - bug reports, investigation notes, root-cause analyses, and documented fixes or
-  workarounds.
-- `integrations/` - setup guides, API contracts, configuration notes, and operational details for
-  external services and platforms.
-- `plans/` - implementation plans for features, refactors, migrations, and other engineering
-  tasks before work begins.
-- `researches/` - technical and product research, experiments, alternatives considered, and
-  findings that inform future decisions.
-- `summaries/` - concise context snapshots, discussion summaries, and handoff notes for future
-  sessions.
+- `architecture/` - system design, component boundaries, data flows, technical decisions.
+- `bugs/` - bug reports and root-cause notes.
+- `integrations/` - API contracts, env, CI, Telegram behaviour.
+- `plans/` - implementation plans (may lag the code).
+- `product/` - extra product notes; hub file is `product.md` at this folder root.
+- `researches/` - historical research; re-check against `src/` before using.
+- `summaries/` - handoff notes for future sessions.
 
 ## File Naming
 

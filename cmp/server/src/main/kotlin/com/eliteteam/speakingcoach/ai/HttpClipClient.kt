@@ -74,7 +74,11 @@ class HttpClipClient(
         while (deadline.hasNotPassedNow()) {
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
-                is ClipJobStatus.Ok -> return ClipReply(status.notes, downloadAudio(jobId))
+                is ClipJobStatus.Ok -> return ClipReply(
+                    notes = status.notes,
+                    audio = downloadAudio(jobId),
+                    transcript = status.transcript,
+                )
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
         }
@@ -113,7 +117,10 @@ class HttpClipClient(
         val body = response.body<ClipStatusResponse>()
         return when (body.status) {
             "pending" -> ClipJobStatus.Pending
-            "ok" -> ClipJobStatus.Ok(body.result?.notes.orEmpty())
+            "ok" -> ClipJobStatus.Ok(
+                notes = body.result?.notes.orEmpty(),
+                transcript = body.result?.transcript?.ifBlank { null } ?: body.transcript.orEmpty(),
+            )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
         }
@@ -135,6 +142,6 @@ class HttpClipClient(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data class Ok(val notes: List<String>) : ClipJobStatus
+    data class Ok(val notes: List<String>, val transcript: String) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }

@@ -85,7 +85,7 @@ internal fun Route.installAiServiceContract(baseUrl: String, http: HttpClient) {
     }.describe {
         operationId = "getClip"
         summary = "Clip job status"
-        description = "When status is ok, result.notes is a list of coaching remarks."
+        description = "When status is ok, result includes the transcript and correction pairs."
         tag("clips")
         responses {
             HttpStatusCode.OK {

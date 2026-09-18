@@ -11,6 +11,7 @@ fun interface ClipProcessor {
 data class ClipReply(
     val notes: List<String>,
     val audio: AudioClip,
+    val transcript: String = "",
 )
 
 data class SessionGreeting(
