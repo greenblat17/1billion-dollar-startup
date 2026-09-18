@@ -9,7 +9,6 @@ interface SpeakingCoachClient {
     suspend fun signIn()
     suspend fun startSession(topicId: String)
     suspend fun loadHome()
-    suspend fun loadHistory()
     suspend fun loadReview(sessionId: String)
     suspend fun loadProfile()
     suspend fun signOut()
@@ -26,10 +25,6 @@ class UnimplementedSpeakingCoachClient : SpeakingCoachClient {
 
     override suspend fun loadHome() {
         TODO("loadHome: agree home payload with backend")
-    }
-
-    override suspend fun loadHistory() {
-        TODO("loadHistory: agree history payload with backend")
     }
 
     override suspend fun loadReview(sessionId: String) {

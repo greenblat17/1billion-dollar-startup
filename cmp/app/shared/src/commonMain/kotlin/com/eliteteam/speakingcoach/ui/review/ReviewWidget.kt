@@ -31,28 +31,17 @@ import cmp.app.shared.generated.resources.Res
 import cmp.app.shared.generated.resources.cd_back
 import cmp.app.shared.generated.resources.ic_arrow_back
 import cmp.app.shared.generated.resources.ic_lightbulb
-import cmp.app.shared.generated.resources.metric_fluency
 import cmp.app.shared.generated.resources.metric_grammar
-import cmp.app.shared.generated.resources.metric_pronunciation
-import cmp.app.shared.generated.resources.metric_speed
 import cmp.app.shared.generated.resources.metric_vocabulary
-import cmp.app.shared.generated.resources.review_as_spoken
-import cmp.app.shared.generated.resources.review_attention
 import cmp.app.shared.generated.resources.review_better
 import cmp.app.shared.generated.resources.review_examples
 import cmp.app.shared.generated.resources.review_finish
 import cmp.app.shared.generated.resources.review_improve
 import cmp.app.shared.generated.resources.review_next
 import cmp.app.shared.generated.resources.review_score_total
-import cmp.app.shared.generated.resources.review_smoother
 import cmp.app.shared.generated.resources.review_step
 import cmp.app.shared.generated.resources.review_tip
 import cmp.app.shared.generated.resources.review_title
-import cmp.app.shared.generated.resources.review_try
-import cmp.app.shared.generated.resources.review_try_this
-import cmp.app.shared.generated.resources.review_why
-import cmp.app.shared.generated.resources.review_word
-import cmp.app.shared.generated.resources.review_words
 import cmp.app.shared.generated.resources.review_you_said
 import com.eliteteam.speakingcoach.ui.components.PrimaryButton
 import com.eliteteam.speakingcoach.ui.mock.MockSpeakingData
@@ -79,13 +68,15 @@ fun ReviewWidget(
             .fillMaxSize()
             .background(scheme.background),
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(vertical = 4.dp),
         ) {
-            IconButton(onClick = onBack) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart),
+            ) {
                 Icon(
                     painter = painterResource(Res.drawable.ic_arrow_back),
                     contentDescription = stringResource(Res.string.cd_back),
@@ -96,13 +87,15 @@ fun ReviewWidget(
                 text = stringResource(Res.string.review_title),
                 style = MaterialTheme.typography.titleSmall,
                 color = scheme.onBackground,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.align(Alignment.Center),
             )
             Text(
-                text = stringResource(Res.string.review_step, stepIndex + 1),
+                text = stringResource(Res.string.review_step, stepIndex + 1, stepCount),
                 style = MaterialTheme.typography.labelLarge,
                 color = scheme.onSurfaceVariant,
-                modifier = Modifier.padding(end = 16.dp),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp),
             )
         }
         Column(
@@ -138,7 +131,7 @@ fun ReviewWidget(
             Spacer(Modifier.height(16.dp))
             CardBlock {
                 Text(
-                    text = stringResource(step.bulletsTitle.stringRes()),
+                    text = stringResource(Res.string.review_improve),
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onBackground,
                 )
@@ -166,7 +159,7 @@ fun ReviewWidget(
             Spacer(Modifier.height(12.dp))
             CardBlock {
                 Text(
-                    text = stringResource(step.examplesTitle.stringRes()),
+                    text = stringResource(Res.string.review_examples),
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onBackground,
                 )
@@ -179,7 +172,7 @@ fun ReviewWidget(
                         )
                     }
                     Text(
-                        text = stringResource(pair.originalLabel.stringRes()),
+                        text = stringResource(Res.string.review_you_said),
                         style = MaterialTheme.typography.labelMedium,
                         color = scheme.onSurfaceVariant,
                     )
@@ -190,7 +183,7 @@ fun ReviewWidget(
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = stringResource(pair.improvedLabel.stringRes()),
+                        text = stringResource(Res.string.review_better),
                         style = MaterialTheme.typography.labelMedium,
                         color = scheme.primary,
                     )
@@ -254,30 +247,6 @@ private fun CardBlock(content: @Composable () -> Unit) {
 private fun ReviewMetric.titleRes() = when (this) {
     ReviewMetric.Grammar -> Res.string.metric_grammar
     ReviewMetric.Vocabulary -> Res.string.metric_vocabulary
-    ReviewMetric.Pronunciation -> Res.string.metric_pronunciation
-    ReviewMetric.Fluency -> Res.string.metric_fluency
-    ReviewMetric.SpeedOfSpeech -> Res.string.metric_speed
-}
-
-private fun ReviewStep.BulletsTitle.stringRes() = when (this) {
-    ReviewStep.BulletsTitle.Improve -> Res.string.review_improve
-    ReviewStep.BulletsTitle.Attention -> Res.string.review_attention
-}
-
-private fun ReviewStep.ExamplesTitle.stringRes() = when (this) {
-    ReviewStep.ExamplesTitle.Quotes -> Res.string.review_examples
-    ReviewStep.ExamplesTitle.Words -> Res.string.review_words
-}
-
-private fun ExampleLabel.stringRes() = when (this) {
-    ExampleLabel.YouSaid -> Res.string.review_you_said
-    ExampleLabel.Better -> Res.string.review_better
-    ExampleLabel.Try -> Res.string.review_try
-    ExampleLabel.Word -> Res.string.review_word
-    ExampleLabel.AsSpoken -> Res.string.review_as_spoken
-    ExampleLabel.Smoother -> Res.string.review_smoother
-    ExampleLabel.TryThis -> Res.string.review_try_this
-    ExampleLabel.Why -> Res.string.review_why
 }
 
 @Preview

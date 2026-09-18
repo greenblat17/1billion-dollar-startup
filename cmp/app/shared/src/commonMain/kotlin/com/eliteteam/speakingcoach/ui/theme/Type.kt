@@ -1,12 +1,19 @@
 package com.eliteteam.speakingcoach.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
+import cmp.app.shared.generated.resources.Res
+import cmp.app.shared.generated.resources.inter_bold
+import cmp.app.shared.generated.resources.inter_medium
+import cmp.app.shared.generated.resources.inter_regular
+import org.jetbrains.compose.resources.Font
 
-internal val AppTypography = Typography(
+private val AppTypography = Typography(
     displayLarge = TextStyle(
         fontWeight = FontWeight.Normal,
         fontSize = 57.sp,
@@ -122,3 +129,29 @@ internal val AppTypography = Typography(
         ),
     ),
 )
+
+@Composable
+fun appTypography(): Typography {
+    val inter = FontFamily(
+        Font(Res.font.inter_regular, FontWeight.Normal),
+        Font(Res.font.inter_medium, FontWeight.Medium),
+        Font(Res.font.inter_bold, FontWeight.Bold),
+    )
+    return AppTypography.copy(
+        displayLarge = AppTypography.displayLarge.copy(fontFamily = inter),
+        displayMedium = AppTypography.displayMedium.copy(fontFamily = inter),
+        displaySmall = AppTypography.displaySmall.copy(fontFamily = inter),
+        headlineLarge = AppTypography.headlineLarge.copy(fontFamily = inter),
+        headlineMedium = AppTypography.headlineMedium.copy(fontFamily = inter),
+        headlineSmall = AppTypography.headlineSmall.copy(fontFamily = inter),
+        titleLarge = AppTypography.titleLarge.copy(fontFamily = inter),
+        titleMedium = AppTypography.titleMedium.copy(fontFamily = inter),
+        titleSmall = AppTypography.titleSmall.copy(fontFamily = inter),
+        bodyLarge = AppTypography.bodyLarge.copy(fontFamily = inter),
+        bodyMedium = AppTypography.bodyMedium.copy(fontFamily = inter),
+        bodySmall = AppTypography.bodySmall.copy(fontFamily = inter),
+        labelLarge = AppTypography.labelLarge.copy(fontFamily = inter),
+        labelMedium = AppTypography.labelMedium.copy(fontFamily = inter),
+        labelSmall = AppTypography.labelSmall.copy(fontFamily = inter),
+    )
+}

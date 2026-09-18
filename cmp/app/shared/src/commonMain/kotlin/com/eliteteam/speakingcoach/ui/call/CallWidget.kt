@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.ui.call
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
@@ -61,12 +63,12 @@ fun CallWidget(
             .padding(horizontal = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(72.dp))
+        Spacer(Modifier.height(64.dp))
         Box(contentAlignment = Alignment.Center) {
-            AmbientBlob(modifier = Modifier.size(280.dp))
-            Ring(220.dp, scheme.primaryContainer)
-            Ring(176.dp, scheme.primaryContainer)
-            Ring(132.dp, scheme.primaryContainer)
+            AmbientBlob(modifier = Modifier.size(168.dp))
+            SoftRing(140.dp, scheme.primaryContainer)
+            SoftRing(200.dp, scheme.primaryContainer)
+            SoftRing(268.dp, scheme.primaryContainer)
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -90,7 +92,7 @@ fun CallWidget(
                 style = MaterialTheme.typography.titleMedium,
                 color = scheme.onBackground,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(horizontal = 8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp),
             )
         }
         Spacer(Modifier.weight(1f))
@@ -127,13 +129,15 @@ fun CallWidget(
 }
 
 @Composable
-private fun Ring(size: Dp, color: Color) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .border(1.dp, color, CircleShape),
-    )
+private fun SoftRing(size: Dp, color: Color) {
+    Canvas(modifier = Modifier.size(size)) {
+        val stroke = 1.75.dp.toPx()
+        drawCircle(
+            color = color.copy(alpha = 0.7f),
+            radius = size.toPx() / 2f - stroke / 2f,
+            style = Stroke(width = stroke),
+        )
+    }
 }
 
 @Composable

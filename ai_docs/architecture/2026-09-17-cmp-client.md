@@ -1,7 +1,7 @@
 # Устройство CMP-клиента
 
 **Дата:** 2026-09-17  
-**Статус:** UI-оболочка в `:app:shared` (тема, Nav3, табы, мок-экраны). HTTP-клиент к `:server` ещё не вызван — `SpeakingCoachClient` с `TODO()`  
+**Статус:** UI-оболочка в `:app:shared` (тема Inter, Nav3, мок-экраны, без табов и без Истории). HTTP-клиент к `:server` ещё не вызван — `SpeakingCoachClient` с `TODO()`  
 **Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
@@ -39,7 +39,7 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 `:server` — соседний модуль в `cmp/`, не зависимость shared. Shared ходит в сервер по HTTP (ещё не подключено), не вшивает ktgbotapi.
 
-Навигация: Welcome → Main (табы Home / History / Profile) → Call → Review `0…4`. Данные экранов — `MockSpeakingData`. Контракт: `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient`.
+Навигация: Welcome → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Данные экранов — `MockSpeakingData`. Контракт: `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient`.
 
 ## Модули клиента
 

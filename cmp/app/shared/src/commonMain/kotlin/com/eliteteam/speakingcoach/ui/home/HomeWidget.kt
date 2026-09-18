@@ -149,13 +149,15 @@ fun HomeWidget(
                     onDrawBehind { drawRect(wash) }
                 },
         ) {
-            AmbientBlob(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 48.dp, y = (-36).dp)
-                    .size(240.dp),
-                color = scheme.surfaceContainerHigh,
-            )
+            Box(modifier = Modifier.matchParentSize()) {
+                AmbientBlob(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 48.dp, y = (-36).dp)
+                        .size(240.dp),
+                    color = scheme.surfaceContainerHigh,
+                )
+            }
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
                     text = stringResource(Res.string.home_start_title),
@@ -210,7 +212,7 @@ fun HomeWidget(
                 color = scheme.onBackground,
             )
             Spacer(Modifier.height(12.dp))
-            LastConversationCard(last, onLastConversation)
+            LastConversationCard(last, onClick = onLastConversation)
         }
         Spacer(Modifier.height(24.dp))
         }
@@ -264,11 +266,13 @@ private fun LastConversationCard(
         summary.durationMinutes,
     )
     val whenLabel = summary.whenLabel ?: stringResource(Res.string.when_today)
+    val topic = summary.topic.spec()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(CardShape)
             .background(scheme.surfaceContainerLowest)
+            .border(1.dp, scheme.outline, CardShape)
             .clickable(onClick = onClick)
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -281,7 +285,7 @@ private fun LastConversationCard(
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                painter = painterResource(Res.drawable.ic_work),
+                painter = painterResource(topic.icon),
                 contentDescription = stringResource(Res.string.cd_open_conversation),
                 tint = scheme.primary,
                 modifier = Modifier.size(20.dp),

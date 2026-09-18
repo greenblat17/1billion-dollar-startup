@@ -1,7 +1,6 @@
 package com.eliteteam.speakingcoach.di
 
 import com.eliteteam.speakingcoach.ui.call.CallViewModel
-import com.eliteteam.speakingcoach.ui.history.HistoryViewModel
 import com.eliteteam.speakingcoach.ui.home.HomeViewModel
 import com.eliteteam.speakingcoach.ui.profile.ProfileViewModel
 import com.eliteteam.speakingcoach.ui.review.ReviewViewModel
@@ -12,6 +11,5 @@ val appModule = module {
     viewModel<HomeViewModel>()
     viewModel<CallViewModel>()
     viewModel<ReviewViewModel>()
-    viewModel<HistoryViewModel>()
     viewModel<ProfileViewModel>()
 }

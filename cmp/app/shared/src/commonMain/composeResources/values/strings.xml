@@ -5,7 +5,9 @@
     <string name="welcome_headline_accent">уверенно</string>
     <string name="welcome_start">Начать</string>
     <string name="welcome_have_account">У меня уже есть аккаунт</string>
-    <string name="welcome_legal">Продолжая, вы соглашаетесь с Условиями использования и Политикой конфиденциальности.</string>
+    <string name="welcome_legal">Продолжая, вы соглашаетесь с %1$s и %2$s.</string>
+    <string name="welcome_terms">Условиями&#160;использования</string>
+    <string name="welcome_privacy">Политикой&#160;конфиденциальности</string>
 
     <string name="home_greeting">Привет, %1$s!</string>
     <string name="home_subtitle">Готов немного попрактиковаться?</string>
@@ -32,35 +34,17 @@
     <string name="call_captions">Субтитры</string>
 
     <string name="review_title">Разбор разговора</string>
-    <string name="review_step">%1$d/5</string>
+    <string name="review_step">%1$d/%2$d</string>
     <string name="review_score_total">/100</string>
     <string name="review_improve">Что можно улучшить</string>
-    <string name="review_attention">На что обратить внимание</string>
     <string name="review_examples">Примеры из разговора</string>
-    <string name="review_words">Слова из разговора</string>
     <string name="review_you_said">Ты сказал</string>
     <string name="review_better">Лучше</string>
-    <string name="review_try">Попробуй</string>
-    <string name="review_word">Слово</string>
-    <string name="review_as_spoken">Как звучало</string>
-    <string name="review_smoother">Более плавно</string>
-    <string name="review_try_this">Попробуй так</string>
-    <string name="review_why">Зачем</string>
     <string name="review_tip">Совет</string>
     <string name="review_next">Далее</string>
     <string name="review_finish">Завершить</string>
     <string name="metric_grammar">Grammar</string>
     <string name="metric_vocabulary">Vocabulary</string>
-    <string name="metric_pronunciation">Pronunciation</string>
-    <string name="metric_fluency">Fluency</string>
-    <string name="metric_speed">Speed of speech</string>
-
-    <string name="history_title">История</string>
-    <string name="history_subtitle">Ваши прошлые разговоры</string>
-    <string name="score_grammar">Grammar</string>
-    <string name="score_vocabulary">Vocabulary</string>
-    <string name="score_pronunciation">Pronunciation</string>
-    <string name="score_value">%1$d</string>
 
     <string name="profile_title">Профиль</string>
     <string name="profile_subtitle">Настройки приложения</string>
@@ -78,10 +62,6 @@
     <string name="profile_terms">Условия использования</string>
     <string name="profile_privacy">Конфиденциальность</string>
     <string name="profile_sign_out">Выйти из аккаунта</string>
-
-    <string name="tab_home">Главная</string>
-    <string name="tab_history">История</string>
-    <string name="tab_profile">Профиль</string>
 
     <string name="cd_back">Назад</string>
     <string name="cd_profile">Профиль</string>

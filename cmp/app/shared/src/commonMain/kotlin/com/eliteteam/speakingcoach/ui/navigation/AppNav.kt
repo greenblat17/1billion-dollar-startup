@@ -1,10 +1,6 @@
 package com.eliteteam.speakingcoach.ui.navigation
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
@@ -12,7 +8,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.ui.NavDisplay
 import androidx.savedstate.serialization.SavedStateConfiguration
 import com.eliteteam.speakingcoach.ui.call.CallScreen
-import com.eliteteam.speakingcoach.ui.main.MainShell
+import com.eliteteam.speakingcoach.ui.home.HomeScreen
+import com.eliteteam.speakingcoach.ui.profile.ProfileScreen
 import com.eliteteam.speakingcoach.ui.review.ReviewScreen
 import com.eliteteam.speakingcoach.ui.welcome.WelcomeScreen
 import kotlinx.serialization.modules.SerializersModule
@@ -24,6 +21,7 @@ private val navConfig = SavedStateConfiguration {
         polymorphic(NavKey::class) {
             subclass(WelcomeRoute.serializer())
             subclass(MainRoute.serializer())
+            subclass(ProfileRoute.serializer())
             subclass(CallRoute.serializer())
             subclass(ReviewRoute.serializer())
         }
@@ -33,7 +31,6 @@ private val navConfig = SavedStateConfiguration {
 @Composable
 fun AppNav() {
     val backStack = rememberNavBackStack(navConfig, WelcomeRoute)
-    var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
 
     NavDisplay(
         backStack = backStack,
@@ -46,15 +43,16 @@ fun AppNav() {
                 )
             }
             entry<MainRoute> {
-                MainShell(
-                    tab = tab,
-                    onTabSelected = { tab = it },
-                    onStartCall = { backStack.add(CallRoute) },
-                    onOpenReview = { backStack.add(ReviewRoute(0)) },
-                    onSignOut = {
-                        tab = MainTab.Home
-                        openWelcome(backStack)
-                    },
+                HomeScreen(
+                    onStart = { backStack.add(CallRoute) },
+                    onProfile = { backStack.add(ProfileRoute) },
+                    onLastConversation = { backStack.add(ReviewRoute(0)) },
+                )
+            }
+            entry<ProfileRoute> {
+                ProfileScreen(
+                    onBack = { pop(backStack) },
+                    onSignOut = { openWelcome(backStack) },
                 )
             }
             entry<CallRoute> {

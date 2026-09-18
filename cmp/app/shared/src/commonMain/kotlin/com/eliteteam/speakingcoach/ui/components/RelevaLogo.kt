@@ -11,6 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
@@ -31,17 +34,18 @@ fun RelevaLogo(
     ) {
         val primary = MaterialTheme.colorScheme.primary
         Canvas(Modifier.size(markSize)) {
-            val radius = size.minDimension * 0.28f
-            drawCircle(
-                color = primary.copy(alpha = 0.45f),
-                radius = radius,
-                center = Offset(size.width * 0.40f, size.height * 0.58f),
-            )
-            drawCircle(
-                color = primary,
-                radius = radius,
-                center = Offset(size.width * 0.58f, size.height * 0.42f),
-            )
+            val s = size.minDimension
+            val petal = teardropPath(s * 0.72f)
+            translate(s * 0.04f, s * 0.10f) {
+                rotate(-38f, pivot = Offset(s * 0.36f, s * 0.52f)) {
+                    drawPath(petal, color = primary.copy(alpha = 0.42f))
+                }
+            }
+            translate(s * 0.18f, s * -0.02f) {
+                rotate(28f, pivot = Offset(s * 0.42f, s * 0.40f)) {
+                    drawPath(petal, color = primary)
+                }
+            }
         }
         if (showWordmark) {
             Text(
@@ -51,4 +55,21 @@ fun RelevaLogo(
             )
         }
     }
+}
+
+private fun teardropPath(size: Float): Path {
+    val path = Path()
+    path.moveTo(size * 0.50f, size * 0.96f)
+    path.cubicTo(
+        size * 0.06f, size * 0.72f,
+        size * 0.10f, size * 0.22f,
+        size * 0.50f, size * 0.04f,
+    )
+    path.cubicTo(
+        size * 0.90f, size * 0.22f,
+        size * 0.94f, size * 0.72f,
+        size * 0.50f, size * 0.96f,
+    )
+    path.close()
+    return path
 }

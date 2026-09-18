@@ -10,6 +10,7 @@ data class ConversationSummary(
     val title: String,
     val durationMinutes: Int,
     val whenLabel: String?,
+    val topic: TopicKind,
 )
 
 enum class TopicKind {

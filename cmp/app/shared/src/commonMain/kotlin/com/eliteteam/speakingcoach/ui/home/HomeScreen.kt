@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.ui.home
 
+import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -21,6 +22,6 @@ fun HomeScreen(
         onTopicSelected = viewModel::onTopicSelected,
         onProfile = onProfile,
         onLastConversation = onLastConversation,
-        modifier = modifier,
+        modifier = modifier.safeContentPadding(),
     )
 }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -29,6 +30,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
+import cmp.app.shared.generated.resources.cd_back
+import cmp.app.shared.generated.resources.ic_arrow_back
 import cmp.app.shared.generated.resources.ic_chevron_right
 import cmp.app.shared.generated.resources.ic_closed_caption
 import cmp.app.shared.generated.resources.ic_description
@@ -63,6 +66,7 @@ private val CardShape = RoundedCornerShape(24.dp)
 @Composable
 fun ProfileWidget(
     state: ProfileUiState,
+    onBack: () -> Unit,
     onCaptionsToggled: (Boolean) -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
@@ -75,7 +79,17 @@ fun ProfileWidget(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(4.dp))
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier.padding(start = 0.dp),
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_arrow_back),
+                contentDescription = stringResource(Res.string.cd_back),
+                tint = scheme.onBackground,
+            )
+        }
         Text(
             text = stringResource(Res.string.profile_title),
             style = MaterialTheme.typography.headlineLarge,
@@ -158,6 +172,7 @@ fun ProfileWidget(
                     Switch(
                         checked = state.captionsByDefault,
                         onCheckedChange = onCaptionsToggled,
+                        thumbContent = {},
                         colors = SwitchDefaults.colors(
                             checkedTrackColor = scheme.primary,
                         ),
@@ -300,6 +315,7 @@ private fun ProfileWidgetPreview() {
     AppTheme {
         ProfileWidget(
             state = MockSpeakingData.profile,
+            onBack = {},
             onCaptionsToggled = {},
             onSignOut = {},
         )
