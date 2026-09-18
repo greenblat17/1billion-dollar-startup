@@ -13,7 +13,7 @@
 | ai-service | `ai-service/` | STT → LLM → TTS, сессии, jobs |
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
 | Stub | `infra/ai-service-stub/` | Мок клипов без ключей |
-| CMP UI | `cmp/app/` | Шаблон KMP, **не** ходит в clip API |
+| CMP UI | `cmp/app/` | Мок Releva (Welcome/Home/Call/разбор Grammar+Vocabulary/Profile), **не** ходит в clip API |
 
 Внешние API: Groq Whisper (STT), OpenRouter `gpt-4o-mini` (LLM), Kokoro TTS, Telegram Bot API.
 
@@ -137,7 +137,7 @@ flowchart TB
 
 ## Что сознательно не в рантайме бота
 
-CMP Android / iOS / Desktop (`App.kt`) — шаблон «Click me», к сессиям и клипам не подключены. Менять их для Speaky не нужно, пока нет отдельной задачи на клиент.
+CMP Android / iOS / Desktop (`App.kt`) — мок-экраны Releva, к сессиям и клипам не подключены. Для бота Speaky их не трогать, пока нет отдельной задачи на клиент.
 
 ## Границы ответственности при правках
 
