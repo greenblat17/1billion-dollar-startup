@@ -14,7 +14,7 @@ from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
 from app.pipeline import ClipPipeline
-from app.sessions import GREETING_TEXT
+from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.stt import GroqSpeechToText
 from app.tts import OpenAiTextToSpeech
 
@@ -62,7 +62,7 @@ def create_app(
         nonlocal greeting_audio
         async with greeting_lock:
             if greeting_audio is None:
-                greeting_audio = await clip_pipeline.tts.synthesize(GREETING_TEXT)
+                greeting_audio = await clip_pipeline.tts.synthesize(GREETING_VOICE_TEXT)
             return Response(content=greeting_audio, media_type=CONTENT_TYPE_OGG)
 
     @app.post("/v1/clips", status_code=202)
@@ -112,7 +112,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     if "openrouter.ai" in settings.openai_base_url:
         openai_headers = {
             "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
-            "X-Title": "Speaking Coach",
+            "X-Title": "Speaky",
         }
     openai_client = AsyncOpenAI(
         api_key=settings.openai_api_key,

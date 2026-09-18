@@ -59,7 +59,7 @@ class Settings:
             tts_response_format=_env("TTS_RESPONSE_FORMAT", "mp3") or "mp3",
             ffmpeg_bin=_env("FFMPEG_BIN", "ffmpeg") or "ffmpeg",
             redis_url=_env("REDIS_URL"),
-            dialogue_ttl_seconds=_int_env("DIALOGUE_TTL_SECONDS", 86400),
+            dialogue_ttl_seconds=_int_env("DIALOGUE_TTL_SECONDS", 2592000),
             dialogue_max_messages=_int_env("DIALOGUE_MAX_MESSAGES", 40),
             job_ttl_seconds=_int_env("JOB_TTL_SECONDS", 600),
             pipeline_timeout_seconds=_float_env("PIPELINE_TIMEOUT_SECONDS", 60),

@@ -29,11 +29,13 @@ data class ClipStatusResponse(
     val status: String,
     val result: ClipResultResponse? = null,
     val error: ClipErrorResponse? = null,
+    val transcript: String? = null,
 )
 
 @Serializable
 data class ClipResultResponse(
     val notes: List<String> = emptyList(),
+    val transcript: String = "",
 )
 
 @Serializable
