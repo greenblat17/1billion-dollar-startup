@@ -1,9 +1,7 @@
 package com.eliteteam.speakingcoach.ui.review
 
-import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -23,6 +21,5 @@ fun ReviewScreen(
         stepCount = state.steps.size,
         onBack = onBack,
         onContinue = { onContinue(safeIndex == state.steps.lastIndex) },
-        modifier = Modifier.safeContentPadding(),
     )
 }

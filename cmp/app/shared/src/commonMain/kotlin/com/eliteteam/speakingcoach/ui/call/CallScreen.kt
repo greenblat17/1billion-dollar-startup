@@ -1,9 +1,7 @@
 package com.eliteteam.speakingcoach.ui.call
 
-import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -18,6 +16,5 @@ fun CallScreen(
         onHangup = onHangup,
         onMicToggle = viewModel::onMicToggled,
         onCaptionsToggle = viewModel::onCaptionsToggled,
-        modifier = Modifier.safeContentPadding(),
     )
 }

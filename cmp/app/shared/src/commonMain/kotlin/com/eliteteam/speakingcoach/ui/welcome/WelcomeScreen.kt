@@ -1,8 +1,6 @@
 package com.eliteteam.speakingcoach.ui.welcome
 
-import androidx.compose.foundation.layout.safeContentPadding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 
 @Composable
 fun WelcomeScreen(
@@ -12,6 +10,5 @@ fun WelcomeScreen(
     WelcomeWidget(
         onStart = onStart,
         onHaveAccount = onHaveAccount,
-        modifier = Modifier.safeContentPadding(),
     )
 }
