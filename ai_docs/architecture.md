@@ -109,7 +109,7 @@ flowchart TD
 
 - Clarify: *I didn't catch that. Could you say it again?* Notes пустые, LLM не зовётся.
 - Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; notes JSON `{"notes":[{"wrong","better"}]}` **без** истории, `temperature` 0. Промпт задаёт ширину спана (few-shot), не каталог ошибок. Пайплайн ждёт оба, потом TTS. В Redis кладётся **spoken reply**, не notes.
-- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike + bold; `wrong` только как целое слово/фраза (не `me` внутри `remember`); правка на своей строке; висячая пунктуация после спана съедается.
+- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike на одной строке, bold `better` на следующей; `wrong` только как целое слово/фраза; висячая пунктуация после спана съедается.
 
 Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service убивает незавершённые jobs, **не** Redis-диалог.
 

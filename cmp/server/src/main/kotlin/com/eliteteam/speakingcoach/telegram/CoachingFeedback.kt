@@ -45,7 +45,7 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
                     regular("\n\n")
                 }
                 strikethrough(span.wrong)
-                regular(" ")
+                regular("\n")
                 bold(span.better)
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
