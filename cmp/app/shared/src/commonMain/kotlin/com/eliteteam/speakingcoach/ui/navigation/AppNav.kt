@@ -76,8 +76,9 @@ fun AppNav(
             entry<ProfileRoute> {
                 ProfileScreen()
             }
-            entry<CallRoute> {
+            entry<CallRoute> { route ->
                 CallScreen(
+                    sessionId = route.sessionId,
                     onHangup = {
                         pop(backStack)
                         backStack.add(ReviewRoute(0))

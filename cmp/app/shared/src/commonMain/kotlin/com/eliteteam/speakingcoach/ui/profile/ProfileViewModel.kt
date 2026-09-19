@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.ui.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import co.touchlab.kermit.Logger
 import com.eliteteam.speakingcoach.data.SessionStore
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
 import com.eliteteam.speakingcoach.ui.mock.DailyGoalStore
@@ -19,6 +20,7 @@ class ProfileViewModel(
     private val client: SpeakingCoachClient,
     private val sessionStore: SessionStore,
     private val dailyGoalStore: DailyGoalStore,
+    private val logger: Logger,
 ) : ViewModel() {
     private val captions = MutableStateFlow(sessionStore.captionsByDefault)
     private val tutorVoice = MutableStateFlow(sessionStore.tutorVoice)
@@ -58,13 +60,16 @@ class ProfileViewModel(
     fun onTutorVoiceCycled() {
         val current = tutorVoice.value
         val next = TutorVoices[(TutorVoices.indexOf(current).let { if (it < 0) 0 else it } + 1) % TutorVoices.size]
+        logger.i { "tutor voice $next" }
         tutorVoice.value = next
         sessionStore.setTutorVoice(next)
     }
 
     fun signOut() {
+        logger.i { "sign out" }
         viewModelScope.launch {
             runCatching { client.logout() }
+                .onFailure { error -> logger.w(error) { "logout ${error::class.simpleName}" } }
             sessionStore.clear()
         }
     }

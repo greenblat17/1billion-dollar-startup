@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.ui.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import co.touchlab.kermit.Logger
 import com.eliteteam.speakingcoach.data.ApiException
 import com.eliteteam.speakingcoach.data.SessionStore
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
@@ -16,6 +17,7 @@ class AuthViewModel(
     private val client: SpeakingCoachClient,
     private val sessionStore: SessionStore,
     register: Boolean,
+    private val logger: Logger,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(AuthUiState(register = register))
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
@@ -37,18 +39,24 @@ class AuthViewModel(
         if (current.busy) return
         _uiState.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
+            val action = if (current.register) "register" else "login"
+            logger.i { "$action submit" }
             try {
                 val session = if (current.register) {
                     client.register(current.email, current.password, current.displayName)
                 } else {
                     client.login(current.email, current.password)
                 }
+                logger.i { "$action ok userId=${session.user.id}" }
                 sessionStore.save(session)
             } catch (error: ApiException) {
+                val mapped = error.toAuthError(current.register)
+                logger.w { "$action failed HTTP ${error.status.value} $mapped" }
                 _uiState.update {
-                    it.copy(busy = false, error = error.toAuthError(current.register))
+                    it.copy(busy = false, error = mapped)
                 }
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
+                logger.e(error) { "$action failed ${error::class.simpleName}" }
                 _uiState.update { it.copy(busy = false, error = AuthError.Network) }
             }
         }

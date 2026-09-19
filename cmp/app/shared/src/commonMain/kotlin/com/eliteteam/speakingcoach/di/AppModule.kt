@@ -18,7 +18,7 @@ import org.koin.dsl.module
 
 val appModule = module {
     single { Settings() }
-    single { SessionStore(get()) }
+    single { SessionStore(get(), getLoggerWithTag("SessionStore")) }
     single { createHttpClient() }
     single<SpeakingCoachClient> {
         HttpSpeakingCoachClient(
@@ -34,10 +34,16 @@ val appModule = module {
             client = get(),
             sessionStore = get(),
             register = parameters.get(),
+            logger = getLoggerWithTag("AuthViewModel"),
         )
     }
-    viewModel { HomeViewModel(get(), get(), get()) }
-    viewModel { CallViewModel() }
-    viewModel { ReviewViewModel() }
-    viewModel { ProfileViewModel(get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), getLoggerWithTag("HomeViewModel")) }
+    viewModel { parameters ->
+        CallViewModel(
+            sessionId = parameters.get(),
+            logger = getLoggerWithTag("CallViewModel"),
+        )
+    }
+    viewModel { ReviewViewModel(getLoggerWithTag("ReviewViewModel")) }
+    viewModel { ProfileViewModel(get(), get(), get(), getLoggerWithTag("ProfileViewModel")) }
 }

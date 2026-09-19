@@ -1,7 +1,11 @@
 package com.eliteteam.speakingcoach.data
 
+import co.touchlab.kermit.ExperimentalKermitApi
 import co.touchlab.kermit.Logger
-import co.touchlab.kermit.loggerConfigInit
+import co.touchlab.kermit.Severity
+import co.touchlab.kermit.TestConfig
+import co.touchlab.kermit.TestLogWriter
+import com.eliteteam.speakingcoach.testLogger
 import com.russhwolf.settings.MapSettings
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
@@ -61,9 +65,31 @@ class HttpSpeakingCoachClientTest {
         http.close()
     }
 
+    @OptIn(ExperimentalKermitApi::class)
+    @Test
+    fun loginFailureLogsHttpStatus() = runTest {
+        val writer = TestLogWriter(loggable = Severity.Verbose)
+        val logger = Logger(
+            TestConfig(minSeverity = Severity.Debug, logWriterList = listOf(writer)),
+            "HttpSpeakingCoachClient",
+        )
+        val http = HttpClient(MockEngine) {
+            engine {
+                addHandler {
+                    respond("{}", status = HttpStatusCode.Unauthorized, headers = jsonHeaders)
+                }
+            }
+            installJson()
+        }
+        val client = client(http, logger = logger)
+        assertFailsWith<ApiException> { client.login("ed@example.com", "nope") }
+        http.close()
+        writer.assertLast { message == "POST /v1/auth/login HTTP 401" && severity == Severity.Warn }
+    }
+
     @Test
     fun createSessionSendsBearerAndTopic() = runTest {
-        val store = SessionStore(MapSettings())
+        val store = SessionStore(MapSettings(), testLogger())
         store.save(
             AuthSession(
                 token = "jwt-1",
@@ -97,11 +123,12 @@ class HttpSpeakingCoachClientTest {
 
     private fun client(
         http: HttpClient,
-        store: SessionStore = SessionStore(MapSettings()),
+        store: SessionStore = SessionStore(MapSettings(), testLogger()),
+        logger: Logger = testLogger(),
     ) = HttpSpeakingCoachClient(
         http = http,
         sessionStore = store,
-        logger = Logger(loggerConfigInit(), "test"),
+        logger = logger,
         baseUrl = "https://example.test",
     )
 
@@ -111,7 +138,7 @@ class HttpSpeakingCoachClientTest {
 class SessionStoreTest {
     @Test
     fun saveAndClearRoundTrip() {
-        val store = SessionStore(MapSettings())
+        val store = SessionStore(MapSettings(), testLogger())
         store.save(
             AuthSession(
                 token = "jwt",

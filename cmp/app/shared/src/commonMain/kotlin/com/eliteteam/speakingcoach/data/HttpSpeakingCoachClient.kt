@@ -10,7 +10,6 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
-import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 
@@ -22,57 +21,83 @@ class HttpSpeakingCoachClient(
 ) : SpeakingCoachClient {
     private val root = baseUrl.trimEnd('/')
 
+    init {
+        logger.i { "baseUrl=$root" }
+    }
+
     override suspend fun register(email: String, password: String, displayName: String): AuthSession {
-        val response = http.post("$root/v1/auth/register") {
-            contentType(ContentType.Application.Json)
-            setBody(RegisterRequestDto(email = email, password = password, displayName = displayName))
+        val response = execute("POST", "/v1/auth/register") {
+            http.post("$root/v1/auth/register") {
+                contentType(ContentType.Application.Json)
+                setBody(RegisterRequestDto(email = email, password = password, displayName = displayName))
+            }
         }
-        return readAuth(response)
+        val session = readAuth(response)
+        logger.i { "POST /v1/auth/register HTTP ${response.status.value} userId=${session.user.id}" }
+        return session
     }
 
     override suspend fun login(email: String, password: String): AuthSession {
-        val response = http.post("$root/v1/auth/login") {
-            contentType(ContentType.Application.Json)
-            setBody(LoginRequestDto(email = email, password = password))
+        val response = execute("POST", "/v1/auth/login") {
+            http.post("$root/v1/auth/login") {
+                contentType(ContentType.Application.Json)
+                setBody(LoginRequestDto(email = email, password = password))
+            }
         }
-        return readAuth(response)
+        val session = readAuth(response)
+        logger.i { "POST /v1/auth/login HTTP ${response.status.value} userId=${session.user.id}" }
+        return session
     }
 
     override suspend fun logout() {
-        val response = http.post("$root/v1/auth/logout") { applyBearer() }
-        if (response.status == HttpStatusCode.Unauthorized) {
-            throw ApiException(response.status)
+        val response = execute("POST", "/v1/auth/logout") {
+            http.post("$root/v1/auth/logout") { applyBearer() }
         }
-        if (!response.status.isSuccess()) {
-            logger.w { "logout failed HTTP ${response.status.value}" }
-            throw ApiException(response.status)
-        }
+        logger.i { "POST /v1/auth/logout HTTP ${response.status.value}" }
     }
 
     override suspend fun loadHome(): String {
-        val response = http.get("$root/v1/home") { applyBearer() }
-        ensureSuccess(response)
-        return response.body<HomeResponseDto>().userName
+        val response = execute("GET", "/v1/home") {
+            http.get("$root/v1/home") { applyBearer() }
+        }
+        val name = response.body<HomeResponseDto>().userName
+        logger.i { "GET /v1/home HTTP ${response.status.value}" }
+        return name
     }
 
     override suspend fun createSession(topic: String, tutorVoice: String): String {
-        val response = http.post("$root/v1/sessions") {
-            applyBearer()
-            contentType(ContentType.Application.Json)
-            setBody(CreateSessionRequestDto(topic = topic, tutorVoice = tutorVoice))
+        val response = execute("POST", "/v1/sessions") {
+            http.post("$root/v1/sessions") {
+                applyBearer()
+                contentType(ContentType.Application.Json)
+                setBody(CreateSessionRequestDto(topic = topic, tutorVoice = tutorVoice))
+            }
         }
-        ensureSuccess(response)
-        return response.body<CreateSessionResponseDto>().sessionId
+        val sessionId = response.body<CreateSessionResponseDto>().sessionId
+        logger.i { "POST /v1/sessions HTTP ${response.status.value} sessionId=$sessionId topic=$topic voice=$tutorVoice" }
+        return sessionId
     }
 
     private fun HttpRequestBuilder.applyBearer() {
         sessionStore.session.value?.token?.let { bearerAuth(it) }
     }
 
-    private suspend fun readAuth(response: HttpResponse): AuthSession {
+    private suspend fun execute(method: String, path: String, block: suspend () -> HttpResponse): HttpResponse {
+        logger.i { "$method $path" }
+        val response = try {
+            block()
+        } catch (error: Throwable) {
+            logger.e(error) { "$method $path ${error::class.simpleName}" }
+            throw error
+        }
         if (!response.status.isSuccess()) {
+            logger.w { "$method $path HTTP ${response.status.value}" }
             throw ApiException(response.status)
         }
+        return response
+    }
+
+    private suspend fun readAuth(response: HttpResponse): AuthSession {
         val body = response.body<AuthResponseDto>()
         return AuthSession(
             token = body.token,
@@ -82,11 +107,5 @@ class HttpSpeakingCoachClient(
                 displayName = body.user.displayName,
             ),
         )
-    }
-
-    private fun ensureSuccess(response: HttpResponse) {
-        if (!response.status.isSuccess()) {
-            throw ApiException(response.status)
-        }
     }
 }

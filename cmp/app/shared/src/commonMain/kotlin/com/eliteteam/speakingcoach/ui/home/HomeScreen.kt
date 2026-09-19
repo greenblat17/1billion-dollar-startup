@@ -18,6 +18,6 @@ fun HomeScreen(
         onStart = { viewModel.startConversation(onStart) },
         onTopicSelected = viewModel::onTopicSelected,
         onProfile = onProfile,
-        onLastConversation = onLastConversation,
+        onLastConversation = { viewModel.openLastConversation(onLastConversation) },
     )
 }

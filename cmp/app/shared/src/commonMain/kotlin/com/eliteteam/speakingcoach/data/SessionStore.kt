@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.data
 
+import co.touchlab.kermit.Logger
 import com.russhwolf.settings.Settings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,9 +15,19 @@ private const val KeyCaptions = "prefs.captionsByDefault"
 
 class SessionStore(
     private val settings: Settings,
+    private val logger: Logger,
 ) {
     private val _session = MutableStateFlow(readSession())
     val session: StateFlow<AuthSession?> = _session.asStateFlow()
+
+    init {
+        val restored = _session.value
+        if (restored == null) {
+            logger.i { "no stored session" }
+        } else {
+            logger.i { "session restored userId=${restored.user.id}" }
+        }
+    }
 
     val tutorVoice: String
         get() = settings.getString(KeyTutorVoice, "marin")
@@ -30,6 +41,7 @@ class SessionStore(
         settings.putString(KeyEmail, session.user.email)
         settings.putString(KeyDisplayName, session.user.displayName)
         _session.value = session
+        logger.i { "session saved userId=${session.user.id}" }
     }
 
     fun clear() {
@@ -38,6 +50,7 @@ class SessionStore(
         settings.remove(KeyEmail)
         settings.remove(KeyDisplayName)
         _session.value = null
+        logger.i { "session cleared" }
     }
 
     fun setTutorVoice(voice: String) {

@@ -5,6 +5,7 @@ import com.eliteteam.speakingcoach.data.AuthSession
 import com.eliteteam.speakingcoach.data.AuthUser
 import com.eliteteam.speakingcoach.data.SessionStore
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
+import com.eliteteam.speakingcoach.testLogger
 import com.russhwolf.settings.MapSettings
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
@@ -36,8 +37,8 @@ class AuthViewModelTest {
 
     @Test
     fun registerSuccessWritesSession() = runTest(dispatcher) {
-        val store = SessionStore(MapSettings())
-        val vm = AuthViewModel(FakeClient(), store, register = true)
+        val store = SessionStore(MapSettings(), testLogger())
+        val vm = AuthViewModel(FakeClient(), store, register = true, logger = testLogger())
         vm.onEmailChanged("ed@example.com")
         vm.onPasswordChanged("secret12")
         vm.onDisplayNameChanged("Ed")
@@ -49,9 +50,9 @@ class AuthViewModelTest {
 
     @Test
     fun loginUnauthorizedShowsInvalid() = runTest(dispatcher) {
-        val store = SessionStore(MapSettings())
+        val store = SessionStore(MapSettings(), testLogger())
         val client = FakeClient().apply { loginError = ApiException(HttpStatusCode.Unauthorized) }
-        val vm = AuthViewModel(client, store, register = false)
+        val vm = AuthViewModel(client, store, register = false, logger = testLogger())
         vm.onEmailChanged("ed@example.com")
         vm.onPasswordChanged("nope")
         vm.onSubmit()
