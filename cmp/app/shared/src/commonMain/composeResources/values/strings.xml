@@ -15,19 +15,10 @@
     <string name="home_start_body">Поговори с AI на английском</string>
     <string name="home_start_cta">Начать</string>
     <string name="home_pick_topic">Выберите тему</string>
-    <string name="home_last_conversation">Последний разговор</string>
     <string name="topic_everyday">Повседневное</string>
     <string name="topic_work">Работа</string>
     <string name="topic_travel">Путешествия</string>
     <string name="topic_random">Случайная тема</string>
-    <string name="when_today">Сегодня</string>
-    <string name="conversation_meta">%1$s · %2$s</string>
-    <plurals name="duration_minutes">
-        <item quantity="one">%1$d мин</item>
-        <item quantity="few">%1$d мин</item>
-        <item quantity="many">%1$d мин</item>
-        <item quantity="other">%1$d мин</item>
-    </plurals>
 
     <string name="call_hangup">Завершить</string>
     <string name="call_mic">Микрофон</string>
@@ -67,7 +58,6 @@
     <string name="cd_profile">Профиль</string>
     <string name="cd_logo">Releva</string>
     <string name="cd_start">Начать</string>
-    <string name="cd_open_conversation">Открыть разговор</string>
     <string name="cd_hangup">Завершить звонок</string>
     <string name="cd_mic">Микрофон</string>
     <string name="cd_captions">Субтитры</string>

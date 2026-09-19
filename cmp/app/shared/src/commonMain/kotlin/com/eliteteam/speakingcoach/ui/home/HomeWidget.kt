@@ -32,18 +32,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
-import cmp.app.shared.generated.resources.cd_open_conversation
 import cmp.app.shared.generated.resources.cd_profile
-import cmp.app.shared.generated.resources.conversation_meta
-import cmp.app.shared.generated.resources.duration_minutes
 import cmp.app.shared.generated.resources.home_greeting
-import cmp.app.shared.generated.resources.home_last_conversation
 import cmp.app.shared.generated.resources.home_pick_topic
 import cmp.app.shared.generated.resources.home_start_body
 import cmp.app.shared.generated.resources.home_start_cta
 import cmp.app.shared.generated.resources.home_start_title
 import cmp.app.shared.generated.resources.home_subtitle
-import cmp.app.shared.generated.resources.ic_chevron_right
 import cmp.app.shared.generated.resources.ic_deployed_code
 import cmp.app.shared.generated.resources.ic_flight
 import cmp.app.shared.generated.resources.ic_local_cafe
@@ -53,7 +48,6 @@ import cmp.app.shared.generated.resources.topic_everyday
 import cmp.app.shared.generated.resources.topic_random
 import cmp.app.shared.generated.resources.topic_travel
 import cmp.app.shared.generated.resources.topic_work
-import cmp.app.shared.generated.resources.when_today
 import com.eliteteam.speakingcoach.ui.components.AmbientBlob
 import com.eliteteam.speakingcoach.ui.components.PrimaryButton
 import com.eliteteam.speakingcoach.ui.components.RelevaLogo
@@ -62,10 +56,8 @@ import com.eliteteam.speakingcoach.ui.theme.AppTheme
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.painterResource
-import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
-private val CardShape = RoundedCornerShape(24.dp)
 private val ChipShape = RoundedCornerShape(20.dp)
 
 @Composable
@@ -74,7 +66,6 @@ fun HomeWidget(
     onStart: () -> Unit,
     onTopicSelected: (TopicKind) -> Unit,
     onProfile: () -> Unit,
-    onLastConversation: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scheme = MaterialTheme.colorScheme
@@ -206,16 +197,6 @@ fun HomeWidget(
             }
             Spacer(Modifier.height(12.dp))
         }
-        val last = state.lastConversation
-        if (last != null) {
-            Text(
-                text = stringResource(Res.string.home_last_conversation),
-                style = MaterialTheme.typography.titleMedium,
-                color = scheme.onBackground,
-            )
-            Spacer(Modifier.height(12.dp))
-            LastConversationCard(last, onClick = onLastConversation)
-        }
         Spacer(Modifier.height(24.dp))
         }
     }
@@ -256,67 +237,6 @@ private fun TopicChip(
     }
 }
 
-@Composable
-private fun LastConversationCard(
-    summary: ConversationSummary,
-    onClick: () -> Unit,
-) {
-    val scheme = MaterialTheme.colorScheme
-    val duration = pluralStringResource(
-        Res.plurals.duration_minutes,
-        summary.durationMinutes,
-        summary.durationMinutes,
-    )
-    val whenLabel = summary.whenLabel ?: stringResource(Res.string.when_today)
-    val topic = summary.topic.spec()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(CardShape)
-            .background(scheme.surfaceContainerLowest)
-            .border(1.dp, scheme.outline, CardShape)
-            .clickable(onClick = onClick)
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(scheme.primaryContainer),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(topic.icon),
-                contentDescription = stringResource(Res.string.cd_open_conversation),
-                tint = scheme.primary,
-                modifier = Modifier.size(20.dp),
-            )
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-        ) {
-            Text(
-                text = summary.title,
-                style = MaterialTheme.typography.titleSmall,
-                color = scheme.onBackground,
-            )
-            Text(
-                text = stringResource(Res.string.conversation_meta, duration, whenLabel),
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.onSurfaceVariant,
-            )
-        }
-        Icon(
-            painter = painterResource(Res.drawable.ic_chevron_right),
-            contentDescription = null,
-            tint = scheme.onSurfaceVariant,
-        )
-    }
-}
-
 private data class TopicSpec(
     val icon: DrawableResource,
     val label: StringResource,
@@ -338,7 +258,6 @@ private fun HomeWidgetPreview() {
             onStart = {},
             onTopicSelected = {},
             onProfile = {},
-            onLastConversation = {},
         )
     }
 }

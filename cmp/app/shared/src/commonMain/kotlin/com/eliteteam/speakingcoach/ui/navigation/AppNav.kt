@@ -46,7 +46,6 @@ fun AppNav() {
                 HomeScreen(
                     onStart = { backStack.add(CallRoute) },
                     onProfile = { backStack.add(ProfileRoute) },
-                    onLastConversation = { backStack.add(ReviewRoute(0)) },
                 )
             }
             entry<ProfileRoute> {

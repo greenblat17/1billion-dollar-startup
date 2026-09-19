@@ -9,7 +9,6 @@ import org.koin.compose.viewmodel.koinViewModel
 fun HomeScreen(
     onStart: () -> Unit,
     onProfile: () -> Unit,
-    onLastConversation: () -> Unit,
     viewModel: HomeViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -18,6 +17,5 @@ fun HomeScreen(
         onStart = onStart,
         onTopicSelected = viewModel::onTopicSelected,
         onProfile = onProfile,
-        onLastConversation = onLastConversation,
     )
 }

@@ -1,7 +1,6 @@
 package com.eliteteam.speakingcoach.ui.mock
 
 import com.eliteteam.speakingcoach.ui.call.CallUiState
-import com.eliteteam.speakingcoach.ui.home.ConversationSummary
 import com.eliteteam.speakingcoach.ui.home.HomeUiState
 import com.eliteteam.speakingcoach.ui.home.TopicKind
 import com.eliteteam.speakingcoach.ui.profile.ProfileUiState
@@ -18,12 +17,6 @@ object MockSpeakingData {
     val home = HomeUiState(
         userName = UserName,
         selectedTopic = TopicKind.Random,
-        lastConversation = ConversationSummary(
-            title = "Работа",
-            durationMinutes = 8,
-            whenLabel = null,
-            topic = TopicKind.Work,
-        ),
     )
 
     val call = CallUiState(
