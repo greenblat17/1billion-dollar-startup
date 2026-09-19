@@ -13,6 +13,7 @@ import androidx.savedstate.serialization.SavedStateConfiguration
 import com.eliteteam.speakingcoach.data.SessionStore
 import com.eliteteam.speakingcoach.ui.auth.AuthScreen
 import com.eliteteam.speakingcoach.ui.call.CallScreen
+import com.eliteteam.speakingcoach.ui.call.HangupOutcome
 import com.eliteteam.speakingcoach.ui.home.HomeScreen
 import com.eliteteam.speakingcoach.ui.profile.ProfileScreen
 import com.eliteteam.speakingcoach.ui.review.ReviewScreen
@@ -70,7 +71,7 @@ fun AppNav(
                 HomeScreen(
                     onStart = { sessionId -> backStack.add(CallRoute(sessionId)) },
                     onProfile = { backStack.add(ProfileRoute) },
-                    onLastConversation = { backStack.add(ReviewRoute(0)) },
+                    onLastConversation = { backStack.add(ReviewRoute()) },
                 )
             }
             entry<ProfileRoute> {
@@ -79,21 +80,28 @@ fun AppNav(
             entry<CallRoute> { route ->
                 CallScreen(
                     sessionId = route.sessionId,
-                    onHangup = {
+                    onHangup = { outcome ->
                         pop(backStack)
-                        backStack.add(ReviewRoute(0))
+                        when (outcome) {
+                            HangupOutcome.Review -> backStack.add(ReviewRoute(sessionId = route.sessionId))
+                            HangupOutcome.Stay -> Unit
+                            HangupOutcome.TooShort,
+                            HangupOutcome.Failed,
+                            -> Unit
+                        }
                     },
                 )
             }
             entry<ReviewRoute> { route ->
                 ReviewScreen(
+                    sessionId = route.sessionId,
                     stepIndex = route.stepIndex,
                     onBack = { pop(backStack) },
                     onContinue = { isLast ->
                         if (isLast) {
                             popToMain(backStack)
                         } else {
-                            backStack.add(ReviewRoute(route.stepIndex + 1))
+                            backStack.add(ReviewRoute(route.sessionId, route.stepIndex + 1))
                         }
                     },
                 )

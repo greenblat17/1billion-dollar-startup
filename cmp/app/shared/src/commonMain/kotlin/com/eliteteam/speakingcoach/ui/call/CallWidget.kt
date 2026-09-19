@@ -31,6 +31,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
 import cmp.app.shared.generated.resources.call_captions
+import cmp.app.shared.generated.resources.call_connecting
+import cmp.app.shared.generated.resources.call_error_busy
+import cmp.app.shared.generated.resources.call_error_mic
+import cmp.app.shared.generated.resources.call_error_network
 import cmp.app.shared.generated.resources.call_hangup
 import cmp.app.shared.generated.resources.call_mic
 import cmp.app.shared.generated.resources.cd_captions
@@ -88,9 +92,19 @@ fun CallWidget(
             color = scheme.onSurfaceVariant,
         )
         Spacer(Modifier.weight(1f))
-        if (state.captionsOn) {
+        val status = when (state.error) {
+            CallError.Mic -> stringResource(Res.string.call_error_mic)
+            CallError.Conflict -> stringResource(Res.string.call_error_busy)
+            CallError.Network -> stringResource(Res.string.call_error_network)
+            null -> if (state.connecting) {
+                stringResource(Res.string.call_connecting)
+            } else {
+                state.caption
+            }
+        }
+        if (state.captionsOn || state.error != null || state.connecting) {
             Text(
-                text = state.caption,
+                text = status,
                 style = MaterialTheme.typography.titleMedium,
                 color = scheme.onBackground,
                 textAlign = TextAlign.Center,

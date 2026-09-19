@@ -6,7 +6,7 @@ Working documentation next to the code. A coding agent in a new session should s
 
 Глобальная архитектура (диаграммы): **`architecture.md`**. Деплой на VPS: **`deploy.md`**.
 
-Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
+Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). CMP WebRTC: `architecture/2026-09-20-webrtc-client.md`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
 Agents: start here, then open the linked docs for the current task. Do not skip this tree
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in

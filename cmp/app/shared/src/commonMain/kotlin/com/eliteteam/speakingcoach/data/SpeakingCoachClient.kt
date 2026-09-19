@@ -6,4 +6,7 @@ interface SpeakingCoachClient {
     suspend fun logout()
     suspend fun loadHome(): String
     suspend fun createSession(topic: String, tutorVoice: String): String
+    suspend fun startRtc(sessionId: String, sdpOffer: String): String
+    suspend fun completeSession(sessionId: String, turns: List<TranscriptTurn>, durationSec: Int)
+    suspend fun pollReview(sessionId: String): ReviewPoll
 }

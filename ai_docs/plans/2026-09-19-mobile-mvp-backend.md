@@ -13,7 +13,7 @@
 - [ ] Postgres + Google/Apple OAuth + email/пароль + Bearer
 - [ ] App-сессии, home/me/complete/review; один POST rtc (mint+SDP) в ai-service
 - [ ] Ktor client, token store, Welcome→AuthScreen, Home/Profile/Review живые; моки только Preview
-- [ ] CMP Call: mic first, один POST rtc+SDP; WebRTC actual android/ios/jvm; user+assistant transcript
+- [x] CMP Call: mic first, один POST rtc+SDP; WebRTC actual android/ios/jvm; user+assistant transcript
 - [ ] CI: push/PR = тесты; выкат только Redeploy (`main` → prod, иначе DEV)
 - [ ] Два dev-хоста: Ktor и AI+Redis; `DEV_*` SSH + `DEV_*_ENV` блобы
 - [ ] ai-service: mint Realtime + spoken prompt; после hangup LLM-разбор Grammar/Vocabulary; клипы не трогаем

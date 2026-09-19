@@ -1,15 +1,15 @@
 # Mobile app HTTP contract
 
 **Дата:** 2026-09-19  
-**Статус:** бэкенд среза на DEV; CMP клиент ходит в Auth/Home/Profile/sessions. Call/Review ещё мок.  
-**Клиент сейчас:** Welcome → Auth (почта) → Home с `GET /v1/home`; «Начать» → `POST /v1/sessions` → Call (UI мок). Review и «Последний разговор» — мок. `SpeakingCoachClient` живой. WebRTC нет.  
+**Статус:** бэкенд среза на DEV; CMP клиент ходит в Auth/Home/Profile/sessions/Call/Review. Карточка «Последний разговор» — мок.  
+**Клиент сейчас:** Welcome → Auth (почта) → Home с `GET /v1/home`; «Начать» → `POST /v1/sessions` → Call (WebRTC + `POST .../rtc`). Hangup → `POST .../complete` → Review поллит `GET .../review`. `SpeakingCoachClient` живой.  
 **Не этот контракт:** клипы бота — [2026-09-18-clip-session-api.md](2026-09-18-clip-session-api.md). CMP их не вызывает.
 
 База: Ktor на DEV (`AI_SERVICE_BASE_URL` туда не светить с клиента). JSON camelCase. Auth-ручки без заголовка; остальное `Authorization: Bearer <jwt>`. JWT в лог не пишем. Клиент **не** ходит в ai-service.
 
 ## Поток экранов → API
 
-Сейчас в `AppNav` Welcome сразу открывает Home, Call/Review без `sessionId`. Когда клиент подключат, между Welcome и Home появится Auth (экрана в Compose ещё нет), а Call/Review понесут id сессии.
+Сейчас в `AppNav` Welcome сразу открывает Home при JWT; без токена — Welcome. Call несёт `sessionId`. Review с hangup — живой полл; «Последний разговор» открывает мок (`ReviewRoute()` без id).
 
 ```text
 Welcome

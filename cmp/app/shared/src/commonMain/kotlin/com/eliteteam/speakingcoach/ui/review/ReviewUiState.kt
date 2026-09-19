@@ -1,8 +1,16 @@
 package com.eliteteam.speakingcoach.ui.review
 
 data class ReviewUiState(
-    val steps: List<ReviewStep>,
+    val phase: ReviewPhase = ReviewPhase.Ready,
+    val steps: List<ReviewStep> = emptyList(),
 )
+
+enum class ReviewPhase {
+    Loading,
+    Ready,
+    TooShort,
+    Failed,
+}
 
 data class ReviewStep(
     val metric: ReviewMetric,

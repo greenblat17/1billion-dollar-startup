@@ -41,9 +41,16 @@ val appModule = module {
     viewModel { parameters ->
         CallViewModel(
             sessionId = parameters.get(),
+            client = get(),
             logger = getLoggerWithTag("CallViewModel"),
         )
     }
-    viewModel { ReviewViewModel(getLoggerWithTag("ReviewViewModel")) }
+    viewModel { parameters ->
+        ReviewViewModel(
+            sessionId = parameters.get(),
+            client = get(),
+            logger = getLoggerWithTag("ReviewViewModel"),
+        )
+    }
     viewModel { ProfileViewModel(get(), get(), get(), getLoggerWithTag("ProfileViewModel")) }
 }

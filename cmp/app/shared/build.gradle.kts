@@ -102,16 +102,35 @@ kotlin {
     }
 
     sourceSets {
-        androidMain.dependencies {
-            implementation(libs.compose.uiToolingPreview)
-            implementation(libs.compose.uiTooling)
-            implementation(libs.ktor.kmp.client.okhttp)
+        androidMain {
+            kotlin.srcDir("src/webrtcMain/kotlin")
+            dependencies {
+                implementation(libs.compose.uiToolingPreview)
+                implementation(libs.compose.uiTooling)
+                implementation(libs.ktor.kmp.client.okhttp)
+                implementation(libs.webrtc.kmp)
+            }
         }
-        iosMain.dependencies {
-            implementation(libs.ktor.kmp.client.darwin)
+        iosMain {
+            kotlin.srcDir("src/webrtcMain/kotlin")
+            dependencies {
+                implementation(libs.ktor.kmp.client.darwin)
+                implementation(libs.webrtc.kmp)
+            }
         }
         jvmMain.dependencies {
             implementation(libs.ktor.kmp.client.cio)
+            implementation(libs.webrtc.java)
+            val osName = System.getProperty("os.name").lowercase()
+            val osArch = System.getProperty("os.arch").lowercase()
+            val webrtcNative = when {
+                osName.contains("mac") && (osArch.contains("aarch64") || osArch.contains("arm64")) -> "macos-aarch64"
+                osName.contains("mac") -> "macos-x86_64"
+                osName.contains("linux") && (osArch.contains("aarch64") || osArch.contains("arm64")) -> "linux-aarch64"
+                osName.contains("linux") -> "linux-x86_64"
+                else -> "windows-x86_64"
+            }
+            implementation("dev.onvoid.webrtc:webrtc-java:${libs.versions.webrtc.java.get()}:$webrtcNative")
         }
         commonMain.dependencies {
             api(project(":core"))

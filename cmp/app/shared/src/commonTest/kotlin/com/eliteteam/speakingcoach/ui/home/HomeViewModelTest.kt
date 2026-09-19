@@ -2,8 +2,10 @@ package com.eliteteam.speakingcoach.ui.home
 
 import com.eliteteam.speakingcoach.data.AuthSession
 import com.eliteteam.speakingcoach.data.AuthUser
+import com.eliteteam.speakingcoach.data.ReviewPoll
 import com.eliteteam.speakingcoach.data.SessionStore
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
+import com.eliteteam.speakingcoach.data.TranscriptTurn
 import com.eliteteam.speakingcoach.testLogger
 import com.eliteteam.speakingcoach.ui.mock.DailyGoalStore
 import com.russhwolf.settings.MapSettings
@@ -106,4 +108,11 @@ private class FakeHomeClient(
     }
 
     override suspend fun createSession(topic: String, tutorVoice: String) = "app-1"
+    override suspend fun startRtc(sessionId: String, sdpOffer: String) = "v=0"
+    override suspend fun completeSession(
+        sessionId: String,
+        turns: List<TranscriptTurn>,
+        durationSec: Int,
+    ) = Unit
+    override suspend fun pollReview(sessionId: String) = ReviewPoll.Failed
 }

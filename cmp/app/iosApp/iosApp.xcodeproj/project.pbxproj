@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B7E1C4A91F2A4B6C8D0E1F2B /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = B7E1C4A91F2A4B6C8D0E1F2A /* WebRTC */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		3C16DEB469BF57D03CCC3AA7 /* cmp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -41,6 +45,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B7E1C4A91F2A4B6C8D0E1F2B /* WebRTC in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -85,6 +90,7 @@
 			);
 			name = iosApp;
 			packageProductDependencies = (
+				B7E1C4A91F2A4B6C8D0E1F2A /* WebRTC */,
 			);
 			productName = iosApp;
 			productReference = 3C16DEB469BF57D03CCC3AA7 /* cmp.app */;
@@ -114,6 +120,9 @@
 			);
 			mainGroup = 0F3CF77FED0FD7D0FD620CAA;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B7E1C4A91F2A4B6C8D0E1F29 /* XCRemoteSwiftPackageReference "Specs" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 09116E32142793A7F4E6F44E /* Products */;
 			projectDirPath = "";
@@ -368,6 +377,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B7E1C4A91F2A4B6C8D0E1F29 /* XCRemoteSwiftPackageReference "Specs" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/webrtc-sdk/Specs.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 125.6422.07;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B7E1C4A91F2A4B6C8D0E1F2A /* WebRTC */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7E1C4A91F2A4B6C8D0E1F29 /* XCRemoteSwiftPackageReference "Specs" */;
+			productName = WebRTC;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 595C3D800766E772424C6E5C /* Project object */;
 }

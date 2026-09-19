@@ -19,4 +19,4 @@ data object ProfileRoute : NavKey
 data class CallRoute(val sessionId: String) : NavKey
 
 @Serializable
-data class ReviewRoute(val stepIndex: Int = 0) : NavKey
+data class ReviewRoute(val sessionId: String = "", val stepIndex: Int = 0) : NavKey

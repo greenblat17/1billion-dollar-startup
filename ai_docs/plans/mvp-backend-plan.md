@@ -1,7 +1,7 @@
 # MVP backend — срез «бэк готов»
 
 **Дата:** 2026-09-19  
-**Статус:** бэкенд среза на DEV; CMP клиент Auth/Home/Profile/sessions. Call/Review мок.  
+**Статус:** бэкенд среза на DEV; CMP клиент Auth/Home/Profile/sessions/Call/Review. Карточка «Последний разговор» — мок.  
 **Контракт (ручки ↔ экраны):** [../integrations/2026-09-18-mobile-api.md](../integrations/2026-09-18-mobile-api.md) — что именно отдаёт Ktor и с какого UI это зовут.  
 **Шире (сторы, OAuth, SMTP, dual-host, CI PR→dev):** [2026-09-19-mobile-mvp-backend.md](2026-09-19-mobile-mvp-backend.md) — бэклог, не этот срез.  
 **Не этот документ:** [mvp-plan.md](mvp-plan.md) (полный продуктовый цикл).  
@@ -19,8 +19,8 @@ Curl (потом CMP) может: **войти → создать сессию �
 
 Обновлять в том же PR/сессии, что и код. Не оставлять галочки «на потом».
 
-**Обновлено:** 2026-09-19  
-**Остановились:** бэк на DEV проверен curl. CMP: Auth/Home/Profile/sessions живые; Call/Review мок до WebRTC + Realtime-ключа.
+**Обновлено:** 2026-09-20  
+**Остановились:** CMP Call WebRTC + Review poll в клиенте. Realtime-ключ — в CI/CD, не в git. Карточка «Последний разговор» мок.
 
 - [x] Контракт [mobile-api.md](../integrations/2026-09-18-mobile-api.md)
 - [x] Предохранитель CI: не деплоить prod с `pull_request` (Redeploy DEV only; CMP/AI CI без SSH)
@@ -31,7 +31,7 @@ Curl (потом CMP) может: **войти → создать сессию �
 - [x] ai-service: `POST /internal/realtime/call` (mint+SDP)
 - [x] ai-service: `POST /internal/review`
 - [x] CMP: Ktor client, JWT на диске, AuthScreen, Home/Profile с API, `POST /v1/sessions`
-- [ ] CMP Call WebRTC + rtc/complete/review
+- [x] CMP Call WebRTC + rtc/complete/review
 - [ ] Local compose + прогон контракта curl’ом — не делаем; unit-тесты + DEV Redeploy после env
 
 ## Срезы

@@ -5,4 +5,6 @@ data class CallUiState(
     val caption: String,
     val micMuted: Boolean,
     val captionsOn: Boolean,
+    val connecting: Boolean = false,
+    val error: CallError? = null,
 )

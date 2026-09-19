@@ -115,6 +115,90 @@ class HttpSpeakingCoachClientTest {
         http.close()
     }
 
+    @Test
+    fun startRtcPostsRawSdpOffer() = runTest {
+        val store = authedStore()
+        val http = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    assertEquals("/v1/sessions/app-1/rtc", request.url.encodedPath)
+                    assertEquals("application/sdp", request.body.contentType?.withoutParameters()?.toString())
+                    respond(
+                        content = "v=0\r\no=answer",
+                        status = HttpStatusCode.Created,
+                        headers = headersOf(HttpHeaders.ContentType, "application/sdp"),
+                    )
+                }
+            }
+            installJson()
+        }
+        val client = client(http, store)
+        assertEquals("v=0\r\no=answer", client.startRtc("app-1", "v=0\r\no=offer"))
+        http.close()
+    }
+
+    @Test
+    fun completeSessionSendsTurns() = runTest {
+        val store = authedStore()
+        val http = HttpClient(MockEngine) {
+            engine {
+                addHandler { request ->
+                    assertEquals("/v1/sessions/app-1/complete", request.url.encodedPath)
+                    respond("{}", status = HttpStatusCode.Accepted, headers = jsonHeaders)
+                }
+            }
+            installJson()
+        }
+        val client = client(http, store)
+        client.completeSession(
+            "app-1",
+            listOf(TranscriptTurn(role = "user", text = "hello")),
+            durationSec = 12,
+        )
+        http.close()
+    }
+
+    @Test
+    fun pollReviewMapsStatuses() = runTest {
+        val store = authedStore()
+        val statuses = ArrayDeque(
+            listOf(HttpStatusCode.Accepted, HttpStatusCode.OK, HttpStatusCode.UnprocessableEntity),
+        )
+        val http = HttpClient(MockEngine) {
+            engine {
+                addHandler {
+                    when (val status = statuses.removeFirst()) {
+                        HttpStatusCode.OK -> respond(
+                            content = """{"sessionId":"app-1","steps":[{"metric":"Grammar","score":78,"lead":"l","bullets":[],"examples":[],"tip":"t"}]}""",
+                            status = status,
+                            headers = jsonHeaders,
+                        )
+                        else -> respond("{}", status = status, headers = jsonHeaders)
+                    }
+                }
+            }
+            installJson()
+        }
+        val client = client(http, store)
+        assertEquals(ReviewPoll.Pending, client.pollReview("app-1"))
+        val ready = client.pollReview("app-1")
+        assertTrue(ready is ReviewPoll.Ready)
+        assertEquals("Grammar", ready.steps.single().metric)
+        assertEquals(ReviewPoll.TooShort, client.pollReview("app-1"))
+        http.close()
+    }
+
+    private fun authedStore(): SessionStore {
+        val store = SessionStore(MapSettings(), testLogger())
+        store.save(
+            AuthSession(
+                token = "jwt-1",
+                user = AuthUser(id = "u1", email = "ed@example.com", displayName = "Ed"),
+            ),
+        )
+        return store
+    }
+
     private fun HttpClientConfig<*>.installJson() {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })

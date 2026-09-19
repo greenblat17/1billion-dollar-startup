@@ -9,16 +9,13 @@ import org.koin.core.parameter.parametersOf
 @Composable
 fun CallScreen(
     sessionId: String,
-    onHangup: () -> Unit,
+    onHangup: (HangupOutcome) -> Unit,
     viewModel: CallViewModel = koinViewModel(parameters = { parametersOf(sessionId) }),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     CallWidget(
         state = state,
-        onHangup = {
-            viewModel.onHangup()
-            onHangup()
-        },
+        onHangup = { viewModel.hangup(onHangup) },
         onMicToggle = viewModel::onMicToggled,
         onCaptionsToggle = viewModel::onCaptionsToggled,
     )

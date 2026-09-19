@@ -2,7 +2,7 @@
 
 Read this first, then the linked files. Product intent: `ai_docs/product.md`. MVP plan is aspirational; **shipped code is Telegram voice + STT/LLM/TTS**, not a mobile speaking session.
 
-Next work on `feature/back-for-mobile`: CMP client talks to DEV Ktor (Auth/Home/Profile/sessions). Call WebRTC and live Review are next (`OPENAI_REALTIME_API_KEY`). Wider backlog: [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
+Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DEV (`OPENAI_REALTIME_API_KEY` in CI). Wider backlog: [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
 
 ## What to change for which job
 
@@ -14,7 +14,7 @@ Next work on `feature/back-for-mobile`: CMP client talks to DEV Ktor (Auth/Home/
 | STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
 | VPS scripts / 8090 allowlist | `infra/` |
 | CI / GitHub secret **names** | `.github/workflows/` |
-| Compose Multiplatform UI | `cmp/app/` — Releva UI, Auth/Home/Profile live against Ktor; Call/Review still mock. |
+| Compose Multiplatform UI | `cmp/app/` — Releva UI; Auth/Home/Profile/Call/Review against Ktor; last-conversation card still mock. |
 
 ## Runtime path that actually talks
 

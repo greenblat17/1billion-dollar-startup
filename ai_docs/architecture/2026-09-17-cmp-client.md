@@ -1,8 +1,8 @@
 # Устройство CMP-клиента
 
 **Дата:** 2026-09-17  
-**Статус:** UI в `:app:shared` (тема Inter, Nav3). HTTP к DEV Ktor: `HttpSpeakingCoachClient` (register/login/home/sessions). AuthScreen на почте. Call/Review ещё мок (нет WebRTC). `MockSpeakingData` — Preview и карточка «Последний разговор».  
-**Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
+**Статус:** UI в `:app:shared` (тема Inter, Nav3). HTTP к DEV Ktor: `HttpSpeakingCoachClient` (auth/home/sessions/rtc/complete/review). AuthScreen на почте. Call — WebRTC (`webrtc-kmp` / `webrtc-java`), Review — полл. Карточка «Последний разговор» — мок.  
+**Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md)  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
 ## Зачем CMP в этом продукте
@@ -39,13 +39,13 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` на `main`). Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Desktop `hotRun`: Kermit дублируется в CHR `get_logs` (`ChrKermitLogWriter`). Не `project(":server")`.
 
-Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`. Call/Review и карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md).
+Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`, Call rtc/WebRTC, Review poll. Карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md). WebRTC — [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md).
 
 ## Модули клиента
 
 | Модуль | Роль |
 | --- | --- |
-| `:app:shared` | Весь UI разговора (потом — результаты, onboarding). Таргеты: `android`, `jvm()`, iOS framework `Shared`. Код экранов — `commonMain`. Микрофон, плеер, конец реплики — `expect`/`actual` (`androidMain` / `jvmMain` / `iosMain`), сейчас только `getPlatform()`. |
+| `:app:shared` | Весь UI разговора. Таргеты: `android`, `jvm()`, iOS framework `Shared`. Код экранов — `commonMain`. WebRTC — `webrtcMain` (Android/iOS, shepeliev) и `jvmMain` (webrtc-java). |
 | `:app:androidApp` | `MainActivity.setContent { App() }`. `configChanges=uiMode` — смена темы без recreate; window theme DayNight с `windowBackground` как у `AppTheme` (cream / ink). |
 | `:app:iosApp` | SwiftUI → `MainViewController()` → `App()`. |
 | `:app:desktopApp` | `Window { App() }` или `SandboxHost`. Не второй клиент и не копия виджетов. |
@@ -72,4 +72,4 @@ Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base UR
 
 ## Чего в CMP-коде ещё нет
 
-Записи/плеера, живого таймера звонка, WebRTC. HTTP к `:server` есть для auth/home/sessions. Микрофон / VAD — `expect`/`actual`, сейчас только `getPlatform()`. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.
+Записи/плеера клипов, истории, pronunciation/fluency. WebRTC Call и Review poll есть; карточка «Последний разговор» мок. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.

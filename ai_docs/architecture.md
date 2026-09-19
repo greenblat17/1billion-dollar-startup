@@ -12,7 +12,7 @@
 | Ktor | `cmp/server` | TLS webhook, health; клипы только внутренним `HttpClipClient` |
 | ai-service | `ai-service/` | STT → LLM → TTS, сессии, jobs |
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
-| CMP UI | `cmp/app/` | Мок Releva (Welcome/Home/Call/разбор Grammar+Vocabulary/Profile), **не** ходит в clip API |
+| CMP UI | `cmp/app/` | Releva Auth/Home/Call(WebRTC)/Review против Ktor; карточка «Последний разговор» мок. **Не** clip API |
 
 Внешние API: Groq Whisper (STT), OpenRouter `gpt-4o-mini` (LLM), Kokoro TTS, Telegram Bot API.
 
