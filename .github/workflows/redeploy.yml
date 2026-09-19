@@ -1,0 +1,117 @@
+name: Redeploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      cmp_server:
+        description: cmp-server
+        type: boolean
+        default: true
+      ai_server:
+        description: ai-server
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  require-target:
+    name: Require a host
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if both hosts off
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
+        run: |
+          echo "Enable cmp-server and/or ai-server" >&2
+          exit 1
+
+  package-server:
+    name: Package cmp-server
+    needs: require-target
+    if: ${{ inputs.cmp_server }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :server:test
+
+      - name: Package
+        run: ./gradlew :server:buildFatJar
+
+      - name: Upload fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: server-all
+          path: cmp/server/build/libs/server-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  package-ai:
+    name: Package ai-server
+    needs: require-target
+    if: ${{ inputs.ai_server }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ai-service
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test
+        run: |
+          pip install -r requirements-dev.txt
+          pytest
+
+      - name: Stage runtime
+        run: |
+          STAGE="$RUNNER_TEMP/ai-service-runtime"
+          mkdir -p "$STAGE"
+          cp Dockerfile requirements.txt "$STAGE/"
+          cp -R app "$STAGE/app"
+
+      - name: Upload runtime
+        uses: actions/upload-artifact@v6
+        with:
+          name: ai-service
+          path: ${{ runner.temp }}/ai-service-runtime
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy-server:
+    name: Deploy cmp-server
+    needs:
+      - require-target
+      - package-server
+    if: ${{ !cancelled() && inputs.cmp_server && needs.package-server.result == 'success' }}
+    uses: ./.github/workflows/deploy-cmp-server.yml
+    with:
+      destination: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 'prod' || 'dev' }}
+    secrets: inherit
+
+  deploy-ai:
+    name: Deploy ai-server
+    needs:
+      - require-target
+      - package-ai
+    if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
+    uses: ./.github/workflows/deploy-ai-server.yml
+    with:
+      destination: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 'prod' || 'dev' }}
+    secrets: inherit
