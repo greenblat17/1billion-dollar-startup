@@ -29,6 +29,7 @@ on:
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
+      - '.github/actions/bake-client-api-url/**'
   pull_request:
     paths:
       - 'cmp/**'
@@ -36,6 +37,7 @@ on:
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
+      - '.github/actions/bake-client-api-url/**'
 
 permissions:
   contents: read
@@ -91,21 +93,10 @@ jobs:
         run: ./gradlew :app:shared:testAndroidHostTest
 
       - name: Bake client API URL
+        uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
-          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
-            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
-          else
-            url="${DEV_CMP_API_BASE_URL:-}"
-          fi
-          if [ -z "$url" ]; then
-            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
-            exit 1
-          fi
-          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
+          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
 
       - name: Package
         run: ./gradlew :app:androidApp:assembleDebug
@@ -178,21 +169,10 @@ jobs:
           cache-read-only: ${{ matrix.cache-read-only }}
 
       - name: Bake client API URL
+        uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
-          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
-            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
-          else
-            url="${DEV_CMP_API_BASE_URL:-}"
-          fi
-          if [ -z "$url" ]; then
-            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
-            exit 1
-          fi
-          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
+          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
 
       - name: Package
         run: ./gradlew :app:desktopApp:${{ matrix.task }}
@@ -231,21 +211,10 @@ jobs:
         run: ./gradlew :app:shared:iosSimulatorArm64Test
 
       - name: Bake client API URL
+        uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
-          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
-        run: |
-          set -euo pipefail
-          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
-            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
-          else
-            url="${DEV_CMP_API_BASE_URL:-}"
-          fi
-          if [ -z "$url" ]; then
-            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
-            exit 1
-          fi
-          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
+          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
 
       - name: Package
         run: |

@@ -61,7 +61,7 @@ Runtime: раннер собирает `.env` из ячеек `TELEGRAM_BOT_TOKE
 
 ### Dev — те же скрипты, другие ячейки
 
-SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`.
+SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`. CMP packages bake `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` on `main`); not a key in `DEV_CMP_SERVER_ENV`.
 
 Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 

@@ -330,7 +330,7 @@ TLS кладёт человек. `REDIS_URL` только в `.env` на AI-хо
 
 Продовый token на DEV не копируем. Не в GitHub: `tls.crt`, `tls.key` на диске.
 
-Клиент: URL запекается (`speakingCoach.apiBaseUrl` / `SPEAKING_COACH_API_BASE_URL`). CI vars `DEV_CMP_API_BASE_URL` / `CMP_API_BASE_URL`.
+Клиент: URL запекается (`speakingCoach.apiBaseUrl` / `SPEAKING_COACH_API_BASE_URL`). CI packages: `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` на `main`). Не ключ в `DEV_CMP_SERVER_ENV`.
 
 Apple private key для MVP не нужен (только JWKS identity token).
 

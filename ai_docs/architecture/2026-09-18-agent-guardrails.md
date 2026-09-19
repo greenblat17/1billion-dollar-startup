@@ -16,7 +16,7 @@ The **bot username, display name, and token** are set in Telegram BotFather / Gi
 
 Do not put tokens, SSH keys, VPS passwords, or `.env` values into docs or commits. `.env` is gitignored. Template names only: `.env.example`.
 
-GitHub **environments** `deploy` (prod) и `dev` — только approve у job Redeploy. Секреты серверов — **repository Actions secrets**, не Environment secrets. Публичный URL клиента (Ktor HTTPS) — repository **variable** `DEV_CMP_API_BASE_URL` / `CMP_API_BASE_URL`, не secret: его и так видно в приложении. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
+GitHub **environments** `deploy` (prod) и `dev` — только approve у job Redeploy. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из SSH `DEV_CMP_SERVER_HOST` / `CMP_SERVER_HOST` (`https://$HOST`), не из `DEV_CMP_SERVER_ENV` и не отдельной var. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
 
 **Prod** (имена без префикса, не переименовывать):
 
