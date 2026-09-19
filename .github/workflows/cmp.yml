@@ -26,12 +26,14 @@ on:
     paths:
       - 'cmp/**'
       - 'infra/server/**'
+      - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
   pull_request:
     paths:
       - 'cmp/**'
       - 'infra/server/**'
+      - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
 

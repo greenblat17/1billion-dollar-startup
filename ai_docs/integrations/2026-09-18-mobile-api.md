@@ -1,7 +1,7 @@
 # Mobile app HTTP contract
 
 **Дата:** 2026-09-19  
-**Статус:** согласован под срез [mvp-backend-plan.md](../plans/mvp-backend-plan.md). Кода ещё нет.  
+**Статус:** согласован под срез [mvp-backend-plan.md](../plans/mvp-backend-plan.md). Ktor/ai-service ручки есть; CMP клиент ещё на моках.  
 **Клиент сейчас:** экраны на `MockSpeakingData`; `SpeakingCoachClient` — `TODO()`. Этот файл — что Ktor должен отдать, когда моки снимут.  
 **Не этот контракт:** клипы бота — [2026-09-18-clip-session-api.md](2026-09-18-clip-session-api.md). CMP их не вызывает.
 

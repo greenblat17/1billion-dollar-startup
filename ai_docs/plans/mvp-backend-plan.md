@@ -20,25 +20,25 @@ Curl (потом CMP) может: **войти → создать сессию �
 Обновлять в том же PR/сессии, что и код. Не оставлять галочки «на потом».
 
 **Обновлено:** 2026-09-19  
-**Остановились:** контракт записан; кода Ktor/Postgres/ai-service ещё нет. Следующий шаг — предохранитель CI (PR ≠ prod).
+**Остановились:** Ktor app API и `/internal/*` написаны. Postgres на cmp-хосте поднимает Redeploy, если в `.env` есть `POSTGRES_PASSWORD`. Дальше — `JWT_SECRET` / `DATABASE_URL` / `POSTGRES_*` в `DEV_CMP_SERVER_ENV`, `OPENAI_REALTIME_API_KEY` в `DEV_AI_SERVER_ENV`, Redeploy DEV, curl.
 
 - [x] Контракт [mobile-api.md](../integrations/2026-09-18-mobile-api.md)
-- [ ] Предохранитель CI: не деплоить prod с `pull_request`
-- [ ] Ktor: Postgres, register/login, JWT
-- [ ] Ktor: `GET /v1/home`, `POST /v1/sessions`, complete/review
-- [ ] Закрыть публичный `/v1/clips`
-- [ ] Ktor: rtc-прокси → ai-service
-- [ ] ai-service: `POST /internal/realtime/call` (mint+SDP)
-- [ ] ai-service: `POST /internal/review`
-- [ ] Local compose + прогон контракта curl’ом
+- [x] Предохранитель CI: не деплоить prod с `pull_request` (Redeploy DEV only; CMP/AI CI без SSH)
+- [x] Ktor: Postgres, register/login, JWT
+- [x] Ktor: `GET /v1/home`, `POST /v1/sessions`, complete/review
+- [x] Закрыть публичный `/v1/clips`
+- [x] Ktor: rtc-прокси → ai-service
+- [x] ai-service: `POST /internal/realtime/call` (mint+SDP)
+- [x] ai-service: `POST /internal/review`
+- [ ] Local compose + прогон контракта curl’ом — не делаем; unit-тесты + DEV Redeploy после env
 
 ## Срезы
 
 - [x] Контракт в [../integrations/2026-09-18-mobile-api.md](../integrations/2026-09-18-mobile-api.md)
-- [ ] CI: **не** деплоить prod с `pull_request` (предохранитель; dual-environment не делаем)
-- [ ] Ktor: Postgres, email/пароль, JWT Bearer, home/sessions/complete/review, rtc-прокси
-- [ ] ai-service: `POST /internal/realtime/call` (mint+SDP), `POST /internal/review`; клипы не трогаем
-- [ ] Local compose: Ktor + Postgres + ai-service(+Redis). Telegram optional. Прод-хост не целим
+- [x] CI: **не** деплоить prod с `pull_request` (предохранитель; dual-environment не делаем)
+- [x] Ktor: Postgres, email/пароль, JWT Bearer, home/sessions/complete/review, rtc-прокси
+- [x] ai-service: `POST /internal/realtime/call` (mint+SDP), `POST /internal/review`; клипы не трогаем
+- [ ] Local compose: снято; интеграция — DEV Redeploy + curl, не compose
 
 ## Почему так, а не полный 2026-09-19 план
 
@@ -143,7 +143,7 @@ sequenceDiagram
 
 ## Контракт
 
-Канон: [../integrations/2026-09-18-mobile-api.md](../integrations/2026-09-18-mobile-api.md) — ручки привязаны к экранам. Код DTO ещё не написан.
+Канон: [../integrations/2026-09-18-mobile-api.md](../integrations/2026-09-18-mobile-api.md) — ручки привязаны к экранам. DTO в `cmp/server/.../app/AppDtos.kt`.
 
 App API на Ktor. Auth-эндпоинты без JWT; остальное `Authorization: Bearer`.
 

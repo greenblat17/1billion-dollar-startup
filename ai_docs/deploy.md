@@ -9,6 +9,7 @@
 | Контейнер | Образ | Сеть | Назначение |
 | --- | --- | --- | --- |
 | `speaking-coach` | `speaking-coach:local` | **host** | Ktor, порт из `SERVER_PORT` в `.env` (обычно 443), Telegram webhook |
+| `postgres` | `postgres:16-alpine` | loopback | пользователи app API, **127.0.0.1:5432**, volume `speaking-coach-postgres` (хост Ktor) |
 | `ai-service` | `ai-service:local` | `speaking-coach` | FastAPI, порт **8090** на всех интерфейсах |
 | `redis` | `redis:7-alpine` | `speaking-coach` | диалог, **127.0.0.1:6379**, volume `speaking-coach-redis` |
 
@@ -20,17 +21,20 @@ Ktor смотрит на ai-service через `AI_SERVICE_BASE_URL` — адр�
 - `/opt/ai-service/` — `app/`, Dockerfile, requirements, deploy-скрипты, `.env`, **`8090.allow` (кладёт человек: IPv4 Ktor, по одному в строке; CI не пишет)**
 
 Рестарт `ai-service` **не** должен `docker rm redis`. Скрипт `infra/redis/deploy-remote.sh` если контейнер `redis` уже есть — только `start` + connect к сети, volume не трогает.
+Рестарт `speaking-coach` **не** должен `docker rm postgres`. Скрипт `infra/postgres/deploy-remote.sh` создаёт контейнер, если его нет; иначе `start`. Без `POSTGRES_PASSWORD` в `.env` Postgres не поднимается (бот без app API).
 
 ```mermaid
 flowchart LR
   redeploy[Redeploy]
   ktor[speaking_coach]
+  postgres[(postgres)]
   ai[ai_service]
   redis[(redis)]
   tls[tls_on_disk]
   redeploy -->|cmp-server| ktor
   redeploy -->|ai-server| ai
   ai -->|redis_if_missing| redis
+  ktor -->|postgres_if_missing| postgres
   ktor --> ai
   tls --> ktor
 ```
@@ -61,8 +65,8 @@ SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` /
 
 Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 
-- `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`
-- `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL` и тот же `AI_INTERNAL_TOKEN`, что у Ktor)
+- `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env` (для app API ещё `JWT_SECRET`, `DATABASE_URL`, `POSTGRES_PASSWORD`)
+- `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL`, тот же `AI_INTERNAL_TOKEN`, что у Ktor, и `OPENAI_REALTIME_API_KEY` для mint)
 
 Пустой блоб — fail на раннере до SSH. TLS на DEV кладёт человек.
 
@@ -73,6 +77,7 @@ CMP Android / iOS / Desktop на сервер не едут. Jobs ai-service в 
 Положить `.env`, вызвать скрипт. Env на хост не передаём.
 
 ```bash
+bash /opt/speaking-coach/deploy-postgres.sh
 bash /opt/speaking-coach/deploy-remote.sh
 bash /opt/ai-service/deploy-redis.sh
 bash /opt/ai-service/deploy-remote.sh

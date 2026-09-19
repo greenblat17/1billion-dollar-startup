@@ -28,7 +28,7 @@ GitHub **environments** `deploy` (prod) и `dev` — только approve у job
 - SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
 - Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
 
-VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
+VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Postgres container name `postgres`, **127.0.0.1:5432 on the Ktor host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running). **Do not `docker rm` Postgres** (`infra/postgres/deploy-remote.sh`).
 
 ## Stub vs real notes
 

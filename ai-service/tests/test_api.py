@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
+from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
 from tests.conftest import test_settings as make_settings
 
 AUTH = {"X-Internal-Token": "test-internal-token"}
@@ -210,4 +210,42 @@ def test_clip_includes_coaching_notes() -> None:
         assert body["result"]["notes"] == notes
         assert body["replyText"] == "Got it: I was in Turkey last summer"
         assert tts.texts == ["Got it: I was in Turkey last summer"]
+
+
+def test_internal_realtime_and_review() -> None:
+    realtime = FakeRealtime()
+    reviewer = FakeReviewer()
+    app, _, _, _ = build_app(realtime=realtime, reviewer=reviewer)
+    with _client(app) as client:
+        created = client.post(
+            "/internal/realtime/call",
+            json={"sdp": "v=0 offer", "topic": "Work", "tutorVoice": "marin"},
+        )
+        assert created.status_code == 200
+        assert created.json() == {"sdp": "v=0 answer", "openaiCallId": "rtc_test"}
+        assert realtime.calls == [("v=0 offer", "Work", "marin")]
+
+        reviewed = client.post(
+            "/internal/review",
+            json={
+                "turns": [
+                    {"role": "user", "text": "I work here since 2023."},
+                ]
+            },
+        )
+        assert reviewed.status_code == 200
+        body = reviewed.json()
+        assert [step["metric"] for step in body["steps"]] == ["Grammar", "Vocabulary"]
+        assert reviewer.calls[0][0]["text"] == "I work here since 2023."
+
+
+def test_internal_realtime_rejects_bad_topic() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        response = client.post(
+            "/internal/realtime/call",
+            json={"sdp": "v=0", "topic": "Random", "tutorVoice": "marin"},
+        )
+        assert response.status_code == 400
+
 

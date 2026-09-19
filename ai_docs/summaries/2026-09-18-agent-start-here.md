@@ -2,7 +2,7 @@
 
 Read this first, then the linked files. Product intent: `ai_docs/product.md`. MVP plan is aspirational; **shipped code is Telegram voice + STT/LLM/TTS**, not a mobile speaking session.
 
-Next work on `feature/back-for-mobile`: backend slice «бэк готов» — [`plans/mvp-backend-plan.md`](../plans/mvp-backend-plan.md). Wider backlog (stores, OAuth, dual-host): [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
+Next work on `feature/back-for-mobile`: backend slice «бэк готов» — [`plans/mvp-backend-plan.md`](../plans/mvp-backend-plan.md). App routes live on Ktor; Realtime mint/review on ai-service `/internal/*`. Wider backlog (stores, OAuth, dual-host): [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
 
 ## What to change for which job
 

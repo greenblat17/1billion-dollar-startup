@@ -9,6 +9,8 @@ data class AppConfig(
     val serverPort: Int,
     val tlsCertPath: String,
     val tlsKeyPath: String,
+    val jwtSecret: String?,
+    val databaseUrl: String?,
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
@@ -27,6 +29,11 @@ data class AppConfig(
                 "AI_INTERNAL_TOKEN is required when TELEGRAM_WEBHOOK_URL is set"
             }
         }
+        if (usesWebhook && !jwtSecret.isNullOrBlank()) {
+            require(!databaseUrl.isNullOrBlank()) {
+                "DATABASE_URL is required when JWT_SECRET is set"
+            }
+        }
     }
 
     companion object {
@@ -42,6 +49,8 @@ data class AppConfig(
             serverPort = env("SERVER_PORT")?.toIntOrNull() ?: 8080,
             tlsCertPath = env("TLS_CERT_PATH")?.takeIf { it.isNotBlank() } ?: DEFAULT_TLS_CERT_PATH,
             tlsKeyPath = env("TLS_KEY_PATH")?.takeIf { it.isNotBlank() } ?: DEFAULT_TLS_KEY_PATH,
+            jwtSecret = env("JWT_SECRET")?.takeIf { it.isNotBlank() },
+            databaseUrl = env("DATABASE_URL")?.takeIf { it.isNotBlank() },
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

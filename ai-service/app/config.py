@@ -45,6 +45,7 @@ class Settings:
     pipeline_timeout_seconds: float
     log_level: str
     ai_internal_token: str | None
+    openai_realtime_api_key: str | None
 
     @staticmethod
     def from_env() -> Settings:
@@ -66,4 +67,5 @@ class Settings:
             pipeline_timeout_seconds=_float_env("PIPELINE_TIMEOUT_SECONDS", 60),
             log_level=_env("LOG_LEVEL", "INFO") or "INFO",
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
+            openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
         )

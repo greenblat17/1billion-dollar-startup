@@ -25,6 +25,10 @@ koin = "4.2.2"
 koinCompiler = "1.2.1"
 navigation3 = "1.2.0-alpha02"
 kermit = "2.2.0"
+bcrypt = "0.10.2"
+hikari = "6.3.3"
+flyway = "11.14.1"
+postgresql = "42.7.8"
 
 [libraries]
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
@@ -61,8 +65,17 @@ kotlinx-coroutinesSwing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-s
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
 ktor-serverCore = { module = "io.ktor:ktor-server-core-jvm", version.ref = "ktor" }
 ktor-serverNetty = { module = "io.ktor:ktor-server-netty-jvm", version.ref = "ktor" }
+ktor-serverAuth = { module = "io.ktor:ktor-server-auth-jvm", version.ref = "ktor" }
+ktor-serverAuthJwt = { module = "io.ktor:ktor-server-auth-jwt-jvm", version.ref = "ktor" }
+ktor-serverContentNegotiation = { module = "io.ktor:ktor-server-content-negotiation-jvm", version.ref = "ktor" }
+ktor-serverStatusPages = { module = "io.ktor:ktor-server-status-pages-jvm", version.ref = "ktor" }
 ktor-serverRoutingOpenapi = { module = "io.ktor:ktor-server-routing-openapi-jvm", version.ref = "ktor" }
 ktor-serverTestHost = { module = "io.ktor:ktor-server-test-host-jvm", version.ref = "ktor" }
+bcrypt = { module = "at.favre.lib:bcrypt", version.ref = "bcrypt" }
+hikari = { module = "com.zaxxer:HikariCP", version.ref = "hikari" }
+flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
+flyway-postgresql = { module = "org.flywaydb:flyway-database-postgresql", version.ref = "flyway" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 ktor-clientCore = { module = "io.ktor:ktor-client-core-jvm", version.ref = "ktor" }
 ktor-clientCio = { module = "io.ktor:ktor-client-cio-jvm", version.ref = "ktor" }
 ktor-clientContentNegotiation = { module = "io.ktor:ktor-client-content-negotiation-jvm", version.ref = "ktor" }

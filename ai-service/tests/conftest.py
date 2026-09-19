@@ -28,6 +28,7 @@ def test_settings() -> Settings:
         pipeline_timeout_seconds=60,
         log_level="INFO",
         ai_internal_token="test-internal-token",
+        openai_realtime_api_key=None,
     )
 
 
@@ -66,15 +67,68 @@ class FakeTts(TextToSpeech):
         return b"OggS" + text.encode("utf-8")
 
 
+class FakeReviewer:
+    def __init__(self, payload: dict | None = None) -> None:
+        self.calls: list[list[dict[str, str]]] = []
+        self.payload = payload or {
+            "steps": [
+                {
+                    "metric": "Grammar",
+                    "score": 78,
+                    "lead": "Tenses",
+                    "bullets": ["Past Simple"],
+                    "examples": [
+                        {
+                            "original": "I work here since 2023.",
+                            "improved": "I have worked here since 2023.",
+                        }
+                    ],
+                    "tip": "Watch verb tense.",
+                },
+                {
+                    "metric": "Vocabulary",
+                    "score": 84,
+                    "lead": "Word choice",
+                    "bullets": ["Stronger verbs"],
+                    "examples": [],
+                    "tip": "Swap filler words.",
+                },
+            ]
+        }
+
+    async def review(self, turns: list[dict[str, str]]) -> dict:
+        self.calls.append(turns)
+        return self.payload
+
+
+class FakeRealtime:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    async def start_call(self, sdp: str, topic: str, voice: str) -> tuple[str, str | None]:
+        self.calls.append((sdp, topic, voice))
+        return "v=0 answer", "rtc_test"
+
+
 def build_app(
     stt: FakeStt | None = None,
     llm: FakeLlm | None = None,
     tts: FakeTts | None = None,
     dialogue: MemoryDialogueStore | None = None,
+    realtime: FakeRealtime | None = None,
+    reviewer: FakeReviewer | None = None,
 ):
     stt = stt or FakeStt(["hello"])
     llm = llm or FakeLlm()
     tts = tts or FakeTts()
     dialogue = dialogue or MemoryDialogueStore(max_messages=40, ttl_seconds=86400)
     pipeline = ClipPipeline(stt=stt, llm=llm, tts=tts, dialogue=dialogue)
-    return create_app(settings=test_settings(), pipeline=pipeline), stt, llm, tts
+    realtime = realtime or FakeRealtime()
+    reviewer = reviewer or FakeReviewer()
+    app = create_app(
+        settings=test_settings(),
+        pipeline=pipeline,
+        realtime=realtime,
+        reviewer=reviewer,
+    )
+    return app, stt, llm, tts

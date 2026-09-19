@@ -19,6 +19,10 @@ if [ ! -f "$APP/tls.crt" ] || [ ! -f "$APP/tls.key" ]; then
   exit 1
 fi
 
+if [ -f "$APP/deploy-postgres.sh" ]; then
+  bash "$APP/deploy-postgres.sh"
+fi
+
 cd "$APP"
 BUILD=$(mktemp -d)
 cp "$APP/server-all.jar" "$APP/Dockerfile.runtime" "$BUILD/"
