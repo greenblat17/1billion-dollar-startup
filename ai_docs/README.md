@@ -8,15 +8,27 @@ Working documentation next to the code. A coding agent in a new session should s
 
 Then dated architecture + integrations `2026-09-18-*`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
+Agents: start here, then open the linked docs for the current task. Do not skip this tree
+when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
+these files, not only in chat.
+
 ## Structure
 
-- `architecture/` - system design, component boundaries, data flows, technical decisions.
-- `bugs/` - bug reports and root-cause notes.
-- `integrations/` - API contracts, env, CI, Telegram behaviour.
-- `plans/` - implementation plans (may lag the code).
+- `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.
+- `architecture/` - system design, component boundaries, data flows, and important technical
+  decisions. Hub diagrams: `architecture.md`.
+- `bugs/` - bug reports, investigation notes, root-cause analyses, and documented fixes or
+  workarounds.
+- `integrations/` - setup guides, API contracts, configuration notes, and operational details for
+  external services and platforms.
+- `plans/` - implementation plans for features, refactors, migrations, and other engineering
+  tasks before work begins.
 - `product/` - extra product notes; hub file is `product.md` at this folder root.
-- `researches/` - historical research; re-check against `src/` before using.
-- `summaries/` - handoff notes for future sessions.
+- `researches/` - technical and product research, experiments, alternatives considered, and
+  findings that inform future decisions. Re-check against `src/` before using.
+- `summaries/` - concise context snapshots, discussion summaries, and handoff notes for future
+  sessions.
+- `deploy.md` - VPS / GitHub Actions deploy (not under a dated folder).
 
 ## File Naming
 
@@ -24,6 +36,7 @@ Use date-prefixed, task-specific filenames:
 
 ```text
 architecture/2026-09-13-audio-processing-pipeline.md
+design/2026-09-17-mobile-ui.md
 bugs/2026-09-13-telegram-audio-upload-failure.md
 integrations/2026-09-13-ai-service-api.md
 plans/2026-09-13-live-feedback-plan.md

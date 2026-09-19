@@ -1,0 +1,6 @@
+---
+description: Use the real ~/.gradle cache; Cursor's agent terminal injects an empty sandbox Gradle home.
+alwaysApply: true
+---
+
+Before any `./gradlew` / Gradle command, set `GRADLE_USER_HOME` to `$HOME/.gradle`. If it already contains `cursor-sandbox-cache`, override it. Do not let the wrapper ZIP download into the sandbox cache. Gradle root for this repo is `cmp/`.

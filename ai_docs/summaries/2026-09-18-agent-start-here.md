@@ -12,7 +12,7 @@ Read this first, then the linked files. Product intent: `ai_docs/product.md`. MV
 | STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
 | Local compose / VPS scripts | `infra/` |
 | CI / GitHub secret **names** | `.github/workflows/` |
-| Compose Multiplatform UI | `cmp/app/` — still KMP **template** (`App.kt` “Click me”). Not wired to clips. |
+| Compose Multiplatform UI | `cmp/app/` — Releva mock UI (Welcome/Home/Call/Review Grammar+Vocabulary/Profile), mock data, not wired to clips. History and pronunciation/fluency/speed screens deferred. |
 
 ## Runtime path that actually talks
 

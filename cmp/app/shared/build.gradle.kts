@@ -1,3 +1,5 @@
+import org.gradle.api.Task
+import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -5,6 +7,9 @@ plugins {
     alias(libs.plugins.androidMultiplatformLibrary)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kotlinSerialization)
+    alias(libs.plugins.stabilityAnalyzer)
+    alias(libs.plugins.koin.compiler)
 }
 
 kotlin {
@@ -56,13 +61,48 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
             implementation(libs.androidx.lifecycle.runtimeCompose)
+            implementation(libs.androidx.lifecycle.viewmodelNavigation3)
+            implementation(libs.androidx.navigation3.ui)
+            implementation(libs.kotlinx.serialization.json)
+            implementation(libs.koin.core)
+            implementation(libs.koin.core.viewmodel)
+            implementation(libs.koin.core.annotations)
+            implementation(libs.koin.annotations)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
+            implementation(libs.koin.compose.navigation3)
+            implementation(libs.kermit)
+            implementation(libs.kermit.koin)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
+            implementation(libs.koin.test)
+            implementation(libs.kermit.test)
         }
     }
 }
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)
+}
+
+// Compiler plugin stays for @TraceRecomposition. Do not let stabilityCheck ride
+// on `check`: the 0.14.0 task graph does not understand AGP KMP library
+// (`compileAndroidMain`) and fails Gradle 9 implicit-dependency validation.
+// This module has no *.stability CI baseline.
+afterEvaluate {
+    tasks.named("check").configure {
+        setDependsOn(
+            dependsOn.filterNot { dep ->
+                val name = when (dep) {
+                    is Task -> dep.name
+                    is TaskProvider<*> -> dep.name
+                    else -> dep.toString()
+                }
+                name.contains("stabilityCheck")
+            },
+        )
+    }
+    tasks.named("stabilityCheck").configure { enabled = false }
+    tasks.named("stabilityDump").configure { enabled = false }
 }

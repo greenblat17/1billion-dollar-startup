@@ -12,6 +12,8 @@ plugins {
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.ktor) apply false
     alias(libs.plugins.detekt) apply false
+    alias(libs.plugins.stabilityAnalyzer) apply false
+    alias(libs.plugins.koin.compiler) apply false
 }
 
 val detektPluginId = libs.plugins.detekt.get().pluginId
