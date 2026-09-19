@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Protocol
 
 import httpx
 
 from app.retry import once_on_retryable
+
+logger = logging.getLogger(__name__)
 
 REALTIME_MODEL = "gpt-realtime"
 TOPICS = {"Everyday", "Work", "Travel"}
@@ -31,9 +34,18 @@ class RealtimeGateway(Protocol):
 
 
 class OpenAiRealtimeGateway:
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+        transport: httpx.AsyncBaseTransport | httpx.BaseTransport | None = None,
+    ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
+        self._transport = transport
+
+    def _http(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=30.0, transport=self._transport)
 
     async def start_call(self, sdp: str, topic: str, voice: str) -> tuple[str, str | None]:
         session = {
@@ -55,7 +67,7 @@ class OpenAiRealtimeGateway:
         }
 
         async def mint() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with self._http() as http:
                 return await http.post(
                     f"{self._base_url}/realtime/client_secrets",
                     headers=headers,
@@ -63,14 +75,14 @@ class OpenAiRealtimeGateway:
                 )
 
         minted = await once_on_retryable(mint)
-        minted.raise_for_status()
+        _raise_openai(minted, self._api_key)
         payload = minted.json()
         ephemeral = str(payload.get("value") or payload.get("client_secret", {}).get("value") or "")
         if not ephemeral:
             raise RuntimeError("realtime client_secrets missing value")
 
         async def exchange() -> httpx.Response:
-            async with httpx.AsyncClient(timeout=30.0) as http:
+            async with self._http() as http:
                 return await http.post(
                     f"{self._base_url}/realtime/calls",
                     headers={
@@ -81,9 +93,27 @@ class OpenAiRealtimeGateway:
                 )
 
         answered = await once_on_retryable(exchange)
-        answered.raise_for_status()
+        _raise_openai(answered, self._api_key, ephemeral, sdp_bytes=len(sdp.encode("utf-8")))
         call_id = _call_id(answered.headers.get("location") or answered.headers.get("Location"))
         return answered.text, call_id
+
+
+def _raise_openai(response: httpx.Response, *secrets: str, sdp_bytes: int | None = None) -> None:
+    if response.is_success:
+        return
+    body = response.text or ""
+    for secret in secrets:
+        if secret:
+            body = body.replace(secret, "[redacted]")
+    extra = f" sdp_bytes={sdp_bytes}" if sdp_bytes is not None else ""
+    logger.warning(
+        "openai realtime HTTP %s %s%s body=%s",
+        response.status_code,
+        response.request.url.path,
+        extra,
+        body[:2000],
+    )
+    response.raise_for_status()
 
 
 def _instructions(topic: str) -> str:

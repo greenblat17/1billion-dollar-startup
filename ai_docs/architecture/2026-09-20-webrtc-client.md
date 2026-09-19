@@ -12,4 +12,4 @@
 
 iOS: `WebRTC` из [webrtc-sdk/Specs](https://github.com/webrtc-sdk/Specs) `125.6422.07`. Gradle качает `WebRTC.xcframework` в `~/.gradle/caches/webrtc-sdk/` (готово = есть `WebRTC.framework`, не пустая папка от `outputs.dir`) и даёт `-F` по slice `ios-arm64_x86_64-simulator` / `ios-arm64-simulator`. Иначе `iosSimulatorArm64Test` падает: cinterop уже пишет `-framework WebRTC`. `iosApp` дополнительно линкует тот же SDK через SPM. Android: `RECORD_AUDIO` + запрос в `MainActivity`. Desktop: Pulse/ALSA через native webrtc-java.
 
-Клиент `ek_` не видит. coturn в этот срез не входит.
+Клиент `ek_` не видит. coturn в этот срез не входит. Отказ OpenAI `POST /v1/realtime/calls` пишется в лог ai-service как `openai realtime HTTP … body=` (без ключа и без SDP).
