@@ -10,6 +10,6 @@
 
 Порядок как в HTTP-контракте: mic → SDP offer → один `POST /v1/sessions/{id}/rtc` (`application/sdp`). Trickle ICE нет. Субтитры и `turns` — data channel `oai-events`, не Ktor. Hangup → `POST .../complete` → Review поллит `GET .../review`. Карточка «Последний разговор» остаётся моком (`ReviewRoute()` без sessionId).
 
-iOS: линковать `WebRTC` из [webrtc-sdk/Specs](https://github.com/webrtc-sdk/Specs) `125.6422.07` (SPM в `iosApp.xcodeproj`). Android: `RECORD_AUDIO` + запрос в `MainActivity`. Desktop: Pulse/ALSA через native webrtc-java.
+iOS: `WebRTC` из [webrtc-sdk/Specs](https://github.com/webrtc-sdk/Specs) `125.6422.07`. Gradle качает `WebRTC.xcframework` в `~/.gradle/caches/webrtc-sdk/` и даёт `-F` линкеру (иначе `iosSimulatorArm64Test` падает: cinterop уже пишет `-framework WebRTC`). `iosApp` дополнительно линкует тот же SDK через SPM. Android: `RECORD_AUDIO` + запрос в `MainActivity`. Desktop: Pulse/ALSA через native webrtc-java.
 
 Клиент `ek_` не видит. coturn в этот срез не входит.

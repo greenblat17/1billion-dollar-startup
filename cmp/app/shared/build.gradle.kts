@@ -1,7 +1,11 @@
 import org.gradle.api.Task
 import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -67,6 +71,58 @@ val generateApiConfig = tasks.register("generateApiConfig") {
     }
 }
 
+// shepeliev webrtc-kmp cinterop links `-framework WebRTC` but does not ship the binary.
+// Gradle iOS tests / framework link need the xcframework on the search path (SPM only covers iosApp).
+val webRtcIosSdkVersion = "125.6422.07"
+val webRtcIosSdkSha256 = "827cc2f508c341367c9b0e4f6def46e5f6834251082047d5d1da5bc8fd379263"
+val webRtcSdkRoot = File(System.getProperty("user.home"), ".gradle/caches/webrtc-sdk/$webRtcIosSdkVersion")
+val fetchWebRtcXcframework = tasks.register("fetchWebRtcXcframework") {
+    val version = webRtcIosSdkVersion
+    val expectedSha = webRtcIosSdkSha256
+    val root = webRtcSdkRoot
+    outputs.dir(root.resolve("WebRTC.xcframework"))
+    doLast {
+        val frameworkDir = root.resolve("WebRTC.xcframework")
+        if (!frameworkDir.isDirectory) {
+            root.mkdirs()
+            val zip = root.resolve("WebRTC.xcframework.zip")
+            if (!zip.isFile) {
+                URI("https://github.com/webrtc-sdk/Specs/releases/download/$version/WebRTC.xcframework.zip")
+                    .toURL()
+                    .openStream()
+                    .use { input -> zip.outputStream().use { input.copyTo(it) } }
+            }
+            val digest = zip.inputStream().use { stream ->
+                val md = MessageDigest.getInstance("SHA-256")
+                val buf = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = stream.read(buf)
+                    if (read <= 0) break
+                    md.update(buf, 0, read)
+                }
+                md.digest().joinToString("") { "%02x".format(it) }
+            }
+            check(digest == expectedSha) {
+                "WebRTC.xcframework.zip sha256=$digest expected=$expectedSha"
+            }
+            ZipFile(zip).use { zipFile ->
+                zipFile.entries().asSequence().forEach { entry ->
+                    val out = root.resolve(entry.name)
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                    } else {
+                        out.parentFile.mkdirs()
+                        zipFile.getInputStream(entry).use { input ->
+                            out.outputStream().use { input.copyTo(it) }
+                        }
+                    }
+                }
+            }
+        }
+        check(frameworkDir.isDirectory) { "missing $frameworkDir" }
+    }
+}
+
 kotlin {
     listOf(
         iosArm64(),
@@ -75,6 +131,16 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "Shared"
             isStatic = true
+        }
+        val slice = if (iosTarget.name.contains("Simulator", ignoreCase = true)) {
+            "ios-arm64_x86_64-simulator"
+        } else {
+            "ios-arm64"
+        }
+        val webRtcFrameworkDir = File(webRtcSdkRoot, "WebRTC.xcframework/$slice")
+        iosTarget.binaries.all {
+            linkerOpts("-F${webRtcFrameworkDir.absolutePath}", "-rpath", webRtcFrameworkDir.absolutePath)
+            linkTaskProvider.configure { dependsOn(fetchWebRtcXcframework) }
         }
     }
 
