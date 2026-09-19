@@ -24,7 +24,7 @@
 
 Это не вырезание из продукта. В ветке CMP UI их **уже отложили**: карусель только Grammar→Vocabulary (`ReviewMetric` без Pronunciation/Fluency/Speed), экрана History нет, упражнений никогда не было. В репо остались PNG `06`–`09` и макетные заметки — не Compose и не API.
 
-Живой бэк под несуществующий UI не делаем. Home «Последний разговор» по-прежнему ведёт в короткий разбор 1/2. Полный цикл из `mvp-plan` / `product.md` — отдельная задача, когда появятся экраны.
+Живой бэк под несуществующий UI не делаем. Карточка Home «Последний разговор» **выпала из среза** [mvp-backend-plan.md](mvp-backend-plan.md): Review только после Call. Полный цикл из `mvp-plan` / `product.md` — отдельная задача, когда появятся экраны.
 
 ### Почему авторизация казалась «ушедшей»
 
@@ -232,7 +232,7 @@ App API на Ktor (Bearer, кроме auth-эндпоинтов):
 - `POST /v1/auth/verify` `{ token }` — почта confirmed, можно склеивать с Google/Apple
 - `POST /v1/auth/logout`
 - `GET/PATCH /v1/me` — имя, email, language (UI), tutorVoice (`marin`|`cedar`), captionsByDefault, emailVerified
-- `GET /v1/home` — `{ userName, lastConversation? }`
+- `GET /v1/home` — `{ userName }` (в активном срезе без `lastConversation`)
 - `POST /v1/sessions` `{ topic }` → `{ sessionId }` (если topic=Random, конкретная тема ещё не выбрана)
 - `POST /v1/sessions/{id}/rtc` — Bearer; тело SDP offer (`Content-Type: application/sdp` или JSON `{ sdp }`). Клиент уже получил mic. Ktor → ai-service **одним** вызовом: mint+SDP. Ответ: SDP answer. Клиенту не отдаём `ek_`. Отдельного `/rtc/sdp` нет.
 - `POST /v1/sessions/{id}/complete` `{ turns: [{role, text}], durationSec }` — user+assistant из `oai-events`. 202, Ktor зовёт review. ReviewScreen поллит GET.

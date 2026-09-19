@@ -2,6 +2,7 @@
 
 **Дата:** 2026-09-19  
 **Статус:** согласованный срез, импл не начат. Ветка `feature/back-for-mobile`.  
+**Контракт (ручки ↔ экраны):** [../integrations/2026-09-18-mobile-api.md](../integrations/2026-09-18-mobile-api.md) — что именно отдаёт Ktor и с какого UI это зовут.  
 **Шире (сторы, OAuth, SMTP, dual-host, CI PR→dev):** [2026-09-19-mobile-mvp-backend.md](2026-09-19-mobile-mvp-backend.md) — бэклог, не этот срез.  
 **Не этот документ:** [mvp-plan.md](mvp-plan.md) (полный продуктовый цикл).  
 **Связанные:** [../design/2026-09-17-mobile-ui.md](../design/2026-09-17-mobile-ui.md), [../architecture/2026-09-17-cmp-client.md](../architecture/2026-09-17-cmp-client.md), [../integrations/2026-09-18-clip-session-api.md](../integrations/2026-09-18-clip-session-api.md)
@@ -10,9 +11,26 @@
 
 ## Что такое «бэк готов»
 
-Curl (потом CMP) может: **войти → создать сессию с темой → получить SDP answer → после звонка прислать транскрипт → получить Grammar/Vocabulary → увидеть последний разговор на Home.**
+Curl (потом CMP) может: **войти → создать сессию с темой → получить SDP answer → после звонка прислать транскрипт → получить Grammar/Vocabulary.** Карточки «Последний разговор» на Home в этом срезе нет.
 
 Клиентский WebRTC, AuthScreen и подключение моков в Compose **не** входят в этот срез. Realtime mint+SDP на сервере — входят: без них бэкенд это логин и JSON, а продукт — разговор.
+
+## Progress
+
+Обновлять в том же PR/сессии, что и код. Не оставлять галочки «на потом».
+
+**Обновлено:** 2026-09-19  
+**Остановились:** контракт записан; кода Ktor/Postgres/ai-service ещё нет. Следующий шаг — предохранитель CI (PR ≠ prod).
+
+- [x] Контракт [mobile-api.md](../integrations/2026-09-18-mobile-api.md)
+- [ ] Предохранитель CI: не деплоить prod с `pull_request`
+- [ ] Ktor: Postgres, register/login, JWT
+- [ ] Ktor: `GET /v1/home`, `POST /v1/sessions`, complete/review
+- [ ] Закрыть публичный `/v1/clips`
+- [ ] Ktor: rtc-прокси → ai-service
+- [ ] ai-service: `POST /internal/realtime/call` (mint+SDP)
+- [ ] ai-service: `POST /internal/review`
+- [ ] Local compose + прогон контракта curl’ом
 
 ## Срезы
 
@@ -31,6 +49,7 @@ Curl (потом CMP) может: **войти → создать сессию �
 | Google / Apple / SMTP / verify / reset / склейка | Сторы и anti-takeover. Desktop и так только почта. OAuth — отдельный слайс перед TestFlight/Play |
 | `PATCH /v1/me`, язык UI, CC, цель, streak | Серверу для звонка нужен голос на `POST /sessions`. Остальное уже локально в CMP |
 | `auth_tokens`, `email_tokens` | JWT с TTL; logout = стереть токен на клиенте. Писем нет |
+| «Последний разговор» на Home | История сессий не в MVP; Review только сразу после Call |
 | Random резолвит Python | Клиент или Ktor кидает кубик **до** mint, в сессию пишется конкретный `TopicKind` |
 | `/internal/realtime/hangup`, Safety-Identifier, `pg_dump` | После первого живого звонка. Утечка Realtime умрёт за 60 мин у OpenAI |
 | Два новых хоста + `DEV_TELEGRAM_*` | Прод уже одна машина. Бот для мобильного API не нужен; `setWebhook` не должен быть обязателен |
@@ -138,7 +157,7 @@ App API на Ktor. Auth-эндпоинты без JWT; остальное `Autho
 
 **App**
 
-- `GET /v1/home` — `{ userName, lastConversation? }` (`title`, `durationMinutes`, `topic`, `sessionId`). Без streak/цели.
+- `GET /v1/home` — `{ userName }`. Без lastConversation, streak, цели.
 - `POST /v1/sessions` `{ topic, tutorVoice }` → `{ sessionId }`. `topic` — `Everyday` | `Work` | `Travel` (не `Random`: резолв до запроса). `tutorVoice` — `marin` | `cedar`.
 - `POST /v1/sessions/{id}/rtc` — Bearer, SDP offer (`Content-Type: application/sdp` или JSON `{ sdp }`). Ktor → ai-service одним вызовом. Ответ: SDP answer. Клиенту не отдаём `ek_`.
 - `POST /v1/sessions/{id}/complete` `{ turns: [{role, text}], durationSec }` — 202. Без user-реплик — 422, не фейковые баллы.
@@ -228,7 +247,7 @@ Ktor → ai-service: `X-Internal-Token`. Без него `/internal/*` 401. Pyth
 
 ## Сознательно не делаем
 
-- History, pronunciation/fluency/speed, упражнения, смена BotFather
+- History, карточка «Последний разговор» на Home, pronunciation/fluency/speed, упражнения, смена BotFather
 - Google/Apple, Firebase, письма, смена пароля
 - Свои модели / GPU / coturn
 - Деплой этой ветки на прод-бота; `docker rm redis`

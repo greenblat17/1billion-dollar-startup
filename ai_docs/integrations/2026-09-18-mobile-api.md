@@ -19,7 +19,7 @@ Welcome
 Home  (вход на экран: GET /v1/home)
   чипы темы                   → локально, без HTTP
   «Начать» на hero-карточке   → POST /v1/sessions → Call
-  «Последний разговор»        → GET /v1/sessions/{id}/review → Review
+  «Последний разговор»        → нет в MVP (мок на экране, без HTTP)
   аватар                      → Profile, без HTTP
 
 Call
@@ -52,7 +52,6 @@ flowchart LR
   home -->|"POST_sessions"| call
   call -->|"POST_rtc_then_WebRTC"| call
   call -->|"POST_complete"| review
-  home -->|"GET_review"| review
   review -->|"no_HTTP"| home
   home --> profile
   profile -->|"POST_logout"| welcome
@@ -125,13 +124,13 @@ flowchart LR
 | UI | Когда | API |
 | --- | --- | --- |
 | Заголовок «Привет, Алекс!» | вход на экран / pull-to-refresh если появится | `GET /v1/home` → `userName` |
-| Карточка «Последний разговор» | тот же `GET` | `lastConversation` или скрыть карточку, если `null` |
+| Карточка «Последний разговор» | — | **нет в MVP.** Мок может остаться на экране; тап не зовёт API и не открывает Review |
 | Полоска «Цель на день», streak, огонь | — | **нет.** `DailyGoalStore` |
 | Чипы Everyday / Work / Travel / Random | тап | **нет.** `HomeViewModel.onTopicSelected` |
 | Аватар справа в шапке | тап | **нет.** `ProfileRoute` |
 | Hero «Начать разговор» → CTA «Начать» | тап | `POST /v1/sessions`, затем `CallRoute(sessionId)` |
 
-**Random:** в API нет. Перед `POST /v1/sessions` клиент (или, если забыл, Ktor) выбирает Everyday / Work / Travel. В `lastConversation.topic` на следующем Home — уже конкретная тема.
+**Random:** в API нет. Перед `POST /v1/sessions` клиент (или, если забыл, Ktor) выбирает Everyday / Work / Travel. Тема пишется в сессию; на Home её не показываем.
 
 `tutorVoice` в этом запросе берётся из локальной настройки Profile (`marin` \| `cedar`, не мок «Emma»). Если пользователь голос не трогал — `marin`.
 
@@ -142,23 +141,10 @@ flowchart LR
 Bearer. 401 → Welcome.
 
 ```json
-{
-  "userName": "Алекс",
-  "lastConversation": {
-    "sessionId": "app-…",
-    "title": "Работа",
-    "durationMinutes": 8,
-    "topic": "Work",
-    "endedAt": "2026-09-19T08:12:00Z"
-  }
-}
+{ "userName": "Алекс" }
 ```
 
-`lastConversation` — `null`, если звонков не было или ни один не дошёл до review (в т.ч. 422 «мало речи»).  
-`title` — локализованное имя темы для карточки (как сейчас «Работа»).  
-`topic` — `Everyday` \| `Work` \| `Travel`.  
-`endedAt` — клиент сам рисует `whenLabel` («сегодня» и т.д.).  
-Нет `spokenSeconds` / `streakDays` / `goalMinutes`.
+Нет `lastConversation`, `spokenSeconds`, `streakDays`, `goalMinutes`. Review с Home не открываем.
 
 ### `POST /v1/sessions` → 201
 
@@ -226,14 +212,13 @@ Bearer. Сразу после hangup, **до** того как Review что-т�
 
 ## Review — `ReviewScreen` / `ReviewViewModel` / `ReviewWidget`
 
-Макеты [04-review-grammar.png](../design/screens/04-review-grammar.png) (`1/2`) и [05-review-vocabulary.png](../design/screens/05-review-vocabulary.png) (`2/2`). Карусель `ReviewMetric.Grammar` → `Vocabulary`. Pronunciation / Fluency / Speed и История — не вызывают API, экранов нет.
+Макеты [04-review-grammar.png](../design/screens/04-review-grammar.png) (`1/2`) и [05-review-vocabulary.png](../design/screens/05-review-vocabulary.png) (`2/2`). Карусель `ReviewMetric.Grammar` → `Vocabulary`. Pronunciation / Fluency / Speed, История и карточка «Последний разговор» на Home — не вызывают API.
 
-Два входа:
+Единственный вход — hangup с Call:
 
 | Откуда | UI | API |
 | --- | --- | --- |
-| Call hangup | лоадер «Разбор разговора», пока 202 | полл `GET /v1/sessions/{id}/review` ~300 ms до ~30 с |
-| Home «Последний разговор» | сразу шаги, без лоадера | один `GET` (уже 200) |
+| Call «Завершить» | лоадер «Разбор разговора», пока 202 | полл `GET /v1/sessions/{id}/review` ~300 ms до ~30 с |
 
 | UI | API |
 | --- | --- |
@@ -323,6 +308,7 @@ Bearer. Только владелец.
 
 ## Что экраны сознательно не дергают
 
+- Карточка «Последний разговор» на Home (мок ок, живого API нет)
 - History (`09-history.png`)
 - Pronunciation / Fluency / Speed
 - Упражнения
