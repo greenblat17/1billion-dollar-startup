@@ -27,7 +27,7 @@ docker run -d --name ai-service --restart unless-stopped \
   --env-file "$APP/.env" \
   ai-service:local
 
-install -m 755 "$APP/restrict-8090.sh" /opt/ai-service/restrict-8090.sh
+chmod 755 "$APP/restrict-8090.sh"
 install -m 644 "$APP/restrict-8090.service" /etc/systemd/system/restrict-8090.service
 systemctl daemon-reload
 systemctl enable --now restrict-8090.service
