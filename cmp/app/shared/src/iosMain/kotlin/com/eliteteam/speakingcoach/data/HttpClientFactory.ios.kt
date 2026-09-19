@@ -2,12 +2,14 @@ package com.eliteteam.speakingcoach.data
 
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.darwin.Darwin
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSURLAuthenticationMethodServerTrust
 import platform.Foundation.NSURLCredential
 import platform.Foundation.NSURLSessionAuthChallengeUseCredential
 import platform.Foundation.credentialForTrust
 import platform.Foundation.serverTrust
 
+@OptIn(ExperimentalForeignApi::class)
 actual fun createHttpClient(): HttpClient = HttpClient(Darwin) {
     engine {
         handleChallenge { _, _, challenge, completionHandler ->
