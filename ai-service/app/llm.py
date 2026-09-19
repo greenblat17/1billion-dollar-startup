@@ -20,31 +20,17 @@ Do not mention errors, corrections, or the transcript as a quote.
 Do not put corrections in "reply".
 """
 
-NOTES_SYSTEM = """You only find real English grammar and vocabulary mistakes in a spoken transcript.
+CORRECTION_SYSTEM = """You rewrite a spoken English transcript so it is grammatical.
 
 Always reply with a JSON object only:
-{"notes": [{"wrong": string, "better": string}]}
+{"corrected": string}
 
-Default is "notes": []. An empty list is correct when the English is already grammatical.
-Do not invent errors. Do not mark style, fluency, hesitation, pronunciation, repeats, false starts, or self-repair.
-Do not "make it more natural" if the wording is already grammatical.
-
-Fix only clear grammar or a wrong word (tense, agreement, article, preposition, calque, "go to home", "speak good").
-
-"wrong" MUST be an exact contiguous substring of the transcript.
-"better" replaces ONLY that substring. Concatenating (text before) + better + (text after) must read as one sentence.
-Do not leave a leftover phrase that the replacement already covered.
-
-Include in "wrong" every original word this fix supersedes.
-Bad: transcript "I walk on the weekend." with wrong "I walk" and better "I walk on weekends"
-(because "on the weekend" would remain). Good: notes [] OR wrong "on the weekend" / better "on weekends".
-Do not change "I walk" when the subject is I.
-
-Example: "Usually I walk on the weekend." → {"notes": []}
-or {"notes": [{"wrong": "on the weekend", "better": "on weekends"}]}
-Never {"notes": [{"wrong": "I walk", "better": "I walk on weekends"}]}.
-
-Maximum 3 notes. Prefer fewer.
+"corrected" is the same utterance, same meaning, as many of the same words as possible.
+Fix only what is ungrammatical or a clearly wrong word.
+Do not make it more natural, shorter, more fluent, or more polite.
+Do not drop fillers, repeats, or self-repair unless they break grammar.
+Do not answer the speaker. Do not add a greeting or extra sentence.
+If the transcript is already grammatical, "corrected" must be that transcript with the same wording.
 """
 
 NOTE_SEP = "|||"
@@ -53,7 +39,7 @@ NOTE_SEP = "|||"
 class ChatModel(Protocol):
     async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str: ...
 
-    async def complete_notes(self, user_text: str) -> list[str]: ...
+    async def complete_correction(self, user_text: str) -> str: ...
 
 
 class OpenAiChatModel:
@@ -78,13 +64,13 @@ class OpenAiChatModel:
         text = await self._complete(messages, self._reply_temperature)
         return parse_reply(text)
 
-    async def complete_notes(self, user_text: str) -> list[str]:
+    async def complete_correction(self, user_text: str) -> str:
         messages = [
-            {"role": "system", "content": NOTES_SYSTEM},
+            {"role": "system", "content": CORRECTION_SYSTEM},
             {"role": "user", "content": user_text},
         ]
         text = await self._complete(messages, self._notes_temperature)
-        return parse_notes(text)
+        return parse_corrected(text)
 
     async def _complete(self, messages: list[dict[str, str]], temperature: float) -> str:
         async def call() -> Any:
@@ -111,30 +97,12 @@ def parse_reply(raw: str) -> str:
     return reply
 
 
-def parse_notes(raw: str) -> list[str]:
+def parse_corrected(raw: str) -> str:
     payload = _load_json(raw)
-    notes_raw = payload.get("notes") or []
-    if not isinstance(notes_raw, list):
-        notes_raw = []
-    return [line for item in notes_raw if (line := _note_line(item))][:3]
-
-
-def _note_line(item: Any) -> str | None:
-    if isinstance(item, dict):
-        wrong = str(item.get("wrong") or "").strip()
-        better = str(item.get("better") or "").strip()
-        if wrong and better:
-            return f"{wrong}{NOTE_SEP}{better}"
-        return None
-    text = str(item).strip()
-    if NOTE_SEP not in text:
-        return None
-    wrong, _, better = text.partition(NOTE_SEP)
-    wrong = wrong.strip()
-    better = better.strip()
-    if wrong and better:
-        return f"{wrong}{NOTE_SEP}{better}"
-    return None
+    corrected = str(payload.get("corrected") or "").strip()
+    if not corrected:
+        raise RuntimeError("llm json missing corrected")
+    return corrected
 
 
 def _load_json(raw: str) -> dict[str, Any]:

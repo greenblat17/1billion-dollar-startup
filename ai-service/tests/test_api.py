@@ -158,8 +158,7 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    notes = ["I was in Turkey last summer|||I went to Turkey last summer"]
-    llm = FakeLlm(notes=notes)
+    llm = FakeLlm(corrected="I went to Turkey last summer")
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with TestClient(app) as client:
         session_id = _start_session(client)
@@ -170,7 +169,7 @@ def test_clip_includes_coaching_notes() -> None:
         )
         body = _wait_status(client, created.json()["jobId"])
         assert body["status"] == "ok"
-        assert body["result"]["notes"] == notes
+        assert body["result"]["notes"] == ["was in|||went to"]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
         assert tts.texts == ["Got it: I was in Turkey last summer"]
 

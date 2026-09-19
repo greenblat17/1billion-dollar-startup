@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from app.dialogue import DialogueStore
 from app.llm import ChatModel
+from app.notes_diff import notes_from_rewrite
 from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech
 
@@ -78,10 +79,11 @@ class ClipPipeline:
 
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
-        reply_text, notes = await asyncio.gather(
+        reply_text, corrected = await asyncio.gather(
             self._llm.complete_reply(history, stt_result.text),
-            self._llm.complete_notes(stt_result.text),
+            self._llm.complete_correction(stt_result.text),
         )
+        notes = notes_from_rewrite(stt_result.text, corrected)
         await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
         llm_ms = _elapsed_ms(llm_started)
 
