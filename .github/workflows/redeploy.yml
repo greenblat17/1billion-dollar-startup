@@ -1,4 +1,4 @@
-name: Redeploy
+name: Redeploy DEV
 
 on:
   workflow_dispatch:
@@ -102,7 +102,7 @@ jobs:
     if: ${{ !cancelled() && inputs.cmp_server && needs.package-server.result == 'success' }}
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
-      destination: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 'prod' || 'dev' }}
+      destination: dev
     secrets: inherit
 
   deploy-ai:
@@ -113,5 +113,5 @@ jobs:
     if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
-      destination: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 'prod' || 'dev' }}
+      destination: dev
     secrets: inherit
