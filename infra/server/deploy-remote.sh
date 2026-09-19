@@ -2,21 +2,11 @@
 set -euo pipefail
 
 APP=/opt/speaking-coach
-: "${TELEGRAM_BOT_TOKEN:?}"
-: "${TELEGRAM_WEBHOOK_SECRET:?}"
-: "${TELEGRAM_WEBHOOK_URL:?}"
-: "${AI_SERVICE_BASE_URL:?}"
 
-umask 077
-{
-  printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
-  printf 'TELEGRAM_WEBHOOK_SECRET=%s\n' "$TELEGRAM_WEBHOOK_SECRET"
-  printf 'TELEGRAM_WEBHOOK_URL=%s\n' "$TELEGRAM_WEBHOOK_URL"
-  printf 'AI_SERVICE_BASE_URL=%s\n' "$AI_SERVICE_BASE_URL"
-  printf 'SERVER_PORT=443\n'
-  printf 'TLS_CERT_PATH=%s/tls.crt\n' "$APP"
-  printf 'TLS_KEY_PATH=%s/tls.key\n' "$APP"
-} > "$APP/.env"
+if [ ! -s "$APP/.env" ]; then
+  echo "Missing or empty $APP/.env" >&2
+  exit 1
+fi
 chmod 600 "$APP/.env"
 
 if [ ! -f "$APP/tls.crt" ] || [ ! -f "$APP/tls.key" ]; then

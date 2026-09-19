@@ -2,28 +2,12 @@
 set -euo pipefail
 
 APP=/opt/ai-service
-: "${GROQ_API_KEY:?}"
-: "${OPENAI_API_KEY:?}"
-
-OPENAI_BASE_URL="${OPENAI_BASE_URL:-https://openrouter.ai/api/v1}"
-LLM_MODEL="${LLM_MODEL:-openai/gpt-4o-mini}"
-TTS_MODEL="${TTS_MODEL:-hexgrad/kokoro-82m}"
-TTS_VOICE="${TTS_VOICE:-af_heart}"
-TTS_RESPONSE_FORMAT="${TTS_RESPONSE_FORMAT:-mp3}"
-REDIS_URL="${REDIS_URL:-redis://redis:6379/0}"
 NETWORK=speaking-coach
 
-umask 077
-{
-  printf 'GROQ_API_KEY=%s\n' "$GROQ_API_KEY"
-  printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
-  printf 'OPENAI_BASE_URL=%s\n' "$OPENAI_BASE_URL"
-  printf 'LLM_MODEL=%s\n' "$LLM_MODEL"
-  printf 'TTS_MODEL=%s\n' "$TTS_MODEL"
-  printf 'TTS_VOICE=%s\n' "$TTS_VOICE"
-  printf 'TTS_RESPONSE_FORMAT=%s\n' "$TTS_RESPONSE_FORMAT"
-  printf 'REDIS_URL=%s\n' "$REDIS_URL"
-} > "$APP/.env"
+if [ ! -s "$APP/.env" ]; then
+  echo "Missing or empty $APP/.env" >&2
+  exit 1
+fi
 chmod 600 "$APP/.env"
 
 cd "$APP"

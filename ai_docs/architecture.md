@@ -133,7 +133,7 @@ flowchart TB
 
 - `docker compose` без profile `llm`: Ktor + stub, **без** Telegram (нет webhook URL).
 - `--profile llm`: реальный ai-service на хосте **8091**, Redis.
-- Прод: GitHub Actions деплоит `speaking-coach`, `ai-service`, Redis; `TELEGRAM_*`, `AI_SERVICE_BASE_URL`, `REDIS_URL`. Имя/аватар бота — BotFather, не репозиторий.
+- Прод: выкат только **Redeploy** на `main` (не push/PR). Имя/аватар бота — BotFather, не репозиторий.
 
 ## Что сознательно не в рантайме бота
 

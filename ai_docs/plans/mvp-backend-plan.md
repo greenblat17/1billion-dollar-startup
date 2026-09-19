@@ -226,7 +226,7 @@ Ktor → ai-service: `X-Internal-Token`. Без него `/internal/*` 401. Pyth
 
 **Сервер (не в этом срезе как блокер):** если понадобится HTTPS для телефона — **один** extra-хост, топология как у прода (Ktor + Postgres + AI + Redis). Не два хоста. Не второй бот. Не `CMP_SERVER_HOST`.
 
-**CI сейчас сломан:** `server-deploy` после PR идёт в environment `deploy`. В этом срезе: job deploy **не** стартует на `pull_request` (и не на эту ветку). Полный split PR→`dev` / main→`deploy` — в широком плане.
+**CI:** push/PR не деплоит. Выкат — Redeploy (`main` → prod). App-контур — DEV-хосты, не `CMP_SERVER_HOST`.
 
 Имена секретов прода **не** переименовываем и не подставляем в app-контур.
 

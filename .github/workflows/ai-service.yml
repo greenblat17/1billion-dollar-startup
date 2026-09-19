@@ -2,11 +2,6 @@ name: AI service
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy:
-        description: Deploy to VPS after Approve
-        type: boolean
-        default: true
   push:
     branches:
       - main
@@ -66,58 +61,3 @@ jobs:
           path: ${{ runner.temp }}/ai-service-runtime
           if-no-files-found: error
           retention-days: 1
-
-  deploy:
-    name: Deploy
-    needs: package
-    if: ${{ !cancelled() && needs.package.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.deploy == 'true') }}
-    runs-on: ubuntu-latest
-    environment: deploy
-    env:
-      AI_SERVICE_HOST: ${{ secrets.AI_SERVICE_HOST }}
-      AI_SERVICE_USER: ${{ secrets.AI_SERVICE_USER }}
-      AI_SERVICE_SSH_KEY: ${{ secrets.AI_SERVICE_SSH_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Download runtime
-        uses: actions/download-artifact@v7
-        with:
-          name: ai-service
-          path: vps-upload
-
-      - name: Stage runtime files
-        run: |
-          cp infra/ai-service/deploy-remote.sh vps-upload/deploy-remote.sh
-          cp infra/redis/deploy-remote.sh vps-upload/deploy-redis.sh
-          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh
-
-      - name: Copy files and restart container
-        run: |
-          set -euo pipefail
-          KEY="$RUNNER_TEMP/vps_key"
-          install -m 600 /dev/null "$KEY"
-          printf '%s\n' "$AI_SERVICE_SSH_KEY" > "$KEY"
-          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
-          ssh "${SSH_OPTS[@]}" "${AI_SERVICE_USER}@${AI_SERVICE_HOST}" \
-            mkdir -p /opt/ai-service
-          ssh "${SSH_OPTS[@]}" "${AI_SERVICE_USER}@${AI_SERVICE_HOST}" \
-            rm -rf /opt/ai-service/app /opt/ai-service/main.py /opt/ai-service/greeting.ogg
-          scp "${SSH_OPTS[@]}" \
-            vps-upload/Dockerfile \
-            vps-upload/requirements.txt \
-            vps-upload/deploy-remote.sh \
-            vps-upload/deploy-redis.sh \
-            "${AI_SERVICE_USER}@${AI_SERVICE_HOST}:/opt/ai-service/"
-          scp -r "${SSH_OPTS[@]}" \
-            vps-upload/app \
-            "${AI_SERVICE_USER}@${AI_SERVICE_HOST}:/opt/ai-service/app"
-          ssh "${SSH_OPTS[@]}" "${AI_SERVICE_USER}@${AI_SERVICE_HOST}" \
-            bash /opt/ai-service/deploy-redis.sh
-          ssh "${SSH_OPTS[@]}" "${AI_SERVICE_USER}@${AI_SERVICE_HOST}" \
-            GROQ_API_KEY="$GROQ_API_KEY" \
-            OPENAI_API_KEY="$OPENAI_API_KEY" \
-            bash /opt/ai-service/deploy-remote.sh
