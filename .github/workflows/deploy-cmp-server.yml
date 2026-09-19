@@ -1,0 +1,102 @@
+name: Deploy cmp-server
+
+on:
+  workflow_call:
+    inputs:
+      destination:
+        description: prod or dev
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy cmp-server (${{ inputs.destination }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.destination == 'prod' && 'deploy' || 'dev' }}
+    concurrency:
+      group: ktor-${{ inputs.destination }}
+      cancel-in-progress: false
+    env:
+      DESTINATION: ${{ inputs.destination }}
+      CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
+      CMP_SERVER_USER: ${{ secrets.CMP_SERVER_USER }}
+      CMP_SERVER_SSH_KEY: ${{ secrets.CMP_SERVER_SSH_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+      TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL || vars.TELEGRAM_WEBHOOK_URL }}
+      AI_SERVICE_BASE_URL: ${{ secrets.AI_SERVICE_BASE_URL || vars.AI_SERVICE_BASE_URL }}
+      DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      DEV_CMP_SERVER_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      DEV_CMP_SERVER_SSH_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      DEV_CMP_SERVER_ENV: ${{ secrets.DEV_CMP_SERVER_ENV }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download fat JAR
+        uses: actions/download-artifact@v7
+        with:
+          name: server-all
+          path: vps-upload
+
+      - name: Stage runtime files
+        run: |
+          set -euo pipefail
+          cp infra/server/Dockerfile.runtime vps-upload/Dockerfile.runtime
+          cp infra/server/deploy-remote.sh vps-upload/deploy-remote.sh
+          chmod +x vps-upload/deploy-remote.sh
+          umask 077
+          if [ "$DESTINATION" = prod ]; then
+            : "${TELEGRAM_BOT_TOKEN:?}"
+            : "${TELEGRAM_WEBHOOK_SECRET:?}"
+            : "${TELEGRAM_WEBHOOK_URL:?}"
+            : "${AI_SERVICE_BASE_URL:?}"
+            {
+              printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
+              printf 'TELEGRAM_WEBHOOK_SECRET=%s\n' "$TELEGRAM_WEBHOOK_SECRET"
+              printf 'TELEGRAM_WEBHOOK_URL=%s\n' "$TELEGRAM_WEBHOOK_URL"
+              printf 'AI_SERVICE_BASE_URL=%s\n' "$AI_SERVICE_BASE_URL"
+              printf 'SERVER_PORT=443\n'
+              printf 'TLS_CERT_PATH=/opt/speaking-coach/tls.crt\n'
+              printf 'TLS_KEY_PATH=/opt/speaking-coach/tls.key\n'
+            } > vps-upload/.env
+          else
+            if [ -z "${DEV_CMP_SERVER_ENV:-}" ]; then
+              echo "DEV_CMP_SERVER_ENV is empty" >&2
+              exit 1
+            fi
+            printf '%s\n' "$DEV_CMP_SERVER_ENV" > vps-upload/.env
+          fi
+          chmod 600 vps-upload/.env
+
+      - name: Copy files and restart container
+        run: |
+          set -euo pipefail
+          if [ "$DESTINATION" = prod ]; then
+            HOST="$CMP_SERVER_HOST"
+            USER="$CMP_SERVER_USER"
+            KEY_BODY="$CMP_SERVER_SSH_KEY"
+          else
+            HOST="$DEV_CMP_SERVER_HOST"
+            USER="$DEV_CMP_SERVER_USER"
+            KEY_BODY="$DEV_CMP_SERVER_SSH_KEY"
+          fi
+          : "${HOST:?}"
+          : "${USER:?}"
+          : "${KEY_BODY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/speaking-coach
+          scp "${SSH_OPTS[@]}" \
+            vps-upload/server-all.jar \
+            vps-upload/Dockerfile.runtime \
+            vps-upload/deploy-remote.sh \
+            vps-upload/.env \
+            "${USER}@${HOST}:/opt/speaking-coach/"
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            bash /opt/speaking-coach/deploy-remote.sh

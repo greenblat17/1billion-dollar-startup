@@ -1,0 +1,107 @@
+name: Deploy ai-service
+
+on:
+  workflow_call:
+    inputs:
+      destination:
+        description: prod or dev
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ai-service (${{ inputs.destination }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.destination == 'prod' && 'deploy' || 'dev' }}
+    concurrency:
+      group: ai-${{ inputs.destination }}
+      cancel-in-progress: false
+    env:
+      DESTINATION: ${{ inputs.destination }}
+      AI_SERVICE_HOST: ${{ secrets.AI_SERVICE_HOST }}
+      AI_SERVICE_USER: ${{ secrets.AI_SERVICE_USER }}
+      AI_SERVICE_SSH_KEY: ${{ secrets.AI_SERVICE_SSH_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DEV_AI_SERVICE_HOST: ${{ secrets.DEV_AI_SERVICE_HOST }}
+      DEV_AI_SERVICE_USER: ${{ secrets.DEV_AI_SERVICE_USER }}
+      DEV_AI_SERVICE_SSH_KEY: ${{ secrets.DEV_AI_SERVICE_SSH_KEY }}
+      DEV_AI_SERVICE_ENV: ${{ secrets.DEV_AI_SERVICE_ENV }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download runtime
+        uses: actions/download-artifact@v7
+        with:
+          name: ai-service
+          path: vps-upload
+
+      - name: Stage runtime files
+        run: |
+          set -euo pipefail
+          cp infra/ai-service/deploy-remote.sh vps-upload/deploy-remote.sh
+          cp infra/redis/deploy-remote.sh vps-upload/deploy-redis.sh
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh
+          umask 077
+          if [ "$DESTINATION" = prod ]; then
+            : "${GROQ_API_KEY:?}"
+            : "${OPENAI_API_KEY:?}"
+            {
+              printf 'GROQ_API_KEY=%s\n' "$GROQ_API_KEY"
+              printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
+              printf 'OPENAI_BASE_URL=https://openrouter.ai/api/v1\n'
+              printf 'LLM_MODEL=openai/gpt-4o-mini\n'
+              printf 'TTS_MODEL=hexgrad/kokoro-82m\n'
+              printf 'TTS_VOICE=af_heart\n'
+              printf 'TTS_RESPONSE_FORMAT=mp3\n'
+              printf 'REDIS_URL=redis://redis:6379/0\n'
+            } > vps-upload/.env
+          else
+            if [ -z "${DEV_AI_SERVICE_ENV:-}" ]; then
+              echo "DEV_AI_SERVICE_ENV is empty" >&2
+              exit 1
+            fi
+            printf '%s\n' "$DEV_AI_SERVICE_ENV" > vps-upload/.env
+          fi
+          chmod 600 vps-upload/.env
+
+      - name: Copy files and restart container
+        run: |
+          set -euo pipefail
+          if [ "$DESTINATION" = prod ]; then
+            HOST="$AI_SERVICE_HOST"
+            USER="$AI_SERVICE_USER"
+            KEY_BODY="$AI_SERVICE_SSH_KEY"
+          else
+            HOST="$DEV_AI_SERVICE_HOST"
+            USER="$DEV_AI_SERVICE_USER"
+            KEY_BODY="$DEV_AI_SERVICE_SSH_KEY"
+          fi
+          : "${HOST:?}"
+          : "${USER:?}"
+          : "${KEY_BODY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/ai-service
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            rm -rf /opt/ai-service/app /opt/ai-service/main.py /opt/ai-service/greeting.ogg
+          scp "${SSH_OPTS[@]}" \
+            vps-upload/Dockerfile \
+            vps-upload/requirements.txt \
+            vps-upload/deploy-remote.sh \
+            vps-upload/deploy-redis.sh \
+            vps-upload/.env \
+            "${USER}@${HOST}:/opt/ai-service/"
+          scp -r "${SSH_OPTS[@]}" \
+            vps-upload/app \
+            "${USER}@${HOST}:/opt/ai-service/app"
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            bash /opt/ai-service/deploy-redis.sh
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            bash /opt/ai-service/deploy-remote.sh
