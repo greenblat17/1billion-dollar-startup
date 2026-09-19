@@ -71,6 +71,7 @@ fun ProfileWidget(
     state: ProfileUiState,
     onCaptionsToggled: (Boolean) -> Unit,
     onDailyGoalCycled: () -> Unit,
+    onTutorVoiceCycled: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -156,6 +157,7 @@ fun ProfileWidget(
                 icon = Res.drawable.ic_record_voice_over,
                 title = stringResource(Res.string.profile_voice),
                 subtitle = state.tutorVoice,
+                onClick = onTutorVoiceCycled,
             )
             SettingsDivider()
             SettingsRow(
@@ -331,6 +333,7 @@ private fun ProfileWidgetPreview() {
             state = MockSpeakingData.profile,
             onCaptionsToggled = {},
             onDailyGoalCycled = {},
+            onTutorVoiceCycled = {},
             onSignOut = {},
         )
     }

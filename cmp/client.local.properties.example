@@ -1,0 +1,2 @@
+# Gitignored as client.local.properties.
+speakingCoach.apiBaseUrl=https://YOUR_DEV_KTOR_HOST

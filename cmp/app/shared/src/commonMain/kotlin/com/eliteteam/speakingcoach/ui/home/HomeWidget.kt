@@ -53,6 +53,7 @@ import cmp.app.shared.generated.resources.home_last_conversation
 import cmp.app.shared.generated.resources.home_pick_topic
 import cmp.app.shared.generated.resources.home_start_body
 import cmp.app.shared.generated.resources.home_start_cta
+import cmp.app.shared.generated.resources.home_start_error
 import cmp.app.shared.generated.resources.home_start_title
 import cmp.app.shared.generated.resources.home_subtitle
 import cmp.app.shared.generated.resources.ic_chevron_right
@@ -195,8 +196,17 @@ fun HomeWidget(
                 PrimaryButton(
                     text = stringResource(Res.string.home_start_cta),
                     onClick = onStart,
+                    enabled = !state.startBusy,
                     trailingArrow = true,
                 )
+                if (state.startFailed) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(Res.string.home_start_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.error,
+                    )
+                }
             }
         }
         Spacer(Modifier.height(28.dp))

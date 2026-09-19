@@ -1,8 +1,8 @@
 # Mobile app HTTP contract
 
 **Дата:** 2026-09-19  
-**Статус:** согласован под срез [mvp-backend-plan.md](../plans/mvp-backend-plan.md). Ktor/ai-service ручки есть; CMP клиент ещё на моках.  
-**Клиент сейчас:** экраны на `MockSpeakingData`; `SpeakingCoachClient` — `TODO()`. Этот файл — что Ktor должен отдать, когда моки снимут.  
+**Статус:** бэкенд среза на DEV; CMP клиент ходит в Auth/Home/Profile/sessions. Call/Review ещё мок.  
+**Клиент сейчас:** Welcome → Auth (почта) → Home с `GET /v1/home`; «Начать» → `POST /v1/sessions` → Call (UI мок). Review и «Последний разговор» — мок. `SpeakingCoachClient` живой. WebRTC нет.  
 **Не этот контракт:** клипы бота — [2026-09-18-clip-session-api.md](2026-09-18-clip-session-api.md). CMP их не вызывает.
 
 База: Ktor на DEV (`AI_SERVICE_BASE_URL` туда не светить с клиента). JSON camelCase. Auth-ручки без заголовка; остальное `Authorization: Bearer <jwt>`. JWT в лог не пишем. Клиент **не** ходит в ai-service.
@@ -65,7 +65,7 @@ flowchart LR
 
 Макет [01-welcome.png](../design/screens/01-welcome.png). Кнопки: `welcome_start` («Начать»), `welcome_have_account` («У меня уже есть аккаунт»). Ссылки на условия/политику — статичные strings, без API.
 
-**Сейчас:** обе CTA в `AppNav` зовут `openMain` (Home без логина).
+**Сейчас:** CTA открывают Auth (регистрация / вход).
 
 **Когда подключат бэк:** CTA не ходят в API сами. Они открывают Auth.
 
@@ -76,7 +76,7 @@ flowchart LR
 
 ---
 
-## Auth — экрана ещё нет
+## Auth — `AuthScreen` / `AuthWidget`
 
 Визуал как у Welcome (не Material-шаблон). Два режима с одними полями: почта, пароль, в регистрации ещё имя (`displayName`). Google/Apple в этом срезе нет.
 

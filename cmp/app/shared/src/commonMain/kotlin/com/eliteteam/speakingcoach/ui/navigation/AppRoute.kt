@@ -7,13 +7,16 @@ import kotlinx.serialization.Serializable
 data object WelcomeRoute : NavKey
 
 @Serializable
+data class AuthRoute(val register: Boolean) : NavKey
+
+@Serializable
 data object MainRoute : NavKey
 
 @Serializable
 data object ProfileRoute : NavKey
 
 @Serializable
-data object CallRoute : NavKey
+data class CallRoute(val sessionId: String) : NavKey
 
 @Serializable
 data class ReviewRoute(val stepIndex: Int = 0) : NavKey

@@ -1,7 +1,7 @@
 # Устройство CMP-клиента
 
 **Дата:** 2026-09-17  
-**Статус:** UI-оболочка в `:app:shared` (тема Inter, Nav3, мок-экраны, без табов и без Истории). HTTP-клиент к `:server` ещё не вызван — `SpeakingCoachClient` с `TODO()`  
+**Статус:** UI в `:app:shared` (тема Inter, Nav3). HTTP к DEV Ktor: `HttpSpeakingCoachClient` (register/login/home/sessions). AuthScreen на почте. Call/Review ещё мок (нет WebRTC). `MockSpeakingData` — Preview и карточка «Последний разговор».  
 **Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md`  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
@@ -37,9 +37,9 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
             :core                    Kotlin без Compose
 ```
 
-`:server` — соседний модуль в `cmp/`, не зависимость shared. Shared ходит в сервер по HTTP (ещё не подключено), не вшивает ktgbotapi.
+Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — vars. Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Не `project(":server")`.
 
-Навигация: Welcome → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Данные экранов — `MockSpeakingData`. Когда снимут моки, HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md) (ручки привязаны к Welcome/Auth/Home/Call/Review/Profile). Сейчас `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient` ещё `TODO()`.
+Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`. Call/Review и карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md).
 
 ## Модули клиента
 
@@ -72,4 +72,4 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 ## Чего в CMP-коде ещё нет
 
-Записи/плеера, живого таймера звонка, HTTP к `:server` (методы клиента — `TODO()`). Микрофон / VAD — `expect`/`actual`, сейчас только `getPlatform()`. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.
+Записи/плеера, живого таймера звонка, WebRTC. HTTP к `:server` есть для auth/home/sessions. Микрофон / VAD — `expect`/`actual`, сейчас только `getPlatform()`. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.

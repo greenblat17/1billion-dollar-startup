@@ -9,11 +9,21 @@
     <string name="welcome_terms">Условиями&#160;использования</string>
     <string name="welcome_privacy">Политикой&#160;конфиденциальности</string>
 
+    <string name="auth_email">Почта</string>
+    <string name="auth_password">Пароль</string>
+    <string name="auth_name">Имя</string>
+    <string name="auth_submit_register">Создать аккаунт</string>
+    <string name="auth_submit_login">Войти</string>
+    <string name="auth_error_invalid">Проверьте почту и пароль</string>
+    <string name="auth_error_taken">Этот email уже занят</string>
+    <string name="auth_error_network">Не получилось связаться с сервером</string>
+
     <string name="home_greeting">Привет, %1$s!</string>
     <string name="home_subtitle">Готов немного попрактиковаться?</string>
     <string name="home_start_title">Начать разговор</string>
     <string name="home_start_body">Поговори с AI на английском</string>
     <string name="home_start_cta">Начать</string>
+    <string name="home_start_error">Не получилось начать разговор. Попробуйте ещё раз.</string>
     <string name="home_pick_topic">Выберите тему</string>
     <string name="home_last_conversation">Последний разговор</string>
     <string name="home_daily_goal">Цель на день</string>

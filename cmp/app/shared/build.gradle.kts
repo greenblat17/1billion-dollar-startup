@@ -1,6 +1,7 @@
 import org.gradle.api.Task
 import org.gradle.api.tasks.TaskProvider
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -10,6 +11,60 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.stabilityAnalyzer)
     alias(libs.plugins.koin.compiler)
+}
+
+val generateApiConfig = tasks.register("generateApiConfig") {
+    val outputDir = layout.buildDirectory.dir("generated/apiConfig")
+    val clientLocalFile = rootProject.file("client.local.properties")
+    val urlFromGradle = providers.gradleProperty("speakingCoach.apiBaseUrl").orElse("")
+    val urlFromEnv = providers.environmentVariable("SPEAKING_COACH_API_BASE_URL").orElse("")
+    inputs.property("urlFromGradle", urlFromGradle)
+    inputs.property("urlFromEnv", urlFromEnv)
+    inputs.files(clientLocalFile).optional()
+    outputs.dir(outputDir)
+    doLast {
+        val fromClientLocal = clientLocalFile.let { file ->
+            if (!file.isFile) {
+                ""
+            } else {
+                Properties().apply { file.reader().use { load(it) } }
+                    .getProperty("speakingCoach.apiBaseUrl")
+                    ?.trim()
+                    .orEmpty()
+            }
+        }
+        val url = sequenceOf(
+            urlFromGradle.get().trim(),
+            urlFromEnv.get().trim(),
+            fromClientLocal,
+        ).firstOrNull { it.isNotEmpty() }.orEmpty()
+        val dir = outputDir.get().asFile
+        dir.mkdirs()
+        fun String.toKotlinStringLiteral(): String = buildString {
+            append('"')
+            for (ch in this@toKotlinStringLiteral) {
+                when (ch) {
+                    '\\' -> append("\\\\")
+                    '"' -> append("\\\"")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '$' -> append("\\\$")
+                    else -> append(ch)
+                }
+            }
+            append('"')
+        }
+        dir.resolve("ApiConfig.kt").writeText(
+            """
+            |package com.eliteteam.speakingcoach.data
+            |
+            |internal object ApiConfig {
+            |    const val BAKED_API_BASE_URL = ${url.toKotlinStringLiteral()}
+            |}
+            |
+            """.trimMargin(),
+        )
+    }
 }
 
 kotlin {
@@ -50,6 +105,13 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.uiTooling)
+            implementation(libs.ktor.kmp.client.okhttp)
+        }
+        iosMain.dependencies {
+            implementation(libs.ktor.kmp.client.darwin)
+        }
+        jvmMain.dependencies {
+            implementation(libs.ktor.kmp.client.cio)
         }
         commonMain.dependencies {
             api(project(":core"))
@@ -64,6 +126,7 @@ kotlin {
             implementation(libs.androidx.lifecycle.viewmodelNavigation3)
             implementation(libs.androidx.navigation3.ui)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.koin.core)
             implementation(libs.koin.core.viewmodel)
             implementation(libs.koin.core.annotations)
@@ -73,14 +136,24 @@ kotlin {
             implementation(libs.koin.compose.navigation3)
             implementation(libs.kermit)
             implementation(libs.kermit.koin)
+            implementation(libs.ktor.kmp.client.core)
+            implementation(libs.ktor.kmp.client.content.negotiation)
+            implementation(libs.ktor.kmp.serialization.json)
+            implementation(libs.multiplatform.settings)
+            implementation(libs.multiplatform.settings.no.arg)
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.koin.test)
             implementation(libs.kermit.test)
+            implementation(libs.ktor.kmp.client.mock)
+            implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.multiplatform.settings.test)
         }
     }
 }
+
+kotlin.sourceSets.getByName("commonMain").kotlin.srcDir(generateApiConfig)
 
 dependencies {
     androidRuntimeClasspath(libs.compose.uiTooling)

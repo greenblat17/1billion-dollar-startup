@@ -7,7 +7,6 @@ import org.koin.compose.viewmodel.koinViewModel
 
 @Composable
 fun ProfileScreen(
-    onSignOut: () -> Unit,
     viewModel: ProfileViewModel = koinViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -15,6 +14,7 @@ fun ProfileScreen(
         state = state,
         onCaptionsToggled = viewModel::onCaptionsToggled,
         onDailyGoalCycled = viewModel::onDailyGoalCycled,
-        onSignOut = onSignOut,
+        onTutorVoiceCycled = viewModel::onTutorVoiceCycled,
+        onSignOut = viewModel::signOut,
     )
 }

@@ -7,6 +7,8 @@ data class HomeUiState(
     val spokenSeconds: Int,
     val streakDays: Int,
     val goalMinutes: Int,
+    val startBusy: Boolean = false,
+    val startFailed: Boolean = false,
 )
 
 data class ConversationSummary(
@@ -21,4 +23,9 @@ enum class TopicKind {
     Work,
     Travel,
     Random,
+}
+
+fun TopicKind.toApiTopic(): String = when (this) {
+    TopicKind.Random -> listOf(TopicKind.Everyday, TopicKind.Work, TopicKind.Travel).random().name
+    else -> name
 }

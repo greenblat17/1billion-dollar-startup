@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.ui.welcome
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,37 +51,7 @@ fun WelcomeWidget(
     onPrivacy: () -> Unit = {},
 ) {
     val scheme = MaterialTheme.colorScheme
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(scheme.background),
-    ) {
-        AmbientBlob(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 96.dp, y = (-64).dp)
-                .size(420.dp),
-        )
-        AmbientBlob(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 20.dp, y = 48.dp)
-                .size(260.dp),
-            color = scheme.secondaryContainer,
-        )
-        AmbientBlob(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = (-160).dp, y = 40.dp)
-                .size(460.dp),
-        )
-        AmbientBlob(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .offset(x = (-40).dp, y = (-48).dp)
-                .size(240.dp),
-            color = scheme.secondaryContainer,
-        )
+    WelcomeAtmosphere(modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -128,6 +99,47 @@ fun WelcomeWidget(
             }
             Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+@Composable
+internal fun WelcomeAtmosphere(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(scheme.background),
+    ) {
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 96.dp, y = (-64).dp)
+                .size(420.dp),
+        )
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .offset(x = 20.dp, y = 48.dp)
+                .size(260.dp),
+            color = scheme.secondaryContainer,
+        )
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-160).dp, y = 40.dp)
+                .size(460.dp),
+        )
+        AmbientBlob(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .offset(x = (-40).dp, y = (-48).dp)
+                .size(240.dp),
+            color = scheme.secondaryContainer,
+        )
+        content()
     }
 }
 

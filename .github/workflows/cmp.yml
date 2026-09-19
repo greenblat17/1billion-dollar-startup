@@ -90,6 +90,23 @@ jobs:
       - name: Test
         run: ./gradlew :app:shared:testAndroidHostTest
 
+      - name: Bake client API URL
+        env:
+          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
+          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
+            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
+          else
+            url="${DEV_CMP_API_BASE_URL:-}"
+          fi
+          if [ -z "$url" ]; then
+            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
+            exit 1
+          fi
+          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
+
       - name: Package
         run: ./gradlew :app:androidApp:assembleDebug
 
@@ -160,6 +177,23 @@ jobs:
         with:
           cache-read-only: ${{ matrix.cache-read-only }}
 
+      - name: Bake client API URL
+        env:
+          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
+          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
+            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
+          else
+            url="${DEV_CMP_API_BASE_URL:-}"
+          fi
+          if [ -z "$url" ]; then
+            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
+            exit 1
+          fi
+          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
+
       - name: Package
         run: ./gradlew :app:desktopApp:${{ matrix.task }}
 
@@ -195,6 +229,23 @@ jobs:
 
       - name: Test
         run: ./gradlew :app:shared:iosSimulatorArm64Test
+
+      - name: Bake client API URL
+        env:
+          DEV_CMP_API_BASE_URL: ${{ vars.DEV_CMP_API_BASE_URL }}
+          CMP_API_BASE_URL: ${{ vars.CMP_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
+            url="${CMP_API_BASE_URL:-${DEV_CMP_API_BASE_URL:-}}"
+          else
+            url="${DEV_CMP_API_BASE_URL:-}"
+          fi
+          if [ -z "$url" ]; then
+            echo "Set repository variable DEV_CMP_API_BASE_URL (CMP_API_BASE_URL for main)" >&2
+            exit 1
+          fi
+          echo "SPEAKING_COACH_API_BASE_URL=$url" >> "$GITHUB_ENV"
 
       - name: Package
         run: |

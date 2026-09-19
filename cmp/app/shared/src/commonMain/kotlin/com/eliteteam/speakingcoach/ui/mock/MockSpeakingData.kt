@@ -91,7 +91,7 @@ object MockSpeakingData {
         displayName = UserName,
         email = UserEmail,
         language = "Русский",
-        tutorVoice = "Emma",
+        tutorVoice = "Marin",
         captionsByDefault = true,
         avatarLetter = "A",
         goalMinutes = DailyGoalState().goalMinutes,
