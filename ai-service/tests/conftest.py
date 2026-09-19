@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
-from app.llm import ChatModel, LlmTurn
+from app.llm import ChatModel
 from app.main import create_app
 from app.pipeline import ClipPipeline
 from app.stt import SpeechToText, SttResult
@@ -44,11 +44,16 @@ class FakeStt(SpeechToText):
 class FakeLlm(ChatModel):
     def __init__(self, notes: list[str] | None = None) -> None:
         self.calls: list[tuple[list[str], str]] = []
+        self.notes_calls: list[str] = []
         self.notes = list(notes or [])
 
-    async def complete(self, history, user_text: str) -> LlmTurn:
+    async def complete_reply(self, history, user_text: str) -> str:
         self.calls.append(([item.content for item in history], user_text))
-        return LlmTurn(reply_text=f"Got it: {user_text}", notes=list(self.notes))
+        return f"Got it: {user_text}"
+
+    async def complete_notes(self, user_text: str) -> list[str]:
+        self.notes_calls.append(user_text)
+        return list(self.notes)
 
 
 class FakeTts(TextToSpeech):
