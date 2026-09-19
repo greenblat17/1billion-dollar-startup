@@ -24,6 +24,9 @@ object MockSpeakingData {
             whenLabel = null,
             topic = TopicKind.Work,
         ),
+        spokenSeconds = DailyGoalState().spokenSeconds,
+        streakDays = DailyGoalState().streakDays,
+        goalMinutes = DailyGoalState().goalMinutes,
     )
 
     val call = CallUiState(
@@ -91,5 +94,6 @@ object MockSpeakingData {
         tutorVoice = "Emma",
         captionsByDefault = true,
         avatarLetter = "A",
+        goalMinutes = DailyGoalState().goalMinutes,
     )
 }

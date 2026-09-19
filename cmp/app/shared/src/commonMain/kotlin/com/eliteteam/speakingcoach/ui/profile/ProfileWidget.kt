@@ -19,7 +19,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -31,8 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
-import cmp.app.shared.generated.resources.cd_back
-import cmp.app.shared.generated.resources.ic_arrow_back
+import cmp.app.shared.generated.resources.duration_minutes
 import cmp.app.shared.generated.resources.ic_chevron_right
 import cmp.app.shared.generated.resources.ic_closed_caption
 import cmp.app.shared.generated.resources.ic_description
@@ -42,9 +40,12 @@ import cmp.app.shared.generated.resources.ic_logout
 import cmp.app.shared.generated.resources.ic_mic
 import cmp.app.shared.generated.resources.ic_record_voice_over
 import cmp.app.shared.generated.resources.ic_shield
+import cmp.app.shared.generated.resources.ic_timer
 import cmp.app.shared.generated.resources.profile_about
 import cmp.app.shared.generated.resources.profile_captions
 import cmp.app.shared.generated.resources.profile_captions_body
+import cmp.app.shared.generated.resources.profile_daily_goal
+import cmp.app.shared.generated.resources.profile_daily_goal_body
 import cmp.app.shared.generated.resources.profile_help
 import cmp.app.shared.generated.resources.profile_language
 import cmp.app.shared.generated.resources.profile_mic
@@ -60,6 +61,7 @@ import com.eliteteam.speakingcoach.ui.mock.MockSpeakingData
 import com.eliteteam.speakingcoach.ui.theme.AppTheme
 import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.painterResource
+import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
 
 private val CardShape = RoundedCornerShape(24.dp)
@@ -67,8 +69,8 @@ private val CardShape = RoundedCornerShape(24.dp)
 @Composable
 fun ProfileWidget(
     state: ProfileUiState,
-    onBack: () -> Unit,
     onCaptionsToggled: (Boolean) -> Unit,
+    onDailyGoalCycled: () -> Unit,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -81,17 +83,7 @@ fun ProfileWidget(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 20.dp),
     ) {
-        Spacer(Modifier.height(4.dp))
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier.padding(start = 0.dp),
-        ) {
-            Icon(
-                painter = painterResource(Res.drawable.ic_arrow_back),
-                contentDescription = stringResource(Res.string.cd_back),
-                tint = scheme.onBackground,
-            )
-        }
+        Spacer(Modifier.height(16.dp))
         Text(
             text = stringResource(Res.string.profile_title),
             style = MaterialTheme.typography.headlineLarge,
@@ -164,6 +156,24 @@ fun ProfileWidget(
                 icon = Res.drawable.ic_record_voice_over,
                 title = stringResource(Res.string.profile_voice),
                 subtitle = state.tutorVoice,
+            )
+            SettingsDivider()
+            SettingsRow(
+                icon = Res.drawable.ic_timer,
+                title = stringResource(Res.string.profile_daily_goal),
+                subtitle = stringResource(Res.string.profile_daily_goal_body),
+                trailing = {
+                    Text(
+                        text = pluralStringResource(
+                            Res.plurals.duration_minutes,
+                            state.goalMinutes,
+                            state.goalMinutes,
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = scheme.onBackground,
+                    )
+                },
+                onClick = onDailyGoalCycled,
             )
             SettingsDivider()
             SettingsRow(
@@ -267,6 +277,7 @@ private fun SettingsRow(
     icon: DrawableResource,
     title: String,
     subtitle: String? = null,
+    onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = {
         Icon(
             painter = painterResource(Res.drawable.ic_chevron_right),
@@ -279,6 +290,7 @@ private fun SettingsRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -317,8 +329,8 @@ private fun ProfileWidgetPreview() {
     AppTheme {
         ProfileWidget(
             state = MockSpeakingData.profile,
-            onBack = {},
             onCaptionsToggled = {},
+            onDailyGoalCycled = {},
             onSignOut = {},
         )
     }

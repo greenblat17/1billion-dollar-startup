@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.ui.home
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,14 +29,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import cmp.app.shared.generated.resources.Res
+import cmp.app.shared.generated.resources.cd_daily_goal
 import cmp.app.shared.generated.resources.cd_open_conversation
 import cmp.app.shared.generated.resources.cd_profile
+import cmp.app.shared.generated.resources.cd_streak
 import cmp.app.shared.generated.resources.conversation_meta
 import cmp.app.shared.generated.resources.duration_minutes
+import cmp.app.shared.generated.resources.duration_seconds
+import cmp.app.shared.generated.resources.home_daily_goal
+import cmp.app.shared.generated.resources.home_daily_progress
 import cmp.app.shared.generated.resources.home_greeting
 import cmp.app.shared.generated.resources.home_last_conversation
 import cmp.app.shared.generated.resources.home_pick_topic
@@ -47,6 +59,7 @@ import cmp.app.shared.generated.resources.ic_chevron_right
 import cmp.app.shared.generated.resources.ic_deployed_code
 import cmp.app.shared.generated.resources.ic_flight
 import cmp.app.shared.generated.resources.ic_local_cafe
+import cmp.app.shared.generated.resources.ic_local_fire_department
 import cmp.app.shared.generated.resources.ic_person
 import cmp.app.shared.generated.resources.ic_work
 import cmp.app.shared.generated.resources.topic_everyday
@@ -119,6 +132,12 @@ fun HomeWidget(
                 )
             }
         }
+        Spacer(Modifier.height(16.dp))
+        DailyGoalBar(
+            spokenSeconds = state.spokenSeconds,
+            goalMinutes = state.goalMinutes,
+            streakDays = state.streakDays,
+        )
         Spacer(Modifier.height(28.dp))
         Text(
             text = stringResource(Res.string.home_greeting, state.userName),
@@ -314,6 +333,102 @@ private fun LastConversationCard(
             contentDescription = null,
             tint = scheme.onSurfaceVariant,
         )
+    }
+}
+
+@Composable
+private fun DailyGoalBar(
+    spokenSeconds: Int,
+    goalMinutes: Int,
+    streakDays: Int,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val goalSeconds = (goalMinutes * 60).coerceAtLeast(1)
+    val progress = (spokenSeconds.toFloat() / goalSeconds).coerceIn(0f, 1f)
+    val spokenLabel = pluralStringResource(Res.plurals.duration_seconds, spokenSeconds, spokenSeconds)
+    val goalLabel = pluralStringResource(Res.plurals.duration_minutes, goalMinutes, goalMinutes)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .background(scheme.surfaceContainerHighest)
+            .border(1.dp, scheme.outlineVariant, CardShape)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        DailyGoalRing(
+            progress = progress,
+            track = scheme.outlineVariant,
+            fill = scheme.primary,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(Res.string.home_daily_goal),
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.onSurfaceVariant,
+            )
+            Text(
+                text = stringResource(Res.string.home_daily_progress, spokenLabel, goalLabel),
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.onBackground,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                painter = painterResource(Res.drawable.ic_local_fire_department),
+                contentDescription = stringResource(Res.string.cd_streak),
+                tint = scheme.tertiary,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = streakDays.toString(),
+                style = MaterialTheme.typography.titleSmall,
+                color = scheme.tertiary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyGoalRing(
+    progress: Float,
+    track: Color,
+    fill: Color,
+) {
+    val description = stringResource(Res.string.cd_daily_goal)
+    Canvas(
+        modifier = Modifier
+            .size(36.dp)
+            .semantics { contentDescription = description },
+    ) {
+        val stroke = 3.dp.toPx()
+        val inset = stroke / 2f
+        val arcSize = Size(size.minDimension - stroke, size.minDimension - stroke)
+        val topLeft = Offset(inset, inset)
+        drawArc(
+            color = track,
+            startAngle = -90f,
+            sweepAngle = 360f,
+            useCenter = false,
+            topLeft = topLeft,
+            size = arcSize,
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+        if (progress > 0f) {
+            drawArc(
+                color = fill,
+                startAngle = -90f,
+                sweepAngle = 360f * progress,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+        }
     }
 }
 

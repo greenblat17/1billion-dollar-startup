@@ -1,7 +1,8 @@
 # Живой MVP на текущих экранах
 
 **Дата:** 2026-09-19  
-**Статус:** согласованный план, импл не начат. Ветка `feature/back-for-mobile`.  
+**Статус:** широкий бэклог (сторы, OAuth, SMTP, dual-host, CI PR→dev). Импл **этого** объёма не начат.  
+**Сейчас делаем:** [mvp-backend-plan.md](mvp-backend-plan.md) — срез «бэк готов». Ветка `feature/back-for-mobile`.  
 **Связанные документы:** [mvp-plan.md](mvp-plan.md) (полный продуктовый цикл — не этот срез), [../design/2026-09-17-mobile-ui.md](../design/2026-09-17-mobile-ui.md), [../architecture/2026-09-17-cmp-client.md](../architecture/2026-09-17-cmp-client.md), [../integrations/2026-09-18-clip-session-api.md](../integrations/2026-09-18-clip-session-api.md), [../summaries/2026-09-18-agent-start-here.md](../summaries/2026-09-18-agent-start-here.md)
 
 Клипы Telegram как есть. Call: Ktor — публичная прокси (Bearer/SDP), ai-service — промпт и mint OpenAI Realtime. Медиа WebRTC клиент ↔ OpenAI, не через FastAPI. Прод-бота не трогаем.

@@ -11,4 +11,18 @@ class MockSpeakingDataTest {
         val metrics = MockSpeakingData.review.steps.map { it.metric }
         assertEquals(listOf(ReviewMetric.Grammar, ReviewMetric.Vocabulary), metrics)
     }
+
+    @Test
+    fun dailyGoalCyclesThroughPresets() {
+        val store = DailyGoalStore()
+        assertEquals(10, store.state.value.goalMinutes)
+        store.cycleGoalMinutes()
+        assertEquals(15, store.state.value.goalMinutes)
+        store.cycleGoalMinutes()
+        assertEquals(20, store.state.value.goalMinutes)
+        store.cycleGoalMinutes()
+        assertEquals(5, store.state.value.goalMinutes)
+        store.cycleGoalMinutes()
+        assertEquals(10, store.state.value.goalMinutes)
+    }
 }

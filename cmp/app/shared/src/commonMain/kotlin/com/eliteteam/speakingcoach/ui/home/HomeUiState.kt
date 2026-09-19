@@ -4,6 +4,9 @@ data class HomeUiState(
     val userName: String,
     val selectedTopic: TopicKind,
     val lastConversation: ConversationSummary?,
+    val spokenSeconds: Int,
+    val streakDays: Int,
+    val goalMinutes: Int,
 )
 
 data class ConversationSummary(

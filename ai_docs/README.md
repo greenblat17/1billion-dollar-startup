@@ -6,7 +6,7 @@ Working documentation next to the code. A coding agent in a new session should s
 
 Глобальная архитектура (диаграммы): **`architecture.md`**. Деплой на VPS: **`deploy.md`**.
 
-Then dated architecture + integrations `2026-09-18-*`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
+Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
 Agents: start here, then open the linked docs for the current task. Do not skip this tree
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
@@ -39,6 +39,7 @@ architecture/2026-09-13-audio-processing-pipeline.md
 design/2026-09-17-mobile-ui.md
 bugs/2026-09-13-telegram-audio-upload-failure.md
 integrations/2026-09-13-ai-service-api.md
+plans/mvp-backend-plan.md
 plans/2026-09-19-mobile-mvp-backend.md
 plans/2026-09-13-live-feedback-plan.md
 researches/2026-09-13-speech-to-text-options.md

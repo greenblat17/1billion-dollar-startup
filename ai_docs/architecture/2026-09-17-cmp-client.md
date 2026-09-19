@@ -39,7 +39,7 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
 
 `:server` — соседний модуль в `cmp/`, не зависимость shared. Shared ходит в сервер по HTTP (ещё не подключено), не вшивает ktgbotapi.
 
-Навигация: Welcome → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Данные экранов — `MockSpeakingData`. Контракт: `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient`.
+Навигация: Welcome → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Данные экранов — `MockSpeakingData`. Когда снимут моки, HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md) (ручки привязаны к Welcome/Auth/Home/Call/Review/Profile). Сейчас `SpeakingCoachClient` / `UnimplementedSpeakingCoachClient` ещё `TODO()`.
 
 ## Модули клиента
 

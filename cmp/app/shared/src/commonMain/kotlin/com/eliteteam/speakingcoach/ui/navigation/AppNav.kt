@@ -51,7 +51,6 @@ fun AppNav() {
             }
             entry<ProfileRoute> {
                 ProfileScreen(
-                    onBack = { pop(backStack) },
                     onSignOut = { openWelcome(backStack) },
                 )
             }

@@ -16,6 +16,14 @@
     <string name="home_start_cta">Начать</string>
     <string name="home_pick_topic">Выберите тему</string>
     <string name="home_last_conversation">Последний разговор</string>
+    <string name="home_daily_goal">Цель на день</string>
+    <string name="home_daily_progress">%1$s из %2$s</string>
+    <plurals name="duration_seconds">
+        <item quantity="one">%1$d с</item>
+        <item quantity="few">%1$d с</item>
+        <item quantity="many">%1$d с</item>
+        <item quantity="other">%1$d с</item>
+    </plurals>
     <string name="topic_everyday">Повседневное</string>
     <string name="topic_work">Работа</string>
     <string name="topic_travel">Путешествия</string>
@@ -58,6 +66,8 @@
     <string name="profile_captions_body">Показывать во время разговора</string>
     <string name="profile_mic">Микрофон</string>
     <string name="profile_mic_body">Проверить и настроить</string>
+    <string name="profile_daily_goal">Цель на день</string>
+    <string name="profile_daily_goal_body">Минут разговора в день</string>
     <string name="profile_help">Помощь и поддержка</string>
     <string name="profile_terms">Условия использования</string>
     <string name="profile_privacy">Конфиденциальность</string>
@@ -71,4 +81,6 @@
     <string name="cd_hangup">Завершить звонок</string>
     <string name="cd_mic">Микрофон</string>
     <string name="cd_captions">Субтитры</string>
+    <string name="cd_daily_goal">Прогресс цели на день</string>
+    <string name="cd_streak">Серия дней</string>
 </resources>

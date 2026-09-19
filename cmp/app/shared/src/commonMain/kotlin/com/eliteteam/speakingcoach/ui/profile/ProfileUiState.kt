@@ -7,4 +7,5 @@ data class ProfileUiState(
     val tutorVoice: String,
     val captionsByDefault: Boolean,
     val avatarLetter: String,
+    val goalMinutes: Int,
 )
