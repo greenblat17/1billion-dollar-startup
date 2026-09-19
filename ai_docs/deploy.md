@@ -29,17 +29,19 @@ flowchart LR
   redis[(redis)]
   tls[tls_on_disk]
   redeploy -->|cmp-server| ktor
-  redeploy -->|ai-service| ai
+  redeploy -->|ai-server| ai
   ai -->|redis_if_missing| redis
   ktor --> ai
   tls --> ktor
 ```
 
+**Имена:** семейство хостов — `cmp-server` и `ai-server` (галки Redeploy, `DEV_*` secrets). Каталог, Docker-имя и прод-SSH остаются `ai-service` / `AI_SERVICE_*`; URL в Ktor — `AI_SERVICE_BASE_URL`.
+
 ## Тесты авто, выкат только Redeploy
 
 `push` / `pull_request` по path: **CMP** (`cmp/**`, `infra/server/**`) и **AI service** (`ai-service/**`, `infra/ai-service/**`, `infra/redis/**`) — package и тесты. На сервер не едут.
 
-Выкат — [`.github/workflows/redeploy.yml`](../.github/workflows/redeploy.yml): Actions → Redeploy → **Run workflow**. Две галки `cmp-server` и `ai-service` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH.
+Выкат — [`.github/workflows/redeploy.yml`](../.github/workflows/redeploy.yml): Actions → Redeploy → **Run workflow**. Две галки `cmp-server` и `ai-server` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH.
 
 Куда: ветка `main`/`master` → **prod** (environment `deploy`, беспрефиксные repo secrets). Любая другая → **DEV** (environment `dev`, `DEV_*`). Environments — только approve; секреты в Environment не кладём.
 
@@ -55,12 +57,12 @@ Runtime: раннер собирает `.env` из ячеек `TELEGRAM_BOT_TOKE
 
 ### Dev — те же скрипты, другие ячейки
 
-SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVICE_HOST` / `USER` / `SSH_KEY`.
+SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`.
 
 Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 
 - `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`
-- `DEV_AI_SERVICE_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL`)
+- `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL`)
 
 Пустой блоб — fail на раннере до SSH. TLS на DEV кладёт человек.
 

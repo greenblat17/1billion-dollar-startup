@@ -25,8 +25,8 @@ GitHub **environments** `deploy` (prod) и `dev` — только approve у job
 
 **Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам):
 
-- SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVICE_HOST`, `DEV_AI_SERVICE_USER`, `DEV_AI_SERVICE_SSH_KEY`
-- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVICE_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором)
+- SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
+- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором)
 
 VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`). Redis container name `redis`, Docker network `speaking-coach`. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
 

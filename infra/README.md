@@ -25,4 +25,4 @@ docker compose --profile llm up --build
 
 Остановка: `Ctrl+C` или `docker compose down`.
 
-На сервере Redis поднимает **Redeploy → ai-service** (`infra/redis/deploy-remote.sh`): контейнер создаётся, если его ещё нет, и не сносится вместе с ai-service.
+На сервере Redis поднимает **Redeploy → ai-server** (`infra/redis/deploy-remote.sh`): контейнер создаётся, если его ещё нет, и не сносится вместе с ai-service.

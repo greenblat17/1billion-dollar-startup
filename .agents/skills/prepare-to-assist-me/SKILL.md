@@ -46,7 +46,7 @@ If the user already named a task, read only the files for that layer plus the do
 - Shipped: Telegram **webhook** voice coach **Speaky** (Ktor → FastAPI STT/LLM/TTS, Redis dialogue).
 - Not shipped: CMP Android/iOS/Desktop as the product UI; pronunciation/fluency scores; exercise loops from `product.md`.
 - Notes are `wrong|||better` spliced into a quote; LLM must not treat spoken repair as errors.
-- Two deploys: Redeploy cmp-server → `/opt/speaking-coach`; Redeploy ai-service → `/opt/ai-service` + Redis left running.
+- Two deploys: Redeploy cmp-server → `/opt/speaking-coach`; Redeploy ai-server → `/opt/ai-service` + Redis left running.
 - Gradle from `cmp/` with `GRADLE_USER_HOME=$HOME/.gradle`.
 
 ## 4. When ready

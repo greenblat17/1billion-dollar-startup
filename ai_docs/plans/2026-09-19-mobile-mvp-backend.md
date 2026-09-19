@@ -303,7 +303,7 @@ Ktor → ai-service: заголовок `X-Internal-Token: DEV_AI_INTERNAL_TOKEN
 - **Prod (как есть):** Ktor webhook :443 + свой ai-service + Redis. Redeploy с `main`.
 - **Dev:** два хоста — Ktor и ai-service+Redis. Postgres в этом CI-срезе нет.
 
-TLS кладёт человек. `REDIS_URL` только в `.env` ai-service / блобе `DEV_AI_SERVICE_ENV`.
+TLS кладёт человек. `REDIS_URL` только в `.env` на AI-хосте / блобе `DEV_AI_SERVER_ENV`.
 
 ### Список переменных (только имена)
 
@@ -321,9 +321,9 @@ TLS кладёт человек. `REDIS_URL` только в `.env` ai-service /
 **Dev — repository Actions secrets:**
 
 - `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`
-- `DEV_AI_SERVICE_HOST`, `DEV_AI_SERVICE_USER`, `DEV_AI_SERVICE_SSH_KEY`
+- `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
 - `DEV_CMP_SERVER_ENV` — KV `.env` хоста Ktor (оператор заполняет)
-- `DEV_AI_SERVICE_ENV` — KV `.env` хоста AI, включая `REDIS_URL`
+- `DEV_AI_SERVER_ENV` — KV `.env` хоста AI, включая `REDIS_URL`
 
 Остальные будущие ключи приложения класть в эти блобы, не плодить отдельные `DEV_TELEGRAM_*` ячейки. Environment `dev` — только approve.
 
@@ -351,7 +351,7 @@ flowchart LR
   redeploy -->|"ref_main"| envProd --> hostProd
 ```
 
-- Галки `cmp-server` / `ai-service` (default on). Skip выключенного job. `cancel-in-progress: false`.
+- Галки `cmp-server` / `ai-server` (default on). Skip выключенного job. `cancel-in-progress: false`.
 - `main`/`master` → prod. Иначе → DEV.
 - CMP APK на сервер не едет.
 - Fork: тесты; Redeploy не для fork.

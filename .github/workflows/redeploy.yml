@@ -7,8 +7,8 @@ on:
         description: cmp-server
         type: boolean
         default: true
-      ai_service:
-        description: ai-service
+      ai_server:
+        description: ai-server
         type: boolean
         default: true
 
@@ -21,9 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_service != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
         run: |
-          echo "Enable cmp-server and/or ai-service" >&2
+          echo "Enable cmp-server and/or ai-server" >&2
           exit 1
 
   package-server:
@@ -57,9 +57,9 @@ jobs:
           retention-days: 1
 
   package-ai:
-    name: Package ai-service
+    name: Package ai-server
     needs: require-target
-    if: ${{ inputs.ai_service }}
+    if: ${{ inputs.ai_server }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -106,12 +106,12 @@ jobs:
     secrets: inherit
 
   deploy-ai:
-    name: Deploy ai-service
+    name: Deploy ai-server
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_service && needs.package-ai.result == 'success' }}
-    uses: ./.github/workflows/deploy-ai-service.yml
+    if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
+    uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: ${{ (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && 'prod' || 'dev' }}
     secrets: inherit
