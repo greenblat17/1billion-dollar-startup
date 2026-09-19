@@ -42,20 +42,18 @@ class FakeStt(SpeechToText):
 
 
 class FakeLlm(ChatModel):
-    def __init__(self, corrected: str | None = None) -> None:
+    def __init__(self, notes: list[str] | None = None) -> None:
         self.calls: list[tuple[list[str], str]] = []
         self.notes_calls: list[str] = []
-        self.corrected = corrected
+        self.notes = list(notes or [])
 
     async def complete_reply(self, history, user_text: str) -> str:
         self.calls.append(([item.content for item in history], user_text))
         return f"Got it: {user_text}"
 
-    async def complete_correction(self, user_text: str) -> str:
+    async def complete_notes(self, user_text: str) -> list[str]:
         self.notes_calls.append(user_text)
-        if self.corrected is None:
-            return user_text
-        return self.corrected
+        return list(self.notes)
 
 
 class FakeTts(TextToSpeech):

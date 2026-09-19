@@ -71,8 +71,7 @@ sequenceDiagram
     Ai->>Ai: TTS clarify no LLM
   else speech
     Ai->>Redis: history
-    Ai->>Ai: parallel LLM reply plus rewrite
-    Ai->>Ai: diff rewrite into notes
+    Ai->>Ai: parallel LLM reply plus notes
     Ai->>Redis: append user and spoken reply
     Ai->>Ai: TTS reply
   end
@@ -92,7 +91,7 @@ flowchart TD
   stt[Groq_Whisper]
   clarify{empty_or_no_speech}
   reply[OpenRouter_reply_JSON]
-  rewrite[OpenRouter_corrected_JSON]
+  notes[OpenRouter_notes_JSON]
   tts[Kokoro_then_ffmpeg_OGG]
   redis[(Redis_dialogue)]
   ok[job_status_ok]
@@ -101,16 +100,16 @@ flowchart TD
   clarify -->|yes| tts
   clarify -->|no| redis
   redis --> reply
-  redis --> rewrite
+  redis --> notes
   reply --> redis
   reply --> tts
-  rewrite --> tts
+  notes --> tts
   tts --> ok
 ```
 
 - Clarify: *I didn't catch that. Could you say it again?* Notes пустые, LLM не зовётся.
-- Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; rewrite JSON `{"corrected"}` **без** истории, `temperature` 0. Код (`notes_from_rewrite`) сравнивает транскрипт и corrected и собирает `wrong|||better`. Далекий пересказ → notes пустые. Пайплайн ждёт оба, потом TTS и пакет в Telegram. В Redis кладётся **spoken reply**, не notes.
-- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike + bold внутри blockquote; правка на своей строке; висячая пунктуация после спана съедается.
+- Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; notes JSON `{"notes":[{"wrong","better"}]}` **без** истории, `temperature` 0. Промпт задаёт ширину спана (few-shot), не каталог ошибок. Пайплайн ждёт оба, потом TTS. В Redis кладётся **spoken reply**, не notes.
+- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike + bold; `wrong` только как целое слово/фраза (не `me` внутри `remember`); правка на своей строке; висячая пунктуация после спана съедается.
 
 Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service убивает незавершённые jobs, **не** Redis-диалог.
 

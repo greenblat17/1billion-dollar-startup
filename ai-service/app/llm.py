@@ -20,17 +20,45 @@ Do not mention errors, corrections, or the transcript as a quote.
 Do not put corrections in "reply".
 """
 
-CORRECTION_SYSTEM = """You rewrite a spoken English transcript so it is grammatical.
+NOTES_SYSTEM = """You mark ungrammatical English in a spoken transcript for an on-screen splice.
 
 Always reply with a JSON object only:
-{"corrected": string}
+{"notes": [{"wrong": string, "better": string}]}
 
-"corrected" is the same utterance, same meaning, as many of the same words as possible.
-Fix only what is ungrammatical or a clearly wrong word.
-Do not make it more natural, shorter, more fluent, or more polite.
-Do not drop fillers, repeats, or self-repair unless they break grammar.
-Do not answer the speaker. Do not add a greeting or extra sentence.
-If the transcript is already grammatical, "corrected" must be that transcript with the same wording.
+"wrong" is an exact contiguous substring of the transcript. It must be whole words, never a piece of a longer word.
+"better" replaces only that substring. Prefix + better + suffix must read as one sentence.
+
+Return "notes": [] only when the transcript is already grammatical. Do not skip broken grammar.
+Do not mark style, fluency, hesitation, pronunciation, repeats, false starts, or self-repair.
+Do not make wording "more natural" if it is already grammatical.
+Maximum 3 notes. Two separate holes are two notes. Do not swallow correct words that sit between holes.
+
+How wide to cut (not a list of grammar types):
+
+1. Already grammatical → [].
+Transcript: "I walked on weekends."
+{"notes": []}
+
+2. One wrong word; the rest of the sentence is fine → only that word.
+Transcript: "You is my friend who is living in the city."
+{"notes": [{"wrong": "You is", "better": "You are"}]}
+
+3. Short phrase (article/preposition/noun). Do not strike the whole sentence.
+Transcript: "Usually I walk on the weekend."
+{"notes": [{"wrong": "on the weekend", "better": "on weekends"}]}
+Never {"wrong": "I walk", "better": "I walk on weekends"}.
+
+4. A missing word: expand "wrong" so the splice is a real sentence.
+Transcript: "How I celebrated it?"
+{"notes": [{"wrong": "How I celebrated it?", "better": "How did I celebrate it?"}]}
+
+5. An extra word: include a neighbor so "better" is not empty.
+Transcript: "I think that is the useful feedback."
+{"notes": [{"wrong": "the useful", "better": "useful"}]}
+
+6. Two holes with good words between them → two notes.
+Transcript: "I go to home and you is kind."
+{"notes": [{"wrong": "go to home", "better": "go home"}, {"wrong": "you is", "better": "you are"}]}
 """
 
 NOTE_SEP = "|||"
@@ -39,7 +67,7 @@ NOTE_SEP = "|||"
 class ChatModel(Protocol):
     async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str: ...
 
-    async def complete_correction(self, user_text: str) -> str: ...
+    async def complete_notes(self, user_text: str) -> list[str]: ...
 
 
 class OpenAiChatModel:
@@ -64,13 +92,13 @@ class OpenAiChatModel:
         text = await self._complete(messages, self._reply_temperature)
         return parse_reply(text)
 
-    async def complete_correction(self, user_text: str) -> str:
+    async def complete_notes(self, user_text: str) -> list[str]:
         messages = [
-            {"role": "system", "content": CORRECTION_SYSTEM},
+            {"role": "system", "content": NOTES_SYSTEM},
             {"role": "user", "content": user_text},
         ]
         text = await self._complete(messages, self._notes_temperature)
-        return parse_corrected(text)
+        return parse_notes(text)
 
     async def _complete(self, messages: list[dict[str, str]], temperature: float) -> str:
         async def call() -> Any:
@@ -97,12 +125,30 @@ def parse_reply(raw: str) -> str:
     return reply
 
 
-def parse_corrected(raw: str) -> str:
+def parse_notes(raw: str) -> list[str]:
     payload = _load_json(raw)
-    corrected = str(payload.get("corrected") or "").strip()
-    if not corrected:
-        raise RuntimeError("llm json missing corrected")
-    return corrected
+    notes_raw = payload.get("notes") or []
+    if not isinstance(notes_raw, list):
+        notes_raw = []
+    return [line for item in notes_raw if (line := _note_line(item))][:3]
+
+
+def _note_line(item: Any) -> str | None:
+    if isinstance(item, dict):
+        wrong = str(item.get("wrong") or "").strip()
+        better = str(item.get("better") or "").strip()
+        if wrong and better:
+            return f"{wrong}{NOTE_SEP}{better}"
+        return None
+    text = str(item).strip()
+    if NOTE_SEP not in text:
+        return None
+    wrong, _, better = text.partition(NOTE_SEP)
+    wrong = wrong.strip()
+    better = better.strip()
+    if wrong and better:
+        return f"{wrong}{NOTE_SEP}{better}"
+    return None
 
 
 def _load_json(raw: str) -> dict[str, Any]:

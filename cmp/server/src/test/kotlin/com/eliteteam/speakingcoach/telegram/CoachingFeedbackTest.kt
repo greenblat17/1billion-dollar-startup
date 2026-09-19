@@ -63,4 +63,16 @@ class CoachingFeedbackTest {
             sources.joinToString("") { it.source },
         )
     }
+
+    @Test
+    fun doesNotSpliceMeInsideRemember() {
+        val sources = coachingEntities(
+            "I just try to remember how I celebrated",
+            listOf("me|||me is"),
+        )
+        assertEquals(
+            "🗣️ You said:\n\nI just try to remember how I celebrated",
+            sources.joinToString("") { it.source },
+        )
+    }
 }
