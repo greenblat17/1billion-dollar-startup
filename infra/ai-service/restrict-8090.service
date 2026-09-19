@@ -1,0 +1,12 @@
+[Unit]
+Description=Restrict published ai-service port 8090
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ai-service/restrict-8090.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
