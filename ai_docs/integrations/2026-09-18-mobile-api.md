@@ -83,7 +83,7 @@ flowchart LR
 | UI | API | Дальше |
 | --- | --- | --- |
 | Сабмит регистрации | `POST /v1/auth/register` | сохранить JWT → Home |
-| Сабмит входа | `POST /v1/auth/login` | сохранить JWT → Home |
+| Сабмит входа | `POST /v1/auth/login` | сохранить JWT → Home. `AuthViewModel` переживает logout, поэтому режим login/register берётся с маршрута (`setMode`), а `busy` сбрасывается после успеха и при `session == null` |
 | Ошибка 409 email занят / 401 неверный пароль | нет второго запроса | остаться на Auth, показать ошибку |
 
 `user` из ответа — кэш на диск: имя на Home (`home_greeting` «Привет, %s!»), имя и почта на Profile.

@@ -49,6 +49,30 @@ class AuthViewModelTest {
     }
 
     @Test
+    fun logoutResetsBusyAndSwitchesToLogin() = runTest(dispatcher) {
+        val store = SessionStore(MapSettings(), testLogger())
+        val client = FakeClient()
+        val vm = AuthViewModel(client, store, register = true, logger = testLogger())
+        vm.onEmailChanged("ed@example.com")
+        vm.onPasswordChanged("secret12")
+        vm.onDisplayNameChanged("Ed")
+        vm.onSubmit()
+        advanceUntilIdle()
+        store.clear()
+        advanceUntilIdle()
+        assertEquals(false, vm.uiState.value.busy)
+        assertEquals("", vm.uiState.value.email)
+        vm.setMode(register = false)
+        assertEquals(false, vm.uiState.value.register)
+        vm.onEmailChanged("ed@example.com")
+        vm.onPasswordChanged("secret12")
+        vm.onSubmit()
+        advanceUntilIdle()
+        assertEquals(1, client.loginCount)
+        assertNull(vm.uiState.value.error)
+    }
+
+    @Test
     fun loginUnauthorizedShowsInvalid() = runTest(dispatcher) {
         val store = SessionStore(MapSettings(), testLogger())
         val client = FakeClient().apply { loginError = ApiException(HttpStatusCode.Unauthorized) }
@@ -64,12 +88,14 @@ class AuthViewModelTest {
 
 private class FakeClient : SpeakingCoachClient {
     var loginError: ApiException? = null
+    var loginCount = 0
 
     override suspend fun register(email: String, password: String, displayName: String) =
         AuthSession("jwt", AuthUser("1", email.lowercase(), displayName))
 
     override suspend fun login(email: String, password: String): AuthSession {
         loginError?.let { throw it }
+        loginCount += 1
         return AuthSession("jwt", AuthUser("1", email.lowercase(), "Ed"))
     }
 

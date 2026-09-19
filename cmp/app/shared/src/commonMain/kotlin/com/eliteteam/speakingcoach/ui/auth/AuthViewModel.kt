@@ -19,8 +19,32 @@ class AuthViewModel(
     register: Boolean,
     private val logger: Logger,
 ) : ViewModel() {
+    private var registerMode = register
     private val _uiState = MutableStateFlow(AuthUiState(register = register))
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            var hadSession = sessionStore.session.value != null
+            sessionStore.session.collect { session ->
+                if (session == null && hadSession) {
+                    _uiState.value = AuthUiState(register = registerMode)
+                }
+                hadSession = session != null
+            }
+        }
+    }
+
+    fun setMode(register: Boolean) {
+        registerMode = register
+        _uiState.update { current ->
+            if (current.register == register && !current.busy && current.error == null) {
+                current
+            } else {
+                current.copy(register = register, busy = false, error = null)
+            }
+        }
+    }
 
     fun onEmailChanged(value: String) {
         _uiState.update { it.copy(email = value, error = null) }
@@ -49,6 +73,7 @@ class AuthViewModel(
                 }
                 logger.i { "$action ok userId=${session.user.id}" }
                 sessionStore.save(session)
+                _uiState.update { it.copy(busy = false) }
             } catch (error: ApiException) {
                 val mapped = error.toAuthError(current.register)
                 logger.w { "$action failed HTTP ${error.status.value} $mapped" }
