@@ -45,7 +45,7 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
                     regular("\n\n")
                 }
                 strikethrough(span.wrong)
-                regular(" ")
+                regular("\n")
                 bold(span.better)
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
@@ -72,8 +72,10 @@ private fun correctionSpans(transcript: String, corrections: List<Correction>): 
                     break
                 }
                 val end = start + correction.wrong.length
-                add(CorrectionSpan(start, end, correction.wrong, correction.better))
-                from = end
+                if (isWholePhrase(transcript, start, end)) {
+                    add(CorrectionSpan(start, end, correction.wrong, correction.better))
+                }
+                from = start + 1
             }
         }
     }
@@ -88,6 +90,14 @@ private fun correctionSpans(transcript: String, corrections: List<Correction>): 
     }
     return chosen.sortedBy { it.start }
 }
+
+private fun isWholePhrase(text: String, start: Int, end: Int): Boolean {
+    val leftOk = start == 0 || !isWordChar(text[start - 1])
+    val rightOk = end == text.length || !isWordChar(text[end])
+    return leftOk && rightOk
+}
+
+private fun isWordChar(char: Char): Boolean = char.isLetter() || char == '\''
 
 private val TRAILING_PUNCT = setOf('.', '!', '?', ',', ';')
 
