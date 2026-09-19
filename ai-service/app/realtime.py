@@ -81,6 +81,8 @@ class OpenAiRealtimeGateway:
         if not ephemeral:
             raise RuntimeError("realtime client_secrets missing value")
 
+        offer = sdp_for_openai(sdp)
+
         async def exchange() -> httpx.Response:
             async with self._http() as http:
                 return await http.post(
@@ -89,13 +91,21 @@ class OpenAiRealtimeGateway:
                         "Authorization": f"Bearer {ephemeral}",
                         "Content-Type": "application/sdp",
                     },
-                    content=sdp.encode("utf-8"),
+                    content=offer.encode("utf-8"),
                 )
 
         answered = await once_on_retryable(exchange)
-        _raise_openai(answered, self._api_key, ephemeral, sdp_bytes=len(sdp.encode("utf-8")))
+        _raise_openai(answered, self._api_key, ephemeral, sdp_bytes=len(offer.encode("utf-8")))
         call_id = _call_id(answered.headers.get("location") or answered.headers.get("Location"))
         return answered.text, call_id
+
+
+def sdp_for_openai(sdp: str) -> str:
+    if sdp.endswith("\r\n"):
+        return sdp
+    if sdp.endswith("\n"):
+        return sdp[:-1] + "\r\n"
+    return sdp + "\r\n"
 
 
 def _raise_openai(response: httpx.Response, *secrets: str, sdp_bytes: int | None = None) -> None:

@@ -188,6 +188,30 @@ class AppApiTest {
     }
 
     @Test
+    fun rtcKeepsTrailingSdpNewline() = testApplication {
+        val ai = FakeInternalAi()
+        val api = testAppApi(ai)
+        application { module(appTestConfig(), api) }
+        val client = jsonClient()
+        val token = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"ned@example.com","password":"secret12","displayName":"Ned"}""")
+        }.body<AuthResponse>().token
+        val sessionId = client.post("/v1/sessions") {
+            bearerAuth(token)
+            contentType(ContentType.Application.Json)
+            setBody("""{"topic":"Work","tutorVoice":"marin"}""")
+        }.body<CreateSessionResponse>().sessionId
+        val rtc = client.post("/v1/sessions/$sessionId/rtc") {
+            bearerAuth(token)
+            header(HttpHeaders.ContentType, "application/sdp")
+            setBody("v=0 offer\r\n")
+        }
+        assertEquals(HttpStatusCode.Created, rtc.status)
+        assertEquals("v=0 offer\r\n", ai.lastSdp)
+    }
+
+    @Test
     fun homeWithoutBearerIsUnauthorized() = testApplication {
         application { module(appTestConfig(), testAppApi()) }
         val response = client.get("/v1/home")
@@ -198,11 +222,11 @@ class AppApiTest {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 
-    private fun testAppApi(): AppApi = AppApi(
+    private fun testAppApi(ai: InternalAi = FakeInternalAi()): AppApi = AppApi(
         store = MemoryAppStore(),
         tokens = JwtTokens("test-jwt-secret-which-is-long-enough"),
         passwords = PasswordHasher(),
-        ai = FakeInternalAi(),
+        ai = ai,
     )
 
     private fun appTestConfig() = AppConfig(
@@ -220,8 +244,12 @@ class AppApiTest {
 }
 
 private class FakeInternalAi : InternalAi {
-    override suspend fun startCall(sdp: String, topic: String, tutorVoice: String): RealtimeCall =
-        RealtimeCall(sdpAnswer = "v=0 answer", openaiCallId = "rtc_test")
+    var lastSdp: String? = null
+
+    override suspend fun startCall(sdp: String, topic: String, tutorVoice: String): RealtimeCall {
+        lastSdp = sdp
+        return RealtimeCall(sdpAnswer = "v=0 answer", openaiCallId = "rtc_test")
+    }
 
     override suspend fun review(turns: List<TranscriptTurn>): InternalReviewResponse =
         InternalReviewResponse(

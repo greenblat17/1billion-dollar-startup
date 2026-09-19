@@ -184,7 +184,7 @@ private suspend fun io.ktor.server.application.ApplicationCall.readSdpOffer(): S
     } else {
         receiveText()
     }
-    return sdp.trim().takeIf { it.isNotEmpty() }
+    return sdp.takeIf { it.isNotBlank() }
 }
 
 private fun authResponse(api: AppApi, user: AppUser): AuthResponse =

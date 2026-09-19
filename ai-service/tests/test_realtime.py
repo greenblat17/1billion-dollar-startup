@@ -5,7 +5,7 @@ import logging
 import httpx
 import pytest
 
-from app.realtime import OpenAiRealtimeGateway
+from app.realtime import OpenAiRealtimeGateway, sdp_for_openai
 
 API_KEY = "sk-test-do-not-log"
 EPHEMERAL = "ek_test-do-not-log"
@@ -50,7 +50,7 @@ async def test_calls_error_logs_body_without_secrets(caplog: pytest.LogCaptureFi
         await _gateway(handler).start_call("v=0 offer", "Travel", "marin")
     text = caplog.text
     assert "openai realtime HTTP 400 /v1/realtime/calls" in text
-    assert "sdp_bytes=9" in text
+    assert "sdp_bytes=11" in text
     assert "invalid sdp leaked" in text
     assert API_KEY not in text
     assert EPHEMERAL not in text
@@ -70,3 +70,28 @@ async def test_mint_error_logs_body_without_key(caplog: pytest.LogCaptureFixture
     assert "sdp_bytes" not in text
     assert API_KEY not in text
     assert "[redacted]" in text
+
+
+def test_sdp_for_openai_keeps_or_adds_crlf() -> None:
+    assert sdp_for_openai("v=0") == "v=0\r\n"
+    assert sdp_for_openai("v=0\n") == "v=0\r\n"
+    assert sdp_for_openai("v=0\r\n") == "v=0\r\n"
+    assert sdp_for_openai("v=0\r\n\r\n") == "v=0\r\n\r\n"
+
+
+@pytest.mark.asyncio
+async def test_start_call_posts_sdp_with_trailing_crlf() -> None:
+    posted: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/realtime/client_secrets"):
+            return httpx.Response(200, json={"value": EPHEMERAL})
+        posted.append(request.content)
+        return httpx.Response(
+            201,
+            text="v=0 answer",
+            headers={"Location": "/v1/realtime/calls/rtc_1"},
+        )
+
+    await _gateway(handler).start_call("v=0 offer", "Travel", "marin")
+    assert posted == [b"v=0 offer\r\n"]

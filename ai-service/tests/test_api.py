@@ -225,6 +225,13 @@ def test_internal_realtime_and_review() -> None:
         assert created.json() == {"sdp": "v=0 answer", "openaiCallId": "rtc_test"}
         assert realtime.calls == [("v=0 offer", "Work", "marin")]
 
+        kept = client.post(
+            "/internal/realtime/call",
+            json={"sdp": "v=0 offer\r\n", "topic": "Work", "tutorVoice": "marin"},
+        )
+        assert kept.status_code == 200
+        assert realtime.calls[-1] == ("v=0 offer\r\n", "Work", "marin")
+
         reviewed = client.post(
             "/internal/review",
             json={

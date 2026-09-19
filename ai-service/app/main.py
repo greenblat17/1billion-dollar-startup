@@ -130,10 +130,10 @@ def create_app(
         payload: Any = await request.json()
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="invalid body")
-        sdp = str(payload.get("sdp") or "").strip()
+        sdp = str(payload.get("sdp") or "")
         topic = str(payload.get("topic") or "").strip()
         voice = str(payload.get("tutorVoice") or "").strip()
-        if not sdp or topic not in TOPICS or voice not in VOICES:
+        if not sdp.strip() or topic not in TOPICS or voice not in VOICES:
             raise HTTPException(status_code=400, detail="invalid realtime request")
         answer, call_id = await realtime_gateway.start_call(sdp, topic, voice)
         return {"sdp": answer, "openaiCallId": call_id}
