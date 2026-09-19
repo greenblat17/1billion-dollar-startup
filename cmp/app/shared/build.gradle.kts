@@ -80,10 +80,17 @@ val fetchWebRtcXcframework = tasks.register("fetchWebRtcXcframework") {
     val version = webRtcIosSdkVersion
     val expectedSha = webRtcIosSdkSha256
     val root = webRtcSdkRoot
-    outputs.dir(root.resolve("WebRTC.xcframework"))
+    val marker = root.resolve(".ready")
+    outputs.file(marker)
     doLast {
         val frameworkDir = root.resolve("WebRTC.xcframework")
-        if (!frameworkDir.isDirectory) {
+        fun File.hasWebRtcBinary(): Boolean =
+            resolve("Info.plist").isFile &&
+                walk().any { it.name == "WebRTC.framework" }
+        if (!frameworkDir.hasWebRtcBinary()) {
+            if (frameworkDir.exists()) {
+                frameworkDir.deleteRecursively()
+            }
             root.mkdirs()
             val zip = root.resolve("WebRTC.xcframework.zip")
             if (!zip.isFile) {
@@ -119,7 +126,12 @@ val fetchWebRtcXcframework = tasks.register("fetchWebRtcXcframework") {
                 }
             }
         }
-        check(frameworkDir.isDirectory) { "missing $frameworkDir" }
+        check(frameworkDir.hasWebRtcBinary()) {
+            "missing WebRTC.framework under $frameworkDir; got ${frameworkDir.list()?.toList()}"
+        }
+        val slices = frameworkDir.listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()
+        marker.writeText(slices.joinToString("\n"))
+        logger.lifecycle("WebRTC.xcframework slices: $slices")
     }
 }
 
@@ -132,14 +144,17 @@ kotlin {
             baseName = "Shared"
             isStatic = true
         }
-        val slice = if (iosTarget.name.contains("Simulator", ignoreCase = true)) {
-            "ios-arm64_x86_64-simulator"
+        val xcframeworkDir = File(webRtcSdkRoot, "WebRTC.xcframework")
+        val sliceNames = if (iosTarget.name.contains("Simulator", ignoreCase = true)) {
+            listOf("ios-arm64_x86_64-simulator", "ios-arm64-simulator", "ios-x86_64-simulator")
         } else {
-            "ios-arm64"
+            listOf("ios-arm64")
         }
-        val webRtcFrameworkDir = File(webRtcSdkRoot, "WebRTC.xcframework/$slice")
         iosTarget.binaries.all {
-            linkerOpts("-F${webRtcFrameworkDir.absolutePath}", "-rpath", webRtcFrameworkDir.absolutePath)
+            sliceNames.forEach { slice ->
+                val dir = File(xcframeworkDir, slice)
+                linkerOpts("-F${dir.absolutePath}", "-rpath", dir.absolutePath)
+            }
             linkTaskProvider.configure { dependsOn(fetchWebRtcXcframework) }
         }
     }
