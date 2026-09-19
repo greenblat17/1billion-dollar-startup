@@ -1,0 +1,313 @@
+name: CMP
+
+on:
+  workflow_dispatch:
+    inputs:
+      android:
+        description: Android test and debug APK
+        type: boolean
+        default: true
+      desktop:
+        description: Desktop test and Deb/Dmg/Msi
+        type: boolean
+        default: true
+      ios:
+        description: iOS simulator test and app zip
+        type: boolean
+        default: true
+      server:
+        description: Server test and fat JAR
+        type: boolean
+        default: true
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'cmp/**'
+      - 'infra/server/**'
+      - 'infra/postgres/**'
+      - '.github/workflows/cmp.yml'
+      - '.github/actions/setup-cmp/**'
+  pull_request:
+    paths:
+      - 'cmp/**'
+      - 'infra/server/**'
+      - 'infra/postgres/**'
+      - '.github/workflows/cmp.yml'
+      - '.github/actions/setup-cmp/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detekt:
+    name: Detekt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Run detekt
+        run: ./gradlew detekt
+
+      - name: Upload detekt reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: detekt-reports
+          path: cmp/**/build/reports/detekt/**
+          if-no-files-found: ignore
+          retention-days: 1
+
+  android:
+    name: Android
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.android == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :app:shared:testAndroidHostTest
+
+      - name: Package
+        run: ./gradlew :app:androidApp:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-debug-apk
+          path: cmp/app/androidApp/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  desktop-test:
+    name: Desktop test
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :app:shared:jvmTest :app:desktopApp:test
+
+  desktop-package:
+    name: Desktop package (${{ matrix.label }})
+    needs: desktop-test
+    if: github.event_name != 'workflow_dispatch' || inputs.desktop == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            task: packageDeb
+            artifact: desktop-deb
+            path: cmp/app/desktopApp/build/compose/binaries/main/deb/**
+            cache-read-only: 'true'
+          - os: macos-14
+            label: macos
+            task: packageDmg
+            artifact: desktop-dmg
+            path: cmp/app/desktopApp/build/compose/binaries/main/dmg/**
+            cache-read-only: 'false'
+          - os: windows-latest
+            label: windows
+            task: packageMsi
+            artifact: desktop-msi
+            path: cmp/app/desktopApp/build/compose/binaries/main/msi/**
+            cache-read-only: 'false'
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+        with:
+          cache-read-only: ${{ matrix.cache-read-only }}
+
+      - name: Package
+        run: ./gradlew :app:desktopApp:${{ matrix.task }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
+          retention-days: 1
+
+  ios:
+    name: iOS
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.ios == 'true'
+    runs-on: macos-15
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Test
+        run: ./gradlew :app:shared:iosSimulatorArm64Test
+
+      - name: Package
+        run: |
+          xcodebuild \
+            -project app/iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/ios-derived" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          APP_PATH="$RUNNER_TEMP/ios-derived/Build/Products/Debug-iphonesimulator/cmp.app"
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/iosApp-simulator.zip"
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-simulator-app
+          path: ${{ runner.temp }}/iosApp-simulator.zip
+          if-no-files-found: error
+          retention-days: 1
+
+  server-package:
+    name: Server
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :server:test
+
+      - name: Package
+        run: ./gradlew :server:buildFatJar
+
+      - name: Upload fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: server-all
+          path: cmp/server/build/libs/server-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  drop-old-artifacts:
+    name: Drop previous artifacts
+    needs:
+      - detekt
+      - android
+      - desktop-test
+      - desktop-package
+      - ios
+      - server-package
+    if: >-
+      ${{
+        github.event_name != 'workflow_dispatch' &&
+        !cancelled() &&
+        needs.detekt.result != 'failure' &&
+        needs.android.result != 'failure' &&
+        needs.desktop-test.result != 'failure' &&
+        needs.desktop-package.result != 'failure' &&
+        needs.ios.result != 'failure' &&
+        needs.server-package.result != 'failure'
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete artifacts from older runs on this branch
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const currentRunId = context.runId
+            const workflowId = 'cmp.yml'
+            const branch =
+              context.payload.pull_request?.head?.ref ??
+              context.ref.replace(/^refs\/heads\//, '')
+
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRuns,
+              { owner, repo, workflow_id: workflowId, branch, per_page: 100 },
+            )
+            const staleRunIds = runs
+              .map((run) => run.id)
+              .filter((id) => id !== currentRunId)
+
+            if (staleRunIds.length === 0) {
+              core.info(`No previous ${workflowId} artifacts to drop for ${branch}`)
+              return
+            }
+
+            for (const runId of staleRunIds) {
+              const artifacts = await github.paginate(
+                github.rest.actions.listWorkflowRunArtifacts,
+                { owner, repo, run_id: runId, per_page: 100 },
+              )
+              for (const artifact of artifacts) {
+                core.info(`Deleting ${artifact.name} from ${workflowId} run ${runId}`)
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id,
+                })
+              }
+            }

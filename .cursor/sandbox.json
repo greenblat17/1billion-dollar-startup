@@ -1,0 +1,6 @@
+{
+  "enableSharedBuildCache": true,
+  "networkPolicy": {
+    "allow": ["api.klibs.io"]
+  }
+}

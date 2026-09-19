@@ -1,0 +1,86 @@
+<resources>
+    <string name="brand_name">Releva</string>
+
+    <string name="welcome_headline">Говорите\nна английском</string>
+    <string name="welcome_headline_accent">уверенно</string>
+    <string name="welcome_start">Начать</string>
+    <string name="welcome_have_account">У меня уже есть аккаунт</string>
+    <string name="welcome_legal">Продолжая, вы соглашаетесь с %1$s и %2$s.</string>
+    <string name="welcome_terms">Условиями&#160;использования</string>
+    <string name="welcome_privacy">Политикой&#160;конфиденциальности</string>
+
+    <string name="home_greeting">Привет, %1$s!</string>
+    <string name="home_subtitle">Готов немного попрактиковаться?</string>
+    <string name="home_start_title">Начать разговор</string>
+    <string name="home_start_body">Поговори с AI на английском</string>
+    <string name="home_start_cta">Начать</string>
+    <string name="home_pick_topic">Выберите тему</string>
+    <string name="home_last_conversation">Последний разговор</string>
+    <string name="home_daily_goal">Цель на день</string>
+    <string name="home_daily_progress">%1$s из %2$s</string>
+    <plurals name="duration_seconds">
+        <item quantity="one">%1$d с</item>
+        <item quantity="few">%1$d с</item>
+        <item quantity="many">%1$d с</item>
+        <item quantity="other">%1$d с</item>
+    </plurals>
+    <string name="topic_everyday">Повседневное</string>
+    <string name="topic_work">Работа</string>
+    <string name="topic_travel">Путешествия</string>
+    <string name="topic_random">Случайная тема</string>
+    <string name="when_today">Сегодня</string>
+    <string name="conversation_meta">%1$s · %2$s</string>
+    <plurals name="duration_minutes">
+        <item quantity="one">%1$d мин</item>
+        <item quantity="few">%1$d мин</item>
+        <item quantity="many">%1$d мин</item>
+        <item quantity="other">%1$d мин</item>
+    </plurals>
+
+    <string name="call_hangup">Завершить</string>
+    <string name="call_mic">Микрофон</string>
+    <string name="call_captions">Субтитры</string>
+
+    <string name="review_title">Разбор разговора</string>
+    <string name="review_step">%1$d/%2$d</string>
+    <string name="review_score_total">/100</string>
+    <string name="review_improve">Что можно улучшить</string>
+    <string name="review_examples">Примеры из разговора</string>
+    <string name="review_you_said">Ты сказал</string>
+    <string name="review_better">Лучше</string>
+    <string name="review_tip">Совет</string>
+    <string name="review_next">Далее</string>
+    <string name="review_finish">Завершить</string>
+    <string name="metric_grammar">Grammar</string>
+    <string name="metric_vocabulary">Vocabulary</string>
+
+    <string name="profile_title">Профиль</string>
+    <string name="profile_subtitle">Настройки приложения</string>
+    <string name="profile_settings">Настройки</string>
+    <string name="profile_about">О приложении</string>
+    <string name="profile_language">Язык интерфейса</string>
+    <string name="profile_language_value">Русский</string>
+    <string name="profile_voice">Голос репетитора</string>
+    <string name="profile_voice_value">Emma</string>
+    <string name="profile_captions">Субтитры по умолчанию</string>
+    <string name="profile_captions_body">Показывать во время разговора</string>
+    <string name="profile_mic">Микрофон</string>
+    <string name="profile_mic_body">Проверить и настроить</string>
+    <string name="profile_daily_goal">Цель на день</string>
+    <string name="profile_daily_goal_body">Минут разговора в день</string>
+    <string name="profile_help">Помощь и поддержка</string>
+    <string name="profile_terms">Условия использования</string>
+    <string name="profile_privacy">Конфиденциальность</string>
+    <string name="profile_sign_out">Выйти из аккаунта</string>
+
+    <string name="cd_back">Назад</string>
+    <string name="cd_profile">Профиль</string>
+    <string name="cd_logo">Releva</string>
+    <string name="cd_start">Начать</string>
+    <string name="cd_open_conversation">Открыть разговор</string>
+    <string name="cd_hangup">Завершить звонок</string>
+    <string name="cd_mic">Микрофон</string>
+    <string name="cd_captions">Субтитры</string>
+    <string name="cd_daily_goal">Прогресс цели на день</string>
+    <string name="cd_streak">Серия дней</string>
+</resources>

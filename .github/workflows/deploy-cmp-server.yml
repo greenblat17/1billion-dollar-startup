@@ -48,7 +48,8 @@ jobs:
           set -euo pipefail
           cp infra/server/Dockerfile.runtime vps-upload/Dockerfile.runtime
           cp infra/server/deploy-remote.sh vps-upload/deploy-remote.sh
-          chmod +x vps-upload/deploy-remote.sh
+          cp infra/postgres/deploy-remote.sh vps-upload/deploy-postgres.sh
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-postgres.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
             : "${TELEGRAM_BOT_TOKEN:?}"
@@ -99,6 +100,7 @@ jobs:
             vps-upload/server-all.jar \
             vps-upload/Dockerfile.runtime \
             vps-upload/deploy-remote.sh \
+            vps-upload/deploy-postgres.sh \
             vps-upload/.env \
             "${USER}@${HOST}:/opt/speaking-coach/"
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \

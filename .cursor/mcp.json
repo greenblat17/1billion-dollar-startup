@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "compose-hot-reload": {
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/.agents/skills/compose-hot-reload/scripts/hot-mcp-server.sh"
+      ],
+      "cwd": "${workspaceFolder}/cmp",
+      "env": {
+        "HOME": "${userHome}",
+        "GRADLE_USER_HOME": "${userHome}/.gradle",
+        "HOT_MCP_TASK": ":app:desktopApp:hotMcpServer"
+      }
+    },
+    "klibs": {
+      "url": "https://api.klibs.io/mcp"
+    }
+  }
+}

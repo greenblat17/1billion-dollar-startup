@@ -44,11 +44,16 @@ class HttpClipClientTest {
             }
         }
         val http = client(engine)
-        val greeting = HttpClipClient("http://ai.local", http).startSession()
+        val greeting = HttpClipClient(
+            "http://ai.local",
+            http,
+            internalToken = "secret-token",
+        ).startSession()
 
         assertEquals("s-1", greeting.sessionId.value)
         assertEquals("Hi!", greeting.text)
         assertEquals(byteArrayOf(7, 8).toList(), greeting.audio.bytes.toList())
+        assertEquals("secret-token", engine.requestHistory.first().headers[AI_INTERNAL_TOKEN_HEADER])
         http.close()
     }
 

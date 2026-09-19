@@ -16,16 +16,23 @@ The **bot username, display name, and token** are set in Telegram BotFather / Gi
 
 Do not put tokens, SSH keys, VPS passwords, or `.env` values into docs or commits. `.env` is gitignored. Template names only: `.env.example`.
 
-GitHub **environment** `deploy`. Secret **names** (values live in GitHub):
+GitHub **environments** `deploy` (prod) и `dev` — только approve у job Redeploy. Секреты — **repository Actions secrets**, не Environment secrets и не `vars` для DEV-блобов.
 
-- Server: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, optional `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL` (or repo **vars** for the last two).
-- AI: `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`.
+**Prod** (имена без префикса, не переименовывать):
 
-VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`). Redis container name `redis`, Docker network `speaking-coach`. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
+- SSH: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`
+- Runtime: раннер пишет `.env` из `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL`, `AI_INTERNAL_TOKEN`, `GROQ_API_KEY`, `OPENAI_API_KEY`. URL не класть в repo **vars** (в публичном репо они видны). На хосте переменных нет.
+
+**Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам):
+
+- SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
+- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
+
+VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Postgres container name `postgres`, **127.0.0.1:5432 on the Ktor host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running). **Do not `docker rm` Postgres** (`infra/postgres/deploy-remote.sh`).
 
 ## Stub vs real notes
 
-Do not copy stub `NOTE_POOL` phrasing into the LLM. Production notes are `wrong|||better` pairs.
+Production notes are `wrong|||better` pairs. Do not invent random note strings or echo the same audio as a fake pipeline.
 
 ## Research doc vs code
 

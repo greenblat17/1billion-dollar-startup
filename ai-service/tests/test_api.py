@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
+import pytest
 from fastapi.testclient import TestClient
 
-from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
+from app.main import create_app
+from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
+from tests.conftest import test_settings as make_settings
+
+AUTH = {"X-Internal-Token": "test-internal-token"}
+
+
+def _client(app) -> TestClient:
+    return TestClient(app, headers=AUTH)
 
 
 def _start_session(client: TestClient) -> str:
@@ -31,16 +42,42 @@ def test_health() -> None:
         assert response.json() == {"status": "ok"}
 
 
-def test_unknown_job_is_404() -> None:
+def test_create_app_requires_internal_token() -> None:
+    with pytest.raises(RuntimeError, match="AI_INTERNAL_TOKEN"):
+        create_app(settings=replace(make_settings(), ai_internal_token=None))
+
+
+def test_openapi_docs_are_disabled() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        assert client.get("/docs").status_code == 404
+        assert client.get("/openapi.json").status_code == 404
+
+
+def test_clips_without_internal_token_are_401() -> None:
     app, _, _, _ = build_app()
     with TestClient(app) as client:
+        assert client.post("/v1/sessions").status_code == 401
+        assert client.get("/v1/clips/missing").status_code == 401
+        assert client.get("/docs").status_code == 401
+
+
+def test_clips_with_wrong_internal_token_are_401() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"X-Internal-Token": "nope"}) as client:
+        assert client.post("/v1/sessions").status_code == 401
+
+
+def test_unknown_job_is_404() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
         assert client.get("/v1/clips/missing").status_code == 404
         assert client.get("/v1/clips/missing/audio").status_code == 404
 
 
 def test_unknown_session_clip_is_404() -> None:
     app, _, _, _ = build_app()
-    with TestClient(app) as client:
+    with _client(app) as client:
         created = client.post(
             "/v1/clips",
             data={"sessionId": "missing"},
@@ -52,7 +89,7 @@ def test_unknown_session_clip_is_404() -> None:
 def test_session_greeting_audio() -> None:
     tts = FakeTts()
     app, _, _, tts = build_app(tts=tts)
-    with TestClient(app) as client:
+    with _client(app) as client:
         response = client.post("/v1/sessions")
         body = response.json()
         session_id = body["sessionId"]
@@ -67,7 +104,7 @@ def test_session_greeting_audio() -> None:
 
 def test_clip_contract_returns_audio() -> None:
     app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]))
-    with TestClient(app) as client:
+    with _client(app) as client:
         session_id = _start_session(client)
         created = client.post(
             "/v1/clips",
@@ -94,7 +131,7 @@ def test_empty_transcript_clarifies_without_llm() -> None:
     llm = FakeLlm()
     tts = FakeTts()
     app, _, llm, tts = build_app(stt=FakeStt([""]), llm=llm, tts=tts)
-    with TestClient(app) as client:
+    with _client(app) as client:
         session_id = _start_session(client)
         created = client.post(
             "/v1/clips",
@@ -114,7 +151,7 @@ def test_empty_transcript_clarifies_without_llm() -> None:
 def test_second_clip_includes_dialogue_history() -> None:
     llm = FakeLlm()
     app, _, llm, _ = build_app(stt=FakeStt(["my name is Alex", "what is my name"]))
-    with TestClient(app) as client:
+    with _client(app) as client:
         session_id = _start_session(client)
         first = client.post(
             "/v1/clips",
@@ -141,7 +178,7 @@ def test_second_clip_includes_dialogue_history() -> None:
 
 def test_create_session_with_id_is_get_or_create() -> None:
     app, _, _, _ = build_app()
-    with TestClient(app) as client:
+    with _client(app) as client:
         first = client.post("/v1/sessions", json={"sessionId": "tg-42"})
         assert first.status_code == 201
         assert first.json()["sessionId"] == "tg-42"
@@ -161,7 +198,7 @@ def test_clip_includes_coaching_notes() -> None:
     notes = ["I was in Turkey last summer|||I went to Turkey last summer"]
     llm = FakeLlm(notes=notes)
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
-    with TestClient(app) as client:
+    with _client(app) as client:
         session_id = _start_session(client)
         created = client.post(
             "/v1/clips",
@@ -173,4 +210,42 @@ def test_clip_includes_coaching_notes() -> None:
         assert body["result"]["notes"] == notes
         assert body["replyText"] == "Got it: I was in Turkey last summer"
         assert tts.texts == ["Got it: I was in Turkey last summer"]
+
+
+def test_internal_realtime_and_review() -> None:
+    realtime = FakeRealtime()
+    reviewer = FakeReviewer()
+    app, _, _, _ = build_app(realtime=realtime, reviewer=reviewer)
+    with _client(app) as client:
+        created = client.post(
+            "/internal/realtime/call",
+            json={"sdp": "v=0 offer", "topic": "Work", "tutorVoice": "marin"},
+        )
+        assert created.status_code == 200
+        assert created.json() == {"sdp": "v=0 answer", "openaiCallId": "rtc_test"}
+        assert realtime.calls == [("v=0 offer", "Work", "marin")]
+
+        reviewed = client.post(
+            "/internal/review",
+            json={
+                "turns": [
+                    {"role": "user", "text": "I work here since 2023."},
+                ]
+            },
+        )
+        assert reviewed.status_code == 200
+        body = reviewed.json()
+        assert [step["metric"] for step in body["steps"]] == ["Grammar", "Vocabulary"]
+        assert reviewer.calls[0][0]["text"] == "I work here since 2023."
+
+
+def test_internal_realtime_rejects_bad_topic() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        response = client.post(
+            "/internal/realtime/call",
+            json={"sdp": "v=0", "topic": "Random", "tutorVoice": "marin"},
+        )
+        assert response.status_code == 400
+
 

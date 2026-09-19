@@ -1,6 +1,10 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.HttpClipClient
+import com.eliteteam.speakingcoach.app.AppApi
+import com.eliteteam.speakingcoach.app.createAppApi
+import com.eliteteam.speakingcoach.app.installAppPlugins
+import com.eliteteam.speakingcoach.app.installAppRoutes
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.telegram.TELEGRAM_WEBHOOK_SECRET_HEADER
 import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
@@ -62,12 +66,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
         }
     }
     val webhookScope = newTelegramWebhookScope()
-    val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp)
+    val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
     )
     val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
+    val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
         File(config.tlsKeyPath),
@@ -87,10 +92,17 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     ) {
-        installSpeakingCoachHttp(config.aiServiceBaseUrl) {
+        val ktorApp = this
+        if (appApi != null) {
+            installAppPlugins(appApi)
+        }
+        installSpeakingCoachHttp {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }.hide()
+            if (appApi != null) {
+                installAppRoutes(ktorApp, appApi)
+            }
         }
     }
     server.start(wait = false)
@@ -112,8 +124,14 @@ private suspend fun startWebhookServer(config: AppConfig) {
 }
 
 @OptIn(ExperimentalKtorApi::class)
-fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
-    installSpeakingCoachHttp(config.aiServiceBaseUrl) {
+internal fun Application.module(
+    config: AppConfig = AppConfig.fromEnv(),
+    appApi: AppApi? = createAppApi(config),
+) {
+    if (appApi != null) {
+        installAppPlugins(appApi)
+    }
+    installSpeakingCoachHttp {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
             post("/telegram/webhook") {
@@ -124,6 +142,9 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
                 }
                 call.respond(HttpStatusCode.ServiceUnavailable)
             }.hide()
+        }
+        if (appApi != null) {
+            installAppRoutes(this@module, appApi)
         }
     }
 }

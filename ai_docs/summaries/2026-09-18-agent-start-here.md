@@ -2,6 +2,8 @@
 
 Read this first, then the linked files. Product intent: `ai_docs/product.md`. MVP plan is aspirational; **shipped code is Telegram voice + STT/LLM/TTS**, not a mobile speaking session.
 
+Next work on `feature/back-for-mobile`: backend slice «бэк готов» — [`plans/mvp-backend-plan.md`](../plans/mvp-backend-plan.md). App routes live on Ktor; Realtime mint/review on ai-service `/internal/*`. Wider backlog (stores, OAuth, dual-host): [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
+
 ## What to change for which job
 
 | Job | Touch |
@@ -10,9 +12,9 @@ Read this first, then the linked files. Product intent: `ai_docs/product.md`. MV
 | Clip HTTP client / OpenAPI proxy | `cmp/server/.../ai/` |
 | Server env, TLS, webhook vs no-bot | `AppConfig.kt`, `Application.kt` |
 | STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
-| Local compose / VPS scripts | `infra/` |
+| VPS scripts / 8090 allowlist | `infra/` |
 | CI / GitHub secret **names** | `.github/workflows/` |
-| Compose Multiplatform UI | `cmp/app/` — still KMP **template** (`App.kt` “Click me”). Not wired to clips. |
+| Compose Multiplatform UI | `cmp/app/` — Releva mock UI (Welcome/Home/Call/Review Grammar+Vocabulary/Profile), mock data, not wired to clips. History and pronunciation/fluency/speed screens deferred. |
 
 ## Runtime path that actually talks
 
@@ -34,7 +36,10 @@ Gradle root is **`cmp/`**. Before `./gradlew`, `GRADLE_USER_HOME=$HOME/.gradle`.
 - **Deploy / VPS / CI:** `ai_docs/deploy.md`
 - Architecture notes: `ai_docs/architecture/2026-09-18-system.md`
 - Do not touch: `ai_docs/architecture/2026-09-18-agent-guardrails.md`
-- HTTP contract: `ai_docs/integrations/2026-09-18-clip-session-api.md`
+- HTTP contract (Telegram clips): `ai_docs/integrations/2026-09-18-clip-session-api.md`
+- HTTP contract (CMP screens): `ai_docs/integrations/2026-09-18-mobile-api.md`
+- MVP backend («бэк готов»): `ai_docs/plans/mvp-backend-plan.md`
+- Wider mobile backend backlog: `ai_docs/plans/2026-09-19-mobile-mvp-backend.md`
 - Telegram + notes: `ai_docs/integrations/2026-09-18-telegram.md`
 - Run / env / CI: `ai_docs/integrations/2026-09-18-run-and-ci.md`
 
