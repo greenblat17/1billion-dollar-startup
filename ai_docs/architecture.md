@@ -71,8 +71,8 @@ sequenceDiagram
     Ai->>Ai: TTS clarify no LLM
   else speech
     Ai->>Redis: history
-    Ai->>Ai: LLM JSON reply plus notes
-    Ai->>Redis: append user and assistant
+    Ai->>Ai: parallel LLM reply plus notes
+    Ai->>Redis: append user and spoken reply
     Ai->>Ai: TTS reply
   end
   Queue->>Ai: GET audio
@@ -90,7 +90,8 @@ flowchart TD
   job[JobStore_pending]
   stt[Groq_Whisper]
   clarify{empty_or_no_speech}
-  llm[OpenRouter_JSON]
+  reply[OpenRouter_reply_JSON]
+  notes[OpenRouter_notes_JSON]
   tts[Kokoro_then_ffmpeg_OGG]
   redis[(Redis_dialogue)]
   ok[job_status_ok]
@@ -98,15 +99,17 @@ flowchart TD
   clip --> job --> stt --> clarify
   clarify -->|yes| tts
   clarify -->|no| redis
-  redis --> llm
-  llm --> redis
-  llm --> tts
+  redis --> reply
+  redis --> notes
+  reply --> redis
+  reply --> tts
+  notes --> tts
   tts --> ok
 ```
 
 - Clarify: *I didn't catch that. Could you say it again?* Notes пустые, LLM не зовётся.
-- LLM: только JSON `{ "reply", "notes": [{ "wrong", "better" }] }`. В Redis кладётся **spoken reply**, не notes.
-- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike + bold внутри blockquote; правка на своей строке; висячая пунктуация после спана съедается.
+- Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; notes JSON `{"notes":[{"wrong","better"}]}` **без** истории, `temperature` 0. Промпт задаёт ширину спана (few-shot), не каталог ошибок. Пайплайн ждёт оба, потом TTS. В Redis кладётся **spoken reply**, не notes.
+- Notes в job: строки `wrong|||better` (макс. 3). Цитата в Telegram: strike на одной строке, bold `better` на следующей; `wrong` только как целое слово/фраза; висячая пунктуация после спана съедается.
 
 Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service убивает незавершённые jobs, **не** Redis-диалог.
 

@@ -26,7 +26,7 @@ class CoachingFeedbackTest {
             listOf("I was in Turkey|||I went to Turkey"),
         )
         assertEquals(
-            "🗣️ You said:\n\nI was in Turkey I went to Turkey\n\nlast summer",
+            "🗣️ You said:\n\nI was in Turkey\nI went to Turkey\n\nlast summer",
             sources.joinToString("") { it.source },
         )
     }
@@ -38,7 +38,7 @@ class CoachingFeedbackTest {
             listOf("I go|||I went", "I was|||I got"),
         )
         assertEquals(
-            "🗣️ You said:\n\nI go I went\n\nto shop and\n\nI was I got\n\ntired",
+            "🗣️ You said:\n\nI go\nI went\n\nto shop and\n\nI was\nI got\n\ntired",
             sources.joinToString("") { it.source },
         )
     }
@@ -59,7 +59,19 @@ class CoachingFeedbackTest {
             listOf("I will think about it when I will have users|||I will think about it when I have users"),
         )
         assertEquals(
-            "🗣️ You said:\n\nI will think about it when I will have users I will think about it when I have users\n\nRight now my goal is an MVP",
+            "🗣️ You said:\n\nI will think about it when I will have users\nI will think about it when I have users\n\nRight now my goal is an MVP",
+            sources.joinToString("") { it.source },
+        )
+    }
+
+    @Test
+    fun doesNotSpliceMeInsideRemember() {
+        val sources = coachingEntities(
+            "I just try to remember how I celebrated",
+            listOf("me|||me is"),
+        )
+        assertEquals(
+            "🗣️ You said:\n\nI just try to remember how I celebrated",
             sources.joinToString("") { it.source },
         )
     }

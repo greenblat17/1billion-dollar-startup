@@ -107,6 +107,7 @@ def test_empty_transcript_clarifies_without_llm() -> None:
         assert body["replyText"] == "I didn't catch that. Could you say it again?"
         assert body["result"]["notes"] == []
         assert llm.calls == []
+        assert llm.notes_calls == []
         assert tts.texts == ["I didn't catch that. Could you say it again?"]
 
 
@@ -132,6 +133,7 @@ def test_second_clip_includes_dialogue_history() -> None:
         assert _wait_status(client, second_id)["status"] == "ok"
 
     assert len(llm.calls) == 2
+    assert llm.notes_calls == ["my name is Alex", "what is my name"]
     second_history, second_user = llm.calls[1]
     assert second_user == "what is my name"
     assert second_history == ["my name is Alex", "Got it: my name is Alex"]

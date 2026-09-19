@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -76,19 +77,12 @@ class ClipPipeline:
             )
 
         llm_started = time.perf_counter()
-        notes: list[str] = []
-
-        async def generate(history, user_text: str) -> str:
-            turn = await self._llm.complete(history, user_text)
-            notes.clear()
-            notes.extend(turn.notes)
-            return turn.reply_text
-
-        reply_text = await self._dialogue.complete_turn(
-            session_id,
-            stt_result.text,
-            generate,
+        history = await self._dialogue.history(session_id)
+        reply_text, notes = await asyncio.gather(
+            self._llm.complete_reply(history, stt_result.text),
+            self._llm.complete_notes(stt_result.text),
         )
+        await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
         llm_ms = _elapsed_ms(llm_started)
 
         tts_started = time.perf_counter()

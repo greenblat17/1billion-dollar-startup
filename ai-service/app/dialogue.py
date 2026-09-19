@@ -22,6 +22,10 @@ class DialogueStore(Protocol):
 
     async def exists(self, session_id: str) -> bool: ...
 
+    async def history(self, session_id: str) -> list[ChatMessage]: ...
+
+    async def record_turn(self, session_id: str, user_text: str, reply: str) -> None: ...
+
     async def complete_turn(
         self,
         session_id: str,
@@ -67,6 +71,17 @@ class MemoryDialogueStore:
             if session is None:
                 return []
             return list(session.messages)
+
+    async def record_turn(self, session_id: str, user_text: str, reply: str) -> None:
+        async with await self._lock_for(session_id):
+            session = self._live_session(session_id)
+            if session is None:
+                session = _Session()
+                self._sessions[session_id] = session
+            session.messages.append(ChatMessage("user", user_text))
+            session.messages.append(ChatMessage("assistant", reply))
+            session.messages = _trim(session.messages, self._max_messages)
+            session.updated_at = time.monotonic()
 
     async def complete_turn(
         self,
@@ -142,6 +157,18 @@ class RedisDialogueStore:
         if raw is None:
             return []
         return _load_messages(raw)
+
+    async def record_turn(self, session_id: str, user_text: str, reply: str) -> None:
+        async with await self._lock_for(session_id):
+            key = _session_key(session_id)
+            raw = await self._redis.get(key)
+            history = _load_messages(raw) if raw is not None else []
+            messages = history + [
+                ChatMessage("user", user_text),
+                ChatMessage("assistant", reply),
+            ]
+            messages = _trim(messages, self._max_messages)
+            await self._redis.set(key, _dump_messages(messages), ex=self._ttl_seconds)
 
     async def complete_turn(
         self,
