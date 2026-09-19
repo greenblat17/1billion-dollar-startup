@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -24,38 +26,51 @@ class HomeViewModel(
     private val logger: Logger,
 ) : ViewModel() {
     private val selectedTopic = MutableStateFlow(MockSpeakingData.home.selectedTopic)
-    private val userName = MutableStateFlow(
-        sessionStore.session.value?.user?.displayName ?: MockSpeakingData.UserName,
-    )
-    private val startBusy = MutableStateFlow(false)
-    private val startFailed = MutableStateFlow(false)
+    private val remoteUserName = MutableStateFlow<String?>(null)
+    private val start = MutableStateFlow(StartUi())
+    private var homeLoadId = 0
 
     val uiState: StateFlow<HomeUiState> = combine(
         selectedTopic,
         dailyGoalStore.state,
-        userName,
-        startBusy,
-        startFailed,
-    ) { topic, goal, name, busy, failed ->
+        sessionStore.session,
+        remoteUserName,
+        start,
+    ) { topic, goal, session, remoteName, startUi ->
         MockSpeakingData.home.copy(
-            userName = name,
+            userName = remoteName
+                ?: session?.user?.displayName
+                ?: MockSpeakingData.UserName,
             selectedTopic = topic,
             spokenSeconds = goal.spokenSeconds,
             streakDays = goal.streakDays,
             goalMinutes = goal.goalMinutes,
-            startBusy = busy,
-            startFailed = failed,
+            startBusy = startUi.busy,
+            startFailed = startUi.failed,
         )
     }.stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         MockSpeakingData.home.copy(
-            userName = userName.value,
+            userName = sessionStore.session.value?.user?.displayName
+                ?: MockSpeakingData.UserName,
         ),
     )
 
     init {
-        refreshHome()
+        viewModelScope.launch {
+            sessionStore.session
+                .map { it?.user?.id }
+                .distinctUntilChanged()
+                .collect { userId ->
+                    homeLoadId += 1
+                    remoteUserName.value = null
+                    if (userId != null) {
+                        logger.i { "refresh home userId=$userId" }
+                        refreshHome()
+                    }
+                }
+        }
     }
 
     fun onTopicSelected(topic: TopicKind) {
@@ -69,9 +84,8 @@ class HomeViewModel(
     }
 
     fun startConversation(onStarted: (String) -> Unit) {
-        if (startBusy.value) return
-        startBusy.value = true
-        startFailed.value = false
+        if (start.value.busy) return
+        start.value = StartUi(busy = true)
         val topic = selectedTopic.value.toApiTopic()
         logger.i { "start session topic=$topic" }
         viewModelScope.launch {
@@ -80,31 +94,35 @@ class HomeViewModel(
                     topic = topic,
                     tutorVoice = sessionStore.tutorVoice,
                 )
-                startBusy.value = false
+                start.value = StartUi()
                 logger.i { "open call sessionId=$sessionId" }
                 onStarted(sessionId)
             } catch (error: ApiException) {
-                startBusy.value = false
                 if (error.status == HttpStatusCode.Unauthorized) {
+                    start.value = StartUi()
                     logger.w { "start session HTTP 401, clearing session" }
                     sessionStore.clear()
                 } else {
                     logger.w { "start session HTTP ${error.status.value}" }
-                    startFailed.value = true
+                    start.value = StartUi(failed = true)
                 }
             } catch (error: Throwable) {
-                startBusy.value = false
-                startFailed.value = true
+                start.value = StartUi(failed = true)
                 logger.e(error) { "start session ${error::class.simpleName}" }
             }
         }
     }
 
     private fun refreshHome() {
+        val loadId = homeLoadId
         viewModelScope.launch {
             try {
-                userName.value = client.loadHome()
+                val name = client.loadHome()
+                if (loadId == homeLoadId) {
+                    remoteUserName.value = name
+                }
             } catch (error: ApiException) {
+                if (loadId != homeLoadId) return@launch
                 if (error.status == HttpStatusCode.Unauthorized) {
                     logger.w { "home HTTP 401, clearing session" }
                     sessionStore.clear()
@@ -112,8 +130,14 @@ class HomeViewModel(
                     logger.w { "home HTTP ${error.status.value}" }
                 }
             } catch (error: Throwable) {
+                if (loadId != homeLoadId) return@launch
                 logger.w(error) { "home ${error::class.simpleName}, keep cached name" }
             }
         }
     }
 }
+
+private data class StartUi(
+    val busy: Boolean = false,
+    val failed: Boolean = false,
+)

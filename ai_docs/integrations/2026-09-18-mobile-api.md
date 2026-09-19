@@ -123,7 +123,7 @@ flowchart LR
 
 | UI | Когда | API |
 | --- | --- | --- |
-| Заголовок «Привет, Алекс!» | вход на экран / pull-to-refresh если появится | `GET /v1/home` → `userName` |
+| Заголовок «Привет, Алекс!» | вход на экран, смена `userId` в `SessionStore` (logout → login/register) | `GET /v1/home` → `userName`. Пока ответ не пришёл — `displayName` из сессии. `HomeViewModel` переживает logout, поэтому имя нельзя кэшировать в `init` |
 | Карточка «Последний разговор» | — | **нет в MVP.** Мок может остаться на экране; тап не зовёт API и не открывает Review |
 | Полоска «Цель на день», streak, огонь | — | **нет.** `DailyGoalStore` |
 | Чипы Everyday / Work / Travel / Random | тап | **нет.** `HomeViewModel.onTopicSelected` |
