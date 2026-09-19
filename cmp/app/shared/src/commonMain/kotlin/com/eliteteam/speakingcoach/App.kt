@@ -20,10 +20,12 @@ import com.skydoves.compose.stability.runtime.TraceRecomposition
 import org.koin.compose.KoinApplication
 import org.koin.dsl.koinConfiguration
 
-private val appLogger = Logger(
-    loggerConfigInit(platformLogWriter()),
-    "SpeakingCoach",
-)
+private val appLogger by lazy {
+    Logger(
+        loggerConfigInit(platformLogWriter(), *extraKermitWriters()),
+        "SpeakingCoach",
+    )
+}
 
 @TraceRecomposition(tag = "app", traceStates = true)
 @Composable
@@ -32,7 +34,7 @@ fun App() {
     ComposeStabilityAnalyzer.setEnabled(true)
     KoinApplication(
         configuration = koinConfiguration {
-            logger(KermitKoinLogger(Logger.withTag("koin")))
+            logger(KermitKoinLogger(appLogger.withTag("koin")))
             modules(kermitLoggerModule(appLogger), appModule)
         },
     ) {

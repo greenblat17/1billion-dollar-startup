@@ -7,10 +7,8 @@ import com.skydoves.compose.stability.runtime.RecompositionEvent
 import com.skydoves.compose.stability.runtime.RecompositionLogger
 import org.jetbrains.compose.reload.InternalHotReloadApi
 import org.jetbrains.compose.reload.core.Logger
-import org.jetbrains.compose.reload.core.createLogger
 import org.jetbrains.compose.reload.core.info
 import java.util.Locale
-import java.util.ServiceLoader
 
 /**
  * Bridge from compose-stability-analyzer into Compose Hot Reload's log file.
@@ -21,14 +19,13 @@ import java.util.ServiceLoader
  * `createLogger` so `AgentLoggerDispatch` owns the file. Do not open a second writer
  * on `main.chr.log` — the agent already buffers it.
  *
- * The agent `Logger.Dispatch` is often missing from the app TCCL. Load it from the
- * system classloader. If dispatch is empty (process not started via `hotRun`), fall
- * back to [DefaultRecompositionLogger] / stdout.
+ * If dispatch is empty (process not started via `hotRun`), fall back to
+ * [DefaultRecompositionLogger] / stdout.
  */
 internal class ChrRecompositionLogger(
     private val fallback: RecompositionLogger = DefaultRecompositionLogger(),
 ) : RecompositionLogger {
-    private val chr: Logger? = createChrLogger()
+    private val chr: Logger? = createChrLogger("TraceRecomposition")
 
     override fun log(event: RecompositionEvent) {
         val logger = chr
@@ -38,23 +35,6 @@ internal class ChrRecompositionLogger(
         }
         format(event).forEach { line -> logger.info(line) }
     }
-}
-
-private fun createChrLogger(): Logger? {
-    val dispatch = loadChrDispatch()
-    if (dispatch.isEmpty()) return null
-    return createLogger(name = "TraceRecomposition", dispatch = dispatch)
-}
-
-private fun loadChrDispatch(): List<Logger.Dispatch> {
-    val loaders = listOfNotNull(
-        ClassLoader.getSystemClassLoader(),
-        Thread.currentThread().contextClassLoader,
-        Logger.Dispatch::class.java.classLoader,
-    ).distinct()
-    return loaders
-        .flatMap { loader -> ServiceLoader.load(Logger.Dispatch::class.java, loader).toList() }
-        .distinctBy { it.javaClass }
 }
 
 private fun format(event: RecompositionEvent): List<String> {

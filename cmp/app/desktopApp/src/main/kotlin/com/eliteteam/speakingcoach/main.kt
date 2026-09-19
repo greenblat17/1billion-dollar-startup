@@ -8,6 +8,7 @@ import com.skydoves.compose.stability.runtime.ComposeStabilityAnalyzer
 private const val runSandbox = false
 
 fun main() {
+    installJvmKermitWriters(ChrKermitLogWriter())
     ComposeStabilityAnalyzer.setLogger(ChrRecompositionLogger())
     application {
         Window(

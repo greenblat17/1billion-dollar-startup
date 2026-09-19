@@ -16,6 +16,7 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
     compileOnly(libs.hot.reload.core)
     implementation(libs.compose.stability.runtime)
+    implementation(libs.kermit)
 }
 
 compose.desktop {

@@ -37,7 +37,7 @@ androidApp / iosApp / desktopApp     тонкие хосты окна
             :core                    Kotlin без Compose
 ```
 
-Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` на `main`). Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Не `project(":server")`.
+Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` на `main`). Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Desktop `hotRun`: Kermit дублируется в CHR `get_logs` (`ChrKermitLogWriter`). Не `project(":server")`.
 
 Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`. Call/Review и карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md).
 
