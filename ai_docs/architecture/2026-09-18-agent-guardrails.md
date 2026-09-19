@@ -21,18 +21,18 @@ GitHub **environments** `deploy` (prod) и `dev` — только approve у job
 **Prod** (имена без префикса, не переименовывать):
 
 - SSH: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`
-- Runtime: раннер пишет `.env` из `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL` (два последних ещё могут быть repo **vars**), `GROQ_API_KEY`, `OPENAI_API_KEY`. На хосте переменных нет.
+- Runtime: раннер пишет `.env` из `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL`, `AI_INTERNAL_TOKEN`, `GROQ_API_KEY`, `OPENAI_API_KEY`. URL не класть в repo **vars** (в публичном репо они видны). На хосте переменных нет.
 
 **Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам):
 
 - SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
-- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором)
+- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
 
-VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`). Redis container name `redis`, Docker network `speaking-coach`. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
+VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
 
 ## Stub vs real notes
 
-Do not copy stub `NOTE_POOL` phrasing into the LLM. Production notes are `wrong|||better` pairs.
+Production notes are `wrong|||better` pairs. Do not invent random note strings or echo the same audio as a fake pipeline.
 
 ## Research doc vs code
 

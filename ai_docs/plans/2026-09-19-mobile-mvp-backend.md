@@ -238,11 +238,11 @@ App API на Ktor (Bearer, кроме auth-эндпоинтов):
 - `POST /v1/sessions/{id}/complete` `{ turns: [{role, text}], durationSec }` — user+assistant из `oai-events`. 202, Ktor зовёт review. ReviewScreen поллит GET.
 - `GET /v1/sessions/{id}/review` — 200 готово | 202 ещё считается | 422 слишком короткий / 5xx разбор не вышел (retry complete)
 
-Клипы `/v1/clips` остаются для **Telegram** (in-process `HttpClipClient`), не CMP Call. Публичный прокси клипов на `:443` закрываем Bearer’ом.
+Клипы `/v1/clips` остаются для **Telegram** (in-process `HttpClipClient`), не CMP Call. Публичный прокси клипов на `:443` убран.
 
 Клиентский [`SpeakingCoachClient`](../../cmp/app/shared/src/commonMain/kotlin/com/eliteteam/speakingcoach/data/SpeakingCoachClient.kt) привести к этим методам (сейчас `TODO()`).
 
-Публичный прокси `/v1/*` сегодня **без auth**. На `:443` клипы и сессии приложения — только с Bearer. Telegram эти пути не использует.
+Публичный прокси `/v1/*` клипов **снят**. App-роуты на `:443` — только с Bearer. Telegram clip HTTP не использует публичный Ktor.
 
 ## Бэкенд: пользователи и сессии
 
@@ -260,7 +260,7 @@ Ktor server сейчас **не** ставит `ContentNegotiation` на вхо�
 
 Клиповый `pipeline.py` **не** переписываем и не используем для CMP Call. CMP по-прежнему не бьёт в Python напрямую (только Ktor).
 
-Ktor → ai-service: заголовок `X-Internal-Token: DEV_AI_INTERNAL_TOKEN`. Без него `/internal/*` 401. Python с интернета не светить.
+Ktor → ai-service: заголовок `X-Internal-Token` = `AI_INTERNAL_TOKEN`. Без него `/v1/*` и будущий `/internal/*` — 401. Python с интернета не светить.
 
 Добавляем внутренние маршруты (не публичные):
 
@@ -311,8 +311,9 @@ TLS кладёт человек. `REDIS_URL` только в `.env` на AI-хо
 
 - `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
-- `TELEGRAM_WEBHOOK_URL` (secret или var)
-- `AI_SERVICE_BASE_URL` (secret или var)
+- `TELEGRAM_WEBHOOK_URL` (secret, не var)
+- `AI_SERVICE_BASE_URL` (secret, не var)
+- `AI_INTERNAL_TOKEN` — один на Ktor и AI
 - `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`
 - `GROQ_API_KEY`, `OPENAI_API_KEY`
 - на диске prod, не в GitHub: `tls.crt`, `tls.key`
@@ -358,7 +359,7 @@ flowchart LR
 
 Канон выката: [`../deploy.md`](../deploy.md).
 
-Локально: compose :8080 без TLS. Desktop Call — local или dev-сервер, не prod-бот.
+Локально: unit-тесты; Speaky/Call гонять на DEV, не prod-бот.
 
 ## Промпт gpt-realtime
 
@@ -399,7 +400,7 @@ flowchart LR
 - Транскрипт пользователя: `audio.input.transcription` на mint (`gpt-4o-mini-transcribe`). Клиент копит события, в `complete` шлёт `turns` user+assistant. Без user-реплик — 422 «мало речи», не фейковые баллы.
 - Приветствие: instructions «greet immediately» + один `response.create` после data channel. Не `session.update`.
 - Порядок: mic permission → createOffer → один `POST .../rtc` (mint+SDP). Trickle ICE через Ktor нет.
-- `/internal/*` только с `DEV_AI_INTERNAL_TOKEN`.
+- `/internal/*` только с `AI_INTERNAL_TOKEN`.
 - WebRTC `expect`/`actual`: Android+iOS `com.shepeliev:webrtc-kmp` (версию с klibs при импле); desktop — native libwebrtc (OnVoid/`webrtc-java`), не commonMain. coturn **не** в этом деплое; если NAT будет глухой — отдельная задача на хост Ktor.
 - Hangup: `complete` 202, Review-лоадер, полл GET до ~30 с (Python ~20 с). 429 Realtime — ошибка Call и retry новой сессией.
 - Краш: Postgres `openai_call_id`; новый rtc или complete → `/internal/realtime/hangup`. `onDispose` шлёт complete с буфером. Один активный звонок на user. Swipe-kill может не успеть — потолок 60 мин у OpenAI.

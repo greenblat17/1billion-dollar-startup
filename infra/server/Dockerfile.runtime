@@ -1,6 +1,4 @@
 FROM azul/zulu-openjdk:21-jre
 WORKDIR /app
 COPY server-all.jar /app/server-all.jar
-EXPOSE 443
-ENV SERVER_PORT=443
 ENTRYPOINT ["java", "-Xmx512m", "-jar", "/app/server-all.jar"]

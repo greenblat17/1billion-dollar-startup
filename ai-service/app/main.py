@@ -21,6 +21,7 @@ from app.tts import OpenAiTextToSpeech
 logger = logging.getLogger(__name__)
 
 CONTENT_TYPE_OGG = "audio/ogg"
+INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 
 
 def create_app(
@@ -28,6 +29,8 @@ def create_app(
     pipeline: ClipPipeline | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
+    if not settings.ai_internal_token:
+        raise RuntimeError("AI_INTERNAL_TOKEN is required")
     logging.basicConfig(level=settings.log_level)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
@@ -41,10 +44,25 @@ def create_app(
         yield
         await sessions.aclose()
 
-    app = FastAPI(lifespan=lifespan)
+    app = FastAPI(
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.settings = settings
     app.state.jobs = jobs
     app.state.pipeline = clip_pipeline
+
+    @app.middleware("http")
+    async def require_internal_token(request: Request, call_next):
+        if request.url.path in {"/health", "/"}:
+            return await call_next(request)
+        expected = settings.ai_internal_token
+        provided = request.headers.get(INTERNAL_TOKEN_HEADER)
+        if not expected or provided != expected:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, str]:

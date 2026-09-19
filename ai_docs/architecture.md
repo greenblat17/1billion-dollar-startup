@@ -9,10 +9,9 @@
 | Слой | Где код | Роль |
 | --- | --- | --- |
 | Telegram | `cmp/server/.../telegram/` | Webhook, `/start`, голос, цитата, очередь |
-| Ktor | `cmp/server` | TLS webhook, прокси `/v1/*`, health |
+| Ktor | `cmp/server` | TLS webhook, health; клипы только внутренним `HttpClipClient` |
 | ai-service | `ai-service/` | STT → LLM → TTS, сессии, jobs |
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
-| Stub | `infra/ai-service-stub/` | Мок клипов без ключей |
 | CMP UI | `cmp/app/` | Мок Releva (Welcome/Home/Call/разбор Grammar+Vocabulary/Profile), **не** ходит в clip API |
 
 Внешние API: Groq Whisper (STT), OpenRouter `gpt-4o-mini` (LLM), Kokoro TTS, Telegram Bot API.
@@ -114,16 +113,19 @@ Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service
 
 ```mermaid
 flowchart TB
-  subgraph local [Local_compose]
-    stub[ai_service_stub_8090]
-    ktorLocal[Ktor_8080_no_bot]
-    llmProfile[ai_service_8091]
-    redisLocal[redis]
-    stub --- ktorLocal
-    llmProfile --- redisLocal
+  subgraph local [Local_unit]
+    gradle[gradle_server_test]
+    pytest[ai_service_pytest]
   end
 
-  subgraph vps [VPS]
+  subgraph dev [DEV_Redeploy]
+    ktorDev[cmp_server]
+    aiDev[ai_server]
+    redisDev[redis]
+    ktorDev --> aiDev --> redisDev
+  end
+
+  subgraph vps [Prod_Redeploy]
     ktorProd[speaking_coach_443]
     aiProd[ai_service]
     redisProd[redis]
@@ -131,9 +133,9 @@ flowchart TB
   end
 ```
 
-- `docker compose` без profile `llm`: Ktor + stub, **без** Telegram (нет webhook URL).
-- `--profile llm`: реальный ai-service на хосте **8091**, Redis.
-- Прод: выкат только **Redeploy** на `main` (не push/PR). Имя/аватар бота — BotFather, не репозиторий.
+- Локально: `:server:test` / `pytest` / `:server:run` без Telegram.
+- Интеграция Speaky: Redeploy на DEV-хосты.
+- Прод: Redeploy с `main`. Имя/аватар бота — BotFather, не репозиторий.
 
 ## Что сознательно не в рантайме бота
 
@@ -143,8 +145,8 @@ CMP Android / iOS / Desktop (`App.kt`) — мок-экраны Releva, к сес
 
 ```text
 Telegram UX / очередь / цитата     → cmp/server/.../telegram + speaking
-HTTP клиент и OpenAPI proxy        → cmp/server/.../ai
+HTTP клиент к FastAPI (внутренний токен) → cmp/server/.../ai
 TLS, webhook vs HTTP-only          → AppConfig.kt, Application.kt
 STT LLM TTS Redis notes prompt     → ai-service/app
-Compose / VPS / CI secret names    → infra/, .github/workflows
+VPS scripts / CI secret names      → infra/, .github/workflows
 ```

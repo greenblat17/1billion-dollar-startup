@@ -5,7 +5,7 @@
 **Клиент сейчас:** экраны на `MockSpeakingData`; `SpeakingCoachClient` — `TODO()`. Этот файл — что Ktor должен отдать, когда моки снимут.  
 **Не этот контракт:** клипы бота — [2026-09-18-clip-session-api.md](2026-09-18-clip-session-api.md). CMP их не вызывает.
 
-База: Ktor (`http://127.0.0.1:8080` local compose). JSON camelCase. Auth-ручки без заголовка; остальное `Authorization: Bearer <jwt>`. JWT в лог не пишем. Клиент **не** ходит в ai-service.
+База: Ktor на DEV (`AI_SERVICE_BASE_URL` туда не светить с клиента). JSON camelCase. Auth-ручки без заголовка; остальное `Authorization: Bearer <jwt>`. JWT в лог не пишем. Клиент **не** ходит в ai-service.
 
 ## Поток экранов → API
 
@@ -302,7 +302,7 @@ Bearer. Только владелец.
 | Ktor, обрабатывая rtc | пользователь уже на Call | `POST /internal/realtime/call` — mint+SDP, spoken prompt, voice, topic |
 | Ktor, обрабатывая complete | пользователь уже на Review-лоадере | `POST /internal/review` — turns → JSON шагов Grammar/Vocabulary |
 
-Клипы `POST /v1/clips` и прокси на `:443` — Telegram in-process, не CMP. Публичный прокси закрыть Bearer’ом или убрать из routing.
+Клипы `POST /v1/clips` — Telegram in-process, не CMP. Публичный прокси на `:443` убран.
 
 ---
 

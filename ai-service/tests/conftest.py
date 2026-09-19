@@ -27,6 +27,7 @@ def test_settings() -> Settings:
         job_ttl_seconds=600,
         pipeline_timeout_seconds=60,
         log_level="INFO",
+        ai_internal_token="test-internal-token",
     )
 
 

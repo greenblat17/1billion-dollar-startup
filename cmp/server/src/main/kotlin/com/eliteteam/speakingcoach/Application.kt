@@ -62,7 +62,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         }
     }
     val webhookScope = newTelegramWebhookScope()
-    val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp)
+    val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
@@ -87,7 +87,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     ) {
-        installSpeakingCoachHttp(config.aiServiceBaseUrl) {
+        installSpeakingCoachHttp {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }.hide()
@@ -113,7 +113,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
 
 @OptIn(ExperimentalKtorApi::class)
 fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
-    installSpeakingCoachHttp(config.aiServiceBaseUrl) {
+    installSpeakingCoachHttp {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
             post("/telegram/webhook") {

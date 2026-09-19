@@ -1,8 +1,8 @@
 # Clip / session HTTP contract
 
-Canonical DTOs: `cmp/server/.../ai/ClipDtos.kt`. Python: `ai-service/app/main.py`, job payload `jobs.py`. Ktor also **proxies** the same paths for Swagger (`AiServiceRoutes.kt`).
+Canonical DTOs: `cmp/server/.../ai/ClipDtos.kt`. Python: `ai-service/app/main.py`, job payload `jobs.py`. Ktor **does not** expose these paths publicly. Telegram uses `HttpClipClient` server-side. Every `/v1/*` call needs header `X-Internal-Token` matching `AI_INTERNAL_TOKEN` on both hosts. `/health` is open.
 
-Base URL examples: `http://127.0.0.1:8090` (stub or local uvicorn), `http://127.0.0.1:8091` (compose `--profile llm` host port), VPS loopback `127.0.0.1:8090` inside `ai-service` container.
+Base URL examples: local uvicorn `http://127.0.0.1:8090`, two-host DEV/prod `http://<ai-server>:$AI_SERVICE_PORT`.
 
 ## `POST /v1/sessions` → 201
 
@@ -18,7 +18,7 @@ Telegram always sends the chat-scoped id so Redis history sticks to one chat.
 
 ## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or 404
 
-Real service synthesizes `GREETING_VOICE_TEXT` once (cached in process). Stub returns packaged `greeting.ogg`.
+Synthesizes `GREETING_VOICE_TEXT` once (cached in process).
 
 ## `POST /v1/clips` multipart → 202 `{ "jobId" }`
 

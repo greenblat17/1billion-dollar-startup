@@ -1,28 +1,9 @@
-# Local infra
+# Infra
 
-```bash
-cd infra
-docker compose up --build
-```
+VPS deploy scripts. Local Docker Compose and `ai-service-stub` are gone — integration is Redeploy to DEV hosts.
 
-Поднимаются:
+- `server/` — Ktor fat JAR image (`Dockerfile.runtime`) and `deploy-remote.sh` (`/opt/speaking-coach`)
+- `ai-service/` — Python container deploy, 8090 allowlist
+- `redis/` — create-if-missing Redis on the AI host; never `docker rm redis`
 
-- `server` — Ktor без Telegram, http://127.0.0.1:8080/health , Swagger UI http://127.0.0.1:8080/swagger
-- `ai-service-stub` — мок clip/session API, http://127.0.0.1:8090/health
-
-Telegram-бот работает только через webhook (TLS + `TELEGRAM_WEBHOOK_URL` на VPS).
-
-Реальный ai-service (STT → LLM → TTS), порт на хосте 8091:
-
-```bash
-# в infra/.env
-AI_SERVICE_BASE_URL=http://ai-service:8090
-GROQ_API_KEY=...
-OPENAI_API_KEY=...
-# OpenRouter key in OPENAI_API_KEY
-docker compose --profile llm up --build
-```
-
-Остановка: `Ctrl+C` или `docker compose down`.
-
-На сервере Redis поднимает **Redeploy → ai-server** (`infra/redis/deploy-remote.sh`): контейнер создаётся, если его ещё нет, и не сносится вместе с ai-service.
+Канон: [`ai_docs/deploy.md`](../ai_docs/deploy.md).

@@ -26,8 +26,9 @@ jobs:
       CMP_SERVER_SSH_KEY: ${{ secrets.CMP_SERVER_SSH_KEY }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-      TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL || vars.TELEGRAM_WEBHOOK_URL }}
-      AI_SERVICE_BASE_URL: ${{ secrets.AI_SERVICE_BASE_URL || vars.AI_SERVICE_BASE_URL }}
+      TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
+      AI_SERVICE_BASE_URL: ${{ secrets.AI_SERVICE_BASE_URL }}
+      AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
       DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
       DEV_CMP_SERVER_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
       DEV_CMP_SERVER_SSH_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
@@ -54,11 +55,13 @@ jobs:
             : "${TELEGRAM_WEBHOOK_SECRET:?}"
             : "${TELEGRAM_WEBHOOK_URL:?}"
             : "${AI_SERVICE_BASE_URL:?}"
+            : "${AI_INTERNAL_TOKEN:?}"
             {
               printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
               printf 'TELEGRAM_WEBHOOK_SECRET=%s\n' "$TELEGRAM_WEBHOOK_SECRET"
               printf 'TELEGRAM_WEBHOOK_URL=%s\n' "$TELEGRAM_WEBHOOK_URL"
               printf 'AI_SERVICE_BASE_URL=%s\n' "$AI_SERVICE_BASE_URL"
+              printf 'AI_INTERNAL_TOKEN=%s\n' "$AI_INTERNAL_TOKEN"
               printf 'SERVER_PORT=443\n'
               printf 'TLS_CERT_PATH=/opt/speaking-coach/tls.crt\n'
               printf 'TLS_KEY_PATH=/opt/speaking-coach/tls.key\n'

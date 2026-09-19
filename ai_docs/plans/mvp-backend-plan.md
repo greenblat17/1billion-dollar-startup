@@ -163,7 +163,7 @@ App API на Ktor. Auth-эндпоинты без JWT; остальное `Autho
 - `POST /v1/sessions/{id}/complete` `{ turns: [{role, text}], durationSec }` — 202. Без user-реплик — 422, не фейковые баллы.
 - `GET /v1/sessions/{id}/review` — 200 готово | 202 ещё считается | 422 слишком короткий | 5xx разбор не вышел (retry complete)
 
-Клипы `/v1/clips` — только Telegram (in-process). Публичный прокси на `:443` закрыть JWT (или убрать из routing). Telegram эти пути не использует.
+Клипы `/v1/clips` — только Telegram (in-process). Публичный прокси на `:443` убран. Telegram эти пути не использует.
 
 `SpeakingCoachClient` к этому контракту **не** подключаем в этом срезе (клиент — следующий план).
 
@@ -194,7 +194,7 @@ Ktor → ai-service: `X-Internal-Token`. Без него `/internal/*` 401. Pyth
 
 Ключ Realtime только здесь. `ek_` живёт в стеке одного запроса, в Redis не пишем.
 
-Прод-инстанс ai-service **не** трогаем. Новые хендлеры — local compose / отдельный app-хост позже.
+Прод-инстанс ai-service **не** трогаем. Новые хендлеры — DEV-хост AI, не local compose.
 
 ### Промпт gpt-realtime
 
@@ -222,7 +222,7 @@ Ktor → ai-service: `X-Internal-Token`. Без него `/internal/*` 401. Pyth
 
 ## Инфра и CI
 
-**Local:** compose :8080 без TLS, Postgres + Ktor + ai-service(+Redis). Без Telegram, если нет webhook env — как сейчас.
+**Local:** unit-тесты (`:server:test`, `pytest`). Интеграция — DEV Redeploy, не compose.
 
 **Сервер (не в этом срезе как блокер):** если понадобится HTTPS для телефона — **один** extra-хост, топология как у прода (Ktor + Postgres + AI + Redis). Не два хоста. Не второй бот. Не `CMP_SERVER_HOST`.
 

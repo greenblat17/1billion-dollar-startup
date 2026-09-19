@@ -9,6 +9,11 @@ if [ ! -s "$APP/.env" ]; then
 fi
 chmod 600 "$APP/.env"
 
+if ! grep -qE '^SERVER_PORT=[0-9]+' "$APP/.env"; then
+  echo "SERVER_PORT missing or invalid in $APP/.env" >&2
+  exit 1
+fi
+
 if [ ! -f "$APP/tls.crt" ] || [ ! -f "$APP/tls.key" ]; then
   echo "Missing $APP/tls.crt or $APP/tls.key. Put them on the VPS before deploy." >&2
   exit 1

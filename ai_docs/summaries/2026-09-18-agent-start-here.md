@@ -12,7 +12,7 @@ Next work on `feature/back-for-mobile`: backend slice «бэк готов» — 
 | Clip HTTP client / OpenAPI proxy | `cmp/server/.../ai/` |
 | Server env, TLS, webhook vs no-bot | `AppConfig.kt`, `Application.kt` |
 | STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
-| Local compose / VPS scripts | `infra/` |
+| VPS scripts / 8090 allowlist | `infra/` |
 | CI / GitHub secret **names** | `.github/workflows/` |
 | Compose Multiplatform UI | `cmp/app/` — Releva mock UI (Welcome/Home/Call/Review Grammar+Vocabulary/Profile), mock data, not wired to clips. History and pronunciation/fluency/speed screens deferred. |
 
