@@ -15,7 +15,6 @@ import platform.AVFAudio.AVAudioSessionCategoryOptionDefaultToSpeaker
 import platform.AVFAudio.AVAudioSessionCategoryPlayAndRecord
 import platform.AVFAudio.AVAudioSessionModeVoiceChat
 import platform.AVFAudio.AVAudioSessionPortOverrideNone
-import platform.AVFAudio.AVAudioSessionPortOverrideSpeaker
 import platform.Foundation.NSError
 
 @OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
@@ -26,6 +25,7 @@ internal actual fun startCallAudio() {
         val config = RTCAudioSessionConfiguration.webRTCConfiguration()
         config.category = AVAudioSessionCategoryPlayAndRecord.orEmpty()
         config.mode = AVAudioSessionModeVoiceChat.orEmpty()
+        // DefaultToSpeaker = speaker instead of earpiece, but not when a headset is connected.
         config.categoryOptions =
             AVAudioSessionCategoryOptionDefaultToSpeaker or
             AVAudioSessionCategoryOptionAllowBluetooth
@@ -37,7 +37,7 @@ internal actual fun startCallAudio() {
         }
     }
     AVAudioSession.sharedInstance().overrideOutputAudioPort(
-        AVAudioSessionPortOverrideSpeaker,
+        AVAudioSessionPortOverrideNone,
         null,
     )
 }
@@ -49,4 +49,3 @@ internal actual fun stopCallAudio() {
         null,
     )
 }
-
