@@ -5,6 +5,7 @@ import io.ktor.client.engine.darwin.Darwin
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSURLAuthenticationMethodServerTrust
 import platform.Foundation.NSURLCredential
+import platform.Foundation.NSURLSessionAuthChallengePerformDefaultHandling
 import platform.Foundation.NSURLSessionAuthChallengeUseCredential
 import platform.Foundation.credentialForTrust
 import platform.Foundation.serverTrust
@@ -23,7 +24,7 @@ actual fun createHttpClient(): HttpClient = HttpClient(Darwin) {
                     return@handleChallenge
                 }
             }
-            completionHandler(NSURLSessionAuthChallengeUseCredential, null)
+            completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, null)
         }
     }
     installAppHttp()

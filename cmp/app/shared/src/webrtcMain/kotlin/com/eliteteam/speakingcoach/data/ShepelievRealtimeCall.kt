@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 
 internal class ShepelievRealtimeCall(
@@ -115,10 +116,17 @@ internal class ShepelievRealtimeCall(
     }
 
     private suspend fun awaitIceGathering() {
-        withTimeout(15.seconds) {
+        if (peer.iceGatheringState == IceGatheringState.Complete) {
+            return
+        }
+        val finished = withTimeoutOrNull(15.seconds) {
             peer.onIceGatheringState
                 .onStart { emit(peer.iceGatheringState) }
                 .first { it == IceGatheringState.Complete }
+            true
+        }
+        if (finished == null) {
+            logger.w { "ice gathering timeout state=${peer.iceGatheringState}" }
         }
     }
 
