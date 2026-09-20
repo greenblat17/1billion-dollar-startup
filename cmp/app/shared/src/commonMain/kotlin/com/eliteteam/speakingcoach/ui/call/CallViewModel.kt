@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import co.touchlab.kermit.Logger
 import com.eliteteam.speakingcoach.data.ApiException
+import com.eliteteam.speakingcoach.data.IceFailedException
 import com.eliteteam.speakingcoach.data.RealtimeCall
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
 import com.eliteteam.speakingcoach.data.createRealtimeCall
@@ -39,7 +40,7 @@ class CallViewModel(
     private val sessionId: String,
     private val client: SpeakingCoachClient,
     private val logger: Logger,
-    private val callFactory: () -> RealtimeCall = { createRealtimeCall() },
+    private val callFactory: () -> RealtimeCall = { createRealtimeCall(logger.withTag("RealtimeCall")) },
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         MockSpeakingData.call.copy(elapsed = "00:00", caption = "", captionsOn = true),
@@ -133,6 +134,11 @@ class CallViewModel(
             session.close()
             call = null
             logger.e(error) { "rtc ice timeout" }
+            _uiState.update { it.copy(connecting = false, error = CallError.Network) }
+        } catch (error: IceFailedException) {
+            session.close()
+            call = null
+            logger.e(error) { "rtc ${error.message}" }
             _uiState.update { it.copy(connecting = false, error = CallError.Network) }
         } catch (error: Throwable) {
             session.close()

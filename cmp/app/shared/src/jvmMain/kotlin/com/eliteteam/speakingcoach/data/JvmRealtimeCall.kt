@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.data
 
+import co.touchlab.kermit.Logger
 import dev.onvoid.webrtc.CreateSessionDescriptionObserver
 import dev.onvoid.webrtc.PeerConnectionFactory
 import dev.onvoid.webrtc.PeerConnectionObserver
@@ -9,9 +10,12 @@ import dev.onvoid.webrtc.RTCDataChannelBuffer
 import dev.onvoid.webrtc.RTCDataChannelInit
 import dev.onvoid.webrtc.RTCDataChannelObserver
 import dev.onvoid.webrtc.RTCIceCandidate
+import dev.onvoid.webrtc.RTCIceConnectionState
 import dev.onvoid.webrtc.RTCIceGatheringState
+import dev.onvoid.webrtc.RTCIceServer
 import dev.onvoid.webrtc.RTCOfferOptions
 import dev.onvoid.webrtc.RTCPeerConnection
+import dev.onvoid.webrtc.RTCRtpTransceiver
 import dev.onvoid.webrtc.RTCSdpType
 import dev.onvoid.webrtc.RTCSessionDescription
 import dev.onvoid.webrtc.SetSessionDescriptionObserver
@@ -26,12 +30,16 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration.Companion.seconds
 
-internal class JvmRealtimeCall : RealtimeCall {
+internal class JvmRealtimeCall(
+    private val logger: Logger,
+) : RealtimeCall {
     private val factory = PeerConnectionFactory()
     private val iceComplete = CompletableDeferred<Unit>()
+    private val iceUp = CompletableDeferred<RTCIceConnectionState>()
     private val collector = OpenAiTranscriptCollector()
     private val _captions = MutableSharedFlow<String>(extraBufferCapacity = 32)
     private var audioTrack: AudioTrack? = null
+    private var remoteAudio: AudioTrack? = null
     private var peer: RTCPeerConnection? = null
     private var dataChannel: RTCDataChannel? = null
 
@@ -39,13 +47,37 @@ internal class JvmRealtimeCall : RealtimeCall {
 
     override suspend fun createOffer(): String {
         val config = RTCConfiguration()
+        val stun = RTCIceServer()
+        stun.urls.addAll(WebRtcStun.urls)
+        config.iceServers.add(stun)
         val connection = factory.createPeerConnection(
             config,
             object : PeerConnectionObserver {
                 override fun onIceCandidate(candidate: RTCIceCandidate) = Unit
                 override fun onIceGatheringChange(state: RTCIceGatheringState) {
+                    logger.i { "iceGathering=$state" }
                     if (state == RTCIceGatheringState.COMPLETE && !iceComplete.isCompleted) {
                         iceComplete.complete(Unit)
+                    }
+                }
+
+                override fun onIceConnectionChange(state: RTCIceConnectionState) {
+                    logger.i { "iceConnection=$state" }
+                    if (state.isTerminalIce() && !iceUp.isCompleted) {
+                        iceUp.complete(state)
+                    }
+                }
+
+                override fun onStandardizedIceConnectionChange(state: RTCIceConnectionState) {
+                    onIceConnectionChange(state)
+                }
+
+                override fun onTrack(transceiver: RTCRtpTransceiver) {
+                    val track = transceiver.receiver.track
+                    logger.i { "onTrack $track" }
+                    if (track is AudioTrack) {
+                        track.isEnabled = true
+                        remoteAudio = track
                     }
                 }
             },
@@ -79,13 +111,17 @@ internal class JvmRealtimeCall : RealtimeCall {
         )
         val offer = createLocalOffer(connection)
         setLocal(connection, offer)
-        withTimeout(8.seconds) { iceComplete.await() }
+        withTimeout(15.seconds) { iceComplete.await() }
         return connection.localDescription?.sdp ?: offer.sdp
     }
 
     override suspend fun setRemoteAnswer(sdp: String) {
         val connection = peer ?: error("peer")
         setRemote(connection, RTCSessionDescription(RTCSdpType.ANSWER, sdp))
+        val state = withTimeout(20.seconds) { iceUp.await() }
+        if (state != RTCIceConnectionState.CONNECTED && state != RTCIceConnectionState.COMPLETED) {
+            throw IceFailedException(state.name)
+        }
     }
 
     override fun setMuted(muted: Boolean) {
@@ -151,3 +187,10 @@ internal class JvmRealtimeCall : RealtimeCall {
         }
     }
 }
+
+private fun RTCIceConnectionState.isTerminalIce(): Boolean =
+    this == RTCIceConnectionState.CONNECTED ||
+        this == RTCIceConnectionState.COMPLETED ||
+        this == RTCIceConnectionState.FAILED ||
+        this == RTCIceConnectionState.CLOSED
+

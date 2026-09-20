@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ui.call
 
 import com.eliteteam.speakingcoach.data.ApiException
+import com.eliteteam.speakingcoach.data.IceFailedException
 import com.eliteteam.speakingcoach.data.RealtimeCall
 import com.eliteteam.speakingcoach.data.ReviewPoll
 import com.eliteteam.speakingcoach.data.SpeakingCoachClient
@@ -66,6 +67,17 @@ class CallViewModelTest {
     }
 
     @Test
+    fun mapsIceFailedToNetwork() = runTest(dispatcher) {
+        val call = FakeRealtimeCall(iceError = IceFailedException("Failed"))
+        val vm = CallViewModel("app-1", FakeCallClient(), testLogger()) { call }
+        backgroundScope.launch { vm.uiState.collect { } }
+        runCurrent()
+        assertEquals(CallError.Network, vm.uiState.value.error)
+        assertEquals(false, vm.uiState.value.connecting)
+        assertEquals(true, call.closed)
+    }
+
+    @Test
     fun hangupCompletesAndReturnsReview() = runTest(dispatcher) {
         val call = FakeRealtimeCall()
         val client = FakeCallClient()
@@ -100,7 +112,9 @@ class CallViewModelTest {
     }
 }
 
-private class FakeRealtimeCall : RealtimeCall {
+private class FakeRealtimeCall(
+    private val iceError: Throwable? = null,
+) : RealtimeCall {
     var remoteAnswer: String? = null
     var closed = false
     private val _captions = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -110,6 +124,7 @@ private class FakeRealtimeCall : RealtimeCall {
     override suspend fun createOffer(): String = "v=0-offer"
 
     override suspend fun setRemoteAnswer(sdp: String) {
+        iceError?.let { throw it }
         remoteAnswer = sdp
     }
 

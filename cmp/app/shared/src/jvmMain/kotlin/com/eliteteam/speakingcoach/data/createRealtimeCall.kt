@@ -1,3 +1,5 @@
 package com.eliteteam.speakingcoach.data
 
-actual fun createRealtimeCall(): RealtimeCall = JvmRealtimeCall()
+import co.touchlab.kermit.Logger
+
+actual fun createRealtimeCall(logger: Logger): RealtimeCall = JvmRealtimeCall(logger)

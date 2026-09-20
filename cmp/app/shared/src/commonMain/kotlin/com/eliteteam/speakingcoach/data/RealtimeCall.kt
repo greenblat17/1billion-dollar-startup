@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.data
 
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.flow.Flow
 
 interface RealtimeCall : AutoCloseable {
@@ -10,4 +11,4 @@ interface RealtimeCall : AutoCloseable {
     fun snapshotTurns(): List<TranscriptTurn>
 }
 
-expect fun createRealtimeCall(): RealtimeCall
+expect fun createRealtimeCall(logger: Logger): RealtimeCall
