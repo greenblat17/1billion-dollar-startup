@@ -1,100 +1,94 @@
 # Deploy
 
-Как Speaky попадает на VPS. Секреты в документе **не** перечислять значениями — только имена GitHub secrets / vars. Локальный compose — не прод; см. `integrations/2026-09-18-run-and-ci.md`.
+Как Speaky попадает на серверы. Секреты в документе **не** перечислять значениями — только имена GitHub secrets. Локальный compose — не прод; см. `integrations/2026-09-18-run-and-ci.md`.
 
 ## Что крутится на машине
 
-Три Docker-контейнера на одном хосте:
+Три Docker-контейнера. **Prod** сегодня часто один сервер (Ktor host-сеть + AI/Redis на той же машине). **DEV** — два независимых VPS: так моделируем прод, где Ktor и AI **не** обязаны быть у одного провайдера и без LAN датацентра.
 
 | Контейнер | Образ | Сеть | Назначение |
 | --- | --- | --- | --- |
-| `speaking-coach` | `speaking-coach:local` | **host** | Ktor, TLS :443, Telegram webhook |
-| `ai-service` | `ai-service:local` | `speaking-coach` | FastAPI, порт **127.0.0.1:8090** |
+| `speaking-coach` | `speaking-coach:local` | **host** | Ktor, порт из `SERVER_PORT` в `.env` (обычно 443), Telegram webhook |
+| `postgres` | `postgres:16-alpine` | loopback | пользователи app API, **127.0.0.1:5432**, volume `speaking-coach-postgres` (хост Ktor) |
+| `ai-service` | `ai-service:local` | `speaking-coach` | FastAPI, порт **8090** на всех интерфейсах |
 | `redis` | `redis:7-alpine` | `speaking-coach` | диалог, **127.0.0.1:6379**, volume `speaking-coach-redis` |
 
-Ktor смотрит на ai-service через `AI_SERVICE_BASE_URL` (обычно `http://127.0.0.1:8090`: host-сеть видит опубликованный порт). ai-service смотрит на Redis через `REDIS_URL=redis://redis:6379/0` (имя контейнера в docker-сети).
+Ktor смотрит на ai-service через `AI_SERVICE_BASE_URL` — адрес, который виден **с машины Ktor** (публичный IP/DNS другого провайдера), не `127.0.0.1` и не VPC Timeweb. Хост-порт FastAPI — `AI_SERVICE_PORT` в `.env` на AI (по умолчанию 8090); скрипт делает `-p $AI_SERVICE_PORT:8090`. В URL Ktor тот же порт. Docker публикует его на всех интерфейсах, а `restrict-8090.sh` режет чужие source в `DOCKER-USER` / `INPUT`: пускает loopback и адреса из `/opt/ai-service/8090.allow`. Без файла снаружи порт закрыт. Общий LAN между хостами не делаем: он не переживёт разъезд по провайдерам. Позже вместо голого HTTP — TLS или туннель (WireGuard и т.п.). Redis остаётся на AI-хосте, наружу и на Ktor не публикуем. `REDIS_URL=redis://redis:6379/0`.
 
 На диске:
 
 - `/opt/speaking-coach/` — fat JAR, `Dockerfile.runtime`, `deploy-remote.sh`, `.env`, **`tls.crt` / `tls.key` (кладёт человек, CI их не генерирует)**
-- `/opt/ai-service/` — `app/`, Dockerfile, requirements, deploy-скрипты, `.env`
+- `/opt/ai-service/` — `app/`, Dockerfile, requirements, deploy-скрипты, `.env`, **`8090.allow` (кладёт человек: IPv4 Ktor, по одному в строке; CI не пишет)**
 
 Рестарт `ai-service` **не** должен `docker rm redis`. Скрипт `infra/redis/deploy-remote.sh` если контейнер `redis` уже есть — только `start` + connect к сети, volume не трогает.
+Рестарт `speaking-coach` **не** должен `docker rm postgres`. Скрипт `infra/postgres/deploy-remote.sh` создаёт контейнер, если его нет; иначе `start`. Без `POSTGRES_PASSWORD` в `.env` Postgres не поднимается (бот без app API).
 
 ```mermaid
-flowchart TB
-  gh[GitHub_Actions]
-  subgraph vps [VPS]
-    ktor[speaking_coach_443]
-    ai[ai_service_8090]
-    redis[(redis)]
-    tls[tls_crt_tls_key]
-  end
-  gh -->|Build_platforms_SSH| ktor
-  gh -->|AI_service_SSH| ai
-  gh -->|deploy_redis_if_missing| redis
+flowchart LR
+  redeploy[Redeploy]
+  ktor[speaking_coach]
+  postgres[(postgres)]
+  ai[ai_service]
+  redis[(redis)]
+  tls[tls_on_disk]
+  redeploy -->|cmp-server| ktor
+  redeploy -->|ai-server| ai
+  ai -->|redis_if_missing| redis
+  ktor -->|postgres_if_missing| postgres
   ktor --> ai
-  ai --> redis
   tls --> ktor
 ```
 
-## Два независимых пайплайна
+**Имена:** семейство хостов — `cmp-server` и `ai-server` (галки Redeploy DEV / Redeploy PROD). SSH и `.env` — repo secrets `DEV_*` или `PROD_*`. Каталог и Docker-имя AI остаются `ai-service`. URL в Ktor — ключ `AI_SERVICE_BASE_URL` внутри блоба `.env`, не отдельный secret.
 
-Менять промпт / STT — workflow **AI service**. Менять цитату Telegram / webhook — **Build platforms** (server deploy). Оба ходят в GitHub Environment **`deploy`** (approve, если так настроено).
+## Тесты авто, выкат только Redeploy
 
-### 1. Ktor / бот — `.github/workflows/build-platforms.yml`
+`push` / `pull_request` по path: **CMP** (`cmp/**`, `infra/server/**`) и **AI service** (`ai-service/**`, `infra/ai-service/**`, `infra/redis/**`) — package и тесты. На сервер не едут.
 
-Триггеры: `push`/`pull_request` по `cmp/**`, `infra/server/**`, сам workflow; либо **workflow_dispatch** (галка `deploy` в UI; job `server-deploy` всё равно стартует после успешного `server-package` — реальный стоп это environment).
+Выкат — два `workflow_dispatch`, ветка раннер не выбирает:
 
-Цепочка:
+- [`.github/workflows/redeploy.yml`](../.github/workflows/redeploy.yml) — **Redeploy DEV**, `destination: dev`, secrets `DEV_*`
+- [`.github/workflows/redeploy-prod.yml`](../.github/workflows/redeploy-prod.yml) — **Redeploy PROD**, `destination: prod`, secrets `PROD_*`
 
-1. Detekt, `:server:test`, `:server:buildFatJar`
-2. Artifact `server-all.jar`
-3. Job **Server deploy**: scp JAR + `Dockerfile.runtime` + `infra/server/deploy-remote.sh` → `/opt/speaking-coach/`
-4. На VPS скрипт пишет `.env` (`SERVER_PORT=443`, пути TLS), `docker build`, `docker rm -f speaking-coach`, `docker run --network host --restart unless-stopped`
+У каждого две галки `cmp-server` и `ai-server` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH. С `main` и с PR выкат один и тот же, его запускают эти два workflow. В Deployments попадают только `deploy-prod` и `deploy-dev` (имя environment у deploy-джобы, без required reviewers). Секреты — repository Actions secrets, не Environment secrets.
 
-При старте контейнер вызывает Telegram `setWebhook` на `TELEGRAM_WEBHOOK_URL` с секретом и сертификатом.
+Concurrency: `ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`, `cancel-in-progress: false` (очередь, не cancelled).
 
-Secrets / vars (имена): `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL` (secret или var), `AI_SERVICE_BASE_URL` (secret или var).
+### Prod — те же скрипты, префикс `PROD_`
 
-Смена бота: новый `TELEGRAM_BOT_TOKEN`, задеплоить Ktor, у старого токена `deleteWebhook`. Имя в Telegram — BotFather, не репозиторий.
+SSH: `PROD_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `PROD_AI_SERVER_HOST` / `USER` / `SSH_KEY`.
 
-### 2. ai-service + Redis — `.github/workflows/ai-service.yml`
+Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 
-Триггеры: `push`/`pull_request` по `ai-service/**`, `infra/ai-service/**`, `infra/redis/**`, сам workflow; **workflow_dispatch** с `deploy` (по умолчанию true). На `workflow_dispatch` с `deploy=false` job Deploy пропускается.
+- `PROD_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`
+- `PROD_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только здесь; `AI_INTERNAL_TOKEN` один и тот же в обоих блобах)
 
-Цепочка:
+Пустой блоб — fail на раннере до SSH. TLS PEM уже на диске. Redis не `docker rm`. Смена бота: новый токен внутри `PROD_CMP_SERVER_ENV`, Redeploy PROD с галкой cmp-server, у старого токена `deleteWebhook`. Имя в Telegram — BotFather.
 
-1. pytest (Python 3.12)
-2. Artifact: Dockerfile, requirements, `app/`
-3. scp в `/opt/ai-service/` (старый `app/` сносится)
-4. `bash /opt/ai-service/deploy-redis.sh` (= `infra/redis/deploy-remote.sh`)
-5. `bash /opt/ai-service/deploy-remote.sh` с `GROQ_API_KEY` / `OPENAI_API_KEY`
+CMP packages на `main` пекут `https://$PROD_CMP_SERVER_HOST`, на остальных ветках — `https://$DEV_CMP_SERVER_HOST`. Это не ключ внутри блоба `.env`.
 
-Deploy-remote: пишет `.env` (OpenRouter URL, модели по умолчанию, Redis URL), `docker rm -f ai-service`, новый контейнер на сети `speaking-coach`, порт только localhost.
+### Dev — те же скрипты, префикс `DEV_`
 
-Secrets: `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`. Host часто тот же VPS, что и у Ktor.
+SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`. CMP packages bake `https://$DEV_CMP_SERVER_HOST` off `main`; not a key in `DEV_CMP_SERVER_ENV`.
 
-## Что не деплоится этим процессом
+Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 
-- CMP Android / iOS / Desktop — собираются в Build platforms как артефакты, на VPS не едут.
-- Stub `ai-service-stub` — только local compose.
-- TLS: если нет `/opt/speaking-coach/tls.crt|key`, server deploy **падает**.
-- In-memory jobs ai-service при рестарте контейнера пропадают; Redis-диалоги остаются.
+- `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env` (для app API ещё `JWT_SECRET`, `DATABASE_URL`, `POSTGRES_PASSWORD`)
+- `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL`, тот же `AI_INTERNAL_TOKEN`, что у Ktor, и `OPENAI_REALTIME_API_KEY` для mint)
 
-## Ручной деплой (если CI уже положил файлы)
+Пустой блоб — fail на раннере до SSH. TLS на DEV кладёт человек.
 
-На хосте, с нужными env:
+CMP Android / iOS / Desktop на сервер не едут. Jobs ai-service в памяти при рестарте пропадают; Redis-диалоги остаются.
+
+## Ручной деплой (если файлы уже на хосте)
+
+Положить `.env`, вызвать скрипт. Env на хост не передаём.
 
 ```bash
-# бот
-TELEGRAM_BOT_TOKEN=... TELEGRAM_WEBHOOK_SECRET=... \
-TELEGRAM_WEBHOOK_URL=... AI_SERVICE_BASE_URL=http://127.0.0.1:8090 \
+bash /opt/speaking-coach/deploy-postgres.sh
 bash /opt/speaking-coach/deploy-remote.sh
-
-# redis (идемпотентно) + ai-service
 bash /opt/ai-service/deploy-redis.sh
-GROQ_API_KEY=... OPENAI_API_KEY=... bash /opt/ai-service/deploy-remote.sh
+bash /opt/ai-service/deploy-remote.sh
 ```
 
-Проверка: `docker ps` — три имени выше; с хоста `curl -k https://127.0.0.1/health` (Ktor) и `curl http://127.0.0.1:8090/health` (ai-service).
+Проверка: `docker ps` — три имени выше; с хоста Ktor `curl -k https://127.0.0.1/health`; с хоста AI или с Ktor `curl http://<ai-server>:8090/health`.

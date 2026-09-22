@@ -16,16 +16,23 @@ The **bot username, display name, and token** are set in Telegram BotFather / Gi
 
 Do not put tokens, SSH keys, VPS passwords, or `.env` values into docs or commits. `.env` is gitignored. Template names only: `.env.example`.
 
-GitHub **environment** `deploy`. Secret **names** (values live in GitHub):
+Выкат — только `workflow_dispatch` Redeploy DEV / Redeploy PROD, одинаково с `main` и с PR. В Deployments только environment `deploy-dev` и `deploy-prod`, без required reviewers. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из SSH `PROD_CMP_SERVER_HOST` (ветка `main`) или `DEV_CMP_SERVER_HOST`, не из блоба `.env` и не отдельной var. Беспрефиксные repo secrets (`CMP_SERVER_*`, `AI_SERVICE_HOST`, `TELEGRAM_*`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`) для CI больше не нужны. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
 
-- Server: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, optional `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL` (or repo **vars** for the last two).
-- AI: `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`, `GROQ_API_KEY`, `OPENAI_API_KEY`.
+**Prod** (префикс `PROD_`, содержимое блобов оператор кладёт сам; workflow Redeploy PROD):
 
-VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`). Redis container name `redis`, Docker network `speaking-coach`. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running).
+- SSH: `PROD_CMP_SERVER_HOST`, `PROD_CMP_SERVER_USER`, `PROD_CMP_SERVER_SSH_KEY`, `PROD_AI_SERVER_HOST`, `PROD_AI_SERVER_USER`, `PROD_AI_SERVER_SSH_KEY`
+- Runtime KV: `PROD_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `PROD_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
+
+**Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам; workflow Redeploy DEV):
+
+- SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
+- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
+
+VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Postgres container name `postgres`, **127.0.0.1:5432 on the Ktor host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running). **Do not `docker rm` Postgres** (`infra/postgres/deploy-remote.sh`).
 
 ## Stub vs real notes
 
-Do not copy stub `NOTE_POOL` phrasing into the LLM. Production notes are `wrong|||better` pairs.
+Production notes are `wrong|||better` pairs. Do not invent random note strings or echo the same audio as a fake pipeline.
 
 ## Research doc vs code
 

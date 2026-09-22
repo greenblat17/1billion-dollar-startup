@@ -1,0 +1,25 @@
+name: Bake client API URL
+description: Compose https://SSH-host into SPEAKING_COACH_API_BASE_URL for CMP packages
+
+runs:
+  using: composite
+  steps:
+    - name: Bake SPEAKING_COACH_API_BASE_URL
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
+          host="${PROD_CMP_SERVER_HOST:-}"
+          missing=PROD_CMP_SERVER_HOST
+        else
+          host="${DEV_CMP_SERVER_HOST:-}"
+          missing=DEV_CMP_SERVER_HOST
+        fi
+        host="${host#https://}"
+        host="${host#http://}"
+        host="${host%/}"
+        if [ -z "$host" ]; then
+          echo "Need repository secret $missing" >&2
+          exit 1
+        fi
+        printf 'SPEAKING_COACH_API_BASE_URL=https://%s\n' "$host" >> "$GITHUB_ENV"
