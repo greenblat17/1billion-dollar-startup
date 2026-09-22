@@ -15,6 +15,7 @@ import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
@@ -57,6 +58,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val webhookSecret = checkNotNull(config.telegramWebhookSecret)
     val aiHttp = HttpClient(CIO) {
         expectSuccess = false
+        install(HttpTimeout)
         install(ContentNegotiation) {
             json(
                 Json {

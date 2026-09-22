@@ -22,10 +22,10 @@ Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DE
 Telegram voice
   → Ktor POST /telegram/webhook (TLS, secret header)
   → SessionClipQueue (max 3 in-flight per session)
-  → HttpClipClient → FastAPI ai-service
-       STT Groq → LLM OpenRouter JSON → TTS → ffmpeg OGG
-       Redis key session:{id} (or in-memory if REDIS_URL unset)
-  → Telegram text quote (corrections) + sendVoice
+  → HttpClipClient POST {AI_SERVICE_BASE_URL}/api/v1/walkie-talkie
+       session_id = tg-{chatId}, audio file in, JSON transcript + WAV out
+  → quote is the transcript (notes TODO), ffmpeg WAV→OGG, sendVoice
+/start text is local. Greeting voice TODO is replied in the chat.
 ```
 
 Gradle root is **`cmp/`**. Before `./gradlew`, `GRADLE_USER_HOME=$HOME/.gradle`.
