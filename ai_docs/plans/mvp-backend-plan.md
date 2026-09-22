@@ -55,7 +55,7 @@ Curl (потом CMP) может: **войти → создать сессию �
 | Random резолвит Python | Клиент или Ktor кидает кубик **до** mint, в сессию пишется конкретный `TopicKind` |
 | `/internal/realtime/hangup`, Safety-Identifier, `pg_dump` | После первого живого звонка. Утечка Realtime умрёт за 60 мин у OpenAI |
 | Два новых хоста + `DEV_TELEGRAM_*` | Прод уже одна машина. Бот для мобильного API не нужен; `setWebhook` не должен быть обязателен |
-| PR → environment `dev` | Нужен только стоп «PR не едет на прод-бота» |
+| PR сам деплоит на прод | Выкат только ручной Redeploy DEV или Redeploy PROD, без approve |
 
 Не выкидываем: Ktor снаружи / Python внутри; ключ Realtime не в клиенте; клиповый `pipeline.py`; Postgres не Redis для пользователей; Bearer на app-роутах; закрытый публичный `/v1/clips`; отдельный spoken-промпт (не JSON из `SPEAKING_COACH_SYSTEM`).
 
@@ -226,9 +226,9 @@ Ktor → ai-service: `X-Internal-Token`. Без него `/internal/*` 401. Pyth
 
 **Local:** unit-тесты (`:server:test`, `pytest`). Интеграция — DEV Redeploy, не compose.
 
-**Сервер (не в этом срезе как блокер):** если понадобится HTTPS для телефона — **один** extra-хост, топология как у прода (Ktor + Postgres + AI + Redis). Не два хоста. Не второй бот. Не `CMP_SERVER_HOST`.
+**Сервер (не в этом срезе как блокер):** если понадобится HTTPS для телефона — **один** extra-хост, топология как у прода (Ktor + Postgres + AI + Redis). Не два хоста. Не второй бот. Не хост Redeploy PROD.
 
-**CI:** push/PR не деплоит. Выкат — Redeploy (`main` → prod). App-контур — DEV-хосты, не `CMP_SERVER_HOST`.
+**CI:** push/PR не деплоит. Выкат — Redeploy DEV (`DEV_*`) или Redeploy PROD (`PROD_*`). App-контур — DEV-хосты.
 
 Имена секретов прода **не** переименовываем и не подставляем в app-контур.
 

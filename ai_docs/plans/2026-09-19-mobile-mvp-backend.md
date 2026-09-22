@@ -14,7 +14,7 @@
 - [ ] App-сессии, home/me/complete/review; один POST rtc (mint+SDP) в ai-service
 - [ ] Ktor client, token store, Welcome→AuthScreen, Home/Profile/Review живые; моки только Preview
 - [x] CMP Call: mic first, один POST rtc+SDP; WebRTC actual android/ios/jvm; user+assistant transcript
-- [ ] CI: push/PR = тесты; выкат только Redeploy (`main` → prod, иначе DEV)
+- [ ] CI: push/PR = тесты; выкат только Redeploy DEV / Redeploy PROD
 - [ ] Два dev-хоста: Ktor и AI+Redis; `DEV_*` SSH + `DEV_*_ENV` блобы
 - [ ] ai-service: mint Realtime + spoken prompt; после hangup LLM-разбор Grammar/Vocabulary; клипы не трогаем
 
@@ -296,28 +296,25 @@ Ktor → ai-service: заголовок `X-Internal-Token` = `AI_INTERNAL_TOKEN`
 
 ## Серверы: прод-бот отдельно, dev — новые машины
 
-Не «VPS» в доках и secrets: **серверы**. **Prod** — Telegram (environment `deploy` = approve; repo secrets без префикса). **Dev** — новые машины, repo secrets с префиксом `DEV_`. Текущие `CMP_SERVER_*` / `AI_SERVICE_HOST` не переименовываем и не переиспользуем.
+Не «VPS» в доках и secrets: **серверы**. **Prod** — workflow Redeploy PROD (repo secrets `PROD_*`, Deployments `deploy-prod`). **Dev** — workflow Redeploy DEV (префикс `DEV_`, Deployments `deploy-dev`). Required reviewers нет: с `main` и с PR выкат один и тот же. Клиентские пакеты на `main` пекут URL из `PROD_CMP_SERVER_HOST`. Беспрефиксные repo secrets для CI не используются.
 
-Прод-бот не трогаем этой веткой мобильного бэка. Выкат только **Redeploy**, не push/PR.
+Выкат только **Redeploy DEV** / **Redeploy PROD**, не push/PR. Ветка хост не выбирает.
 
-- **Prod (как есть):** Ktor webhook :443 + свой ai-service + Redis. Redeploy с `main`.
+- **Prod:** Ktor + ai-service + Redis. Блоб `PROD_*_ENV`, SSH `PROD_*`.
 - **Dev:** два хоста — Ktor и ai-service+Redis. Postgres в этом CI-срезе нет.
 
 TLS кладёт человек. `REDIS_URL` только в `.env` на AI-хосте / блобе `DEV_AI_SERVER_ENV`.
 
 ### Список переменных (только имена)
 
-**Prod — уже есть, не трогаем** (repository Actions secrets):
+**Prod — repository Actions secrets** (как DEV, префикс `PROD_`):
 
-- `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`
-- `TELEGRAM_WEBHOOK_URL` (secret, не var)
-- `AI_SERVICE_BASE_URL` (secret, не var)
-- `AI_INTERNAL_TOKEN` — один на Ktor и AI
-- `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`
-- `GROQ_API_KEY`, `OPENAI_API_KEY`
+- `PROD_CMP_SERVER_HOST`, `PROD_CMP_SERVER_USER`, `PROD_CMP_SERVER_SSH_KEY`
+- `PROD_AI_SERVER_HOST`, `PROD_AI_SERVER_USER`, `PROD_AI_SERVER_SSH_KEY`
+- `PROD_CMP_SERVER_ENV` — KV `.env` хоста Ktor (оператор заполняет)
+- `PROD_AI_SERVER_ENV` — KV `.env` хоста AI, включая `REDIS_URL`
 - на диске prod, не в GitHub: `tls.crt`, `tls.key`
-- раннер дописывает в prod `.env`: `SERVER_PORT`, `TLS_CERT_PATH`, `TLS_KEY_PATH`, `OPENAI_BASE_URL`, `LLM_MODEL`, `TTS_*`, `REDIS_URL`
+- беспрефиксные `CMP_SERVER_*`, `AI_SERVICE_HOST` / `USER` / `SSH_KEY`, `TELEGRAM_*`, `AI_SERVICE_BASE_URL`, `AI_INTERNAL_TOKEN`, `GROQ_API_KEY`, `OPENAI_API_KEY` в GitHub больше не читаются
 
 **Dev — repository Actions secrets:**
 
@@ -326,34 +323,32 @@ TLS кладёт человек. `REDIS_URL` только в `.env` на AI-хо
 - `DEV_CMP_SERVER_ENV` — KV `.env` хоста Ktor (оператор заполняет)
 - `DEV_AI_SERVER_ENV` — KV `.env` хоста AI, включая `REDIS_URL`
 
-Остальные будущие ключи приложения класть в эти блобы, не плодить отдельные `DEV_TELEGRAM_*` ячейки. Environment `dev` — только approve.
+Остальные будущие ключи приложения класть в эти блобы, не плодить отдельные `DEV_TELEGRAM_*` ячейки.
 
 Продовый token на DEV не копируем. Не в GitHub: `tls.crt`, `tls.key` на диске.
 
-Клиент: URL запекается (`speakingCoach.apiBaseUrl` / `SPEAKING_COACH_API_BASE_URL`). CI packages: `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` на `main`). Не ключ в `DEV_CMP_SERVER_ENV`.
+Клиент: URL запекается (`speakingCoach.apiBaseUrl` / `SPEAKING_COACH_API_BASE_URL`). CI packages: `https://$DEV_CMP_SERVER_HOST` (`PROD_CMP_SERVER_HOST` на `main`). Не ключ внутри блоба `.env`.
 
 Apple private key для MVP не нужен (только JWKS identity token).
 
 ## CI: тесты авто, выкат Redeploy
 
-[`cmp.yml`](../../.github/workflows/cmp.yml) и [`ai-service.yml`](../../.github/workflows/ai-service.yml) на push/PR только package/test. [`redeploy.yml`](../../.github/workflows/redeploy.yml) — единственный деплой.
+[`cmp.yml`](../../.github/workflows/cmp.yml) и [`ai-service.yml`](../../.github/workflows/ai-service.yml) на push/PR только package/test. Деплой: [`redeploy.yml`](../../.github/workflows/redeploy.yml) (DEV) и [`redeploy-prod.yml`](../../.github/workflows/redeploy-prod.yml) (PROD).
 
 ```mermaid
 flowchart LR
   tests[push_or_PR]
   pack[package_test]
   redeploy[Redeploy_dispatch]
-  envDev[environment_dev]
-  envProd[environment_deploy]
   hostDev[DEV_hosts]
   hostProd[PROD_hosts]
   tests --> pack
-  redeploy -->|"ref_not_main"| envDev --> hostDev
-  redeploy -->|"ref_main"| envProd --> hostProd
+  redeploy -->|"Redeploy_DEV"| hostDev
+  redeploy -->|"Redeploy_PROD"| hostProd
 ```
 
 - Галки `cmp-server` / `ai-server` (default on). Skip выключенного job. `cancel-in-progress: false`.
-- `main`/`master` → prod. Иначе → DEV.
+- Хост выбирает workflow (Redeploy DEV или Redeploy PROD), не имя ветки.
 - CMP APK на сервер не едет.
 - Fork: тесты; Redeploy не для fork.
 
@@ -425,7 +420,7 @@ flowchart LR
 
 - History, pronunciation/fluency/speed, упражнения, смена BotFather; не класть OAuth client secrets в git
 - Свои модели на AI-сервере (GPU, локальный Whisper/Kokoro, vLLM)
-- Деплой **PR** / push на `CMP_SERVER_HOST`. Выкат prod — Redeploy с `main`. `docker rm redis` на любом сервере
+- Деплой **PR** / push. Выкат prod — workflow Redeploy PROD (`PROD_*`). `docker rm redis` на любом сервере
 - Правки `bin/`, промпт из stale research doc
 - Подключение CMP UI REST к ai-service; ключ OpenAI Realtime в клиенте
 - Firebase Auth, coturn в первом деплое, смена пароля с Profile (есть forgot с login)

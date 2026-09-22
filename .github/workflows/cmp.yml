@@ -96,7 +96,7 @@ jobs:
         uses: ./.github/actions/bake-client-api-url
         env:
           DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
-          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
+          PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
         run: ./gradlew :app:androidApp:assembleDebug
@@ -172,7 +172,7 @@ jobs:
         uses: ./.github/actions/bake-client-api-url
         env:
           DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
-          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
+          PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
         run: ./gradlew :app:desktopApp:${{ matrix.task }}
@@ -214,7 +214,7 @@ jobs:
         uses: ./.github/actions/bake-client-api-url
         env:
           DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
-          CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
+          PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
         run: |

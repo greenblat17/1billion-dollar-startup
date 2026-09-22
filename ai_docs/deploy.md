@@ -39,29 +39,37 @@ flowchart LR
   tls --> ktor
 ```
 
-**Имена:** семейство хостов — `cmp-server` и `ai-server` (галки Redeploy, `DEV_*` secrets). Каталог, Docker-имя и прод-SSH остаются `ai-service` / `AI_SERVICE_*`; URL в Ktor — `AI_SERVICE_BASE_URL`.
+**Имена:** семейство хостов — `cmp-server` и `ai-server` (галки Redeploy DEV / Redeploy PROD). SSH и `.env` — repo secrets `DEV_*` или `PROD_*`. Каталог и Docker-имя AI остаются `ai-service`. URL в Ktor — ключ `AI_SERVICE_BASE_URL` внутри блоба `.env`, не отдельный secret.
 
 ## Тесты авто, выкат только Redeploy
 
 `push` / `pull_request` по path: **CMP** (`cmp/**`, `infra/server/**`) и **AI service** (`ai-service/**`, `infra/ai-service/**`, `infra/redis/**`) — package и тесты. На сервер не едут.
 
-Выкат — [`.github/workflows/redeploy.yml`](../.github/workflows/redeploy.yml): Actions → Redeploy → **Run workflow**. Две галки `cmp-server` и `ai-server` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH.
+Выкат — два `workflow_dispatch`, ветка раннер не выбирает:
 
-Куда: ветка `main`/`master` → **prod** (environment `deploy`, беспрефиксные repo secrets). Любая другая → **DEV** (environment `dev`, `DEV_*`). Environments — только approve; секреты в Environment не кладём.
+- [`.github/workflows/redeploy.yml`](../.github/workflows/redeploy.yml) — **Redeploy DEV**, `destination: dev`, secrets `DEV_*`
+- [`.github/workflows/redeploy-prod.yml`](../.github/workflows/redeploy-prod.yml) — **Redeploy PROD**, `destination: prod`, secrets `PROD_*`
+
+У каждого две галки `cmp-server` и `ai-server` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH. С `main` и с PR выкат один и тот же, его запускают эти два workflow. В Deployments попадают только `deploy-prod` и `deploy-dev` (имя environment у deploy-джобы, без required reviewers). Секреты — repository Actions secrets, не Environment secrets.
 
 Concurrency: `ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`, `cancel-in-progress: false` (очередь, не cancelled).
 
-### Prod — repo Actions secrets (как были)
+### Prod — те же скрипты, префикс `PROD_`
 
-SSH: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`.
+SSH: `PROD_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `PROD_AI_SERVER_HOST` / `USER` / `SSH_KEY`.
 
-Runtime: раннер собирает `.env` из ячеек `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL`, `AI_INTERNAL_TOKEN`, `GROQ_API_KEY`, `OPENAI_API_KEY`. URL и токен — **только secrets**, не `vars`. `scp` файла на хост. Скрипт env не читает — только `--env-file`. TLS PEM уже на диске. Redis не `docker rm`. Один и тот же `AI_INTERNAL_TOKEN` в `.env` Ktor и AI.
+Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 
-Смена бота: новый `TELEGRAM_BOT_TOKEN`, Redeploy cmp-server с `main`, у старого токена `deleteWebhook`. Имя в Telegram — BotFather.
+- `PROD_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`
+- `PROD_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только здесь; `AI_INTERNAL_TOKEN` один и тот же в обоих блобах)
 
-### Dev — те же скрипты, другие ячейки
+Пустой блоб — fail на раннере до SSH. TLS PEM уже на диске. Redis не `docker rm`. Смена бота: новый токен внутри `PROD_CMP_SERVER_ENV`, Redeploy PROD с галкой cmp-server, у старого токена `deleteWebhook`. Имя в Telegram — BotFather.
 
-SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`. CMP packages bake `https://$DEV_CMP_SERVER_HOST` (`CMP_SERVER_HOST` on `main`); not a key in `DEV_CMP_SERVER_ENV`.
+CMP packages на `main` пекут `https://$PROD_CMP_SERVER_HOST`, на остальных ветках — `https://$DEV_CMP_SERVER_HOST`. Это не ключ внутри блоба `.env`.
+
+### Dev — те же скрипты, префикс `DEV_`
+
+SSH: `DEV_CMP_SERVER_HOST` / `USER` / `SSH_KEY`, `DEV_AI_SERVER_HOST` / `USER` / `SSH_KEY`. CMP packages bake `https://$DEV_CMP_SERVER_HOST` off `main`; not a key in `DEV_CMP_SERVER_ENV`.
 
 Runtime — непрозрачные блобы (оператор заполняет, CI не парсит ключи):
 

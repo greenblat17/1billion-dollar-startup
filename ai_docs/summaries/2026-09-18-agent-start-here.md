@@ -2,7 +2,7 @@
 
 Read this first, then the linked files. Product intent: `ai_docs/product.md`. MVP plan is aspirational; **shipped code is Telegram voice + STT/LLM/TTS**, not a mobile speaking session.
 
-Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DEV (`OPENAI_REALTIME_API_KEY` in CI). Wider backlog: [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy; prod is Redeploy on `main` only.
+Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DEV (`OPENAI_REALTIME_API_KEY` in CI). Wider backlog: [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy. DEV is workflow Redeploy DEV (`DEV_*`). Prod is workflow Redeploy PROD (`PROD_*`).
 
 ## What to change for which job
 

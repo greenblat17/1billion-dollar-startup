@@ -15,18 +15,16 @@ jobs:
   deploy:
     name: Deploy ai-server (${{ inputs.destination }})
     runs-on: ubuntu-latest
-    environment: ${{ inputs.destination == 'prod' && 'deploy' || 'dev' }}
+    environment: ${{ inputs.destination == 'prod' && 'deploy-prod' || 'deploy-dev' }}
     concurrency:
       group: ai-${{ inputs.destination }}
       cancel-in-progress: false
     env:
       DESTINATION: ${{ inputs.destination }}
-      AI_SERVICE_HOST: ${{ secrets.AI_SERVICE_HOST }}
-      AI_SERVICE_USER: ${{ secrets.AI_SERVICE_USER }}
-      AI_SERVICE_SSH_KEY: ${{ secrets.AI_SERVICE_SSH_KEY }}
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
+      PROD_AI_SERVER_HOST: ${{ secrets.PROD_AI_SERVER_HOST }}
+      PROD_AI_SERVER_USER: ${{ secrets.PROD_AI_SERVER_USER }}
+      PROD_AI_SERVER_SSH_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
+      PROD_AI_SERVER_ENV: ${{ secrets.PROD_AI_SERVER_ENV }}
       DEV_AI_SERVER_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
       DEV_AI_SERVER_USER: ${{ secrets.DEV_AI_SERVER_USER }}
       DEV_AI_SERVER_SSH_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
@@ -52,37 +50,26 @@ jobs:
           chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh vps-upload/restrict-8090.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
-            : "${GROQ_API_KEY:?}"
-            : "${OPENAI_API_KEY:?}"
-            : "${AI_INTERNAL_TOKEN:?}"
-            {
-              printf 'GROQ_API_KEY=%s\n' "$GROQ_API_KEY"
-              printf 'OPENAI_API_KEY=%s\n' "$OPENAI_API_KEY"
-              printf 'AI_INTERNAL_TOKEN=%s\n' "$AI_INTERNAL_TOKEN"
-              printf 'OPENAI_BASE_URL=https://openrouter.ai/api/v1\n'
-              printf 'LLM_MODEL=openai/gpt-4o-mini\n'
-              printf 'TTS_MODEL=hexgrad/kokoro-82m\n'
-              printf 'TTS_VOICE=af_heart\n'
-              printf 'TTS_RESPONSE_FORMAT=mp3\n'
-              printf 'REDIS_URL=redis://redis:6379/0\n'
-              printf 'AI_SERVICE_PORT=8090\n'
-            } > vps-upload/.env
+            ENV_BODY="${PROD_AI_SERVER_ENV:-}"
+            ENV_NAME=PROD_AI_SERVER_ENV
           else
-            if [ -z "${DEV_AI_SERVER_ENV:-}" ]; then
-              echo "DEV_AI_SERVER_ENV is empty" >&2
-              exit 1
-            fi
-            printf '%s\n' "$DEV_AI_SERVER_ENV" > vps-upload/.env
+            ENV_BODY="${DEV_AI_SERVER_ENV:-}"
+            ENV_NAME=DEV_AI_SERVER_ENV
           fi
+          if [ -z "$ENV_BODY" ]; then
+            echo "$ENV_NAME is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "$ENV_BODY" > vps-upload/.env
           chmod 600 vps-upload/.env
 
       - name: Copy files and restart container
         run: |
           set -euo pipefail
           if [ "$DESTINATION" = prod ]; then
-            HOST="$AI_SERVICE_HOST"
-            USER="$AI_SERVICE_USER"
-            KEY_BODY="$AI_SERVICE_SSH_KEY"
+            HOST="$PROD_AI_SERVER_HOST"
+            USER="$PROD_AI_SERVER_USER"
+            KEY_BODY="$PROD_AI_SERVER_SSH_KEY"
           else
             HOST="$DEV_AI_SERVER_HOST"
             USER="$DEV_AI_SERVER_USER"

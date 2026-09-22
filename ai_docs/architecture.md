@@ -138,7 +138,7 @@ flowchart TB
 
 - Локально: `:server:test` / `pytest` / `:server:run` без Telegram.
 - Интеграция Speaky: Redeploy на DEV-хосты.
-- Прод: Redeploy с `main`. Имя/аватар бота — BotFather, не репозиторий.
+- Прод: workflow Redeploy PROD, secrets `PROD_*`. Имя/аватар бота — BotFather, не репозиторий.
 
 ## Что сознательно не в рантайме бота
 

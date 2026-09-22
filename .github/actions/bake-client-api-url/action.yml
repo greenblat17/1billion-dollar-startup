@@ -9,15 +9,17 @@ runs:
       run: |
         set -euo pipefail
         if [ "${GITHUB_REF}" = "refs/heads/main" ] || [ "${GITHUB_REF}" = "refs/heads/master" ]; then
-          host="${CMP_SERVER_HOST:-${DEV_CMP_SERVER_HOST:-}}"
+          host="${PROD_CMP_SERVER_HOST:-}"
+          missing=PROD_CMP_SERVER_HOST
         else
           host="${DEV_CMP_SERVER_HOST:-}"
+          missing=DEV_CMP_SERVER_HOST
         fi
         host="${host#https://}"
         host="${host#http://}"
         host="${host%/}"
         if [ -z "$host" ]; then
-          echo "Need repository secret DEV_CMP_SERVER_HOST (CMP_SERVER_HOST on main)" >&2
+          echo "Need repository secret $missing" >&2
           exit 1
         fi
         printf 'SPEAKING_COACH_API_BASE_URL=https://%s\n' "$host" >> "$GITHUB_ENV"

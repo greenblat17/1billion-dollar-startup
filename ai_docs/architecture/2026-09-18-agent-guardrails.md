@@ -16,14 +16,14 @@ The **bot username, display name, and token** are set in Telegram BotFather / Gi
 
 Do not put tokens, SSH keys, VPS passwords, or `.env` values into docs or commits. `.env` is gitignored. Template names only: `.env.example`.
 
-GitHub **environments** `deploy` (prod) и `dev` — только approve у job Redeploy. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из SSH `DEV_CMP_SERVER_HOST` / `CMP_SERVER_HOST` (`https://$HOST`), не из `DEV_CMP_SERVER_ENV` и не отдельной var. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
+Выкат — только `workflow_dispatch` Redeploy DEV / Redeploy PROD, одинаково с `main` и с PR. В Deployments только environment `deploy-dev` и `deploy-prod`, без required reviewers. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из SSH `PROD_CMP_SERVER_HOST` (ветка `main`) или `DEV_CMP_SERVER_HOST`, не из блоба `.env` и не отдельной var. Беспрефиксные repo secrets (`CMP_SERVER_*`, `AI_SERVICE_HOST`, `TELEGRAM_*`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`) для CI больше не нужны. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
 
-**Prod** (имена без префикса, не переименовывать):
+**Prod** (префикс `PROD_`, содержимое блобов оператор кладёт сам; workflow Redeploy PROD):
 
-- SSH: `CMP_SERVER_HOST`, `CMP_SERVER_USER`, `CMP_SERVER_SSH_KEY`, `AI_SERVICE_HOST`, `AI_SERVICE_USER`, `AI_SERVICE_SSH_KEY`
-- Runtime: раннер пишет `.env` из `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_WEBHOOK_URL`, `AI_SERVICE_BASE_URL`, `AI_INTERNAL_TOKEN`, `GROQ_API_KEY`, `OPENAI_API_KEY`. URL не класть в repo **vars** (в публичном репо они видны). На хосте переменных нет.
+- SSH: `PROD_CMP_SERVER_HOST`, `PROD_CMP_SERVER_USER`, `PROD_CMP_SERVER_SSH_KEY`, `PROD_AI_SERVER_HOST`, `PROD_AI_SERVER_USER`, `PROD_AI_SERVER_SSH_KEY`
+- Runtime KV: `PROD_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `PROD_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
 
-**Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам):
+**Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам; workflow Redeploy DEV):
 
 - SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
 - Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)

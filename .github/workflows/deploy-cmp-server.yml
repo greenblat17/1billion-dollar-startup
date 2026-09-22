@@ -15,20 +15,16 @@ jobs:
   deploy:
     name: Deploy cmp-server (${{ inputs.destination }})
     runs-on: ubuntu-latest
-    environment: ${{ inputs.destination == 'prod' && 'deploy' || 'dev' }}
+    environment: ${{ inputs.destination == 'prod' && 'deploy-prod' || 'deploy-dev' }}
     concurrency:
       group: ktor-${{ inputs.destination }}
       cancel-in-progress: false
     env:
       DESTINATION: ${{ inputs.destination }}
-      CMP_SERVER_HOST: ${{ secrets.CMP_SERVER_HOST }}
-      CMP_SERVER_USER: ${{ secrets.CMP_SERVER_USER }}
-      CMP_SERVER_SSH_KEY: ${{ secrets.CMP_SERVER_SSH_KEY }}
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
-      TELEGRAM_WEBHOOK_URL: ${{ secrets.TELEGRAM_WEBHOOK_URL }}
-      AI_SERVICE_BASE_URL: ${{ secrets.AI_SERVICE_BASE_URL }}
-      AI_INTERNAL_TOKEN: ${{ secrets.AI_INTERNAL_TOKEN }}
+      PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
+      PROD_CMP_SERVER_USER: ${{ secrets.PROD_CMP_SERVER_USER }}
+      PROD_CMP_SERVER_SSH_KEY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
+      PROD_CMP_SERVER_ENV: ${{ secrets.PROD_CMP_SERVER_ENV }}
       DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
       DEV_CMP_SERVER_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
       DEV_CMP_SERVER_SSH_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
@@ -52,37 +48,26 @@ jobs:
           chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-postgres.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
-            : "${TELEGRAM_BOT_TOKEN:?}"
-            : "${TELEGRAM_WEBHOOK_SECRET:?}"
-            : "${TELEGRAM_WEBHOOK_URL:?}"
-            : "${AI_SERVICE_BASE_URL:?}"
-            : "${AI_INTERNAL_TOKEN:?}"
-            {
-              printf 'TELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN"
-              printf 'TELEGRAM_WEBHOOK_SECRET=%s\n' "$TELEGRAM_WEBHOOK_SECRET"
-              printf 'TELEGRAM_WEBHOOK_URL=%s\n' "$TELEGRAM_WEBHOOK_URL"
-              printf 'AI_SERVICE_BASE_URL=%s\n' "$AI_SERVICE_BASE_URL"
-              printf 'AI_INTERNAL_TOKEN=%s\n' "$AI_INTERNAL_TOKEN"
-              printf 'SERVER_PORT=443\n'
-              printf 'TLS_CERT_PATH=/opt/speaking-coach/tls.crt\n'
-              printf 'TLS_KEY_PATH=/opt/speaking-coach/tls.key\n'
-            } > vps-upload/.env
+            ENV_BODY="${PROD_CMP_SERVER_ENV:-}"
+            ENV_NAME=PROD_CMP_SERVER_ENV
           else
-            if [ -z "${DEV_CMP_SERVER_ENV:-}" ]; then
-              echo "DEV_CMP_SERVER_ENV is empty" >&2
-              exit 1
-            fi
-            printf '%s\n' "$DEV_CMP_SERVER_ENV" > vps-upload/.env
+            ENV_BODY="${DEV_CMP_SERVER_ENV:-}"
+            ENV_NAME=DEV_CMP_SERVER_ENV
           fi
+          if [ -z "$ENV_BODY" ]; then
+            echo "$ENV_NAME is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "$ENV_BODY" > vps-upload/.env
           chmod 600 vps-upload/.env
 
       - name: Copy files and restart container
         run: |
           set -euo pipefail
           if [ "$DESTINATION" = prod ]; then
-            HOST="$CMP_SERVER_HOST"
-            USER="$CMP_SERVER_USER"
-            KEY_BODY="$CMP_SERVER_SSH_KEY"
+            HOST="$PROD_CMP_SERVER_HOST"
+            USER="$PROD_CMP_SERVER_USER"
+            KEY_BODY="$PROD_CMP_SERVER_SSH_KEY"
           else
             HOST="$DEV_CMP_SERVER_HOST"
             USER="$DEV_CMP_SERVER_USER"
