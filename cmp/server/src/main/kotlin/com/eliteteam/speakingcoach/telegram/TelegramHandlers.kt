@@ -34,12 +34,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     onCommand("start") { message ->
         val sessionId = telegramSessionId(message.chat.id)
+        val firstName = (message.chat as? PrivateChat)?.firstName
         try {
-            val greeting = ai.startSession(sessionId)
-            val firstName = (message.chat as? PrivateChat)?.firstName
             reply(message, startTextMessage(firstName))
-            sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
+            val greeting = ai.startSession(sessionId)
+            val voice = greeting.audio.toTelegramVoice()
+            sendVoice(message.chat.id, voice.bytes.asMultipartFile(voice.fileName))
             log.info("Started session {} for tg-{}", greeting.sessionId.value, message.chat.id)
+        } catch (error: NotImplementedError) {
+            log.warn("Start greeting is not implemented for {}: {}", sessionId.value, error.message)
+            reply(message, error.message ?: "TODO")
         } catch (error: Throwable) {
             log.error("Failed to start session for tg-{}", message.chat.id, error)
             reply(message, ERROR_TEXT)
@@ -73,13 +77,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                     coachingEntities(result.reply.transcript, result.reply.notes),
                                 )
                             }
+                            val voice = result.reply.audio.toTelegramVoice()
                             sendVoice(
                                 message.chat.id,
-                                result.reply.audio.bytes.asMultipartFile(result.reply.audio.fileName),
+                                voice.bytes.asMultipartFile(voice.fileName),
                             )
                             log.info("Sent voice reply for {}", sessionId.value)
                         }
                     }
+                } catch (error: NotImplementedError) {
+                    log.warn("Voice turn is not implemented for {}: {}", sessionId.value, error.message)
+                    reply(message, error.message ?: "TODO")
                 } catch (error: Throwable) {
                     log.error("Failed to handle voice for tg-{}", message.chat.id, error)
                     reply(message, ERROR_TEXT)

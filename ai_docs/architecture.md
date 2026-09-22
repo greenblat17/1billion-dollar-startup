@@ -43,6 +43,10 @@ Ktor на VPS слушает **443** с PEM, регистрирует webhook с
 
 ## Голосовой ход
 
+Бот Speaky больше не ходит в clip jobs. Голос — `POST /api/v1/walkie-talkie` на `AI_SERVICE_BASE_URL` (`session_id` = `tg-$chatId`). Цитата — транскрипт без notes. Приветственный голос `/start` — `TODO` в чат. Диаграмма ниже — прежний in-repo ai-service (требования к клипам); CMP realtime/review по-прежнему зовут этот же `AI_SERVICE_BASE_URL`.
+
+## Голосовой ход (прежний clip pipeline)
+
 ```mermaid
 sequenceDiagram
   participant User

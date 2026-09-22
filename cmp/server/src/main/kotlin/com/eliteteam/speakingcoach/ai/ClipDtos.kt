@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.ai
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -42,4 +43,17 @@ data class ClipResultResponse(
 data class ClipErrorResponse(
     val code: String,
     val message: String,
+)
+
+@Serializable
+data class WalkieTalkieResponse(
+    @SerialName("session_id")
+    val sessionId: String,
+    val transcript: String = "",
+    @SerialName("response_text")
+    val responseText: String = "",
+    @SerialName("audio_mime_type")
+    val audioMimeType: String = "audio/wav",
+    @SerialName("audio_base64")
+    val audioBase64: String,
 )
