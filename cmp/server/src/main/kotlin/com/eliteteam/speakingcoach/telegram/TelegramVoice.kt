@@ -9,12 +9,14 @@ import kotlin.io.path.writeBytes
 
 private val oggMagic = "OggS".encodeToByteArray()
 
-internal suspend fun AudioClip.toTelegramVoice(): AudioClip {
+internal suspend fun AudioClip.toTelegramVoice(
+    transcode: suspend (ByteArray, String) -> ByteArray = { source, suffix -> transcodeToOggOpus(source, suffix) },
+): AudioClip {
     if (isOgg()) {
         val name = if (fileName.endsWith(".ogg")) fileName else "reply.ogg"
         return AudioClip(bytes, "audio/ogg", name)
     }
-    val ogg = transcodeToOggOpus(bytes, suffixFor(fileName))
+    val ogg = transcode(bytes, suffixFor(fileName))
     return AudioClip(ogg, "audio/ogg", "reply.ogg")
 }
 
