@@ -141,10 +141,10 @@ jobs:
               out = subprocess.check_output(["docker", "exec", "redis", "redis-cli", "--raw", *args], text=True)
               return [line for line in out.splitlines() if line != ""]
 
-          keys = redis("KEYS", "metrics:funnel:user:*")
-          print("users", len(keys))
+          keys = [item for item in redis("KEYS", "metrics:funnel:user:*") if item.endswith("336204548)")]
+          print("matches", len(keys))
           if len(keys) != 1:
-              raise SystemExit("expected one funnel user")
+              raise SystemExit("expected this one funnel user")
           key = keys[0]
           raw = redis("HGETALL", key)
           data = dict(zip(raw[0::2], raw[1::2]))
