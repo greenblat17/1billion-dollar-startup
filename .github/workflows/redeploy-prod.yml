@@ -105,54 +105,6 @@ jobs:
       destination: prod
     secrets: inherit
 
-  probe-webhook:
-    name: Probe webhook status
-    runs-on: ubuntu-latest
-    environment: deploy-prod
-    env:
-      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
-      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
-      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
-    steps:
-      - name: Ask Telegram for the last webhook error
-        run: |
-          set -euo pipefail
-          KEY="$RUNNER_TEMP/vps_key"
-          install -m 600 /dev/null "$KEY"
-          printf '%s\n' "$KEY_BODY" > "$KEY"
-          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
-          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
-          set -euo pipefail
-          token=$(grep -E '^TELEGRAM_BOT_TOKEN=' /opt/speaking-coach/.env | head -1 | cut -d= -f2- | tr -d '\r')
-          curl -s --max-time 20 -o /tmp/wh.json "https://api.telegram.org/bot${token}/getWebhookInfo"
-          curl -s --max-time 20 -o /tmp/me.json "https://api.telegram.org/bot${token}/getMe"
-          unset token
-          python3 - << 'PY'
-          import json
-          from datetime import datetime, timezone
-          me = json.load(open("/tmp/me.json"))
-          user = (me.get("result") or {})
-          print("bot", user.get("username"))
-          data = json.load(open("/tmp/wh.json"))
-          result = data.get("result") or {}
-          url = result.get("url") or ""
-          stamp = result.get("last_error_date")
-          when = ""
-          if stamp:
-              when = datetime.fromtimestamp(stamp, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-          print("ok", data.get("ok"))
-          print("has_url", bool(url))
-          print("has_custom_certificate", result.get("has_custom_certificate"))
-          print("pending_update_count", result.get("pending_update_count"))
-          print("last_error_date", when or None)
-          print("last_error_message", result.get("last_error_message"))
-          print("max_connections", result.get("max_connections"))
-          PY
-          rm -f /tmp/wh.json /tmp/me.json
-          echo "---matches---"
-          docker logs speaking-coach --since 6h 2>&1 | grep -E 'behaviour failed|webhook|15:4|18:4' | tail -n 30
-          EOF
-
   deploy-ai:
     name: Deploy ai-server
     needs:
