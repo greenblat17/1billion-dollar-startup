@@ -105,31 +105,6 @@ jobs:
       destination: prod
     secrets: inherit
 
-  probe-logs:
-    name: Probe recent bot logs
-    runs-on: ubuntu-latest
-    environment: deploy-prod
-    env:
-      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
-      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
-      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
-    steps:
-      - name: Read recent handler lines
-        run: |
-          set -euo pipefail
-          KEY="$RUNNER_TEMP/vps_key"
-          install -m 600 /dev/null "$KEY"
-          printf '%s\n' "$KEY_BODY" > "$KEY"
-          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
-          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
-          set +e
-          echo "container=$(docker inspect -f '{{.State.Status}} started={{.State.StartedAt}}' speaking-coach 2>/dev/null || echo missing)"
-          echo "log_lines=$(docker logs speaking-coach --since 5h 2>&1 | wc -l)"
-          docker logs speaking-coach --since 5h 2>&1 | grep -E 'TelegramHandlers|Started session|Failed to' | tail -n 30
-          echo "---hours---"
-          docker logs speaking-coach --since 5h 2>&1 | grep -oE '2026-09-24 [0-9]{2}:' | sort | uniq -c
-          EOF
-
   deploy-ai:
     name: Deploy ai-server
     needs:
