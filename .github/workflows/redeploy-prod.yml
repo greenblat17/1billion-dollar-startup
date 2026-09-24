@@ -115,3 +115,63 @@ jobs:
     with:
       destination: prod
     secrets: inherit
+
+  reset-funnel-user:
+    name: Reset one funnel user
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    env:
+      HOST: ${{ secrets.PROD_AI_SERVER_HOST }}
+      USER: ${{ secrets.PROD_AI_SERVER_USER }}
+      KEY_BODY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
+    steps:
+      - name: Clear today's only funnel user
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          python3 - << 'PY'
+          import subprocess
+
+          def redis(*args):
+              out = subprocess.check_output(["docker", "exec", "redis", "redis-cli", "--raw", *args], text=True)
+              return [line for line in out.splitlines() if line != ""]
+
+          keys = redis("KEYS", "metrics:funnel:user:*")
+          print("users", len(keys))
+          if len(keys) != 1:
+              raise SystemExit("expected one funnel user")
+          key = keys[0]
+          raw = redis("HGETALL", key)
+          data = dict(zip(raw[0::2], raw[1::2]))
+          source = data.get("source") or "direct"
+          ops = []
+          for field, day_field in (
+              ("start", "start_day"),
+              ("activated", "activated_day"),
+              ("engaged", "engaged_day"),
+              ("returned", "last_return_day"),
+          ):
+              day = data.get(day_field) or ""
+              if day:
+                  ops.append((day, field))
+          print("ops", ops, "source", source)
+          for day, field in ops:
+              day_key = f"metrics:funnel:{day}"
+              src_key = f"metrics:funnel:{day}:src:{source}"
+              current = redis("HGET", day_key, field)
+              value = int(current[0]) if current else 0
+              if value > 0:
+                  redis("HINCRBY", day_key, field, "-1")
+                  redis("HINCRBY", src_key, field, "-1")
+                  print("decremented", day, field)
+              else:
+                  print("skip", day, field, value)
+          print("deleted", redis("DEL", key)[0])
+          print("day", redis("HGETALL", "metrics:funnel:2026-09-24"))
+          PY
+          EOF
