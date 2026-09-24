@@ -10,6 +10,7 @@ import io.ktor.utils.io.ExperimentalKtorApi
 
 @OptIn(ExperimentalKtorApi::class)
 internal fun Application.installSpeakingCoachHttp(
+    metrics: MetricsDashboard? = null,
     extra: Route.() -> Unit = {},
 ) {
     routing {
@@ -19,6 +20,9 @@ internal fun Application.installSpeakingCoachHttp(
         get("/health") {
             call.respondText("ok")
         }.hide()
+        if (metrics != null) {
+            installMetricsDashboard(metrics)
+        }
         extra()
     }
 }

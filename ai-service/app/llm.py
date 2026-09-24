@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI
 
 from app.dialogue import ChatMessage
+from app.metrics import MetricsStore
 from app.retry import once_on_retryable
 
 REPLY_SYSTEM = """You are Speaky, a warm English conversation partner helping the user practice speaking.
@@ -78,12 +80,14 @@ class OpenAiChatModel:
         reply_temperature: float = 0.7,
         notes_temperature: float = 0.0,
         max_tokens: int = 500,
+        metrics: MetricsStore | None = None,
     ) -> None:
         self._client = client
         self._model = model
         self._reply_temperature = reply_temperature
         self._notes_temperature = notes_temperature
         self._max_tokens = max_tokens
+        self._metrics = metrics
 
     async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str:
         messages = [{"role": "system", "content": REPLY_SYSTEM}]
@@ -110,11 +114,42 @@ class OpenAiChatModel:
                 response_format={"type": "json_object"},
             )
 
+        started = time.perf_counter()
         response = await once_on_retryable(call)
+        if self._metrics is not None:
+            prompt_tokens, completion_tokens = read_usage(response)
+            await self._metrics.record_llm(
+                prompt_tokens,
+                completion_tokens,
+                int((time.perf_counter() - started) * 1000),
+            )
         text = (response.choices[0].message.content or "").strip()
         if not text:
             raise RuntimeError("llm returned empty reply")
         return text
+
+
+def read_usage(response: Any) -> tuple[int, int]:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return 0, 0
+    if isinstance(usage, dict):
+        prompt = usage.get("prompt_tokens")
+        completion = usage.get("completion_tokens")
+    else:
+        prompt = getattr(usage, "prompt_tokens", None)
+        completion = getattr(usage, "completion_tokens", None)
+    return _nonneg_token(prompt), _nonneg_token(completion)
+
+
+def _nonneg_token(value: Any) -> int:
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
 
 
 def parse_reply(raw: str) -> str:

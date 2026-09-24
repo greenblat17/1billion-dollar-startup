@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.ai
 
+import com.eliteteam.speakingcoach.MetricsSource
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
 import com.eliteteam.speakingcoach.speaking.ClipReply
@@ -58,8 +59,40 @@ class HttpClipClient(
         )
     }
 
+    suspend fun recordFunnelStart(sessionId: SessionId, source: String?) {
+        val response = http.post("$root/internal/funnel/start") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(FunnelStartRequest(sessionId.value, source))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/funnel/start returned ${response.status}")
+        }
+    }
+
+    suspend fun recordFunnelVoice(sessionId: SessionId) {
+        val response = http.post("$root/internal/funnel/voice") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(FunnelVoiceRequest(sessionId.value))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/funnel/voice returned ${response.status}")
+        }
+    }
+
     suspend fun ensureSession(sessionId: SessionId): SessionId {
         return SessionId(createSession(sessionId).sessionId)
+    }
+
+    suspend fun loadMetrics(): MetricsSnapshot {
+        val response = http.get("$root/internal/metrics") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service GET /internal/metrics returned ${response.status}")
+        }
+        return response.body()
     }
 
     private suspend fun createSession(sessionId: SessionId?): SessionCreatedResponse {
@@ -158,6 +191,12 @@ class HttpClipClient(
             header(AI_INTERNAL_TOKEN_HEADER, internalToken)
         }
     }
+}
+
+internal class HttpMetricsSource(
+    private val clips: HttpClipClient,
+) : MetricsSource {
+    override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
 }
 
 private sealed interface ClipJobStatus {

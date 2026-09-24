@@ -43,3 +43,60 @@ data class ClipErrorResponse(
     val code: String,
     val message: String,
 )
+
+@Serializable
+data class MetricsSnapshot(
+    val timezone: String,
+    val day: String,
+    val promptTokens: Long,
+    val completionTokens: Long,
+    val tpm: Long,
+    val tps: Double,
+    val turns: Long,
+    val dau: Long,
+    val sttSeconds: Double,
+    val ttsChars: Long,
+    val rubPerTurn: Double? = null,
+    val rubPerDau: Double? = null,
+    val ratesConfigured: Boolean = false,
+    val chats: List<MetricsChat> = emptyList(),
+    val activated7: Long = 0,
+    val funnelDays: List<FunnelDay> = emptyList(),
+    val funnelSources: List<FunnelSource> = emptyList(),
+)
+
+@Serializable
+data class FunnelDay(
+    val day: String,
+    val start: Long = 0,
+    val activated: Long = 0,
+    val engaged: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class FunnelSource(
+    val source: String,
+    val start: Long = 0,
+    val activated: Long = 0,
+    val engaged: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class FunnelStartRequest(
+    val sessionId: String,
+    val source: String? = null,
+)
+
+@Serializable
+data class FunnelVoiceRequest(
+    val sessionId: String,
+)
+
+@Serializable
+data class MetricsChat(
+    val sessionId: String,
+    val turns: Long,
+    val lastAt: String,
+)

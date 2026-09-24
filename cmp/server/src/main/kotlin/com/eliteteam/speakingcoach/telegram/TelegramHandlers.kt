@@ -14,14 +14,36 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onComman
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.chat.PrivateChat
+import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
 import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
 
 internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
 internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
+
+private val startSourcePattern = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+internal fun isStartCommand(text: String): Boolean {
+    val command = text.trim().substringBefore(' ').substringBefore('@')
+    return command == "/start"
+}
+
+internal fun startSource(text: String): String? {
+    val trimmed = text.trim()
+    val payload = when {
+        trimmed.startsWith("/start@") -> {
+            val space = trimmed.indexOf(' ')
+            if (space < 0) "" else trimmed.substring(space + 1).trim()
+        }
+        trimmed.startsWith("/start") -> trimmed.removePrefix("/start").trim()
+        else -> return null
+    }
+    return payload.takeIf { startSourcePattern.matches(it) }
+}
 
 internal fun speakingCoachTelegramBot(token: String) = telegramBot(token) {
     logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token)
@@ -32,23 +54,60 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     sessionClipQueue: SessionClipQueue,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
-    onCommand("start") { message ->
+    val greetedStarts = ConcurrentHashMap.newKeySet<String>()
+    suspend fun greet(message: ChatMessage, text: String) {
+        val claim = "${message.chat.id}:${message.messageId}"
+        if (!greetedStarts.add(claim)) {
+            return
+        }
         val sessionId = telegramSessionId(message.chat.id)
+        val source = startSource(text)
+        log.info("Start command {} from {}", message.messageId, message.chat.id)
+        try {
+            ai.recordFunnelStart(sessionId, source)
+        } catch (error: Throwable) {
+            log.warn("Failed to record start for {}", sessionId.value, error)
+        }
         try {
             val greeting = ai.startSession(sessionId)
             val firstName = (message.chat as? PrivateChat)?.firstName
-            reply(message, startTextMessage(firstName))
-            sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
-            log.info("Started session {} for tg-{}", greeting.sessionId.value, message.chat.id)
+            val textMessage = reply(
+                message,
+                startTextMessage(firstName),
+                allowSendingWithoutReply = true,
+            )
+            val voiceMessage = sendVoice(
+                message.chat.id,
+                greeting.audio.bytes.asMultipartFile(greeting.audio.fileName),
+            )
+            log.info(
+                "Started session {} for tg-{} textMessage={} voiceMessage={}",
+                greeting.sessionId.value,
+                message.chat.id,
+                textMessage.messageId,
+                voiceMessage.messageId,
+            )
         } catch (error: Throwable) {
+            greetedStarts.remove(claim)
             log.error("Failed to start session for tg-{}", message.chat.id, error)
-            reply(message, ERROR_TEXT)
+            reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+        }
+    }
+    onCommand("start", requireOnlyCommandInMessage = false) { message ->
+        val text = message.content.text
+        if (isStartCommand(text)) {
+            greet(message, text)
         }
     }
     onContentMessage { message ->
         when (val content = message.content) {
             is VoiceContent -> {
                 val sessionId = telegramSessionId(message.chat.id)
+                try {
+                    ai.recordFunnelVoice(sessionId)
+                } catch (error: Throwable) {
+                    log.warn("Failed to record voice for {}", sessionId.value, error)
+                }
                 try {
                     ai.ensureSession(sessionId)
                     val result = sessionClipQueue.submit(
@@ -86,7 +145,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
             }
             is TextContent -> {
-                if (!content.text.startsWith("/")) {
+                if (isStartCommand(content.text)) {
+                    greet(message, content.text)
+                } else if (content.text.startsWith("/")) {
+                    log.info(
+                        "Ignored command {} from {}",
+                        content.text.substringBefore(' ').take(64),
+                        message.chat.id,
+                    )
+                } else {
                     reply(message, SEND_VOICE_HINT)
                 }
             }

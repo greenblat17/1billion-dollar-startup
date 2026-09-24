@@ -29,6 +29,7 @@ jobs:
       DEV_CMP_SERVER_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
       DEV_CMP_SERVER_SSH_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
       DEV_CMP_SERVER_ENV: ${{ secrets.DEV_CMP_SERVER_ENV }}
+      METRICS_PASSWORD: ${{ secrets.METRICS_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -59,6 +60,12 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
+          if [ -n "${METRICS_PASSWORD:-}" ]; then
+            tmp=$(mktemp)
+            grep -v '^METRICS_PASSWORD=' vps-upload/.env > "$tmp" || true
+            printf 'METRICS_PASSWORD=%s\n' "$METRICS_PASSWORD" >> "$tmp"
+            mv "$tmp" vps-upload/.env
+          fi
           chmod 600 vps-upload/.env
 
       - name: Copy files and restart container
