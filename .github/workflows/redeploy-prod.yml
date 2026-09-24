@@ -149,6 +149,8 @@ jobs:
           print("max_connections", result.get("max_connections"))
           PY
           rm -f /tmp/wh.json /tmp/me.json
+          echo "---matches---"
+          docker logs speaking-coach --since 6h 2>&1 | grep -E 'behaviour failed|webhook|15:4|18:4' | tail -n 30
           EOF
 
   deploy-ai:
