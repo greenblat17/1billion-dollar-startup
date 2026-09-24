@@ -141,37 +141,39 @@ jobs:
               out = subprocess.check_output(["docker", "exec", "redis", "redis-cli", "--raw", *args], text=True)
               return [line for line in out.splitlines() if line != ""]
 
-          keys = [item for item in redis("KEYS", "metrics:funnel:user:*") if item.endswith("336204548)")]
-          print("matches", len(keys))
-          if len(keys) != 1:
-              raise SystemExit("expected this one funnel user")
-          key = keys[0]
-          raw = redis("HGETALL", key)
-          data = dict(zip(raw[0::2], raw[1::2]))
-          source = data.get("source") or "direct"
-          ops = []
-          for field, day_field in (
-              ("start", "start_day"),
-              ("activated", "activated_day"),
-              ("engaged", "engaged_day"),
-              ("returned", "last_return_day"),
-          ):
-              day = data.get(day_field) or ""
-              if day:
-                  ops.append((day, field))
-          print("ops", ops, "source", source)
-          for day, field in ops:
-              day_key = f"metrics:funnel:{day}"
-              src_key = f"metrics:funnel:{day}:src:{source}"
-              current = redis("HGET", day_key, field)
-              value = int(current[0]) if current else 0
-              if value > 0:
-                  redis("HINCRBY", day_key, field, "-1")
-                  redis("HINCRBY", src_key, field, "-1")
-                  print("decremented", day, field)
-              else:
-                  print("skip", day, field, value)
-          print("deleted", redis("DEL", key)[0])
-          print("day", redis("HGETALL", "metrics:funnel:2026-09-24"))
+          names = ("start_day", "activated_day", "engaged_day", "last_return_day", "source")
+          fields = ("start", "activated", "engaged", "returned")
+          day_fields = {
+              "start": "start_day",
+              "activated": "activated_day",
+              "engaged": "engaged_day",
+              "returned": "last_return_day",
+          }
+          day = "2026-09-24"
+
+          def hget(key, field):
+              raw = redis("HGET", key, field)
+              return raw[0] if raw else ""
+
+          owned = {field: 0 for field in fields}
+          for key in redis("KEYS", "metrics:funnel:user:*"):
+              record = {name: hget(key, name) for name in names}
+              print("remaining", {name: value for name, value in record.items() if value})
+              for field, day_field in day_fields.items():
+                  if record[day_field] == day:
+                      owned[field] += 1
+          current = {field: int(hget(f"metrics:funnel:{day}", field) or 0) for field in fields}
+          print("day_before", current, "owned_by_others", owned)
+          for field in fields:
+              extra = current[field] - owned[field]
+              if extra <= 0:
+                  continue
+              redis("HINCRBY", f"metrics:funnel:{day}", field, str(-extra))
+              src_key = f"metrics:funnel:{day}:src:direct"
+              src_value = int(hget(src_key, field) or 0)
+              if src_value >= extra:
+                  redis("HINCRBY", src_key, field, str(-extra))
+              print("decremented", field, extra)
+          print("day_after", {field: hget(f"metrics:funnel:{day}", field) for field in fields})
           PY
           EOF
