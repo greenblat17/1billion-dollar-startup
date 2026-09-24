@@ -105,6 +105,38 @@ jobs:
       destination: prod
     secrets: inherit
 
+  restart-bot:
+    name: Restart bot webhook
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    env:
+      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
+      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
+      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
+    steps:
+      - name: Restart speaking-coach
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          docker restart speaking-coach
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if docker logs speaking-coach --since 2m 2>&1 | grep -q "Telegram webhook registered"; then
+              echo "webhook_registered=yes"
+              docker inspect -f 'status={{.State.Status}} started={{.State.StartedAt}}' speaking-coach
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "webhook_registered=no"
+          docker logs speaking-coach --since 2m 2>&1 | tail -n 20
+          exit 1
+          EOF
+
   deploy-ai:
     name: Deploy ai-server
     needs:
