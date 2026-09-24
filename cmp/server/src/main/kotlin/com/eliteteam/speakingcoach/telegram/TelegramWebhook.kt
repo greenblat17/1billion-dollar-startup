@@ -20,7 +20,6 @@ import io.ktor.server.routing.post
 import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -68,9 +67,8 @@ internal fun Route.installSpeakingCoachWebhook(
                 UpdateDeserializationStrategy,
                 call.receiveText(),
             )
-            webhookScope.launch {
-                transformer(update)
-            }
+            log.info("Telegram update {}", update.updateId)
+            transformer(update)
             call.respond(HttpStatusCode.OK)
         } catch (error: Throwable) {
             log.error("Failed to handle Telegram webhook", error)
