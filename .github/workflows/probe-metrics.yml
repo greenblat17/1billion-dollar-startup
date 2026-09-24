@@ -1,0 +1,54 @@
+name: Probe metrics page
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    env:
+      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
+      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
+      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
+    steps:
+      - name: Check the metrics route on prod
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          echo "container=$(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' speaking-coach 2>/dev/null || echo missing)"
+          port=$(grep -E '^SERVER_PORT=' /opt/speaking-coach/.env | head -1 | cut -d= -f2- | tr -d '\r')
+          if grep -q '^METRICS_PASSWORD=.' /opt/speaking-coach/.env; then
+            echo "password_line=present"
+          else
+            echo "password_line=missing"
+          fi
+          code=$(curl -sk -o /tmp/metrics.html -w '%{http_code}' "https://127.0.0.1:${port}/admin/metrics" || echo curlfail)
+          echo "local_metrics=$code port=$port"
+          python3 - << 'PY'
+          from pathlib import Path
+          text = Path("/tmp/metrics.html").read_text(errors="replace")[:300].replace("\n", " ")
+          print("body_prefix=" + text)
+          PY
+          docker logs speaking-coach --tail 20 2>&1 | cut -c1-200 || true
+          EOF
+          mkdir -p probe-out
+          printf '%s\n' "$HOST" > probe-out/host.txt
+          public=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 "https://${HOST}/admin/metrics" || echo curlfail)
+          echo "public_metrics=$public"
+          printf '%s\n' "$public" > probe-out/public-status.txt
+
+      - name: Upload probe
+        uses: actions/upload-artifact@v6
+        with:
+          name: metrics-probe
+          path: probe-out
+          retention-days: 1
