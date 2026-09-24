@@ -115,3 +115,30 @@ jobs:
     with:
       destination: prod
     secrets: inherit
+
+  probe-start:
+    name: Probe start logs
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    env:
+      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
+      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
+      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
+    steps:
+      - name: Read handler lines since the last restart
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          echo "container=$(docker inspect -f '{{.State.Status}} started={{.State.StartedAt}}' speaking-coach)"
+          echo "---handlers---"
+          docker logs speaking-coach --since 40m 2>&1 | grep -E 'TelegramHandlers|Started session|Failed to|behaviour failed|webhook' | tail -n 40
+          echo "---16:43---"
+          docker logs speaking-coach --since 40m 2>&1 | grep '16:43' | tail -n 20
+          echo "---16:44---"
+          docker logs speaking-coach --since 40m 2>&1 | grep '16:44' | tail -n 20
+          EOF
