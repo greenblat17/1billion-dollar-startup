@@ -76,6 +76,7 @@ class ClipPipeline:
             }
             logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
+            await self._metrics.record_exchange(session_id)
             return PipelineResult(
                 audio=reply_audio,
                 transcript=stt_result.text,
@@ -103,6 +104,7 @@ class ClipPipeline:
         }
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
+        await self._metrics.record_exchange(session_id)
         return PipelineResult(
             audio=reply_audio,
             transcript=stt_result.text,

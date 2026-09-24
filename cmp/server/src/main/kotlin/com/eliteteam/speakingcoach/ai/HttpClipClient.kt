@@ -59,6 +59,28 @@ class HttpClipClient(
         )
     }
 
+    suspend fun recordFunnelStart(sessionId: SessionId, source: String?) {
+        val response = http.post("$root/internal/funnel/start") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(FunnelStartRequest(sessionId.value, source))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/funnel/start returned ${response.status}")
+        }
+    }
+
+    suspend fun recordFunnelVoice(sessionId: SessionId) {
+        val response = http.post("$root/internal/funnel/voice") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(FunnelVoiceRequest(sessionId.value))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/funnel/voice returned ${response.status}")
+        }
+    }
+
     suspend fun ensureSession(sessionId: SessionId): SessionId {
         return SessionId(createSession(sessionId).sessionId)
     }

@@ -80,6 +80,25 @@ def create_app(
     async def metrics_snapshot() -> dict:
         return await clip_pipeline.metrics.snapshot()
 
+    @app.post("/internal/funnel/start")
+    async def funnel_start(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        source = payload.get("source")
+        await clip_pipeline.metrics.record_start(session_id, None if source is None else str(source))
+        return {"ok": True}
+
+    @app.post("/internal/funnel/voice")
+    async def funnel_voice(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        await clip_pipeline.metrics.record_voice(session_id)
+        return {"ok": True}
+
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
         session_id = await sessions.create(await _requested_session_id(request))
@@ -218,6 +237,16 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         default_headers=openai_headers or None,
     )
     return OpenAiSessionReviewer(client, settings.llm_model)
+
+
+async def _json_object(request: Request) -> dict[str, Any]:
+    try:
+        payload: Any = await request.json()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="invalid body") from error
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    return payload
 
 
 async def _requested_session_id(request: Request) -> str | None:

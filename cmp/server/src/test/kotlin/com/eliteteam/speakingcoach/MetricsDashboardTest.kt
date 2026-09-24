@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.ai.FunnelDay
+import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import io.ktor.client.request.cookie
@@ -62,6 +64,8 @@ class MetricsDashboardTest {
         val html = page.bodyAsText()
         assertEquals(HttpStatusCode.OK, page.status)
         assertTrue(html.contains("tg-9"))
+        assertTrue(html.contains("Activated за 7 дней"))
+        assertTrue(html.contains("clubs"))
         assertTrue(html.contains("1.50"))
         assertTrue(html.contains("3.00"))
         assertFalse(html.contains("transcript"))
@@ -118,6 +122,9 @@ class MetricsDashboardTest {
                 lastAt = "2026-09-24T12:00:00+03:00",
             ),
         ),
+        activated7 = 4,
+        funnelDays = listOf(FunnelDay(day = "2026-09-24", start = 2, activated = 1)),
+        funnelSources = listOf(FunnelSource(source = "clubs", start = 2, activated = 1)),
     )
 
     private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 
 import pytest
@@ -276,3 +277,101 @@ async def test_internal_metrics_requires_token() -> None:
     assert body["turns"] == 1
     assert body["chats"][0]["sessionId"] == "tg-9"
     assert "transcript" not in response.text
+
+
+def _moscow(day: int, hour: int = 12) -> float:
+    return datetime(2026, 9, day, hour, tzinfo=ZoneInfo("Europe/Moscow")).timestamp()
+
+
+def _source_row(snap: dict, name: str) -> dict:
+    return next(row for row in snap["funnelSources"] if row["source"] == name)
+
+
+@pytest.mark.asyncio
+async def test_funnel_keeps_the_first_source_and_counts_each_stage_once_per_rule() -> None:
+    opened = _Stores(MetricRates())
+    day1 = _moscow(22)
+    day2 = _moscow(23)
+    day3 = _moscow(24)
+    try:
+        for store in opened.stores:
+            await store.record_start("tg-1", "clubs", now=day1)
+            await store.record_start("tg-1", "friends", now=day1)
+            await store.record_voice("tg-1", now=day1)
+            await store.record_voice("tg-1", now=day1)
+            await store.record_start("tg-1", "friends", now=day2)
+            await store.record_voice("tg-1", now=day2)
+            await store.record_voice("tg-1", now=day3)
+            for _ in range(2):
+                await store.record_exchange("tg-1", now=day3)
+            before = await store.snapshot(now=day3)
+            assert before["funnelDays"][0]["engaged"] == 0
+            await store.record_exchange("tg-1", now=day3)
+            await store.record_exchange("tg-1", now=day3)
+            snap = await store.snapshot(now=day3)
+            clubs = _source_row(snap, "clubs")
+            assert clubs["start"] == 1
+            assert clubs["activated"] == 1
+            assert clubs["engaged"] == 1
+            assert clubs["returned"] == 2
+            assert all(row["source"] != "friends" for row in snap["funnelSources"])
+            assert snap["activated7"] == 1
+            assert [row["day"] for row in snap["funnelDays"][:3]] == [
+                "2026-09-24",
+                "2026-09-23",
+                "2026-09-22",
+            ]
+            assert len(snap["funnelDays"]) == 14
+            assert "transcript" not in json.dumps(snap)
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_empty_start_does_not_block_a_later_source() -> None:
+    opened = _Stores(MetricRates())
+    moment = _moscow(24)
+    try:
+        for store in opened.stores:
+            await store.record_start("tg-2", None, now=moment)
+            await store.record_start("tg-2", "bad payload", now=moment)
+            await store.record_start("tg-2", "clubs", now=moment)
+            await store.record_voice("tg-2", now=moment)
+            snap = await store.snapshot(now=moment)
+            assert _source_row(snap, "direct")["start"] == 1
+            assert _source_row(snap, "clubs")["activated"] == 1
+            assert _source_row(snap, "clubs")["start"] == 0
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_funnel_routes_record_a_start() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    pipeline = ClipPipeline(
+        stt=FakeStt(["hi"]),
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        dialogue=MemoryDialogueStore(max_messages=40, ttl_seconds=86400),
+        metrics=store,
+    )
+    app = create_app(
+        settings=make_settings(),
+        pipeline=pipeline,
+        realtime=FakeRealtime(),
+        reviewer=FakeReviewer(),
+    )
+    with TestClient(app) as client:
+        denied = client.post("/internal/funnel/start", json={"sessionId": "tg-3", "source": "clubs"})
+        assert denied.status_code == 401
+        recorded = client.post(
+            "/internal/funnel/start",
+            headers=AUTH,
+            json={"sessionId": "tg-3", "source": "clubs"},
+        )
+        voice = client.post("/internal/funnel/voice", headers=AUTH, json={"sessionId": "tg-3"})
+    assert recorded.status_code == 200
+    assert voice.status_code == 200
+    snap = await store.snapshot()
+    assert _source_row(snap, "clubs")["start"] == 1
+    assert _source_row(snap, "clubs")["activated"] == 1

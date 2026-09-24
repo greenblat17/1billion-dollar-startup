@@ -158,6 +158,21 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${card("₽ на ход", rubPerTurn)}
         ${card("₽ на DAU", rubPerDau)}
         </dl>
+        <h2>Воронка</h2>
+        <p class="meta">Activated за 7 дней: ${snapshot.activated7}</p>
+        <table>
+        <thead><tr><th>День</th><th>Start</th><th>Activated</th><th>Engaged</th><th>Returned</th></tr></thead>
+        <tbody>
+        ${funnelDayRows(snapshot)}
+        </tbody>
+        </table>
+        <h2>Источники</h2>
+        <table>
+        <thead><tr><th>Источник</th><th>Start</th><th>Activated</th><th>Engaged</th><th>Returned</th></tr></thead>
+        <tbody>
+        ${funnelSourceRows(snapshot)}
+        </tbody>
+        </table>
         <h2>Чаты</h2>
         <table>
         <thead><tr><th>Чат</th><th>Ходы</th><th>Последний ход</th></tr></thead>
@@ -168,6 +183,24 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </body>
         </html>
     """.trimIndent()
+}
+
+private fun funnelDayRows(snapshot: MetricsSnapshot): String {
+    if (snapshot.funnelDays.isEmpty()) {
+        return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
+    }
+    return snapshot.funnelDays.joinToString("\n") { day ->
+        "<tr><td>${escapeHtml(day.day)}</td><td>${day.start}</td><td>${day.activated}</td><td>${day.engaged}</td><td>${day.returned}</td></tr>"
+    }
+}
+
+private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
+    if (snapshot.funnelSources.isEmpty()) {
+        return "<tr><td colspan=\"5\">Пока нет источников.</td></tr>"
+    }
+    return snapshot.funnelSources.joinToString("\n") { source ->
+        "<tr><td>${escapeHtml(source.source)}</td><td>${source.start}</td><td>${source.activated}</td><td>${source.engaged}</td><td>${source.returned}</td></tr>"
+    }
 }
 
 private fun chatRows(snapshot: MetricsSnapshot): String {

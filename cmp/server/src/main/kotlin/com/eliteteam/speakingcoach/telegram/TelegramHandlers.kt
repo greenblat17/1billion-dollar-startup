@@ -23,6 +23,21 @@ internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-T
 
 internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
 
+private val startSourcePattern = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+internal fun startSource(text: String): String? {
+    val trimmed = text.trim()
+    val payload = when {
+        trimmed.startsWith("/start@") -> {
+            val space = trimmed.indexOf(' ')
+            if (space < 0) "" else trimmed.substring(space + 1).trim()
+        }
+        trimmed.startsWith("/start") -> trimmed.removePrefix("/start").trim()
+        else -> return null
+    }
+    return payload.takeIf { startSourcePattern.matches(it) }
+}
+
 internal fun speakingCoachTelegramBot(token: String) = telegramBot(token) {
     logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token)
 }
@@ -34,6 +49,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     onCommand("start") { message ->
         val sessionId = telegramSessionId(message.chat.id)
+        val source = startSource((message.content as? TextContent)?.text.orEmpty())
+        try {
+            ai.recordFunnelStart(sessionId, source)
+        } catch (error: Throwable) {
+            log.warn("Failed to record start for {}", sessionId.value, error)
+        }
         try {
             val greeting = ai.startSession(sessionId)
             val firstName = (message.chat as? PrivateChat)?.firstName
@@ -49,6 +70,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         when (val content = message.content) {
             is VoiceContent -> {
                 val sessionId = telegramSessionId(message.chat.id)
+                try {
+                    ai.recordFunnelVoice(sessionId)
+                } catch (error: Throwable) {
+                    log.warn("Failed to record voice for {}", sessionId.value, error)
+                }
                 try {
                     ai.ensureSession(sessionId)
                     val result = sessionClipQueue.submit(

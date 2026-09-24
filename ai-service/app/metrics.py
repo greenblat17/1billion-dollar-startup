@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -15,10 +16,16 @@ METRICS_TIMEZONE = "Europe/Moscow"
 LLM_WINDOW_SECONDS = 60
 LLM_RETAIN_SECONDS = 120
 CHAT_LIMIT = 200
+FUNNEL_WINDOW_DAYS = 14
+FUNNEL_WEEK_DAYS = 7
+ENGAGED_EXCHANGES = 3
+DIRECT_SOURCE = "direct"
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
 _CHATS_KEY = "metrics:chats"
+_FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
+_SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
 @dataclass(frozen=True)
@@ -77,6 +84,35 @@ class ChatRow:
     last_unix: float
 
 
+@dataclass
+class FunnelUser:
+    source: str = ""
+    first_day: str = ""
+    start_day: str = ""
+    activated_day: str = ""
+    engaged_day: str = ""
+    exchanges: int = 0
+    last_return_day: str = ""
+
+
+@dataclass
+class FunnelCounts:
+    start: int = 0
+    activated: int = 0
+    engaged: int = 0
+    returned: int = 0
+
+
+@dataclass
+class FunnelDelta:
+    day: str
+    source: str
+    start: int = 0
+    activated: int = 0
+    engaged: int = 0
+    returned: int = 0
+
+
 class MetricsStore(Protocol):
     async def record_llm(
         self,
@@ -96,6 +132,18 @@ class MetricsStore(Protocol):
         now: float | None = None,
     ) -> None: ...
 
+    async def record_start(
+        self,
+        session_id: str,
+        source: str | None = None,
+        *,
+        now: float | None = None,
+    ) -> None: ...
+
+    async def record_voice(self, session_id: str, *, now: float | None = None) -> None: ...
+
+    async def record_exchange(self, session_id: str, *, now: float | None = None) -> None: ...
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
     async def aclose(self) -> None: ...
@@ -108,6 +156,9 @@ class MemoryMetricsStore:
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
         self._chats: dict[str, ChatRow] = {}
+        self._funnel_users: dict[str, FunnelUser] = {}
+        self._funnel_days: dict[str, FunnelCounts] = {}
+        self._funnel_sources: dict[tuple[str, str], FunnelCounts] = {}
         self._lock = asyncio.Lock()
 
     async def record_llm(
@@ -147,11 +198,26 @@ class MemoryMetricsStore:
         async with self._lock:
             self._add_turn(metrics_day(moment), session, seconds_to_ms(stt_seconds), nonneg_int(tts_chars), moment)
 
+    async def record_start(
+        self,
+        session_id: str,
+        source: str | None = None,
+        *,
+        now: float | None = None,
+    ) -> None:
+        await self._record_funnel(session_id, "start", source, now)
+
+    async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
+        await self._record_funnel(session_id, "voice", None, now)
+
+    async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
+        await self._record_funnel(session_id, "exchange", None, now)
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         async with self._lock:
             day_name = metrics_day(moment)
-            return build_snapshot(
+            payload = build_snapshot(
                 now=moment,
                 day=self._days.get(day_name, DayTotals()),
                 dau=len(self._dau.get(day_name, ())),
@@ -159,6 +225,8 @@ class MemoryMetricsStore:
                 chats=list(self._chats.values()),
                 rates=self._rates,
             )
+            payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
+            return payload
 
     async def aclose(self) -> None:
         return None
@@ -172,6 +240,22 @@ class MemoryMetricsStore:
         previous = self._chats.get(session)
         turns = (previous.turns if previous is not None else 0) + 1
         self._chats[session] = ChatRow(session_id=session, turns=turns, last_unix=moment)
+
+    async def _record_funnel(
+        self,
+        session_id: str,
+        kind: str,
+        source: str | None,
+        now: float | None,
+    ) -> None:
+        session = session_id.strip()
+        if not session:
+            return
+        moment = _moment(now)
+        async with self._lock:
+            user = self._funnel_users.setdefault(session, FunnelUser())
+            delta = apply_funnel(user, kind=kind, source=normalize_source(source), day=metrics_day(moment))
+            _bump_funnel(self._funnel_days, self._funnel_sources, delta)
 
 
 class RedisMetricsStore:
@@ -228,6 +312,21 @@ class RedisMetricsStore:
             pipe.zadd(_CHATS_KEY, {session: moment})
             await pipe.execute()
 
+    async def record_start(
+        self,
+        session_id: str,
+        source: str | None = None,
+        *,
+        now: float | None = None,
+    ) -> None:
+        await self._record_funnel(session_id, "start", source, now)
+
+    async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
+        await self._record_funnel(session_id, "voice", None, now)
+
+    async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
+        await self._record_funnel(session_id, "exchange", None, now)
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         day_name = metrics_day(moment)
@@ -237,7 +336,7 @@ class RedisMetricsStore:
             raw_events = await self._redis.lrange(_EVENTS_KEY, 0, -1)
             ranked = await self._redis.zrevrange(_CHATS_KEY, 0, CHAT_LIMIT - 1, withscores=True)
             chats = await self._chat_rows(ranked)
-        return build_snapshot(
+        payload = build_snapshot(
             now=moment,
             day=_day_totals(totals),
             dau=dau,
@@ -245,9 +344,58 @@ class RedisMetricsStore:
             chats=chats,
             rates=self._rates,
         )
+        payload.update(await self._funnel_snapshot(moment))
+        return payload
 
     async def aclose(self) -> None:
         await self._redis.aclose()
+
+    async def _record_funnel(
+        self,
+        session_id: str,
+        kind: str,
+        source: str | None,
+        now: float | None,
+    ) -> None:
+        session = session_id.strip()
+        if not session:
+            return
+        moment = _moment(now)
+        day = metrics_day(moment)
+        async with self._lock:
+            user = _funnel_user(await self._redis.hgetall(_funnel_user_key(session)))
+            delta = apply_funnel(user, kind=kind, source=normalize_source(source), day=day)
+            await self._redis.hset(_funnel_user_key(session), mapping=_funnel_user_mapping(user))
+            await self._persist_delta(delta)
+
+    async def _persist_delta(self, delta: FunnelDelta) -> None:
+        if not _delta_counts(delta):
+            return
+        pipe = self._redis.pipeline()
+        for field, amount in _delta_counts(delta):
+            pipe.hincrby(_funnel_day_key(delta.day), field, amount)
+            pipe.hincrby(_funnel_source_key(delta.day, delta.source), field, amount)
+        pipe.sadd(_FUNNEL_SOURCES_KEY, delta.source)
+        await pipe.execute()
+
+    async def _funnel_snapshot(self, moment: float) -> dict[str, Any]:
+        days = recent_days(moment, FUNNEL_WINDOW_DAYS)
+        sources = sorted(str(item) for item in await self._redis.smembers(_FUNNEL_SOURCES_KEY))
+        pipe = self._redis.pipeline()
+        for day in days:
+            pipe.hgetall(_funnel_day_key(day))
+        for source in sources:
+            for day in days:
+                pipe.hgetall(_funnel_source_key(day, source))
+        raw = await pipe.execute()
+        day_counts = {day: _funnel_counts(raw[index]) for index, day in enumerate(days)}
+        source_counts: dict[tuple[str, str], FunnelCounts] = {}
+        cursor = len(days)
+        for source in sources:
+            for day in days:
+                source_counts[(day, source)] = _funnel_counts(raw[cursor])
+                cursor += 1
+        return funnel_view(moment, day_counts, source_counts)
 
     async def _prune_events(self, moment: float) -> None:
         raw_events = await self._redis.lrange(_EVENTS_KEY, 0, -1)
@@ -290,6 +438,181 @@ def build_metrics_store(settings: Any, redis: Redis | None = None) -> MetricsSto
 
 def metrics_day(moment: float) -> str:
     return datetime.fromtimestamp(moment, _TZ).date().isoformat()
+
+
+def recent_days(moment: float, count: int) -> list[str]:
+    current = datetime.fromtimestamp(moment, _TZ).date()
+    return [(current - timedelta(days=offset)).isoformat() for offset in range(count)]
+
+
+def normalize_source(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if _SOURCE_RE.fullmatch(text) is None:
+        return None
+    return text
+
+
+def apply_funnel(user: FunnelUser, *, kind: str, source: str | None, day: str) -> FunnelDelta:
+    if source and not user.source:
+        user.source = source
+    shown = user.source or DIRECT_SOURCE
+    delta = FunnelDelta(day=day, source=shown)
+    if kind in {"start", "voice"}:
+        if not user.first_day:
+            user.first_day = day
+        elif user.first_day < day and user.last_return_day != day:
+            user.last_return_day = day
+            delta.returned = 1
+    if kind == "start" and not user.start_day:
+        user.start_day = day
+        delta.start = 1
+    elif kind == "voice" and not user.activated_day:
+        user.activated_day = day
+        delta.activated = 1
+    elif kind == "exchange":
+        user.exchanges += 1
+        if user.exchanges >= ENGAGED_EXCHANGES and not user.engaged_day:
+            user.engaged_day = day
+            delta.engaged = 1
+    return delta
+
+
+def funnel_view(
+    moment: float,
+    day_counts: dict[str, FunnelCounts],
+    source_counts: dict[tuple[str, str], FunnelCounts],
+) -> dict[str, Any]:
+    days = recent_days(moment, FUNNEL_WINDOW_DAYS)
+    day_rows = []
+    for day in days:
+        counts = day_counts.get(day, FunnelCounts())
+        day_rows.append(_funnel_row(day, counts))
+    totals: dict[str, FunnelCounts] = {}
+    visible = set(days)
+    for (day, source), counts in source_counts.items():
+        if day not in visible:
+            continue
+        bucket = totals.setdefault(source, FunnelCounts())
+        bucket.start += counts.start
+        bucket.activated += counts.activated
+        bucket.engaged += counts.engaged
+        bucket.returned += counts.returned
+    sources = [
+        {
+            "source": name,
+            "start": counts.start,
+            "activated": counts.activated,
+            "engaged": counts.engaged,
+            "returned": counts.returned,
+        }
+        for name, counts in totals.items()
+        if counts.start or counts.activated or counts.engaged or counts.returned
+    ]
+    sources.sort(key=lambda row: (-int(row["activated"]), str(row["source"])))
+    return {
+        "activated7": sum(int(row["activated"]) for row in day_rows[:FUNNEL_WEEK_DAYS]),
+        "funnelDays": [_public_day(row) for row in day_rows],
+        "funnelSources": sources,
+    }
+
+
+def _funnel_row(label: str, counts: FunnelCounts) -> dict[str, int | str]:
+    return {
+        "day": label,
+        "source": label,
+        "start": counts.start,
+        "activated": counts.activated,
+        "engaged": counts.engaged,
+        "returned": counts.returned,
+    }
+
+
+def _public_day(row: dict[str, int | str]) -> dict[str, int | str]:
+    return {
+        "day": row["day"],
+        "start": row["start"],
+        "activated": row["activated"],
+        "engaged": row["engaged"],
+        "returned": row["returned"],
+    }
+
+
+def _bump_funnel(
+    day_counts: dict[str, FunnelCounts],
+    source_counts: dict[tuple[str, str], FunnelCounts],
+    delta: FunnelDelta,
+) -> None:
+    if not _delta_counts(delta):
+        return
+    day_bucket = day_counts.setdefault(delta.day, FunnelCounts())
+    source_bucket = source_counts.setdefault((delta.day, delta.source), FunnelCounts())
+    for bucket in (day_bucket, source_bucket):
+        bucket.start += delta.start
+        bucket.activated += delta.activated
+        bucket.engaged += delta.engaged
+        bucket.returned += delta.returned
+
+
+def _delta_counts(delta: FunnelDelta) -> list[tuple[str, int]]:
+    return [
+        (field, amount)
+        for field, amount in (
+            ("start", delta.start),
+            ("activated", delta.activated),
+            ("engaged", delta.engaged),
+            ("returned", delta.returned),
+        )
+        if amount
+    ]
+
+
+def _funnel_user_key(session_id: str) -> str:
+    return f"metrics:funnel:user:{session_id}"
+
+
+def _funnel_day_key(day_name: str) -> str:
+    return f"metrics:funnel:{day_name}"
+
+
+def _funnel_source_key(day_name: str, source: str) -> str:
+    return f"metrics:funnel:{day_name}:src:{source}"
+
+
+def _funnel_user(raw: Any) -> FunnelUser:
+    data = raw if isinstance(raw, dict) else {}
+    return FunnelUser(
+        source=str(data.get("source") or ""),
+        first_day=str(data.get("first_day") or ""),
+        start_day=str(data.get("start_day") or ""),
+        activated_day=str(data.get("activated_day") or ""),
+        engaged_day=str(data.get("engaged_day") or ""),
+        exchanges=nonneg_int(data.get("exchanges")),
+        last_return_day=str(data.get("last_return_day") or ""),
+    )
+
+
+def _funnel_user_mapping(user: FunnelUser) -> dict[str, str]:
+    return {
+        "source": user.source,
+        "first_day": user.first_day,
+        "start_day": user.start_day,
+        "activated_day": user.activated_day,
+        "engaged_day": user.engaged_day,
+        "exchanges": str(user.exchanges),
+        "last_return_day": user.last_return_day,
+    }
+
+
+def _funnel_counts(raw: Any) -> FunnelCounts:
+    data = raw if isinstance(raw, dict) else {}
+    return FunnelCounts(
+        start=nonneg_int(data.get("start")),
+        activated=nonneg_int(data.get("activated")),
+        engaged=nonneg_int(data.get("engaged")),
+        returned=nonneg_int(data.get("returned")),
+    )
 
 
 def build_snapshot(
