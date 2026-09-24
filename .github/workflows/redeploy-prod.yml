@@ -124,7 +124,8 @@ jobs:
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
           set +e
           echo "container=$(docker inspect -f '{{.State.Status}} started={{.State.StartedAt}}' speaking-coach 2>/dev/null || echo missing)"
-          docker logs speaking-coach --since 6h 2>&1 | grep -E 'TelegramHandlers|funnel|Started session|Failed to' | tail -n 40
+          echo "log_lines=$(docker logs speaking-coach --since 5h 2>&1 | wc -l)"
+          docker logs speaking-coach --since 5h 2>&1 | tail -n 60
           EOF
 
   deploy-ai:
