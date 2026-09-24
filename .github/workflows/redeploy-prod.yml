@@ -125,7 +125,9 @@ jobs:
           set +e
           echo "container=$(docker inspect -f '{{.State.Status}} started={{.State.StartedAt}}' speaking-coach 2>/dev/null || echo missing)"
           echo "log_lines=$(docker logs speaking-coach --since 5h 2>&1 | wc -l)"
-          docker logs speaking-coach --since 5h 2>&1 | tail -n 60
+          docker logs speaking-coach --since 5h 2>&1 | grep -E 'TelegramHandlers|Started session|Failed to' | tail -n 30
+          echo "---hours---"
+          docker logs speaking-coach --since 5h 2>&1 | grep -oE '2026-09-24 [0-9]{2}:' | sort | uniq -c
           EOF
 
   deploy-ai:
