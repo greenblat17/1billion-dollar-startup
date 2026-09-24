@@ -125,10 +125,14 @@ jobs:
           set -euo pipefail
           token=$(grep -E '^TELEGRAM_BOT_TOKEN=' /opt/speaking-coach/.env | head -1 | cut -d= -f2- | tr -d '\r')
           curl -s --max-time 20 -o /tmp/wh.json "https://api.telegram.org/bot${token}/getWebhookInfo"
+          curl -s --max-time 20 -o /tmp/me.json "https://api.telegram.org/bot${token}/getMe"
           unset token
           python3 - << 'PY'
           import json
           from datetime import datetime, timezone
+          me = json.load(open("/tmp/me.json"))
+          user = (me.get("result") or {})
+          print("bot", user.get("username"))
           data = json.load(open("/tmp/wh.json"))
           result = data.get("result") or {}
           url = result.get("url") or ""
@@ -144,7 +148,7 @@ jobs:
           print("last_error_message", result.get("last_error_message"))
           print("max_connections", result.get("max_connections"))
           PY
-          rm -f /tmp/wh.json
+          rm -f /tmp/wh.json /tmp/me.json
           EOF
 
   deploy-ai:
