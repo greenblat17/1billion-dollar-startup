@@ -115,26 +115,3 @@ jobs:
     with:
       destination: prod
     secrets: inherit
-
-  probe-start:
-    name: Probe start logs
-    runs-on: ubuntu-latest
-    environment: deploy-prod
-    env:
-      HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
-      USER: ${{ secrets.PROD_CMP_SERVER_USER }}
-      KEY_BODY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
-    steps:
-      - name: Read the 22:20 start
-        run: |
-          set -euo pipefail
-          KEY="$RUNNER_TEMP/vps_key"
-          install -m 600 /dev/null "$KEY"
-          printf '%s\n' "$KEY_BODY" > "$KEY"
-          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
-          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
-          set -euo pipefail
-          echo "container=$(docker inspect -f '{{.State.Status}} started={{.State.StartedAt}}' speaking-coach)"
-          echo "---start---"
-          docker logs speaking-coach --since 40m 2>&1 | grep -E 'Start command|Started session|Failed to record|Ignored command|Telegram update' | tail -n 30
-          EOF
