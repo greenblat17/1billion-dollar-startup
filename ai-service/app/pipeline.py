@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from app.dialogue import DialogueStore
 from app.llm import ChatModel
+from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech
 
@@ -31,11 +32,13 @@ class ClipPipeline:
         llm: ChatModel,
         tts: TextToSpeech,
         dialogue: DialogueStore,
+        metrics: MetricsStore | None = None,
     ) -> None:
         self._stt = stt
         self._llm = llm
         self._tts = tts
         self._dialogue = dialogue
+        self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
 
     @property
     def tts(self) -> TextToSpeech:
@@ -44,6 +47,10 @@ class ClipPipeline:
     @property
     def dialogue(self) -> DialogueStore:
         return self._dialogue
+
+    @property
+    def metrics(self) -> MetricsStore:
+        return self._metrics
 
     async def run(
         self,
@@ -68,6 +75,7 @@ class ClipPipeline:
                 "total": _elapsed_ms(started),
             }
             logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
+            await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             return PipelineResult(
                 audio=reply_audio,
                 transcript=stt_result.text,
@@ -94,6 +102,7 @@ class ClipPipeline:
             "total": _elapsed_ms(started),
         }
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
+        await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         return PipelineResult(
             audio=reply_audio,
             transcript=stt_result.text,

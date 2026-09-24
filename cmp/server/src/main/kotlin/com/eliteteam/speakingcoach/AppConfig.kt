@@ -11,6 +11,7 @@ data class AppConfig(
     val tlsKeyPath: String,
     val jwtSecret: String?,
     val databaseUrl: String?,
+    val metricsPassword: String? = null,
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
@@ -51,6 +52,7 @@ data class AppConfig(
             tlsKeyPath = env("TLS_KEY_PATH")?.takeIf { it.isNotBlank() } ?: DEFAULT_TLS_KEY_PATH,
             jwtSecret = env("JWT_SECRET")?.takeIf { it.isNotBlank() },
             databaseUrl = env("DATABASE_URL")?.takeIf { it.isNotBlank() },
+            metricsPassword = env("METRICS_PASSWORD")?.takeIf { it.isNotBlank() },
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

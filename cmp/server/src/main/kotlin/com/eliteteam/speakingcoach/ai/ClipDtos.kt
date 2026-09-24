@@ -43,3 +43,28 @@ data class ClipErrorResponse(
     val code: String,
     val message: String,
 )
+
+@Serializable
+data class MetricsSnapshot(
+    val timezone: String,
+    val day: String,
+    val promptTokens: Long,
+    val completionTokens: Long,
+    val tpm: Long,
+    val tps: Double,
+    val turns: Long,
+    val dau: Long,
+    val sttSeconds: Double,
+    val ttsChars: Long,
+    val rubPerTurn: Double? = null,
+    val rubPerDau: Double? = null,
+    val ratesConfigured: Boolean = false,
+    val chats: List<MetricsChat> = emptyList(),
+)
+
+@Serializable
+data class MetricsChat(
+    val sessionId: String,
+    val turns: Long,
+    val lastAt: String,
+)

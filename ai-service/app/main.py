@@ -13,6 +13,7 @@ from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
+from app.metrics import build_metrics_store
 from app.pipeline import ClipPipeline
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.review import OpenAiSessionReviewer, SessionReviewer
@@ -49,6 +50,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         yield
         await sessions.aclose()
+        await clip_pipeline.metrics.aclose()
 
     app = FastAPI(
         lifespan=lifespan,
@@ -73,6 +75,10 @@ def create_app(
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/internal/metrics")
+    async def metrics_snapshot() -> dict:
+        return await clip_pipeline.metrics.snapshot()
 
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
@@ -175,9 +181,10 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         base_url=settings.openai_base_url,
         default_headers=openai_headers or None,
     )
+    metrics = build_metrics_store(settings)
     return ClipPipeline(
         stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
-        llm=OpenAiChatModel(openai_client, settings.llm_model),
+        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics),
         tts=OpenAiTextToSpeech(
             openai_client,
             settings.tts_model,
@@ -186,6 +193,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
             settings.ffmpeg_bin,
         ),
         dialogue=dialogue or build_dialogue_store(settings),
+        metrics=metrics,
     )
 
 

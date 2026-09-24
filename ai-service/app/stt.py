@@ -14,6 +14,7 @@ class SttResult:
     text: str
     raw: dict[str, Any] = field(default_factory=dict)
     no_speech: bool = False
+    duration_seconds: float = 0.0
 
 
 class SpeechToText(Protocol):
@@ -48,7 +49,12 @@ class GroqSpeechToText:
         payload = _as_dict(response)
         text = str(payload.get("text") or "").strip()
         no_speech_prob = _no_speech_prob(payload)
-        return SttResult(text=text, raw=payload, no_speech=not text or no_speech_prob >= 0.8)
+        return SttResult(
+            text=text,
+            raw=payload,
+            no_speech=not text or no_speech_prob >= 0.8,
+            duration_seconds=duration_seconds(payload),
+        )
 
 
 def _suffix(filename: str) -> str:
@@ -64,6 +70,19 @@ def _as_dict(response: Any) -> dict[str, Any]:
     if callable(dump):
         return dump()
     return {"text": getattr(response, "text", "")}
+
+
+def duration_seconds(payload: dict[str, Any]) -> float:
+    raw = payload.get("duration")
+    if isinstance(raw, bool) or raw is None:
+        return 0.0
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0.0
+    if value <= 0:
+        return 0.0
+    return value
 
 
 def _no_speech_prob(payload: dict[str, Any]) -> float:

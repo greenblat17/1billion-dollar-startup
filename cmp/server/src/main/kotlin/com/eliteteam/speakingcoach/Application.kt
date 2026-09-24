@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.HttpClipClient
+import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.app.AppApi
 import com.eliteteam.speakingcoach.app.createAppApi
 import com.eliteteam.speakingcoach.app.installAppPlugins
@@ -19,6 +20,7 @@ import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
@@ -55,16 +57,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     }
     val webhookUrl = checkNotNull(config.telegramWebhookUrl)
     val webhookSecret = checkNotNull(config.telegramWebhookSecret)
-    val aiHttp = HttpClient(CIO) {
-        expectSuccess = false
-        install(ContentNegotiation) {
-            json(
-                Json {
-                    ignoreUnknownKeys = true
-                },
-            )
-        }
-    }
+    val aiHttp = speakingCoachAiHttpClient()
     val webhookScope = newTelegramWebhookScope()
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val sessionClipQueue = SessionClipQueue(
@@ -96,7 +89,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
         if (appApi != null) {
             installAppPlugins(appApi)
         }
-        installSpeakingCoachHttp {
+        installSpeakingCoachHttp(
+            metrics = metricsDashboard(config, HttpMetricsSource(ai), secureCookie = true),
+        ) {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }.hide()
@@ -127,11 +122,18 @@ private suspend fun startWebhookServer(config: AppConfig) {
 internal fun Application.module(
     config: AppConfig = AppConfig.fromEnv(),
     appApi: AppApi? = createAppApi(config),
+    metricsSource: MetricsSource? = null,
 ) {
     if (appApi != null) {
         installAppPlugins(appApi)
     }
-    installSpeakingCoachHttp {
+    installSpeakingCoachHttp(
+        metrics = metricsDashboard(
+            config,
+            metricsSource ?: ownedMetricsSource(config),
+            secureCookie = false,
+        ),
+    ) {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
             post("/telegram/webhook") {
@@ -146,5 +148,41 @@ internal fun Application.module(
         if (appApi != null) {
             installAppRoutes(this@module, appApi)
         }
+    }
+}
+
+private fun Application.metricsDashboard(
+    config: AppConfig,
+    source: MetricsSource?,
+    secureCookie: Boolean,
+): MetricsDashboard? {
+    val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
+    if (source == null) {
+        return null
+    }
+    return MetricsDashboard(password, source, secureCookie)
+}
+
+private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
+    if (config.metricsPassword.isNullOrBlank()) {
+        return null
+    }
+    val http = speakingCoachAiHttpClient()
+    monitor.subscribe(ApplicationStopped) {
+        http.close()
+    }
+    return HttpMetricsSource(
+        HttpClipClient(config.aiServiceBaseUrl, http, internalToken = config.aiInternalToken),
+    )
+}
+
+internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(CIO) {
+    expectSuccess = false
+    install(ContentNegotiation) {
+        json(
+            Json {
+                ignoreUnknownKeys = true
+            },
+        )
     }
 }
