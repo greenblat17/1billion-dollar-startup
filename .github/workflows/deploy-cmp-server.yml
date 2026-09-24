@@ -97,3 +97,26 @@ jobs:
             "${USER}@${HOST}:/opt/speaking-coach/"
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/speaking-coach/deploy-remote.sh
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" 'bash -s' << 'EOF'
+          set -euo pipefail
+          echo "container=$(docker inspect -f '{{.State.Status}} exit={{.State.ExitCode}}' speaking-coach 2>/dev/null || echo missing)"
+          port=$(grep -E '^SERVER_PORT=' /opt/speaking-coach/.env | head -1 | cut -d= -f2- | tr -d '\r')
+          if grep -q '^METRICS_PASSWORD=.' /opt/speaking-coach/.env; then
+            echo "password_line=present"
+          else
+            echo "password_line=missing"
+          fi
+          code=$(curl -sk -o /tmp/metrics.html -w '%{http_code}' "https://127.0.0.1:${port}/admin/metrics" || echo curlfail)
+          echo "local_metrics=$code port=$port"
+          head -c 180 /tmp/metrics.html | tr '\n' ' '
+          echo
+          EOF
+          mkdir -p probe-out
+          printf '%s\n' "$HOST" > probe-out/host.txt
+
+      - name: Upload host for this deploy
+        uses: actions/upload-artifact@v6
+        with:
+          name: ktor-host
+          path: probe-out/host.txt
+          retention-days: 1
