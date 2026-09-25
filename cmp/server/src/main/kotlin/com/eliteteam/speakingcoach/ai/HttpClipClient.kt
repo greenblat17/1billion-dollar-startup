@@ -4,6 +4,9 @@ import com.eliteteam.speakingcoach.MetricsSource
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
 import com.eliteteam.speakingcoach.speaking.ClipReply
+import com.eliteteam.speakingcoach.speaking.Correction
+import com.eliteteam.speakingcoach.speaking.CorrectionKind
+import com.eliteteam.speakingcoach.speaking.parseCorrections
 import com.eliteteam.speakingcoach.speaking.SessionGreeting
 import com.eliteteam.speakingcoach.speaking.SessionId
 import io.ktor.client.HttpClient
@@ -116,7 +119,7 @@ class HttpClipClient(
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
                 is ClipJobStatus.Ok -> return ClipReply(
-                    notes = status.notes,
+                    corrections = status.corrections,
                     audio = downloadAudio(jobId),
                     transcript = status.transcript,
                 )
@@ -163,7 +166,7 @@ class HttpClipClient(
         return when (body.status) {
             "pending" -> ClipJobStatus.Pending
             "ok" -> ClipJobStatus.Ok(
-                notes = body.result?.notes.orEmpty(),
+                corrections = body.result?.let(::corrections).orEmpty(),
                 transcript = body.result?.transcript?.ifBlank { null } ?: body.transcript.orEmpty(),
             )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
@@ -206,6 +209,21 @@ internal class HttpMetricsSource(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data class Ok(val notes: List<String>, val transcript: String) : ClipJobStatus
+    data class Ok(val corrections: List<Correction>, val transcript: String) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
+}
+
+private fun corrections(result: ClipResultResponse): List<Correction> {
+    if (result.corrections.isEmpty()) {
+        return parseCorrections(result.notes)
+    }
+    return result.corrections.mapNotNull { item ->
+        val wrong = item.wrong.trim()
+        val better = item.better.trim()
+        if (wrong.isEmpty() || better.isEmpty()) {
+            null
+        } else {
+            Correction(wrong, better, CorrectionKind.fromWire(item.kind))
+        }
+    }
 }

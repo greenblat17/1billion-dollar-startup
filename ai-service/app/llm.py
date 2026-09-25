@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI
@@ -22,54 +23,87 @@ Do not mention errors, corrections, or the transcript as a quote.
 Do not put corrections in "reply".
 """
 
-NOTES_SYSTEM = """You mark ungrammatical English in a spoken transcript for an on-screen splice.
+NOTES_SYSTEM = """You mark English mistakes in a spoken transcript for an on-screen splice.
 
 Always reply with a JSON object only:
-{"notes": [{"wrong": string, "better": string}]}
+{"notes": [{"wrong": string, "better": string, "kind": "grammar"|"word"|"natural"}]}
 
 "wrong" is an exact contiguous substring of the transcript. It must be whole words, never a piece of a longer word.
 "better" replaces only that substring. Prefix + better + suffix must read as one sentence.
 
-Return "notes": [] only when the transcript is already grammatical. Do not skip broken grammar.
-Do not mark style, fluency, hesitation, pronunciation, repeats, false starts, or self-repair.
-Do not make wording "more natural" if it is already grammatical.
-Maximum 3 notes. Two separate holes are two notes. Do not swallow correct words that sit between holes.
+"kind":
+- "grammar": the words break English grammar (tense, agreement, articles, prepositions, word order, missing or extra words).
+- "word": grammatical, but a word is the wrong one for the meaning (wrong collocation, false friend, wrong verb).
+- "natural": grammatical and the words fit, but a native speaker would clearly not say it that way (a calque or unidiomatic phrase).
+If a span has a grammar mistake, its kind is "grammar", even if it could also sound more natural.
+Use "natural" only for phrasing a native speaker would not use. Do not mark wording that is already fine but could be fancier.
 
-How wide to cut (not a list of grammar types):
+Return "notes": [] only when the transcript is already correct and natural. Do not skip broken grammar.
+Do not mark fluency, hesitation, pronunciation, repeats, false starts, or self-repair.
+Maximum 3 notes. Spans must not overlap. Two separate holes are two notes. Do not swallow correct words that sit between holes.
 
-1. Already grammatical → [].
+How wide to cut:
+
+1. Already correct and natural → [].
 Transcript: "I walked on weekends."
+{"notes": []}
+Transcript: "I think it's a good idea."
 {"notes": []}
 
 2. One wrong word; the rest of the sentence is fine → only that word.
 Transcript: "You is my friend who is living in the city."
-{"notes": [{"wrong": "You is", "better": "You are"}]}
+{"notes": [{"wrong": "You is", "better": "You are", "kind": "grammar"}]}
 
 3. Short phrase (article/preposition/noun). Do not strike the whole sentence.
 Transcript: "Usually I walk on the weekend."
-{"notes": [{"wrong": "on the weekend", "better": "on weekends"}]}
+{"notes": [{"wrong": "on the weekend", "better": "on weekends", "kind": "grammar"}]}
 Never {"wrong": "I walk", "better": "I walk on weekends"}.
 
 4. A missing word: expand "wrong" so the splice is a real sentence.
 Transcript: "How I celebrated it?"
-{"notes": [{"wrong": "How I celebrated it?", "better": "How did I celebrate it?"}]}
+{"notes": [{"wrong": "How I celebrated it?", "better": "How did I celebrate it?", "kind": "grammar"}]}
 
 5. An extra word: include a neighbor so "better" is not empty.
 Transcript: "I think that is the useful feedback."
-{"notes": [{"wrong": "the useful", "better": "useful"}]}
+{"notes": [{"wrong": "the useful", "better": "useful", "kind": "grammar"}]}
 
 6. Two holes with good words between them → two notes.
 Transcript: "I go to home and you is kind."
-{"notes": [{"wrong": "go to home", "better": "go home"}, {"wrong": "you is", "better": "you are"}]}
+{"notes": [{"wrong": "go to home", "better": "go home", "kind": "grammar"}, {"wrong": "you is", "better": "you are", "kind": "grammar"}]}
+
+7. Wrong word for the meaning → only that phrase.
+Transcript: "I made a lot of photos on the trip."
+{"notes": [{"wrong": "made a lot of photos", "better": "took a lot of photos", "kind": "word"}]}
+
+8. Grammatical but not how a native would say it → the short phrase only.
+Transcript: "We went to the sea and it was very interesting for me."
+{"notes": [{"wrong": "very interesting for me", "better": "really fun", "kind": "natural"}]}
 """
 
 NOTE_SEP = "|||"
+MAX_CORRECTIONS = 3
+CORRECTION_KINDS = ("grammar", "word", "natural")
+DEFAULT_KIND = "grammar"
+
+
+@dataclass(frozen=True)
+class Correction:
+    wrong: str
+    better: str
+    kind: str = DEFAULT_KIND
+
+    @property
+    def note(self) -> str:
+        return f"{self.wrong}{NOTE_SEP}{self.better}"
+
+    def to_json(self) -> dict[str, str]:
+        return {"wrong": self.wrong, "better": self.better, "kind": self.kind}
 
 
 class ChatModel(Protocol):
     async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str: ...
 
-    async def complete_notes(self, user_text: str) -> list[str]: ...
+    async def complete_notes(self, user_text: str) -> list[Correction]: ...
 
 
 class OpenAiChatModel:
@@ -96,13 +130,13 @@ class OpenAiChatModel:
         text = await self._complete(messages, self._reply_temperature)
         return parse_reply(text)
 
-    async def complete_notes(self, user_text: str) -> list[str]:
+    async def complete_notes(self, user_text: str) -> list[Correction]:
         messages = [
             {"role": "system", "content": NOTES_SYSTEM},
             {"role": "user", "content": user_text},
         ]
         text = await self._complete(messages, self._notes_temperature)
-        return parse_notes(text)
+        return parse_corrections(text)
 
     async def _complete(self, messages: list[dict[str, str]], temperature: float) -> str:
         async def call() -> Any:
@@ -160,30 +194,31 @@ def parse_reply(raw: str) -> str:
     return reply
 
 
-def parse_notes(raw: str) -> list[str]:
+def parse_corrections(raw: str) -> list[Correction]:
     payload = _load_json(raw)
     notes_raw = payload.get("notes") or []
     if not isinstance(notes_raw, list):
         notes_raw = []
-    return [line for item in notes_raw if (line := _note_line(item))][:3]
+    corrections = [item for raw_item in notes_raw if (item := _correction(raw_item))]
+    corrections.sort(key=lambda item: CORRECTION_KINDS.index(item.kind))
+    return corrections[:MAX_CORRECTIONS]
 
 
-def _note_line(item: Any) -> str | None:
+def _correction(item: Any) -> Correction | None:
     if isinstance(item, dict):
         wrong = str(item.get("wrong") or "").strip()
         better = str(item.get("better") or "").strip()
-        if wrong and better:
-            return f"{wrong}{NOTE_SEP}{better}"
-        return None
+        kind = str(item.get("kind") or "").strip().lower()
+        if kind not in CORRECTION_KINDS:
+            kind = DEFAULT_KIND
+        return Correction(wrong, better, kind) if wrong and better else None
     text = str(item).strip()
     if NOTE_SEP not in text:
         return None
     wrong, _, better = text.partition(NOTE_SEP)
     wrong = wrong.strip()
     better = better.strip()
-    if wrong and better:
-        return f"{wrong}{NOTE_SEP}{better}"
-    return None
+    return Correction(wrong, better) if wrong and better else None
 
 
 def _load_json(raw: str) -> dict[str, Any]:

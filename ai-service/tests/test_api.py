@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.llm import Correction
 from app.main import create_app
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
 from tests.conftest import test_settings as make_settings
@@ -195,8 +196,7 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    notes = ["I was in Turkey last summer|||I went to Turkey last summer"]
-    llm = FakeLlm(notes=notes)
+    llm = FakeLlm(notes=[Correction("I was in Turkey", "I went to Turkey", "grammar")])
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with _client(app) as client:
         session_id = _start_session(client)
@@ -207,7 +207,10 @@ def test_clip_includes_coaching_notes() -> None:
         )
         body = _wait_status(client, created.json()["jobId"])
         assert body["status"] == "ok"
-        assert body["result"]["notes"] == notes
+        assert body["result"]["notes"] == ["I was in Turkey|||I went to Turkey"]
+        assert body["result"]["corrections"] == [
+            {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar"},
+        ]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
         assert tts.texts == ["Got it: I was in Turkey last summer"]
 

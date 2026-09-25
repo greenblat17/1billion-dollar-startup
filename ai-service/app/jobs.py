@@ -16,6 +16,7 @@ class ClipJob:
     transcript: str | None = None
     reply_text: str | None = None
     notes: list[str] = field(default_factory=list)
+    corrections: list[dict[str, str]] = field(default_factory=list)
     timings_ms: dict[str, int] | None = None
     error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.monotonic)
@@ -30,6 +31,7 @@ class ClipJob:
         if self.status == "ok":
             payload["result"] = {
                 "notes": list(self.notes),
+                "corrections": [dict(item) for item in self.corrections],
                 "transcript": self.transcript or "",
             }
         if self.transcript is not None:

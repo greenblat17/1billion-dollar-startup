@@ -35,7 +35,15 @@ data class ClipStatusResponse(
 @Serializable
 data class ClipResultResponse(
     val notes: List<String> = emptyList(),
+    val corrections: List<ClipCorrectionResponse> = emptyList(),
     val transcript: String = "",
+)
+
+@Serializable
+data class ClipCorrectionResponse(
+    val wrong: String = "",
+    val better: String = "",
+    val kind: String? = null,
 )
 
 @Serializable

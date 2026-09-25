@@ -143,7 +143,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             if (result.reply.transcript.isNotBlank()) {
                                 reply(
                                     message,
-                                    coachingEntities(result.reply.transcript, result.reply.notes),
+                                    coachingEntities(result.reply.transcript, result.reply.corrections),
                                 )
                             }
                             sendVoice(
