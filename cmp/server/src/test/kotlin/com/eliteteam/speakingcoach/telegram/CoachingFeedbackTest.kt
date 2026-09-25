@@ -88,7 +88,7 @@ class CoachingFeedbackTest {
             listOf(Correction("made a photo", "took a photo", CorrectionKind.WORD)),
         )
         assertEquals(
-            "🗣️ You said:\n\nI\n\nmade a photo\ntook a photo · $WORD_LABEL\n\nyesterday",
+            "🗣️ You said:\n\nI\n\n$WORD_LABEL\nmade a photo\ntook a photo\n\nyesterday",
             sources.joinToString("") { it.source },
         )
     }
@@ -103,7 +103,7 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "🗣️ You said:\n\nIt were\nIt was · $GRAMMAR_LABEL\n\nvery interesting for me",
+            "🗣️ You said:\n\n$GRAMMAR_LABEL\nIt were\nIt was\n\nvery interesting for me",
             sources.joinToString("") { it.source },
         )
     }
@@ -120,7 +120,7 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "🗣️ You said:\n\na\nA · $NATURAL_LABEL\n\nb\n\nc\nC · $WORD_LABEL\n\nd\nD · $GRAMMAR_LABEL",
+            "🗣️ You said:\n\n$NATURAL_LABEL\na\nA\n\nb\n\n$WORD_LABEL\nc\nC\n\n$GRAMMAR_LABEL\nd\nD",
             sources.joinToString("") { it.source },
         )
     }

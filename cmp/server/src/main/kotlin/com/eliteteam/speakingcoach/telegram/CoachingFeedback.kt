@@ -32,13 +32,13 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
                     regular(before)
                     regular("\n\n")
                 }
+                span.correction.kind?.let { kind ->
+                    italic(correctionKindLabel(kind))
+                    regular("\n")
+                }
                 strikethrough(span.correction.wrong)
                 regular("\n")
                 bold(span.correction.better)
-                span.correction.kind?.let { kind ->
-                    regular(" · ")
-                    italic(correctionKindLabel(kind))
-                }
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
                     regular("\n\n")
