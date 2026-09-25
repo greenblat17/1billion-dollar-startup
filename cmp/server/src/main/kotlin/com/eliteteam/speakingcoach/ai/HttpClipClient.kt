@@ -59,22 +59,22 @@ class HttpClipClient(
         )
     }
 
-    suspend fun recordFunnelStart(sessionId: SessionId, source: String?) {
+    suspend fun recordFunnelStart(sessionId: SessionId, source: String?, profile: ChatProfile) {
         val response = http.post("$root/internal/funnel/start") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(FunnelStartRequest(sessionId.value, source))
+            setBody(FunnelStartRequest(sessionId.value, source, profile.username, profile.name))
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/funnel/start returned ${response.status}")
         }
     }
 
-    suspend fun recordFunnelVoice(sessionId: SessionId) {
+    suspend fun recordFunnelVoice(sessionId: SessionId, profile: ChatProfile) {
         val response = http.post("$root/internal/funnel/voice") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(FunnelVoiceRequest(sessionId.value))
+            setBody(FunnelVoiceRequest(sessionId.value, profile.username, profile.name))
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/funnel/voice returned ${response.status}")
@@ -192,6 +192,11 @@ class HttpClipClient(
         }
     }
 }
+
+data class ChatProfile(
+    val username: String?,
+    val name: String?,
+)
 
 internal class HttpMetricsSource(
     private val clips: HttpClipClient,

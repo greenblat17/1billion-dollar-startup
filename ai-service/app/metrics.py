@@ -5,7 +5,7 @@ import json
 import math
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
@@ -20,6 +20,8 @@ FUNNEL_WINDOW_DAYS = 14
 FUNNEL_WEEK_DAYS = 7
 ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
+USERNAME_MAX_CHARS = 64
+NAME_MAX_CHARS = 128
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
@@ -82,6 +84,14 @@ class ChatRow:
     session_id: str
     turns: int
     last_unix: float
+    username: str = ""
+    name: str = ""
+
+
+@dataclass(frozen=True)
+class ChatProfile:
+    username: str = ""
+    name: str = ""
 
 
 @dataclass
@@ -144,6 +154,8 @@ class MetricsStore(Protocol):
 
     async def record_exchange(self, session_id: str, *, now: float | None = None) -> None: ...
 
+    async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None: ...
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
     async def aclose(self) -> None: ...
@@ -156,6 +168,7 @@ class MemoryMetricsStore:
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
         self._chats: dict[str, ChatRow] = {}
+        self._profiles: dict[str, ChatProfile] = {}
         self._funnel_users: dict[str, FunnelUser] = {}
         self._funnel_days: dict[str, FunnelCounts] = {}
         self._funnel_sources: dict[tuple[str, str], FunnelCounts] = {}
@@ -213,16 +226,27 @@ class MemoryMetricsStore:
     async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "exchange", None, now)
 
+    async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None:
+        session = session_id.strip()
+        if not session:
+            return
+        async with self._lock:
+            self._profiles[session] = normalize_profile(username, name)
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         async with self._lock:
             day_name = metrics_day(moment)
+            chats = []
+            for row in self._chats.values():
+                profile = self._profiles.get(row.session_id, ChatProfile())
+                chats.append(replace(row, username=profile.username, name=profile.name))
             payload = build_snapshot(
                 now=moment,
                 day=self._days.get(day_name, DayTotals()),
                 dau=len(self._dau.get(day_name, ())),
                 samples=list(self._samples),
-                chats=list(self._chats.values()),
+                chats=chats,
                 rates=self._rates,
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
@@ -327,6 +351,16 @@ class RedisMetricsStore:
     async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "exchange", None, now)
 
+    async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None:
+        session = session_id.strip()
+        if not session:
+            return
+        profile = normalize_profile(username, name)
+        await self._redis.hset(
+            _chat_key(session),
+            mapping={"username": profile.username, "name": profile.name},
+        )
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         day_name = metrics_day(moment)
@@ -419,11 +453,17 @@ class RedisMetricsStore:
         for member, score in members:
             session = member if isinstance(member, str) else str(member)
             parsed.append((session, float(score)))
-            pipe.hget(_chat_key(session), "turns")
-        turns = await pipe.execute()
+            pipe.hmget(_chat_key(session), "turns", "username", "name")
+        fields = await pipe.execute()
         return [
-            ChatRow(session_id=session, turns=nonneg_int(turn_count), last_unix=score)
-            for (session, score), turn_count in zip(parsed, turns, strict=True)
+            ChatRow(
+                session_id=session,
+                turns=nonneg_int(turn_count),
+                last_unix=score,
+                username=username or "",
+                name=name or "",
+            )
+            for (session, score), (turn_count, username, name) in zip(parsed, fields, strict=True)
         ]
 
 
@@ -452,6 +492,17 @@ def normalize_source(value: str | None) -> str | None:
     if _SOURCE_RE.fullmatch(text) is None:
         return None
     return text
+
+
+def normalize_profile(username: str | None, name: str | None) -> ChatProfile:
+    return ChatProfile(
+        username=_one_line(username).removeprefix("@")[:USERNAME_MAX_CHARS],
+        name=_one_line(name)[:NAME_MAX_CHARS],
+    )
+
+
+def _one_line(value: str | None) -> str:
+    return " ".join((value or "").split())
 
 
 def apply_funnel(user: FunnelUser, *, kind: str, source: str | None, day: str) -> FunnelDelta:
@@ -654,6 +705,8 @@ def build_snapshot(
                 "sessionId": row.session_id,
                 "turns": row.turns,
                 "lastAt": datetime.fromtimestamp(row.last_unix, _TZ).isoformat(timespec="seconds"),
+                "username": row.username or None,
+                "name": row.name or None,
             }
             for row in ordered
         ],

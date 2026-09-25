@@ -180,6 +180,32 @@ async def test_memory_chats_follow_the_same_order() -> None:
     assert [(chat["sessionId"], chat["turns"]) for chat in snap["chats"]] == [("tg-a", 2), ("tg-b", 1)]
 
 
+@pytest.mark.asyncio
+async def test_chats_show_the_latest_telegram_profile() -> None:
+    opened = _Stores(MetricRates())
+    moment = 1_800_000_000.0
+    try:
+        for store in opened.stores:
+            await store.record_profile("tg-a", "@old_name", "Alex")
+            await store.record_turn("tg-a", 1, 1, now=moment)
+            await store.record_turn("tg-b", 1, 1, now=moment + 10)
+            await store.record_profile("tg-a", "new_name", "  Alex\n Green ")
+            snap = await store.snapshot(now=moment + 10)
+            rows = {chat["sessionId"]: chat for chat in snap["chats"]}
+            assert rows["tg-a"]["username"] == "new_name"
+            assert rows["tg-a"]["name"] == "Alex Green"
+            assert rows["tg-a"]["turns"] == 1
+            assert rows["tg-b"]["username"] is None
+            assert rows["tg-b"]["name"] is None
+            await store.record_profile("tg-a", None, "Alex")
+            cleared = await store.snapshot(now=moment + 10)
+            row = next(chat for chat in cleared["chats"] if chat["sessionId"] == "tg-a")
+            assert row["username"] is None
+            assert row["name"] == "Alex"
+    finally:
+        await opened.aclose()
+
+
 class _ScriptedStt:
     def __init__(self, results: list[SttResult]) -> None:
         self._results = list(results)
@@ -369,9 +395,18 @@ async def test_funnel_routes_record_a_start() -> None:
             headers=AUTH,
             json={"sessionId": "tg-3", "source": "clubs"},
         )
-        voice = client.post("/internal/funnel/voice", headers=AUTH, json={"sessionId": "tg-3"})
+        voice = client.post(
+            "/internal/funnel/voice",
+            headers=AUTH,
+            json={"sessionId": "tg-3", "username": "alex", "name": "Alex"},
+        )
+        bare = client.post("/internal/funnel/voice", headers=AUTH, json={"sessionId": "tg-3"})
     assert recorded.status_code == 200
     assert voice.status_code == 200
+    assert bare.status_code == 200
+    await store.record_turn("tg-3", 1, 1)
     snap = await store.snapshot()
     assert _source_row(snap, "clubs")["start"] == 1
     assert _source_row(snap, "clubs")["activated"] == 1
+    assert snap["chats"][0]["username"] == "alex"
+    assert snap["chats"][0]["name"] == "Alex"

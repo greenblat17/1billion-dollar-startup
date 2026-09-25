@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.ai.ChatProfile
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipSubmitResult
@@ -13,6 +14,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
+import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.chat.PrivateChat
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
@@ -45,6 +47,18 @@ internal fun startSource(text: String): String? {
     return payload.takeIf { startSourcePattern.matches(it) }
 }
 
+internal fun telegramProfile(chat: Chat): ChatProfile {
+    val privateChat = chat as? PrivateChat ?: return ChatProfile(username = null, name = null)
+    val name = listOf(privateChat.firstName, privateChat.lastName)
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .joinToString(" ")
+    return ChatProfile(
+        username = privateChat.username?.withoutAt,
+        name = name.ifEmpty { null },
+    )
+}
+
 internal fun speakingCoachTelegramBot(token: String) = telegramBot(token) {
     logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token)
 }
@@ -64,7 +78,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val source = startSource(text)
         log.info("Start command {} from {}", message.messageId, message.chat.id)
         try {
-            ai.recordFunnelStart(sessionId, source)
+            ai.recordFunnelStart(sessionId, source, telegramProfile(message.chat))
         } catch (error: Throwable) {
             log.warn("Failed to record start for {}", sessionId.value, error)
         }
@@ -104,7 +118,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             is VoiceContent -> {
                 val sessionId = telegramSessionId(message.chat.id)
                 try {
-                    ai.recordFunnelVoice(sessionId)
+                    ai.recordFunnelVoice(sessionId, telegramProfile(message.chat))
                 } catch (error: Throwable) {
                     log.warn("Failed to record voice for {}", sessionId.value, error)
                 }

@@ -13,7 +13,7 @@ from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
-from app.metrics import build_metrics_store
+from app.metrics import MetricsStore, build_metrics_store
 from app.pipeline import ClipPipeline
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.review import OpenAiSessionReviewer, SessionReviewer
@@ -88,6 +88,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="sessionId required")
         source = payload.get("source")
         await clip_pipeline.metrics.record_start(session_id, None if source is None else str(source))
+        await _record_profile(clip_pipeline.metrics, session_id, payload)
         return {"ok": True}
 
     @app.post("/internal/funnel/voice")
@@ -97,6 +98,7 @@ def create_app(
         if not session_id:
             raise HTTPException(status_code=400, detail="sessionId required")
         await clip_pipeline.metrics.record_voice(session_id)
+        await _record_profile(clip_pipeline.metrics, session_id, payload)
         return {"ok": True}
 
     @app.post("/v1/sessions", status_code=201)
@@ -247,6 +249,18 @@ async def _json_object(request: Request) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="invalid body")
     return payload
+
+
+async def _record_profile(metrics: MetricsStore, session_id: str, payload: dict[str, Any]) -> None:
+    if "username" not in payload and "name" not in payload:
+        return
+    username = payload.get("username")
+    name = payload.get("name")
+    await metrics.record_profile(
+        session_id,
+        None if username is None else str(username),
+        None if name is None else str(name),
+    )
 
 
 async def _requested_session_id(request: Request) -> str | None:
