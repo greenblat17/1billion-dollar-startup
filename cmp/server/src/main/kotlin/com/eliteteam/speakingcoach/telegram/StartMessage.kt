@@ -7,9 +7,9 @@ internal const val QUEUE_FULL_TEXT = "Too many voice messages at once. Wait for 
 internal const val QUEUED_TEXT = "Got it — I'll answer in order."
 internal const val ERROR_TEXT = "Something went wrong. Please send the voice message again."
 
-internal const val GRAMMAR_LABEL = "Грамматика"
-internal const val WORD_LABEL = "Выбор слова"
-internal const val NATURAL_LABEL = "Нейтив сказал бы так"
+internal const val GRAMMAR_LABEL = "Грамматически верно:"
+internal const val WORD_LABEL = "Лучше подойдёт слово:"
+internal const val NATURAL_LABEL = "Нейтив сказал бы так:"
 
 internal fun correctionKindLabel(kind: CorrectionKind): String = when (kind) {
     CorrectionKind.GRAMMAR -> GRAMMAR_LABEL
