@@ -9,10 +9,46 @@ fun interface ClipProcessor {
 }
 
 data class ClipReply(
-    val notes: List<String>,
+    val corrections: List<Correction>,
     val audio: AudioClip,
     val transcript: String = "",
 )
+
+enum class CorrectionKind(val wire: String) {
+    GRAMMAR("grammar"),
+    WORD("word"),
+    NATURAL("natural"),
+    ;
+
+    companion object {
+        fun fromWire(value: String?): CorrectionKind? {
+            val normalized = value?.trim()?.lowercase() ?: return null
+            return entries.firstOrNull { it.wire == normalized }
+        }
+    }
+}
+
+data class Correction(
+    val wrong: String,
+    val better: String,
+    val kind: CorrectionKind? = null,
+) {
+    val priority: Int
+        get() = kind?.ordinal ?: CorrectionKind.entries.size
+}
+
+internal const val CORRECTION_SEP = "|||"
+
+internal fun parseCorrections(notes: List<String>): List<Correction> =
+    notes.mapNotNull { note ->
+        val parts = note.split(CORRECTION_SEP, limit = 2)
+        if (parts.size != 2) {
+            return@mapNotNull null
+        }
+        val wrong = parts[0].trim()
+        val better = parts[1].trim()
+        if (wrong.isEmpty() || better.isEmpty()) null else Correction(wrong, better)
+    }
 
 data class SessionGreeting(
     val sessionId: SessionId,

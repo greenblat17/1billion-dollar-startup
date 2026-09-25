@@ -1,38 +1,26 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.speaking.Correction
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.blockquote
 import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.italic
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.strikethrough
 
-internal const val CORRECTION_SEP = "|||"
-
-internal data class Correction(val wrong: String, val better: String)
+private const val MAX_CORRECTIONS = 3
 
 private data class CorrectionSpan(
     val start: Int,
     val end: Int,
-    val wrong: String,
-    val better: String,
+    val correction: Correction,
 )
 
-internal fun parseCorrections(notes: List<String>): List<Correction> =
-    notes.mapNotNull { note ->
-        val parts = note.split(CORRECTION_SEP, limit = 2)
-        if (parts.size != 2) {
-            return@mapNotNull null
-        }
-        val wrong = parts[0].trim()
-        val better = parts[1].trim()
-        if (wrong.isEmpty() || better.isEmpty()) null else Correction(wrong, better)
-    }
-
-internal fun coachingEntities(transcript: String, notes: List<String>): TextSourcesList {
+internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
-    val spans = correctionSpans(text, parseCorrections(notes).take(3))
+    val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))
     return buildEntities {
         regularln("🗣️ You said:")
         regularln("")
@@ -44,9 +32,13 @@ internal fun coachingEntities(transcript: String, notes: List<String>): TextSour
                     regular(before)
                     regular("\n\n")
                 }
-                strikethrough(span.wrong)
+                span.correction.kind?.let { kind ->
+                    italic(correctionKindLabel(kind))
+                    regular("\n")
+                }
+                strikethrough(span.correction.wrong)
                 regular("\n")
-                bold(span.better)
+                bold(span.correction.better)
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
                     regular("\n\n")
@@ -73,7 +65,7 @@ private fun correctionSpans(transcript: String, corrections: List<Correction>): 
                 }
                 val end = start + correction.wrong.length
                 if (isWholePhrase(transcript, start, end)) {
-                    add(CorrectionSpan(start, end, correction.wrong, correction.better))
+                    add(CorrectionSpan(start, end, correction))
                 }
                 from = start + 1
             }
@@ -81,7 +73,9 @@ private fun correctionSpans(transcript: String, corrections: List<Correction>): 
     }
     val chosen = mutableListOf<CorrectionSpan>()
     val ordered = candidates.sortedWith(
-        compareBy<CorrectionSpan> { it.start }.thenByDescending { it.end - it.start },
+        compareBy<CorrectionSpan> { it.correction.priority }
+            .thenBy { it.start }
+            .thenByDescending { it.end - it.start },
     )
     for (span in ordered) {
         if (chosen.none { it.start < span.end && span.start < it.end }) {

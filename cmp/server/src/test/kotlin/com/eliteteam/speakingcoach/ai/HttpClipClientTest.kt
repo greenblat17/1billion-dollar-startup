@@ -1,6 +1,9 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.speaking.AudioClip
+import com.eliteteam.speakingcoach.speaking.ClipReply
+import com.eliteteam.speakingcoach.speaking.Correction
+import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import com.eliteteam.speakingcoach.speaking.SessionId
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -110,6 +113,36 @@ class HttpClipClientTest {
 
     @Test
     fun submitsClipThenPollsUntilNotesAndAudioAreReady() = runTest {
+        val reply = processUntilOk(
+            """{"jobId":"job-1","status":"ok","result":{"notes":["I go|||I went"],"transcript":"I go to shop"},"transcript":"I go to shop"}""",
+        )
+
+        assertEquals(listOf(Correction("I go", "I went")), reply.corrections)
+        assertEquals("I go to shop", reply.transcript)
+        assertEquals(byteArrayOf(1, 2, 3).toList(), reply.audio.bytes.toList())
+        assertEquals("audio/ogg", reply.audio.contentType)
+    }
+
+    @Test
+    fun readsTypedCorrectionsOverLegacyNotes() = runTest {
+        val reply = processUntilOk(
+            """{"jobId":"job-1","status":"ok","result":{"notes":["I go|||I went","a photo|||photos"],""" +
+                """"corrections":[{"wrong":"I go","better":"I went","kind":"grammar"},""" +
+                """{"wrong":"made a photo","better":"took a photo","kind":"word"},""" +
+                """{"wrong":"very fun","better":"really fun","kind":"style"}],"transcript":"I go"}}""",
+        )
+
+        assertEquals(
+            listOf(
+                Correction("I go", "I went", CorrectionKind.GRAMMAR),
+                Correction("made a photo", "took a photo", CorrectionKind.WORD),
+                Correction("very fun", "really fun", null),
+            ),
+            reply.corrections,
+        )
+    }
+
+    private suspend fun processUntilOk(okBody: String): ClipReply {
         var polls = 0
         val engine = MockEngine { request ->
             when {
@@ -125,7 +158,7 @@ class HttpClipClientTest {
                     val body = if (polls < 2) {
                         """{"jobId":"job-1","status":"pending"}"""
                     } else {
-                        """{"jobId":"job-1","status":"ok","result":{"notes":["I go|||I went"],"transcript":"I go to shop"},"transcript":"I go to shop"}"""
+                        okBody
                     }
                     respond(
                         content = body,
@@ -155,12 +188,8 @@ class HttpClipClientTest {
             SessionId("tg-1"),
             AudioClip(byteArrayOf(9), "audio/ogg", "voice.ogg"),
         )
-
-        assertEquals(listOf("I go|||I went"), reply.notes)
-        assertEquals("I go to shop", reply.transcript)
-        assertEquals(byteArrayOf(1, 2, 3).toList(), reply.audio.bytes.toList())
-        assertEquals("audio/ogg", reply.audio.contentType)
         http.close()
+        return reply
     }
 
     private fun client(engine: MockEngine) = HttpClient(engine) {

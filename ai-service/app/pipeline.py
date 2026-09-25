@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 
 from app.dialogue import DialogueStore
-from app.llm import ChatModel
+from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech
@@ -22,7 +22,11 @@ class PipelineResult:
     transcript: str
     reply_text: str
     timings_ms: dict[str, int]
-    notes: list[str]
+    corrections: list[Correction]
+
+    @property
+    def notes(self) -> list[str]:
+        return [item.note for item in self.corrections]
 
 
 class ClipPipeline:
@@ -82,12 +86,12 @@ class ClipPipeline:
                 transcript=stt_result.text,
                 reply_text=CLARIFY_TEXT,
                 timings_ms=timings,
-                notes=[],
+                corrections=[],
             )
 
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
-        reply_text, notes = await asyncio.gather(
+        reply_text, corrections = await asyncio.gather(
             self._llm.complete_reply(history, stt_result.text),
             self._llm.complete_notes(stt_result.text),
         )
@@ -110,7 +114,7 @@ class ClipPipeline:
             transcript=stt_result.text,
             reply_text=reply_text,
             timings_ms=timings,
-            notes=list(notes),
+            corrections=list(corrections),
         )
 
 

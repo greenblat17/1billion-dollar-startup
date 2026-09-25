@@ -28,7 +28,9 @@ Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio
 
 `status`: `pending` | `ok` | `error`.
 
-On `ok`, Kotlin reads `result.notes`, `result.transcript`, fallback top-level `transcript`. Extra fields `replyText`, `timingsMs` are ignored by Ktor (`ignoreUnknownKeys`).
+On `ok`, Kotlin reads `result.corrections` (falls back to `result.notes` when `corrections` is empty or absent), `result.transcript`, fallback top-level `transcript`. Extra fields `replyText`, `timingsMs` are ignored by Ktor (`ignoreUnknownKeys`).
+
+`corrections` is the typed list (`kind`: `grammar` | `word` | `natural`, max 3, sorted by that priority). `notes` is the same list as `wrong|||better` strings, kept so an older Ktor still works when `ai-server` is redeployed first. Either deploy order is safe.
 
 Notes on `ok`:
 
@@ -38,6 +40,7 @@ Notes on `ok`:
   "status": "ok",
   "result": {
     "notes": ["I was in Turkey|||I went to Turkey"],
+    "corrections": [{ "wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar" }],
     "transcript": "I was in Turkey last summer"
   },
   "transcript": "...",

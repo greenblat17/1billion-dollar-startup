@@ -1,5 +1,8 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.speaking.Correction
+import com.eliteteam.speakingcoach.speaking.CorrectionKind
+import com.eliteteam.speakingcoach.speaking.parseCorrections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -23,7 +26,7 @@ class CoachingFeedbackTest {
     fun splicesOneCorrectionInsideTheQuote() {
         val sources = coachingEntities(
             "I was in Turkey last summer",
-            listOf("I was in Turkey|||I went to Turkey"),
+            parseCorrections(listOf("I was in Turkey|||I went to Turkey")),
         )
         assertEquals(
             "🗣️ You said:\n\nI was in Turkey\nI went to Turkey\n\nlast summer",
@@ -35,7 +38,7 @@ class CoachingFeedbackTest {
     fun splicesTwoNonOverlappingCorrections() {
         val sources = coachingEntities(
             "I go to shop and I was tired",
-            listOf("I go|||I went", "I was|||I got"),
+            parseCorrections(listOf("I go|||I went", "I was|||I got")),
         )
         assertEquals(
             "🗣️ You said:\n\nI go\nI went\n\nto shop and\n\nI was\nI got\n\ntired",
@@ -47,7 +50,7 @@ class CoachingFeedbackTest {
     fun ignoresWrongThatIsNotInTheTranscript() {
         val sources = coachingEntities(
             "Hello there",
-            listOf("xyz|||abc"),
+            parseCorrections(listOf("xyz|||abc")),
         )
         assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })
     }
@@ -56,7 +59,9 @@ class CoachingFeedbackTest {
     fun doesNotLeaveOrphanPeriodOnTheNextLine() {
         val sources = coachingEntities(
             "I will think about it when I will have users. Right now my goal is an MVP",
-            listOf("I will think about it when I will have users|||I will think about it when I have users"),
+            parseCorrections(
+                listOf("I will think about it when I will have users|||I will think about it when I have users"),
+            ),
         )
         assertEquals(
             "🗣️ You said:\n\nI will think about it when I will have users\nI will think about it when I have users\n\nRight now my goal is an MVP",
@@ -68,10 +73,54 @@ class CoachingFeedbackTest {
     fun doesNotSpliceMeInsideRemember() {
         val sources = coachingEntities(
             "I just try to remember how I celebrated",
-            listOf("me|||me is"),
+            parseCorrections(listOf("me|||me is")),
         )
         assertEquals(
             "🗣️ You said:\n\nI just try to remember how I celebrated",
+            sources.joinToString("") { it.source },
+        )
+    }
+
+    @Test
+    fun labelsCorrectionWithItsKind() {
+        val sources = coachingEntities(
+            "I made a photo yesterday",
+            listOf(Correction("made a photo", "took a photo", CorrectionKind.WORD)),
+        )
+        assertEquals(
+            "🗣️ You said:\n\nI\n\n$WORD_LABEL\nmade a photo\ntook a photo\n\nyesterday",
+            sources.joinToString("") { it.source },
+        )
+    }
+
+    @Test
+    fun grammarWinsOverOverlappingNatural() {
+        val sources = coachingEntities(
+            "It were very interesting for me",
+            listOf(
+                Correction("It were very interesting for me", "I really enjoyed it", CorrectionKind.NATURAL),
+                Correction("It were", "It was", CorrectionKind.GRAMMAR),
+            ),
+        )
+        assertEquals(
+            "🗣️ You said:\n\n$GRAMMAR_LABEL\nIt were\nIt was\n\nvery interesting for me",
+            sources.joinToString("") { it.source },
+        )
+    }
+
+    @Test
+    fun keepsThreeCorrectionsByPriority() {
+        val sources = coachingEntities(
+            "a b c d",
+            listOf(
+                Correction("a", "A", CorrectionKind.NATURAL),
+                Correction("b", "B", CorrectionKind.NATURAL),
+                Correction("c", "C", CorrectionKind.WORD),
+                Correction("d", "D", CorrectionKind.GRAMMAR),
+            ),
+        )
+        assertEquals(
+            "🗣️ You said:\n\n$NATURAL_LABEL\na\nA\n\nb\n\n$WORD_LABEL\nc\nC\n\n$GRAMMAR_LABEL\nd\nD",
             sources.joinToString("") { it.source },
         )
     }

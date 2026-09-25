@@ -296,6 +296,7 @@ async def _run_job(
         job.transcript = result.transcript
         job.reply_text = result.reply_text
         job.notes = list(result.notes)
+        job.corrections = [item.to_json() for item in result.corrections]
         job.timings_ms = result.timings_ms
         job.reply_audio = result.audio
         job.reply_content_type = CONTENT_TYPE_OGG
