@@ -64,6 +64,8 @@ class MetricsDashboardTest {
         val html = page.bodyAsText()
         assertEquals(HttpStatusCode.OK, page.status)
         assertTrue(html.contains("tg-9"))
+        assertTrue(html.contains("<td>@alex_g · Alex &lt;Green&gt;</td>"))
+        assertTrue(html.contains("<tr><td>tg-10</td><td>—</td>"))
         assertTrue(html.contains("Activated за 7 дней"))
         assertTrue(html.contains("clubs"))
         assertTrue(html.contains("1.50"))
@@ -120,6 +122,13 @@ class MetricsDashboardTest {
                 sessionId = "tg-9",
                 turns = 2,
                 lastAt = "2026-09-24T12:00:00+03:00",
+                username = "alex_g",
+                name = "Alex <Green>",
+            ),
+            MetricsChat(
+                sessionId = "tg-10",
+                turns = 1,
+                lastAt = "2026-09-24T11:00:00+03:00",
             ),
         ),
         activated7 = 4,

@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
@@ -175,7 +176,7 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </table>
         <h2>Чаты</h2>
         <table>
-        <thead><tr><th>Чат</th><th>Ходы</th><th>Последний ход</th></tr></thead>
+        <thead><tr><th>Чат</th><th>Пользователь</th><th>Ходы</th><th>Последний ход</th></tr></thead>
         <tbody>
         ${chatRows(snapshot)}
         </tbody>
@@ -205,11 +206,19 @@ private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
 
 private fun chatRows(snapshot: MetricsSnapshot): String {
     if (snapshot.chats.isEmpty()) {
-        return "<tr><td colspan=\"3\">Пока нет ходов.</td></tr>"
+        return "<tr><td colspan=\"4\">Пока нет ходов.</td></tr>"
     }
     return snapshot.chats.joinToString("\n") { chat ->
-        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${chat.turns}</td><td>${escapeHtml(chat.lastAt)}</td></tr>"
+        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${chat.turns}</td><td>${escapeHtml(chat.lastAt)}</td></tr>"
     }
+}
+
+private fun chatUser(chat: MetricsChat): String {
+    val parts = listOfNotNull(
+        chat.username?.takeIf { it.isNotBlank() }?.let { "@$it" },
+        chat.name?.takeIf { it.isNotBlank() },
+    )
+    return parts.joinToString(" · ").ifEmpty { "—" }
 }
 
 private fun card(label: String, value: String): String {

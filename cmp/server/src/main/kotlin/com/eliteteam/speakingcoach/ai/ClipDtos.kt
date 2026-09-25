@@ -87,11 +87,15 @@ data class FunnelSource(
 data class FunnelStartRequest(
     val sessionId: String,
     val source: String? = null,
+    val username: String? = null,
+    val name: String? = null,
 )
 
 @Serializable
 data class FunnelVoiceRequest(
     val sessionId: String,
+    val username: String? = null,
+    val name: String? = null,
 )
 
 @Serializable
@@ -99,4 +103,6 @@ data class MetricsChat(
     val sessionId: String,
     val turns: Long,
     val lastAt: String,
+    val username: String? = null,
+    val name: String? = null,
 )
