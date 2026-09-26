@@ -16,7 +16,9 @@ class StreakMessagesTest {
             today = LocalDate.of(2026, 9, 26),
         )
         assertEquals(
-            "Day 3. Glad you're here. Let's talk.\n\nMo 🟩\nTu ⬜\nWe 🟩\nTh 🟩\nFr 🟩\nSa ⬜\nSu ⬜",
+            "Day 3. Glad you're here. Let's talk.\n\n" + week(
+                "🟩", "⬜", "🟩", "🟩", "🟩", "⬜", "⬜",
+            ),
             text,
         )
     }
@@ -28,7 +30,9 @@ class StreakMessagesTest {
             today = LocalDate.of(2026, 9, 26),
         )
         assertEquals(
-            "🔥 Current streak: 3 days\n\nMo 🟩\nTu ⬜\nWe 🟩\nTh 🟩\nFr 🟩\nSa ⬜\nSu ⬜",
+            "🔥 Current streak: 3 days\n\n" + week(
+                "🟩", "⬜", "🟩", "🟩", "🟩", "⬜", "⬜",
+            ),
             text,
         )
     }
@@ -41,7 +45,7 @@ class StreakMessagesTest {
         )
         assertTrue(text.startsWith("No streak yet."))
         assertFalse("🔥" in text)
-        assertTrue(text.endsWith("Mo ⬜\nTu ⬜\nWe ⬜\nTh ⬜\nFr ⬜\nSa ⬜\nSu ⬜"))
+        assertTrue(text.endsWith(week("⬜", "⬜", "⬜", "⬜", "⬜", "⬜", "⬜")))
     }
 
     @Test
@@ -52,4 +56,6 @@ class StreakMessagesTest {
         assertFalse(isStreakCommand("/streaks"))
     }
 
+    private fun week(vararg squares: String): String =
+        "Mo\u3000Tu\u3000We\u3000Th\u3000Fr\u3000Sa\u3000Su\n" + squares.joinToString("\u3000")
 }
