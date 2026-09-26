@@ -8,7 +8,8 @@ import java.time.temporal.TemporalAdjusters
 
 private val MOSCOW = ZoneId.of("Europe/Moscow")
 private val WEEKDAY = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
-private const val COLUMN_GAP = " "
+private const val LABEL_GAP = "  "
+private const val SQUARE_GAP = " "
 
 internal fun streakKickoffText(
     current: Int,
@@ -46,7 +47,7 @@ private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
         val day = monday.plusDays(offset.toLong())
         if (active[day] == true) "🟩" else "⬜"
     }
-    return WEEKDAY.joinToString(COLUMN_GAP) + "\n" + squares.joinToString(COLUMN_GAP)
+    return WEEKDAY.joinToString(LABEL_GAP) + "\n" + squares.joinToString(SQUARE_GAP)
 }
 
 private fun escapeHtml(text: String): String = text
