@@ -6,7 +6,6 @@ import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipSubmitResult
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.speaking.SessionId
-import com.eliteteam.speakingcoach.speaking.TurnStreak
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
@@ -127,9 +126,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
         }
     }
-    suspend fun sendStreakNote(message: ChatMessage, streak: TurnStreak) {
+    suspend fun sendStreakNote(message: ChatMessage, sessionId: SessionId, current: Int) {
+        val last7 = try {
+            ai.streakProfile(sessionId).last7
+        } catch (error: Throwable) {
+            log.warn("Failed to load streak week for {}", sessionId.value, error)
+            emptyList()
+        }
         try {
-            reply(message, streakMessage(streak), allowSendingWithoutReply = true)
+            reply(message, streakKickoffText(current, last7), allowSendingWithoutReply = true)
         } catch (error: Throwable) {
             log.warn("Failed to send streak note for {}", message.chat.id, error)
         }
@@ -172,6 +177,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.info("Voice queue is full for {}", sessionId.value)
                         }
                         is ClipSubmitResult.Completed -> {
+                            result.reply.streak?.let { streak ->
+                                if (streak.firstToday) {
+                                    sendStreakNote(message, sessionId, streak.current)
+                                }
+                            }
                             if (result.reply.transcript.isNotBlank()) {
                                 reply(
                                     message,
@@ -183,11 +193,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 result.reply.audio.bytes.asMultipartFile(result.reply.audio.fileName),
                             )
                             log.info("Sent voice reply for {}", sessionId.value)
-                            result.reply.streak?.let { streak ->
-                                if (streak.firstToday) {
-                                    sendStreakNote(message, streak)
-                                }
-                            }
                         }
                     }
                 } catch (error: Throwable) {
