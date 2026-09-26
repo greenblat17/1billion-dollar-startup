@@ -4,6 +4,13 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderDay
+import com.eliteteam.speakingcoach.ai.ReminderRun
+import com.eliteteam.speakingcoach.ai.ReminderSegment
+import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
+import com.eliteteam.speakingcoach.ai.ReminderTotals
+import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -87,6 +94,146 @@ class MetricsDashboardTest {
         assertEquals(HttpStatusCode.OK, page.status)
         assertTrue(html.contains("Сводка сейчас недоступна."))
         assertFalse(html.contains("secret-transcript"))
+    }
+
+    @Test
+    fun reminderPostsNeedASession() = testApplication {
+        val admin = FakeReminderAdmin()
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), reminderAdmin = admin)
+        }
+        val anonymous = createClient { followRedirects = false }
+        assertEquals(HttpStatusCode.Forbidden, anonymous.post("/admin/metrics/reminders/send").status)
+        val test = anonymous.post("/admin/metrics/reminders/test") {
+            contentType(ContentType.Application.FormUrlEncoded)
+            setBody("chatId=42&template=today")
+        }
+        assertEquals(HttpStatusCode.Forbidden, test.status)
+        assertEquals(0, admin.started)
+        assertTrue(admin.tests.isEmpty())
+    }
+
+    @Test
+    fun reminderPostsRedirectWithNotice() = testApplication {
+        val admin = FakeReminderAdmin()
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), reminderAdmin = admin)
+        }
+        val browser = createClient { followRedirects = false }
+        suspend fun post(path: String, body: String = "") = browser.post(path) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+            contentType(ContentType.Application.FormUrlEncoded)
+            setBody(body)
+        }.headers[HttpHeaders.Location]
+
+        assertEquals("/admin/metrics/reminders?notice=started", post("/admin/metrics/reminders/send"))
+        admin.canStart = false
+        assertEquals("/admin/metrics/reminders?notice=busy", post("/admin/metrics/reminders/send"))
+        assertEquals("/admin/metrics/reminders?notice=test-invalid", post("/admin/metrics/reminders/test", "chatId=abc"))
+        assertEquals("/admin/metrics/reminders?notice=test-invalid", post("/admin/metrics/reminders/test", "chatId=42&template=missing"))
+        assertEquals("/admin/metrics/reminders?notice=test-sent", post("/admin/metrics/reminders/test", "chatId=42&template=today"))
+        assertEquals("/admin/metrics/reminders?notice=test-sent", post("/admin/metrics/reminders/test", "chatId=42&template=weekend_plan"))
+        admin.testResult = false
+        assertEquals("/admin/metrics/reminders?notice=test-failed", post("/admin/metrics/reminders/test", "chatId=-7"))
+        assertEquals(1, admin.started)
+        assertEquals(listOf(42L to null, 42L to "weekend_plan", -7L to null), admin.tests)
+    }
+
+    @Test
+    fun reminderSectionShowsStatsAndControls() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            reminders = RemindersSnapshot(
+                today = ReminderTotals(sent = 3, blocked = 1),
+                week = ReminderTotals(sent = 10, blocked = 2, returned = 4),
+                days = listOf(ReminderDay(day = "2026-09-24", sent = 3, returned = 1, blocked = 1)),
+                segments = listOf(ReminderSegment("new", sent = 6, returned = 1), ReminderSegment("active", sent = 4, returned = 3)),
+                templates = listOf(ReminderTemplateStats("weekend_plan", sent = 3, returned = 1), ReminderTemplateStats("gone_id", sent = 1)),
+                replyMedianSeconds = 3900,
+                runs = listOf(
+                    ReminderRun(
+                        mode = "auto",
+                        day = "2026-09-24",
+                        startedAt = "2026-09-24T19:00:00+03:00",
+                        finishedAt = "2026-09-24T19:00:07+03:00",
+                        claimed = 4,
+                        sent = 3,
+                        blocked = 1,
+                    ),
+                ),
+                autoToday = ReminderRun(mode = "auto", startedAt = "2026-09-24T19:00:00+03:00", sent = 3),
+                forecast = 12,
+            ),
+        )
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot), reminderAdmin = FakeReminderAdmin())
+        }
+        val html = client.get("/admin/metrics/reminders?notice=started") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+
+        assertTrue(html.contains("<a href=\"/admin/metrics/reminders\" aria-current=\"page\">Напоминания</a>"))
+        assertTrue(html.contains("Рассылка запущена."))
+        assertTrue(html.contains("4 · 40%"))
+        assertTrue(html.contains("1 ч 5 мин"))
+        assertTrue(html.contains("19:00 · 3"))
+        assertTrue(html.contains("примерно 12 людям"))
+        assertTrue(html.contains("action=\"/admin/metrics/reminders/test\""))
+        assertTrue(html.contains("<option value=\"weekend_plan\">"))
+        assertTrue(html.contains("7 с"))
+        assertTrue(html.contains("<tr><td>Только /start</td><td>6</td><td>1</td><td>17%</td></tr>"))
+        assertTrue(html.contains("удалён из пула"))
+        assertFalse(html.contains("<h2>Воронка</h2>"))
+    }
+
+    @Test
+    fun summaryPageLinksToRemindersTabWithoutTheSection() = testApplication {
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), reminderAdmin = FakeReminderAdmin())
+        }
+        val html = client.get("/admin/metrics") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        val anonymous = client.get("/admin/metrics/reminders").bodyAsText()
+
+        assertTrue(html.contains("<a href=\"/admin/metrics\" aria-current=\"page\">Сводка</a>"))
+        assertTrue(html.contains("<a href=\"/admin/metrics/reminders\">Напоминания</a>"))
+        assertFalse(html.contains("Отправить всем сейчас"))
+        assertTrue(html.contains("<th>Игнор подряд</th>"))
+        assertTrue(anonymous.contains("type=\"password\""))
+        assertFalse(anonymous.contains("Отправить всем сейчас"))
+    }
+
+    @Test
+    fun reminderSectionWithoutDataOrControls() = testApplication {
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()))
+        }
+        val html = client.get("/admin/metrics/reminders?notice=%3Cscript%3E") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+
+        assertTrue(html.contains("Нет данных о напоминаниях."))
+        assertFalse(html.contains("/admin/metrics/reminders/send"))
+        assertFalse(html.contains("<script>"))
+    }
+
+    private class FakeReminderAdmin : ReminderAdmin {
+        var canStart = true
+        var testResult = true
+        var started = 0
+        val tests = mutableListOf<Pair<Long, String?>>()
+
+        override fun startAll(): Boolean {
+            if (canStart) {
+                started += 1
+            }
+            return canStart
+        }
+
+        override suspend fun sendTest(chatId: Long, templateId: String?): Boolean {
+            tests += chatId to templateId
+            return testResult
+        }
     }
 
     private fun dashboardConfig(password: String?) = AppConfig(

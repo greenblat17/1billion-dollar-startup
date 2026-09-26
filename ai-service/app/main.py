@@ -16,6 +16,7 @@ from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.pipeline import ClipPipeline
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
+from app.reminders import build_reminder_ledger, parse_report
 from app.review import OpenAiSessionReviewer, SessionReviewer
 from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.stt import GroqSpeechToText
@@ -40,6 +41,7 @@ def create_app(
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
     sessions = clip_pipeline.dialogue
+    reminder_ledger = build_reminder_ledger(clip_pipeline.metrics)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
     greeting_audio: bytes | None = None
@@ -78,7 +80,17 @@ def create_app(
 
     @app.get("/internal/metrics")
     async def metrics_snapshot() -> dict:
-        return await clip_pipeline.metrics.snapshot()
+        payload = await clip_pipeline.metrics.snapshot()
+        payload["reminders"] = {
+            **await reminder_ledger.snapshot(),
+            "forecast": await clip_pipeline.metrics.reminder_forecast(),
+        }
+        marks = await reminder_ledger.chat_marks([chat["sessionId"] for chat in payload["chats"]])
+        for chat in payload["chats"]:
+            mark = marks.get(chat["sessionId"], {})
+            chat["lastReminderAt"] = mark.get("lastReminderAt")
+            chat["reminderIgnored"] = mark.get("ignored", 0)
+        return payload
 
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
@@ -98,8 +110,24 @@ def create_app(
         if not session_id:
             raise HTTPException(status_code=400, detail="sessionId required")
         await clip_pipeline.metrics.record_voice(session_id)
+        await reminder_ledger.record_reply(session_id)
         await _record_profile(clip_pipeline.metrics, session_id, payload)
         return {"ok": True}
+
+    @app.post("/internal/reminders/report")
+    async def reminders_report(request: Request) -> dict[str, bool]:
+        await reminder_ledger.record_report(parse_report(await _json_object(request)))
+        return {"ok": True}
+
+    @app.post("/internal/reminders/claim")
+    async def reminders_claim() -> dict[str, list[dict[str, str | None]]]:
+        targets = await clip_pipeline.metrics.claim_reminders()
+        return {
+            "targets": [
+                {"sessionId": target.session_id, "name": target.name or None}
+                for target in targets
+            ],
+        }
 
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:

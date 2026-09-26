@@ -10,6 +10,13 @@ import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.telegram.TELEGRAM_WEBHOOK_SECRET_HEADER
 import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
+import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.ReminderRunner
+import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
+import com.eliteteam.speakingcoach.telegram.launchDailyReminder
+import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
+import dev.inmo.tgbotapi.types.ChatId
+import dev.inmo.tgbotapi.types.RawChatId
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
@@ -65,6 +72,11 @@ private suspend fun startWebhookServer(config: AppConfig) {
         scope = webhookScope,
     )
     val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
+    val reminderRunner = ReminderRunner(
+        claim = ai::claimReminders,
+        report = ai::reportReminders,
+        send = { chatId, text -> behaviourContext.sendTextMessage(ChatId(RawChatId(chatId)), text) },
+    )
     val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
@@ -90,7 +102,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
             installAppPlugins(appApi)
         }
         installSpeakingCoachHttp(
-            metrics = metricsDashboard(config, HttpMetricsSource(ai), secureCookie = true),
+            metrics = metricsDashboard(
+                config,
+                HttpMetricsSource(ai),
+                secureCookie = true,
+                reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+            ),
         ) {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
@@ -108,6 +125,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         certificateFile = File(config.tlsCertPath),
     )
     log.info("Telegram webhook registered at {}", webhookUrl)
+    webhookScope.launchDailyReminder(reminderRunner)
     try {
         awaitCancellation()
     } finally {
@@ -123,6 +141,7 @@ internal fun Application.module(
     config: AppConfig = AppConfig.fromEnv(),
     appApi: AppApi? = createAppApi(config),
     metricsSource: MetricsSource? = null,
+    reminderAdmin: ReminderAdmin? = null,
 ) {
     if (appApi != null) {
         installAppPlugins(appApi)
@@ -132,6 +151,7 @@ internal fun Application.module(
             config,
             metricsSource ?: ownedMetricsSource(config),
             secureCookie = false,
+            reminders = reminderAdmin,
         ),
     ) {
         if (config.usesWebhook) {
@@ -155,12 +175,13 @@ private fun Application.metricsDashboard(
     config: AppConfig,
     source: MetricsSource?,
     secureCookie: Boolean,
+    reminders: ReminderAdmin? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie)
+    return MetricsDashboard(password, source, secureCookie, reminders)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

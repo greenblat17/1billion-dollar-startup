@@ -410,3 +410,62 @@ async def test_funnel_routes_record_a_start() -> None:
     assert _source_row(snap, "clubs")["activated"] == 1
     assert snap["chats"][0]["username"] == "alex"
     assert snap["chats"][0]["name"] == "Alex"
+
+
+@pytest.mark.asyncio
+async def test_reminders_skip_today_speakers_and_claim_once_per_day() -> None:
+    opened = _Stores(MetricRates())
+    day1 = _moscow(24, 10)
+    day2 = _moscow(25, 10)
+    try:
+        for store in opened.stores:
+            await store.record_start("tg-1", None, now=day1)
+            await store.record_profile("tg-1", "alex", "Alex Green")
+            await store.record_turn("tg-2", 1, 1, now=day1 - 86400)
+            await store.record_start("tg-3", None, now=day1)
+            await store.record_turn("tg-3", 1, 1, now=day1)
+            await store.record_turn("app-session", 1, 1, now=day1 - 86400)
+            await store.record_start("tg-abc", None, now=day1)
+
+            first = await store.claim_reminders(now=day1 + 3600)
+            assert [(item.session_id, item.name) for item in first] == [("tg-1", "Alex Green"), ("tg-2", "")]
+            assert await store.claim_reminders(now=day1 + 7200) == []
+
+            next_day = await store.claim_reminders(now=day2)
+            assert [item.session_id for item in next_day] == ["tg-1", "tg-2", "tg-3"]
+        assert await opened.redis.ttl("reminder:sent:2026-09-24:tg-1") > 0
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reminders_claim_route_requires_token() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    await store.record_start("tg-7", None)
+    await store.record_profile("tg-7", None, "Alex")
+    await store.record_start("tg-8", None)
+    pipeline = ClipPipeline(
+        stt=FakeStt(["hi"]),
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        dialogue=MemoryDialogueStore(max_messages=40, ttl_seconds=86400),
+        metrics=store,
+    )
+    app = create_app(
+        settings=make_settings(),
+        pipeline=pipeline,
+        realtime=FakeRealtime(),
+        reviewer=FakeReviewer(),
+    )
+    with TestClient(app) as client:
+        assert client.post("/internal/reminders/claim").status_code == 401
+        first = client.post("/internal/reminders/claim", headers=AUTH)
+        second = client.post("/internal/reminders/claim", headers=AUTH)
+    assert first.status_code == 200
+    assert first.json() == {
+        "targets": [
+            {"sessionId": "tg-7", "name": "Alex"},
+            {"sessionId": "tg-8", "name": None},
+        ],
+    }
+    assert second.json() == {"targets": []}

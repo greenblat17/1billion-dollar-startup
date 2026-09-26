@@ -22,6 +22,8 @@ ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
 NAME_MAX_CHARS = 128
+TELEGRAM_SESSION_PREFIX = "tg-"
+REMINDER_SENT_TTL_SECONDS = 2 * 24 * 60 * 60
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
@@ -94,6 +96,12 @@ class ChatProfile:
     name: str = ""
 
 
+@dataclass(frozen=True)
+class ReminderTarget:
+    session_id: str
+    name: str = ""
+
+
 @dataclass
 class FunnelUser:
     source: str = ""
@@ -158,6 +166,12 @@ class MetricsStore(Protocol):
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
+    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]: ...
+
+    async def reminder_forecast(self, *, now: float | None = None) -> int: ...
+
+    async def is_activated(self, session_id: str) -> bool: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -172,6 +186,7 @@ class MemoryMetricsStore:
         self._funnel_users: dict[str, FunnelUser] = {}
         self._funnel_days: dict[str, FunnelCounts] = {}
         self._funnel_sources: dict[tuple[str, str], FunnelCounts] = {}
+        self._reminded: set[tuple[str, str]] = set()
         self._lock = asyncio.Lock()
 
     async def record_llm(
@@ -252,8 +267,35 @@ class MemoryMetricsStore:
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
             return payload
 
+    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
+        day_name = metrics_day(_moment(now))
+        async with self._lock:
+            targets = []
+            for session in self._reminder_candidates(day_name):
+                if (day_name, session) in self._reminded:
+                    continue
+                self._reminded.add((day_name, session))
+                targets.append(ReminderTarget(session, self._profiles.get(session, ChatProfile()).name))
+            return targets
+
+    async def reminder_forecast(self, *, now: float | None = None) -> int:
+        day_name = metrics_day(_moment(now))
+        async with self._lock:
+            return sum(
+                1 for session in self._reminder_candidates(day_name) if (day_name, session) not in self._reminded
+            )
+
+    async def is_activated(self, session_id: str) -> bool:
+        async with self._lock:
+            user = self._funnel_users.get(session_id)
+            return bool(user and user.activated_day)
+
     async def aclose(self) -> None:
         return None
+
+    def _reminder_candidates(self, day_name: str) -> list[str]:
+        known = set(self._funnel_users) | set(self._chats)
+        return sorted(reminder_candidates(known, self._dau.get(day_name, set())))
 
     def _add_turn(self, day_name: str, session: str, stt_ms: int, tts_chars: int, moment: float) -> None:
         day = self._days.setdefault(day_name, DayTotals())
@@ -381,6 +423,49 @@ class RedisMetricsStore:
         payload.update(await self._funnel_snapshot(moment))
         return payload
 
+    @property
+    def redis(self) -> Redis:
+        return self._redis
+
+    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
+        day_name = metrics_day(_moment(now))
+        targets = []
+        for session in await self._reminder_candidates(day_name):
+            claimed = await self._redis.set(
+                _reminder_sent_key(day_name, session),
+                "1",
+                nx=True,
+                ex=REMINDER_SENT_TTL_SECONDS,
+            )
+            if not claimed:
+                continue
+            name = await self._redis.hget(_chat_key(session), "name")
+            targets.append(ReminderTarget(session, name or ""))
+        return targets
+
+    async def reminder_forecast(self, *, now: float | None = None) -> int:
+        day_name = metrics_day(_moment(now))
+        sessions = await self._reminder_candidates(day_name)
+        if not sessions:
+            return 0
+        pipe = self._redis.pipeline()
+        for session in sessions:
+            pipe.exists(_reminder_sent_key(day_name, session))
+        return sum(1 for sent in await pipe.execute() if not sent)
+
+    async def is_activated(self, session_id: str) -> bool:
+        return bool(await self._redis.hget(_funnel_user_key(session_id), "activated_day"))
+
+    async def _reminder_candidates(self, day_name: str) -> list[str]:
+        prefix = _funnel_user_key(TELEGRAM_SESSION_PREFIX)
+        known = {
+            str(key).removeprefix(_funnel_user_key(""))
+            async for key in self._redis.scan_iter(match=f"{prefix}*")
+        }
+        known.update(str(member) for member in await self._redis.zrange(_CHATS_KEY, 0, -1))
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        return sorted(reminder_candidates(known, active))
+
     async def aclose(self) -> None:
         await self._redis.aclose()
 
@@ -499,6 +584,16 @@ def normalize_profile(username: str | None, name: str | None) -> ChatProfile:
         username=_one_line(username).removeprefix("@")[:USERNAME_MAX_CHARS],
         name=_one_line(name)[:NAME_MAX_CHARS],
     )
+
+
+def reminder_candidates(known: set[str], active_today: set[str]) -> set[str]:
+    return {
+        session
+        for session in known
+        if session.startswith(TELEGRAM_SESSION_PREFIX)
+        and session.removeprefix(TELEGRAM_SESSION_PREFIX).lstrip("-").isdigit()
+        and session not in active_today
+    }
 
 
 def _one_line(value: str | None) -> str:
@@ -621,6 +716,10 @@ def _delta_counts(delta: FunnelDelta) -> list[tuple[str, int]]:
 
 def _funnel_user_key(session_id: str) -> str:
     return f"metrics:funnel:user:{session_id}"
+
+
+def _reminder_sent_key(day_name: str, session_id: str) -> str:
+    return f"reminder:sent:{day_name}:{session_id}"
 
 
 def _funnel_day_key(day_name: str) -> str:
