@@ -16,7 +16,7 @@ class StreakMessagesTest {
             today = LocalDate.of(2026, 9, 26),
         )
         assertEquals(
-            "Day 3. Glad you're here. Let's talk.\nMo 🟩  Tu ⬜  We 🟩  Th 🟩\nFr 🟩  Sa ⬜  Su ⬜",
+            "Day 3. Glad you're here. Let's talk.\n\nMo 🟩\nTu ⬜\nWe 🟩\nTh 🟩\nFr 🟩\nSa ⬜\nSu ⬜",
             text,
         )
     }
@@ -28,7 +28,7 @@ class StreakMessagesTest {
             today = LocalDate.of(2026, 9, 26),
         )
         assertEquals(
-            "🔥 Current streak: 3 days\nMo 🟩  Tu ⬜  We 🟩  Th 🟩\nFr 🟩  Sa ⬜  Su ⬜",
+            "🔥 Current streak: 3 days\n\nMo 🟩\nTu ⬜\nWe 🟩\nTh 🟩\nFr 🟩\nSa ⬜\nSu ⬜",
             text,
         )
     }
@@ -41,7 +41,7 @@ class StreakMessagesTest {
         )
         assertTrue(text.startsWith("No streak yet."))
         assertFalse("🔥" in text)
-        assertTrue(text.endsWith("Mo ⬜  Tu ⬜  We ⬜  Th ⬜\nFr ⬜  Sa ⬜  Su ⬜"))
+        assertTrue(text.endsWith("Mo ⬜\nTu ⬜\nWe ⬜\nTh ⬜\nFr ⬜\nSa ⬜\nSu ⬜"))
     }
 
     @Test

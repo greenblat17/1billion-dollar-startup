@@ -16,7 +16,7 @@ internal fun streakKickoffText(
 ): String {
     val headline = "Day $current. Glad you're here. Let's talk."
     val grid = weekGrid(last7, today) ?: return headline
-    return "$headline\n$grid"
+    return "$headline\n\n$grid"
 }
 
 internal fun streakProfileText(
@@ -24,12 +24,13 @@ internal fun streakProfileText(
     today: LocalDate = LocalDate.now(MOSCOW),
 ): String {
     val headline = if (profile.current > 0) {
-        "🔥 Current streak: ${profile.current} days"
+        val days = if (profile.current == 1) "day" else "days"
+        "🔥 Current streak: ${profile.current} $days"
     } else {
         "No streak yet. Send me a voice message to start one!"
     }
     val grid = weekGrid(profile.last7, today) ?: return headline
-    return "$headline\n$grid"
+    return "$headline\n\n$grid"
 }
 
 private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
@@ -44,5 +45,5 @@ private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
         val day = monday.plusDays(offset.toLong())
         val square = if (active[day] == true) "🟩" else "⬜"
         "${WEEKDAY[offset]} $square"
-    }.chunked(4).joinToString("\n") { row -> row.joinToString("  ") }
+    }.joinToString("\n")
 }
