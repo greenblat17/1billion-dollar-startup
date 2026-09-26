@@ -9,7 +9,7 @@ import java.time.temporal.TemporalAdjusters
 private val MOSCOW = ZoneId.of("Europe/Moscow")
 private val WEEKDAY = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
 private const val LABEL_GAP = "  "
-private const val SQUARE_GAP = " "
+private const val SQUARE_GAP = "  "
 
 internal fun streakKickoffText(
     current: Int,
