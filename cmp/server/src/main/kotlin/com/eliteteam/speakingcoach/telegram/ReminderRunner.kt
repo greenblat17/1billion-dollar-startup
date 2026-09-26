@@ -61,6 +61,7 @@ internal class ReminderRunner(
     private val clock: () -> ZonedDateTime = { ZonedDateTime.now(REMINDER_ZONE) },
     private val pause: Duration = 50.milliseconds,
     private val classify: (Throwable) -> SendFailure = ::telegramSendFailure,
+    private val streakOf: suspend (Long) -> Int = { 0 },
 ) {
     private val mutex = Mutex()
 
@@ -78,8 +79,8 @@ internal class ReminderRunner(
             val results = mutableListOf<ReminderSendResult>()
             for (target in targets) {
                 val chatId = reminderChatId(target.sessionId) ?: continue
-                val template = reminderTemplate(chatId, day)
-                val status = deliver(chatId, renderReminder(template, reminderFirstName(target.name)))
+                val template = reminderTemplate(chatId, day, target.streak)
+                val status = deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
                 results += ReminderSendResult(target.sessionId, template.id, status)
                 delay(pause)
             }
@@ -112,12 +113,13 @@ internal class ReminderRunner(
     }
 
     suspend fun sendTest(chatId: Long, templateId: String?): Boolean {
+        val streak = streakOf(chatId).coerceAtLeast(0)
         val template = if (templateId == null) {
-            reminderTemplate(chatId, now().toLocalDate())
+            reminderTemplate(chatId, now().toLocalDate(), streak)
         } else {
             reminderTemplateById(templateId) ?: return false
         }
-        return deliver(chatId, renderReminder(template, null)) == STATUS_SENT
+        return deliver(chatId, renderReminder(template, null, streak)) == STATUS_SENT
     }
 
     private suspend fun deliver(chatId: Long, text: String): String {

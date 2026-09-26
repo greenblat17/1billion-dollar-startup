@@ -9,6 +9,7 @@ import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import com.eliteteam.speakingcoach.speaking.parseCorrections
 import com.eliteteam.speakingcoach.speaking.SessionGreeting
 import com.eliteteam.speakingcoach.speaking.SessionId
+import com.eliteteam.speakingcoach.speaking.TurnStreak
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
@@ -84,6 +85,16 @@ class HttpClipClient(
         }
     }
 
+    suspend fun streakProfile(sessionId: SessionId): StreakProfileResponse {
+        val response = http.get("$root/internal/streak/${sessionId.value}") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service GET /internal/streak returned ${response.status}")
+        }
+        return response.body()
+    }
+
     suspend fun claimReminders(): List<ReminderTarget> {
         val response = http.post("$root/internal/reminders/claim") {
             applyInternalToken()
@@ -143,6 +154,7 @@ class HttpClipClient(
                     corrections = status.corrections,
                     audio = downloadAudio(jobId),
                     transcript = status.transcript,
+                    streak = status.streak,
                 )
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
@@ -189,6 +201,7 @@ class HttpClipClient(
             "ok" -> ClipJobStatus.Ok(
                 corrections = body.result?.let(::corrections).orEmpty(),
                 transcript = body.result?.transcript?.ifBlank { null } ?: body.transcript.orEmpty(),
+                streak = body.result?.streak?.let(::turnStreak),
             )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
@@ -230,9 +243,17 @@ internal class HttpMetricsSource(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data class Ok(val corrections: List<Correction>, val transcript: String) : ClipJobStatus
+    data class Ok(val corrections: List<Correction>, val transcript: String, val streak: TurnStreak?) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }
+
+private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(
+    current = streak.current,
+    best = streak.best,
+    firstToday = streak.firstToday,
+    firstEver = streak.firstEver,
+    newRecord = streak.newRecord,
+)
 
 private fun corrections(result: ClipResultResponse): List<Correction> {
     if (result.corrections.isEmpty()) {

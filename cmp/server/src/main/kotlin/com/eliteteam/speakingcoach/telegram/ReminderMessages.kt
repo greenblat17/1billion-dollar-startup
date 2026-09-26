@@ -10,7 +10,6 @@ internal val REMINDER_TEMPLATES = listOf(
     ReminderTemplate("day_went", "Hey$NAME_SLOT! 👋 Got two minutes? Send me a voice message and tell me how your day went."),
     ReminderTemplate("looking_forward", "Speaky here 🙂 Quick English warm-up? Tell me one thing you're looking forward to this week."),
     ReminderTemplate("ate_today", "Missed you$NAME_SLOT! Record a short voice note: what did you eat today, and was it good?"),
-    ReminderTemplate("smile_today", "Hi$NAME_SLOT! Let's keep your English streak alive 🔥 What made you smile today?"),
     ReminderTemplate("last_movie", "Time for a tiny speaking break ☕ Tell me about the last movie or show you watched."),
     ReminderTemplate("travel_tomorrow", "Hey$NAME_SLOT! If you could travel anywhere tomorrow, where would you go? Tell me in a voice message ✈️"),
     ReminderTemplate("describe_room", "Your daily English minute is here ⏱️ Describe your room or the place where you are right now."),
@@ -33,17 +32,48 @@ internal val REMINDER_TEMPLATES = listOf(
     ReminderTemplate("week_goal", "Hey$NAME_SLOT! Tell me one goal you have for this week, and I'll cheer you on 🎯"),
 )
 
-internal fun reminderTemplate(chatId: Long, day: LocalDate): ReminderTemplate {
-    val size = REMINDER_TEMPLATES.size
-    return REMINDER_TEMPLATES[(day.toEpochDay() + chatId.mod(size)).mod(size)]
+internal const val STREAK_REMINDER_MIN = 2
+
+private const val STREAK_SLOT = "{streak}"
+private const val NEXT_SLOT = "{next}"
+
+internal val STREAK_REMINDER_TEMPLATES = listOf(
+    ReminderTemplate("smile_today", "Hi$NAME_SLOT! Let's keep your English streak alive 🔥 What made you smile today?"),
+    ReminderTemplate(
+        "streak_keep",
+        "Hey$NAME_SLOT! Your $STREAK_SLOT-day streak is waiting 🔥 Send me a quick voice message to keep it going.",
+    ),
+    ReminderTemplate(
+        "streak_tonight",
+        "$STREAK_SLOT days in a row$NAME_SLOT! Don't break it tonight 🔥 Tell me how your day went.",
+    ),
+    ReminderTemplate(
+        "streak_one_minute",
+        "One voice message keeps your $STREAK_SLOT-day streak alive 🔥 What are you doing right now?",
+    ),
+    ReminderTemplate(
+        "streak_next",
+        "Hi$NAME_SLOT! Day $NEXT_SLOT is one voice message away 🔥 What's on your mind today?",
+    ),
+)
+
+internal fun reminderTemplate(chatId: Long, day: LocalDate, streak: Int = 0): ReminderTemplate {
+    val pool = if (streak >= STREAK_REMINDER_MIN) STREAK_REMINDER_TEMPLATES else REMINDER_TEMPLATES
+    val size = pool.size
+    return pool[(day.toEpochDay() + chatId.mod(size)).mod(size)]
 }
 
-internal fun reminderTemplateById(id: String): ReminderTemplate? = REMINDER_TEMPLATES.firstOrNull { it.id == id }
+internal fun reminderTemplateById(id: String): ReminderTemplate? =
+    (REMINDER_TEMPLATES + STREAK_REMINDER_TEMPLATES).firstOrNull { it.id == id }
 
-internal fun renderReminder(template: ReminderTemplate, firstName: String?): String {
+internal fun renderReminder(template: ReminderTemplate, firstName: String?, streak: Int = 0): String {
     val name = firstName?.trim().orEmpty()
     val slot = if (name.isNotEmpty()) ", $name" else ""
-    return template.text.replace(NAME_SLOT, slot)
+    val days = streak.coerceAtLeast(0)
+    return template.text
+        .replace(NAME_SLOT, slot)
+        .replace(STREAK_SLOT, days.toString())
+        .replace(NEXT_SLOT, (days + 1).toString())
 }
 
 internal fun reminderFirstName(name: String?): String? =
