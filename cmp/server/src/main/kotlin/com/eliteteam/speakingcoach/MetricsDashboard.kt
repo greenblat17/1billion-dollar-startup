@@ -2,11 +2,14 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveParameters
+import io.ktor.server.response.respond
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -14,6 +17,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.openapi.hide
 import io.ktor.server.routing.post
 import io.ktor.utils.io.ExperimentalKtorApi
+import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
 import java.util.Locale
@@ -21,6 +25,14 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 internal const val METRICS_COOKIE = "metrics_session"
+internal const val METRICS_PATH = "/admin/metrics"
+internal const val REMINDERS_PATH = "/admin/metrics/reminders"
+internal const val NOTICE_STARTED = "started"
+internal const val NOTICE_BUSY = "busy"
+internal const val NOTICE_TEST_SENT = "test-sent"
+internal const val NOTICE_TEST_FAILED = "test-failed"
+internal const val NOTICE_TEST_INVALID = "test-invalid"
+private const val TODAY_TEMPLATE = "today"
 private const val METRICS_COOKIE_PAYLOAD = "metrics-ok"
 private const val METRICS_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60
 
@@ -32,6 +44,7 @@ internal class MetricsDashboard(
     val password: String,
     val source: MetricsSource,
     val secureCookie: Boolean,
+    val reminders: ReminderAdmin? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -50,6 +63,23 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         call.respondText(html, ContentType.Text.Html)
     }.hide()
+    get(REMINDERS_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            remindersPageHtml(
+                dashboard.source.load(),
+                notice = call.request.queryParameters["notice"],
+                controls = dashboard.reminders != null,
+            )
+        } catch (error: Throwable) {
+            log.warn("Metrics snapshot failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
     post("/admin/metrics/login") {
         val provided = call.receiveParameters()["password"].orEmpty()
         if (!metricsPasswordMatches(dashboard.password, provided)) {
@@ -58,6 +88,38 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         call.response.cookies.append(metricsSessionCookie(dashboard.password, dashboard.secureCookie))
         call.respondRedirect("/admin/metrics")
+    }.hide()
+    post("/admin/metrics/reminders/send") {
+        val admin = dashboard.reminders
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val notice = if (admin.startAll()) NOTICE_STARTED else NOTICE_BUSY
+        call.respondRedirect("$REMINDERS_PATH?notice=$notice")
+    }.hide()
+    post("/admin/metrics/reminders/test") {
+        val admin = dashboard.reminders
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val parameters = call.receiveParameters()
+        val chatId = parameters["chatId"]?.trim()?.toLongOrNull()
+        val templateId = parameters["template"]?.trim()?.takeIf { it.isNotEmpty() && it != TODAY_TEMPLATE }
+        if (chatId == null || (templateId != null && reminderTemplateById(templateId) == null)) {
+            call.respondRedirect("$REMINDERS_PATH?notice=$NOTICE_TEST_INVALID")
+            return@post
+        }
+        val sent = try {
+            admin.sendTest(chatId, templateId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Test reminder failed for tg-{}", chatId, error)
+            false
+        }
+        call.respondRedirect("$REMINDERS_PATH?notice=${if (sent) NOTICE_TEST_SENT else NOTICE_TEST_FAILED}")
     }.hide()
 }
 
@@ -146,6 +208,7 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </head>
         <body>
         <h1>Speaky</h1>
+        ${adminTabs(METRICS_PATH)}
         <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Счёт с момента выкладки.</p>
         <dl>
         ${card("Токены prompt", snapshot.promptTokens.toString())}
@@ -176,7 +239,7 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </table>
         <h2>Чаты</h2>
         <table>
-        <thead><tr><th>Чат</th><th>Пользователь</th><th>Ходы</th><th>Последний ход</th></tr></thead>
+        <thead><tr><th>Чат</th><th>Пользователь</th><th>Ходы</th><th>Последний ход</th><th>Напоминание</th><th>Игнор подряд</th></tr></thead>
         <tbody>
         ${chatRows(snapshot)}
         </tbody>
@@ -206,10 +269,11 @@ private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
 
 private fun chatRows(snapshot: MetricsSnapshot): String {
     if (snapshot.chats.isEmpty()) {
-        return "<tr><td colspan=\"4\">Пока нет ходов.</td></tr>"
+        return "<tr><td colspan=\"6\">Пока нет ходов.</td></tr>"
     }
     return snapshot.chats.joinToString("\n") { chat ->
-        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${chat.turns}</td><td>${escapeHtml(chat.lastAt)}</td></tr>"
+        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${chat.turns}</td>" +
+            "<td>${escapeHtml(chat.lastAt)}</td><td>${escapeHtml(chat.lastReminderAt?.let(::shortTime) ?: "—")}</td><td>${chat.reminderIgnored}</td></tr>"
     }
 }
 
@@ -221,11 +285,20 @@ private fun chatUser(chat: MetricsChat): String {
     return parts.joinToString(" · ").ifEmpty { "—" }
 }
 
-private fun card(label: String, value: String): String {
+internal fun card(label: String, value: String): String {
     return "<div class=\"card\"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>"
 }
 
-private fun pageStyle(): String = """
+internal fun adminTabs(active: String): String {
+    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания")
+    val links = tabs.joinToString("") { (path, label) ->
+        val current = if (path == active) " aria-current=\"page\"" else ""
+        "<a href=\"$path\"$current>$label</a>"
+    }
+    return "<nav class=\"tabs\">$links</nav>"
+}
+
+internal fun pageStyle(): String = """
     <style>
     body { font: 16px/1.45 ui-sans-serif, system-ui, sans-serif; margin: 32px auto; max-width: 960px; color: #1c1917; background: #fafaf9; }
     h1 { font-size: 1.5rem; font-weight: 650; margin-bottom: 0.25rem; }
@@ -238,7 +311,14 @@ private fun pageStyle(): String = """
     table { width: 100%; border-collapse: collapse; background: #fff; }
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e7e5e4; }
     form { display: flex; flex-direction: column; gap: 12px; max-width: 320px; }
-    input, button { font: inherit; padding: 8px 10px; }
+    form.inline { flex-direction: row; flex-wrap: wrap; align-items: end; max-width: none; margin: 12px 0; }
+    input, button, select { font: inherit; padding: 8px 10px; }
+    .notice { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 10px 14px; }
+    .notice.warn { background: #fef2f2; border-color: #fecaca; }
+    .template { color: #57534e; font-size: 0.85rem; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e7e5e4; margin: 12px 0 16px; }
+    .tabs a { padding: 8px 14px; color: #57534e; text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tabs a[aria-current="page"] { color: #1c1917; font-weight: 650; border-bottom-color: #1c1917; }
     </style>
 """.trimIndent()
 

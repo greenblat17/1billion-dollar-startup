@@ -84,6 +84,27 @@ class HttpClipClient(
         }
     }
 
+    suspend fun claimReminders(): List<ReminderTarget> {
+        val response = http.post("$root/internal/reminders/claim") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/reminders/claim returned ${response.status}")
+        }
+        return response.body<ReminderClaimResponse>().targets
+    }
+
+    suspend fun reportReminders(report: ReminderReport) {
+        val response = http.post("$root/internal/reminders/report") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(report)
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/reminders/report returned ${response.status}")
+        }
+    }
+
     suspend fun ensureSession(sessionId: SessionId): SessionId {
         return SessionId(createSession(sessionId).sessionId)
     }

@@ -71,6 +71,80 @@ data class MetricsSnapshot(
     val activated7: Long = 0,
     val funnelDays: List<FunnelDay> = emptyList(),
     val funnelSources: List<FunnelSource> = emptyList(),
+    val reminders: RemindersSnapshot? = null,
+)
+
+@Serializable
+data class RemindersSnapshot(
+    val today: ReminderTotals = ReminderTotals(),
+    val week: ReminderTotals = ReminderTotals(),
+    val days: List<ReminderDay> = emptyList(),
+    val segments: List<ReminderSegment> = emptyList(),
+    val templates: List<ReminderTemplateStats> = emptyList(),
+    val replyMedianSeconds: Long? = null,
+    val runs: List<ReminderRun> = emptyList(),
+    val autoToday: ReminderRun? = null,
+    val forecast: Long = 0,
+)
+
+@Serializable
+data class ReminderTotals(
+    val sent: Long = 0,
+    val blocked: Long = 0,
+    val failed: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class ReminderDay(
+    val day: String,
+    val sent: Long = 0,
+    val blocked: Long = 0,
+    val failed: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class ReminderSegment(
+    val segment: String,
+    val sent: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class ReminderTemplateStats(
+    val templateId: String,
+    val sent: Long = 0,
+    val returned: Long = 0,
+    val blocked: Long = 0,
+)
+
+@Serializable
+data class ReminderRun(
+    val mode: String,
+    val day: String = "",
+    val startedAt: String = "",
+    val finishedAt: String = "",
+    val claimed: Long = 0,
+    val sent: Long = 0,
+    val blocked: Long = 0,
+    val failed: Long = 0,
+)
+
+@Serializable
+data class ReminderReport(
+    val mode: String,
+    val startedAt: String,
+    val finishedAt: String,
+    val claimed: Int,
+    val results: List<ReminderSendResult>,
+)
+
+@Serializable
+data class ReminderSendResult(
+    val sessionId: String,
+    val templateId: String,
+    val status: String,
 )
 
 @Serializable
@@ -107,10 +181,23 @@ data class FunnelVoiceRequest(
 )
 
 @Serializable
+data class ReminderClaimResponse(
+    val targets: List<ReminderTarget> = emptyList(),
+)
+
+@Serializable
+data class ReminderTarget(
+    val sessionId: String,
+    val name: String? = null,
+)
+
+@Serializable
 data class MetricsChat(
     val sessionId: String,
     val turns: Long,
     val lastAt: String,
     val username: String? = null,
     val name: String? = null,
+    val lastReminderAt: String? = null,
+    val reminderIgnored: Long = 0,
 )
