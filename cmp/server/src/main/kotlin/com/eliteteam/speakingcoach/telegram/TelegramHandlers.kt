@@ -15,6 +15,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onComman
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.chat.Chat
+import dev.inmo.tgbotapi.types.message.HTMLParseMode
 import dev.inmo.tgbotapi.types.chat.PrivateChat
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
@@ -81,7 +82,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val sessionId = telegramSessionId(message.chat.id)
         try {
-            reply(message, streakProfileText(ai.streakProfile(sessionId)), allowSendingWithoutReply = true)
+            reply(
+                message,
+                streakProfileText(ai.streakProfile(sessionId)),
+                parseMode = HTMLParseMode,
+                allowSendingWithoutReply = true,
+            )
         } catch (error: Throwable) {
             answeredStreaks.remove(claim)
             log.error("Failed to send streak for {}", sessionId.value, error)
@@ -134,7 +140,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             emptyList()
         }
         try {
-            reply(message, streakKickoffText(current, last7), allowSendingWithoutReply = true)
+            reply(
+                message,
+                streakKickoffText(current, last7),
+                parseMode = HTMLParseMode,
+                allowSendingWithoutReply = true,
+            )
         } catch (error: Throwable) {
             log.warn("Failed to send streak note for {}", message.chat.id, error)
         }

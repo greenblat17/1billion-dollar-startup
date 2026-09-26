@@ -57,5 +57,5 @@ class StreakMessagesTest {
     }
 
     private fun week(vararg squares: String): String =
-        "Mo\u3000Tu\u3000We\u3000Th\u3000Fr\u3000Sa\u3000Su\n" + squares.joinToString("\u3000")
+        "<blockquote>Mo Tu We Th Fr Sa Su\n" + squares.joinToString(" ") + "</blockquote>"
 }

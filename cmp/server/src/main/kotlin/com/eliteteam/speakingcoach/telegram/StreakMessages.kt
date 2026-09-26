@@ -8,7 +8,7 @@ import java.time.temporal.TemporalAdjusters
 
 private val MOSCOW = ZoneId.of("Europe/Moscow")
 private val WEEKDAY = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
-private const val COLUMN_GAP = "\u3000"
+private const val COLUMN_GAP = " "
 
 internal fun streakKickoffText(
     current: Int,
@@ -16,8 +16,8 @@ internal fun streakKickoffText(
     today: LocalDate = LocalDate.now(MOSCOW),
 ): String {
     val headline = "Day $current. Glad you're here. Let's talk."
-    val grid = weekGrid(last7, today) ?: return headline
-    return "$headline\n\n$grid"
+    val grid = weekGrid(last7, today) ?: return escapeHtml(headline)
+    return "${escapeHtml(headline)}\n\n<blockquote>$grid</blockquote>"
 }
 
 internal fun streakProfileText(
@@ -30,8 +30,8 @@ internal fun streakProfileText(
     } else {
         "No streak yet. Send me a voice message to start one!"
     }
-    val grid = weekGrid(profile.last7, today) ?: return headline
-    return "$headline\n\n$grid"
+    val grid = weekGrid(profile.last7, today) ?: return escapeHtml(headline)
+    return "${escapeHtml(headline)}\n\n<blockquote>$grid</blockquote>"
 }
 
 private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
@@ -48,3 +48,9 @@ private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
     }
     return WEEKDAY.joinToString(COLUMN_GAP) + "\n" + squares.joinToString(COLUMN_GAP)
 }
+
+private fun escapeHtml(text: String): String = text
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+
