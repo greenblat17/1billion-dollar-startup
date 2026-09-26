@@ -26,8 +26,13 @@ internal fun shouldRunReminder(now: ZonedDateTime, lastRunDay: LocalDate?): Bool
     return time >= REMINDER_WINDOW_START && time < REMINDER_WINDOW_END && local.toLocalDate() != lastRunDay
 }
 
-internal fun reminderChatId(sessionId: String): Long? =
-    sessionId.removePrefix("tg-").takeIf { it != sessionId }?.toLongOrNull()
+// telegramSessionId(message.chat.id) stringifies tgbotapi ChatId, so live ids look like "tg-ChatId(chatId=123)".
+private val telegramSessionPattern = Regex("""tg-(-?\d+)|tg-ChatId\(chatId=(-?\d+)\)""")
+
+internal fun reminderChatId(sessionId: String): Long? {
+    val match = telegramSessionPattern.matchEntire(sessionId) ?: return null
+    return match.groupValues.drop(1).first { it.isNotEmpty() }.toLongOrNull()
+}
 
 internal fun CoroutineScope.launchDailyReminder(
     runner: ReminderRunner,

@@ -426,13 +426,18 @@ async def test_reminders_skip_today_speakers_and_claim_once_per_day() -> None:
             await store.record_turn("tg-3", 1, 1, now=day1)
             await store.record_turn("app-session", 1, 1, now=day1 - 86400)
             await store.record_start("tg-abc", None, now=day1)
+            await store.record_start("tg-ChatId(chatId=-100)", None, now=day1)
 
             first = await store.claim_reminders(now=day1 + 3600)
-            assert [(item.session_id, item.name) for item in first] == [("tg-1", "Alex Green"), ("tg-2", "")]
+            assert [(item.session_id, item.name) for item in first] == [
+                ("tg-1", "Alex Green"),
+                ("tg-2", ""),
+                ("tg-ChatId(chatId=-100)", ""),
+            ]
             assert await store.claim_reminders(now=day1 + 7200) == []
 
             next_day = await store.claim_reminders(now=day2)
-            assert [item.session_id for item in next_day] == ["tg-1", "tg-2", "tg-3"]
+            assert [item.session_id for item in next_day] == ["tg-1", "tg-2", "tg-3", "tg-ChatId(chatId=-100)"]
         assert await opened.redis.ttl("reminder:sent:2026-09-24:tg-1") > 0
     finally:
         await opened.aclose()

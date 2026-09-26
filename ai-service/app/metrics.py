@@ -30,6 +30,8 @@ _EVENTS_KEY = "metrics:llm:events"
 _CHATS_KEY = "metrics:chats"
 _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
 _SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+# Production Ktor builds ids from tgbotapi ChatId.toString(), e.g. "tg-ChatId(chatId=123)".
+_TELEGRAM_SESSION_RE = re.compile(r"tg-(-?\d+)|tg-ChatId\(chatId=(-?\d+)\)")
 
 
 @dataclass(frozen=True)
@@ -586,13 +588,16 @@ def normalize_profile(username: str | None, name: str | None) -> ChatProfile:
     )
 
 
+def telegram_chat_id(session_id: str) -> int | None:
+    match = _TELEGRAM_SESSION_RE.fullmatch(session_id)
+    if match is None:
+        return None
+    return int(match.group(1) or match.group(2))
+
+
 def reminder_candidates(known: set[str], active_today: set[str]) -> set[str]:
     return {
-        session
-        for session in known
-        if session.startswith(TELEGRAM_SESSION_PREFIX)
-        and session.removeprefix(TELEGRAM_SESSION_PREFIX).lstrip("-").isdigit()
-        and session not in active_today
+        session for session in known if telegram_chat_id(session) is not None and session not in active_today
     }
 
 
