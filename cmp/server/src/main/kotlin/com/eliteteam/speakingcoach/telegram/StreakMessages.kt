@@ -17,7 +17,7 @@ internal fun streakKickoffText(
 ): String {
     val headline = "Day $current. Glad you're here. Let's talk."
     val grid = weekGrid(last7, today) ?: return escapeHtml(headline)
-    return "${escapeHtml(headline)}\n\n<blockquote>$grid</blockquote>"
+    return "${escapeHtml(headline)}\n\n<pre>$grid</pre>"
 }
 
 internal fun streakProfileText(
@@ -31,7 +31,7 @@ internal fun streakProfileText(
         "No streak yet. Send me a voice message to start one!"
     }
     val grid = weekGrid(profile.last7, today) ?: return escapeHtml(headline)
-    return "${escapeHtml(headline)}\n\n<blockquote>$grid</blockquote>"
+    return "${escapeHtml(headline)}\n\n<pre>$grid</pre>"
 }
 
 private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
