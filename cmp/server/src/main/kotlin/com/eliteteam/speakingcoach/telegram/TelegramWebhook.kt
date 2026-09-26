@@ -3,6 +3,8 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import dev.inmo.tgbotapi.bot.TelegramBot
+import dev.inmo.tgbotapi.extensions.api.bot.setMyCommands
+import dev.inmo.tgbotapi.types.BotCommand
 import dev.inmo.tgbotapi.extensions.api.webhook.setWebhookInfo
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviour
@@ -88,5 +90,12 @@ internal suspend fun registerTelegramWebhook(
         url = webhookUrl,
         certificate = certificate,
         secretToken = webhookSecret,
+    )
+}
+
+internal suspend fun registerBotCommands(bot: TelegramBot) {
+    bot.setMyCommands(
+        BotCommand("start", "Start a conversation"),
+        BotCommand("streak", "Show your streak"),
     )
 }

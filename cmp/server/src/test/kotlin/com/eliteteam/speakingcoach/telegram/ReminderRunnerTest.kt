@@ -154,6 +154,24 @@ class ReminderRunnerTest {
     }
 
     @Test
+    fun testSendUsesTheStreakPoolWhenTheChatHasTwoDays() = runTest {
+        val sent = mutableListOf<String>()
+        val runner = ReminderRunner(
+            claim = { listOf(ReminderTarget("tg-7", streak = 4)) },
+            report = {},
+            send = { _, text -> sent += text },
+            clock = clock,
+            pause = Duration.ZERO,
+            streakOf = { 4 },
+        )
+
+        runner.runRound(ReminderMode.AUTO)
+        assertTrue(runner.sendTest(7, null))
+        assertTrue(sent.all { it.contains("4") || it.contains("streak") || it.contains("Day 5") })
+        assertTrue(STREAK_REMINDER_TEMPLATES.any { renderReminder(it, null, 4) == sent.last() })
+    }
+
+    @Test
     fun telegramRateLimitIsRetryAfter() {
         val error = TooMuchRequestsException(RetryAfterError(3, 0), Response(), "", "", null)
         assertEquals(SendFailure.RetryAfter(3.seconds), telegramSendFailure(error))

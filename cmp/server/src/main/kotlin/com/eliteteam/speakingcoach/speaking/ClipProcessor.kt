@@ -8,10 +8,19 @@ fun interface ClipProcessor {
     suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply
 }
 
+data class TurnStreak(
+    val current: Int,
+    val best: Int,
+    val firstToday: Boolean,
+    val firstEver: Boolean,
+    val newRecord: Boolean,
+)
+
 data class ClipReply(
     val corrections: List<Correction>,
     val audio: AudioClip,
     val transcript: String = "",
+    val streak: TurnStreak? = null,
 )
 
 enum class CorrectionKind(val wire: String) {

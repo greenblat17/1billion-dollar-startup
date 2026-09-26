@@ -8,6 +8,7 @@ Status: implemented (2026-09-26), including the admin controls and stats on `/ad
 - No `/stop`. A user who does not want it blocks the bot; the send returns 403, is counted as `blocked`, and is not retried.
 - Time: 19:00 `Europe/Moscow`. The auto window is 19:00–21:00, so a restart after 21:00 does not message people late at night.
 - Copy: a fixed pool of English templates with stable ids in `cmp/server/.../telegram/ReminderMessages.kt` (`ReminderTemplate(id, text)`), with an optional first name. No LLM generation. Do not rename ids: stats are keyed by id.
+- A shown streak of 2 or more uses `STREAK_REMINDER_TEMPLATES` instead (`smile_today` moved there; id unchanged, plus `streak_keep`, `streak_tonight`, `streak_one_minute`, `streak_next`). Slots `{streak}` and `{next}` are filled at send time. Rotation uses the same day-and-chat formula inside the chosen pool. See `plans/2026-09-26-streaks.md`.
 - CMP app: out of scope (no push).
 
 ## Flow

@@ -131,6 +131,23 @@ async def test_ignored_streak_grows_and_resets_on_reply() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reply_is_counted_in_the_streak_bucket() -> None:
+    opened = _Pairs()
+    moment = _moscow(24)
+    try:
+        for _metrics, ledger in opened.pairs:
+            await ledger._streaks.record_activity("tg-1", now=_moscow(23))
+            await ledger._streaks.record_activity("tg-1", now=moment)
+            await ledger.record_report(_report(("tg-1", "day_went", "sent")), now=moment)
+            await ledger.record_reply("tg-1", now=moment + 2 * HOUR)
+            rows = {row["bucket"]: row for row in await ledger.week_streak_buckets(now=moment)}
+            assert rows["2_6"] == {"bucket": "2_6", "sent": 1, "returned": 1}
+            assert rows["0"]["sent"] == 0
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
 async def test_forecast_drops_after_claim() -> None:
     opened = _Pairs()
     moment = _moscow(24, 12)

@@ -22,6 +22,7 @@ from app.metrics import (
     nonneg_int,
     recent_days,
 )
+from app.streaks import STREAK_BUCKETS, StreakStore, build_streak_store
 
 REPLY_WINDOW_SECONDS = 24 * 60 * 60
 RUN_LIMIT = 30
@@ -74,6 +75,7 @@ class LastReminder:
     segment: str
     answered: bool = False
     replied: bool = False
+    streak_bucket: str = "0"
 
 
 class ReminderLedger(Protocol):
@@ -85,11 +87,14 @@ class ReminderLedger(Protocol):
 
     async def chat_marks(self, sessions: list[str]) -> dict[str, dict[str, Any]]: ...
 
+    async def week_streak_buckets(self, *, now: float | None = None) -> list[dict[str, Any]]: ...
 
-def build_reminder_ledger(metrics: MetricsStore) -> ReminderLedger:
+
+def build_reminder_ledger(metrics: MetricsStore, streaks: StreakStore | None = None) -> ReminderLedger:
+    store = streaks if streaks is not None else build_streak_store(metrics)
     if isinstance(metrics, RedisMetricsStore):
-        return RedisReminderLedger(metrics.redis, metrics)
-    return MemoryReminderLedger(metrics)
+        return RedisReminderLedger(metrics.redis, metrics, store)
+    return MemoryReminderLedger(metrics, store)
 
 
 def parse_report(payload: dict[str, Any]) -> ReminderReport:
@@ -195,8 +200,9 @@ def _iso(moment: float) -> str:
 
 
 class MemoryReminderLedger:
-    def __init__(self, metrics: MetricsStore) -> None:
+    def __init__(self, metrics: MetricsStore, streaks: StreakStore | None = None) -> None:
         self._metrics = metrics
+        self._streaks = streaks if streaks is not None else build_streak_store(metrics)
         self._last: dict[str, LastReminder] = {}
         self._ignored: dict[str, int] = {}
         self._days: dict[str, dict[str, int]] = {}
@@ -213,6 +219,11 @@ class MemoryReminderLedger:
             for result in report.results
             if result.status == "sent"
         }
+        buckets = {
+            result.session_id: await self._streaks.bucket_for(result.session_id, now=moment)
+            for result in report.results
+            if result.status == "sent"
+        }
         async with self._lock:
             for result in report.results:
                 self._bump(self._days, day, result.status)
@@ -221,11 +232,19 @@ class MemoryReminderLedger:
                 if result.status != "sent":
                     continue
                 segment = segments[result.session_id]
+                streak_bucket = buckets[result.session_id]
                 self._bump(self._days, day, f"sent_{segment}")
+                self._bump(self._days, day, f"sent_streak_{streak_bucket}")
                 previous = self._last.get(result.session_id)
                 if previous is not None and not previous.replied:
                     self._ignored[result.session_id] = self._ignored.get(result.session_id, 0) + 1
-                self._last[result.session_id] = LastReminder(moment, day, result.template_id, segment)
+                self._last[result.session_id] = LastReminder(
+                    moment,
+                    day,
+                    result.template_id,
+                    segment,
+                    streak_bucket=streak_bucket,
+                )
             self._runs.insert(0, run_row(report, day))
             del self._runs[RUN_LIMIT:]
 
@@ -242,6 +261,7 @@ class MemoryReminderLedger:
             last.answered = True
             self._bump(self._days, last.day, "returned")
             self._bump(self._days, last.day, f"returned_{last.segment}")
+            self._bump(self._days, last.day, f"returned_streak_{last.streak_bucket}")
             self._bump(self._templates, last.template, "returned")
             samples = self._replies.setdefault(last.day, [])
             samples.append(int(moment - last.ts))
@@ -270,6 +290,11 @@ class MemoryReminderLedger:
                 }
             return marks
 
+    async def week_streak_buckets(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        moment = _moment(now)
+        async with self._lock:
+            return streak_bucket_rows(self._days, recent_days(moment, FUNNEL_WEEK_DAYS))
+
     async def _segment(self, session_id: str) -> str:
         return SEGMENT_ACTIVE if await self._metrics.is_activated(session_id) else SEGMENT_NEW
 
@@ -280,9 +305,10 @@ class MemoryReminderLedger:
 
 
 class RedisReminderLedger:
-    def __init__(self, redis: Redis, metrics: MetricsStore) -> None:
+    def __init__(self, redis: Redis, metrics: MetricsStore, streaks: StreakStore | None = None) -> None:
         self._redis = redis
         self._metrics = metrics
+        self._streaks = streaks if streaks is not None else build_streak_store(metrics)
 
     async def record_report(self, report: ReminderReport, *, now: float | None = None) -> None:
         moment = _moment(now)
@@ -296,7 +322,9 @@ class RedisReminderLedger:
             if result.status != "sent":
                 continue
             segment = SEGMENT_ACTIVE if await self._metrics.is_activated(result.session_id) else SEGMENT_NEW
+            streak_bucket = await self._streaks.bucket_for(result.session_id, now=moment)
             pipe.hincrby(_day_key(day), f"sent_{segment}", 1)
+            pipe.hincrby(_day_key(day), f"sent_streak_{streak_bucket}", 1)
             previous = await self._redis.hget(_last_key(result.session_id), "replied")
             if previous == "0":
                 pipe.incr(_ignored_key(result.session_id))
@@ -310,6 +338,7 @@ class RedisReminderLedger:
                     "segment": segment,
                     "answered": "0",
                     "replied": "0",
+                    "streak_bucket": streak_bucket,
                 },
             )
         pipe.lpush(_RUNS_KEY, json.dumps(run_row(report, day)))
@@ -333,6 +362,7 @@ class RedisReminderLedger:
         pipe = self._redis.pipeline()
         pipe.hincrby(_day_key(last.day), "returned", 1)
         pipe.hincrby(_day_key(last.day), f"returned_{last.segment}", 1)
+        pipe.hincrby(_day_key(last.day), f"returned_streak_{last.streak_bucket}", 1)
         pipe.hincrby(_template_key(last.template), "returned", 1)
         pipe.sadd(_TEMPLATES_KEY, last.template)
         pipe.rpush(_reply_key(last.day), int(moment - last.ts))
@@ -381,6 +411,30 @@ class RedisReminderLedger:
             }
         return marks
 
+    async def week_streak_buckets(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        days = recent_days(_moment(now), FUNNEL_WEEK_DAYS)
+        pipe = self._redis.pipeline()
+        for day in days:
+            pipe.hgetall(_day_key(day))
+        raw = await pipe.execute()
+        return streak_bucket_rows(
+            {day: _counts(item) for day, item in zip(days, raw, strict=True)},
+            days,
+        )
+
+
+def streak_bucket_rows(day_counts: dict[str, dict[str, int]], days: list[str]) -> list[dict[str, Any]]:
+    rows = []
+    for name in STREAK_BUCKETS:
+        rows.append(
+            {
+                "bucket": name,
+                "sent": sum(int(day_counts.get(day, {}).get(f"sent_streak_{name}", 0)) for day in days),
+                "returned": sum(int(day_counts.get(day, {}).get(f"returned_streak_{name}", 0)) for day in days),
+            },
+        )
+    return rows
+
 
 def _counts(raw: Any) -> dict[str, int]:
     data = raw if isinstance(raw, dict) else {}
@@ -400,6 +454,7 @@ def _last_reminder(raw: Any) -> LastReminder | None:
         segment=SEGMENT_ACTIVE if data.get("segment") == SEGMENT_ACTIVE else SEGMENT_NEW,
         answered=nonneg_int(data.get("answered")) > 0,
         replied=data.get("replied") == "1",
+        streak_bucket=_streak_bucket(data.get("streak_bucket")),
     )
 
 
@@ -409,6 +464,11 @@ def _parse_run(raw: Any) -> dict[str, Any] | None:
     except (TypeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _streak_bucket(value: Any) -> str:
+    text = str(value or "")
+    return text if text in STREAK_BUCKETS else "0"
 
 
 def _day_key(day: str) -> str:
