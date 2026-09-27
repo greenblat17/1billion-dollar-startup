@@ -10,6 +10,7 @@ import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
+import dev.inmo.tgbotapi.extensions.api.send.replyWithPhoto
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
@@ -29,9 +30,13 @@ internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
 
 private val startSourcePattern = Regex("^[A-Za-z0-9_-]{1,64}$")
 
-internal fun isStartCommand(text: String): Boolean {
+internal fun isStartCommand(text: String): Boolean = isCommand(text, "/start")
+
+internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
+
+private fun isCommand(text: String, name: String): Boolean {
     val command = text.trim().substringBefore(' ').substringBefore('@')
-    return command == "/start"
+    return command == name
 }
 
 internal fun startSource(text: String): String? {
@@ -69,6 +74,35 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val greetedStarts = ConcurrentHashMap.newKeySet<String>()
+    val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
+    suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
+        try {
+            replyWithPhoto(
+                message,
+                streakWeekPng(strip).asMultipartFile("streak.png"),
+                text = caption,
+                allowSendingWithoutReply = true,
+            )
+        } catch (error: Throwable) {
+            log.warn("Failed to send streak week for {}", message.chat.id, error)
+            reply(message, caption, allowSendingWithoutReply = true)
+        }
+    }
+    suspend fun sendStreak(message: ChatMessage) {
+        val claim = "${message.chat.id}:${message.messageId}"
+        if (!answeredStreaks.add(claim)) {
+            return
+        }
+        val sessionId = telegramSessionId(message.chat.id)
+        try {
+            val profile = ai.streakProfile(sessionId)
+            sendStreakWeek(message, streakProfileCaption(profile), weekStrip(profile.last7))
+        } catch (error: Throwable) {
+            answeredStreaks.remove(claim)
+            log.error("Failed to send streak for {}", sessionId.value, error)
+            reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+        }
+    }
     suspend fun greet(message: ChatMessage, text: String) {
         val claim = "${message.chat.id}:${message.messageId}"
         if (!greetedStarts.add(claim)) {
@@ -111,6 +145,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val text = message.content.text
         if (isStartCommand(text)) {
             greet(message, text)
+        }
+    }
+    onCommand("streak", requireOnlyCommandInMessage = false) { message ->
+        if (isStreakCommand(message.content.text)) {
+            sendStreak(message)
         }
     }
     onContentMessage { message ->
@@ -161,6 +200,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             is TextContent -> {
                 if (isStartCommand(content.text)) {
                     greet(message, content.text)
+                } else if (isStreakCommand(content.text)) {
+                    sendStreak(message)
                 } else if (content.text.startsWith("/")) {
                     log.info(
                         "Ignored command {} from {}",

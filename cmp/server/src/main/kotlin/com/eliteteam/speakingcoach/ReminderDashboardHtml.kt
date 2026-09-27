@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
 import com.eliteteam.speakingcoach.telegram.REMINDER_TEMPLATES
+import com.eliteteam.speakingcoach.telegram.STREAK_REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import com.eliteteam.speakingcoach.telegram.renderReminder
 import java.time.Duration
@@ -99,7 +100,7 @@ private fun controlsHtml(forecast: Long, controls: Boolean): String {
     if (!controls) {
         return "<p class=\"meta\">Ручной запуск доступен только в webhook-режиме.</p>"
     }
-    val options = REMINDER_TEMPLATES.joinToString("\n") { template ->
+    val options = (REMINDER_TEMPLATES + STREAK_REMINDER_TEMPLATES).joinToString("\n") { template ->
         "<option value=\"${escapeHtml(template.id)}\">${escapeHtml(template.id)}</option>"
     }
     return """
@@ -142,7 +143,7 @@ private fun templateRows(reminders: RemindersSnapshot): String {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
     return reminders.templates.joinToString("\n") { stats ->
-        val text = reminderTemplateById(stats.templateId)?.let { renderReminder(it, null) } ?: "удалён из пула"
+        val text = reminderTemplateById(stats.templateId)?.let { renderReminder(it, null, streak = 2) } ?: "удалён из пула"
         "<tr><td>${escapeHtml(stats.templateId)}<br><span class=\"template\">${escapeHtml(text)}</span></td>" +
             "<td>${stats.sent}</td><td>${stats.returned}</td><td>${rate(stats.returned, stats.sent)}</td><td>${stats.blocked}</td></tr>"
     }

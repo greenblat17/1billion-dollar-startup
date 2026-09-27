@@ -41,7 +41,8 @@ def create_app(
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
     sessions = clip_pipeline.dialogue
-    reminder_ledger = build_reminder_ledger(clip_pipeline.metrics)
+    streaks = clip_pipeline.streaks
+    reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
     greeting_audio: bytes | None = None
@@ -50,6 +51,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        await streaks.backfill()
         yield
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()
@@ -85,6 +87,10 @@ def create_app(
             **await reminder_ledger.snapshot(),
             "forecast": await clip_pipeline.metrics.reminder_forecast(),
         }
+        payload["streaks"] = {
+            **await streaks.snapshot(),
+            "reminderBuckets": await reminder_ledger.week_streak_buckets(),
+        }
         marks = await reminder_ledger.chat_marks([chat["sessionId"] for chat in payload["chats"]])
         for chat in payload["chats"]:
             mark = marks.get(chat["sessionId"], {})
@@ -119,15 +125,23 @@ def create_app(
         await reminder_ledger.record_report(parse_report(await _json_object(request)))
         return {"ok": True}
 
+    @app.get("/internal/streak/{session_id}")
+    async def streak_profile(session_id: str) -> dict[str, Any]:
+        return await streaks.profile(session_id)
+
     @app.post("/internal/reminders/claim")
-    async def reminders_claim() -> dict[str, list[dict[str, str | None]]]:
+    async def reminders_claim() -> dict[str, list[dict[str, str | int | None]]]:
         targets = await clip_pipeline.metrics.claim_reminders()
-        return {
-            "targets": [
-                {"sessionId": target.session_id, "name": target.name or None}
-                for target in targets
-            ],
-        }
+        claimed = []
+        for target in targets:
+            claimed.append(
+                {
+                    "sessionId": target.session_id,
+                    "name": target.name or None,
+                    "streak": await streaks.shown(target.session_id),
+                },
+            )
+        return {"targets": claimed}
 
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
@@ -326,6 +340,7 @@ async def _run_job(
         job.notes = list(result.notes)
         job.corrections = [item.to_json() for item in result.corrections]
         job.timings_ms = result.timings_ms
+        job.streak = result.streak.to_json() if result.streak is not None else None
         job.reply_audio = result.audio
         job.reply_content_type = CONTENT_TYPE_OGG
         job.status = "ok"

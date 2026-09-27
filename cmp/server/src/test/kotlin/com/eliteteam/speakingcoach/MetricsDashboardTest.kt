@@ -10,6 +10,12 @@ import com.eliteteam.speakingcoach.ai.ReminderSegment
 import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
 import com.eliteteam.speakingcoach.ai.ReminderTotals
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.ai.RetentionCohort
+import com.eliteteam.speakingcoach.ai.RetentionSlice
+import com.eliteteam.speakingcoach.ai.RetentionSnapshot
+import com.eliteteam.speakingcoach.ai.StreakBucket
+import com.eliteteam.speakingcoach.ai.StreakReminderBucket
+import com.eliteteam.speakingcoach.ai.StreaksSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
@@ -204,6 +210,40 @@ class MetricsDashboardTest {
     }
 
     @Test
+    fun streaksTabShowsBucketsRepliesAndRetention() = testApplication {
+        application {
+            module(
+                dashboardConfig(password = PASSWORD),
+                metricsSource = FixedMetricsSource(sampleSnapshot().copy(streaks = sampleStreaks())),
+            )
+        }
+        val html = client.get("/admin/metrics/streaks") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        val anonymous = client.get("/admin/metrics/streaks").bodyAsText()
+
+        assertTrue(html.contains("<a href=\"/admin/metrics/streaks\" aria-current=\"page\">Стрики</a>"))
+        assertTrue(html.contains("<tr><td>2–6</td><td>4</td></tr>"))
+        assertTrue(html.contains("<tr><td>14+</td><td>3</td><td>1</td><td>33%</td></tr>"))
+        assertTrue(html.contains("<tr><td>2026-09-21</td><td>10</td><td>40%</td><td>—</td><td>—</td></tr>"))
+        assertTrue(html.contains("<tr><td>До релиза</td><td>8</td><td>25%</td><td>20%</td><td>—</td></tr>"))
+        assertTrue(html.contains("Релиз стриков: 2026-09-26."))
+        assertTrue(anonymous.contains("type=\"password\""))
+        assertFalse(anonymous.contains("Retention"))
+    }
+
+    @Test
+    fun streaksTabWithoutData() = testApplication {
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()))
+        }
+        val html = client.get("/admin/metrics/streaks") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(html.contains("Нет данных о стриках."))
+    }
+
+    @Test
     fun reminderSectionWithoutDataOrControls() = testApplication {
         application {
             module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()))
@@ -281,6 +321,17 @@ class MetricsDashboardTest {
         activated7 = 4,
         funnelDays = listOf(FunnelDay(day = "2026-09-24", start = 2, activated = 1)),
         funnelSources = listOf(FunnelSource(source = "clubs", start = 2, activated = 1)),
+    )
+
+    private fun sampleStreaks() = StreaksSnapshot(
+        buckets = listOf(StreakBucket("0", 2), StreakBucket("2_6", 4), StreakBucket("14_plus", 1)),
+        reminderBuckets = listOf(StreakReminderBucket("14_plus", sent = 3, returned = 1)),
+        retention = RetentionSnapshot(
+            cohorts = listOf(RetentionCohort(week = "2026-09-21", size = 10, d1 = 0.4)),
+            before = RetentionSlice(size = 8, d1 = 0.25, d7 = 0.2),
+            after = RetentionSlice(size = 2, d1 = 0.5),
+            releasedDay = "2026-09-26",
+        ),
     )
 
     private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {

@@ -469,8 +469,8 @@ async def test_reminders_claim_route_requires_token() -> None:
     assert first.status_code == 200
     assert first.json() == {
         "targets": [
-            {"sessionId": "tg-7", "name": "Alex"},
-            {"sessionId": "tg-8", "name": None},
+            {"sessionId": "tg-7", "name": "Alex", "streak": 0},
+            {"sessionId": "tg-8", "name": None, "streak": 0},
         ],
     }
     assert second.json() == {"targets": []}

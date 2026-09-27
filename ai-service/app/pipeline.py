@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
+from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech
 
@@ -23,6 +24,7 @@ class PipelineResult:
     reply_text: str
     timings_ms: dict[str, int]
     corrections: list[Correction]
+    streak: StreakUpdate | None = None
 
     @property
     def notes(self) -> list[str]:
@@ -37,12 +39,14 @@ class ClipPipeline:
         tts: TextToSpeech,
         dialogue: DialogueStore,
         metrics: MetricsStore | None = None,
+        streaks: StreakStore | None = None,
     ) -> None:
         self._stt = stt
         self._llm = llm
         self._tts = tts
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
+        self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
 
     @property
     def tts(self) -> TextToSpeech:
@@ -55,6 +59,10 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
+
+    @property
+    def streaks(self) -> StreakStore:
+        return self._streaks
 
     async def run(
         self,
@@ -87,6 +95,7 @@ class ClipPipeline:
                 reply_text=CLARIFY_TEXT,
                 timings_ms=timings,
                 corrections=[],
+                streak=await self._record_streak(session_id),
             )
 
         llm_started = time.perf_counter()
@@ -115,7 +124,15 @@ class ClipPipeline:
             reply_text=reply_text,
             timings_ms=timings,
             corrections=list(corrections),
+            streak=await self._record_streak(session_id),
         )
+
+    async def _record_streak(self, session_id: str) -> StreakUpdate | None:
+        try:
+            return await self._streaks.record_activity(session_id)
+        except Exception:
+            logger.exception("streak update failed session=%s", session_id)
+            return None
 
 
 def _should_clarify(result: SttResult) -> bool:
