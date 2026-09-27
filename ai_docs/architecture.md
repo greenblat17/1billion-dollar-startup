@@ -81,6 +81,8 @@ sequenceDiagram
 
 Идентификатор сессии Telegram: `tg-$chatId` (`TelegramHandlers.telegramSessionId`). В Redis ключ `session:{sessionId}`. `/start` — get-or-create, историю не стирает.
 
+Урок — отдельный объект, не этот id. Первое голосовое без открытого урока создаёт `lesson:{id}` (`lesson:open:{tg-chatId}`, индекс `lessons:by_user:{tg-chatId}`). Готовый ответ вешает reply-клавиатуру `End conversation`. Нажатие дожидается уже принятых голосов и закрывает снимок (`turns`: transcript, replyText, corrections). Следующее голосовое открывает новый урок. Диалог, стрик и метрики остаются на `tg-chatId`; снимок без TTL диалога и без оценки уровня.
+
 ## Пайплайн ai-service
 
 ```mermaid

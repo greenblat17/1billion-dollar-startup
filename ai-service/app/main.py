@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
+from app.lessons import build_lesson_store
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.pipeline import ClipPipeline
@@ -54,6 +55,7 @@ def create_app(
         await streaks.backfill()
         yield
         await sessions.aclose()
+        await clip_pipeline.lessons.aclose()
         await clip_pipeline.metrics.aclose()
 
     app = FastAPI(
@@ -142,6 +144,21 @@ def create_app(
                 },
             )
         return {"targets": claimed}
+
+    @app.post("/internal/lessons/open")
+    async def lessons_open(request: Request) -> dict[str, str]:
+        session_id = _lesson_session_id(await _json_object(request))
+        return {"lessonId": await clip_pipeline.lessons.open(session_id)}
+
+    @app.post("/internal/lessons/current")
+    async def lessons_current(request: Request) -> dict[str, str | None]:
+        session_id = _lesson_session_id(await _json_object(request))
+        return {"lessonId": await clip_pipeline.lessons.current(session_id)}
+
+    @app.post("/internal/lessons/seal")
+    async def lessons_seal(request: Request) -> dict[str, bool]:
+        session_id = _lesson_session_id(await _json_object(request))
+        return {"sealed": await clip_pipeline.lessons.seal(session_id)}
 
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
@@ -257,6 +274,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         ),
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
+        lessons=build_lesson_store(settings),
     )
 
 
@@ -281,6 +299,13 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         default_headers=openai_headers or None,
     )
     return OpenAiSessionReviewer(client, settings.llm_model)
+
+
+def _lesson_session_id(payload: dict[str, Any]) -> str:
+    session_id = str(payload.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="sessionId required")
+    return session_id
 
 
 async def _json_object(request: Request) -> dict[str, Any]:

@@ -120,6 +120,42 @@ class HttpClipClient(
         return SessionId(createSession(sessionId).sessionId)
     }
 
+    suspend fun openLesson(sessionId: SessionId): String {
+        val response = http.post("$root/internal/lessons/open") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LessonSessionRequest(sessionId.value))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/lessons/open returned ${response.status}")
+        }
+        return response.body<LessonOpenResponse>().lessonId
+    }
+
+    suspend fun currentLesson(sessionId: SessionId): String? {
+        val response = http.post("$root/internal/lessons/current") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LessonSessionRequest(sessionId.value))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/lessons/current returned ${response.status}")
+        }
+        return response.body<LessonCurrentResponse>().lessonId
+    }
+
+    suspend fun sealLesson(sessionId: SessionId): Boolean {
+        val response = http.post("$root/internal/lessons/seal") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LessonSessionRequest(sessionId.value))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/lessons/seal returned ${response.status}")
+        }
+        return response.body<LessonSealResponse>().sealed
+    }
+
     suspend fun loadMetrics(): MetricsSnapshot {
         val response = http.get("$root/internal/metrics") {
             applyInternalToken()

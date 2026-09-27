@@ -192,6 +192,26 @@ data class FunnelVoiceRequest(
 )
 
 @Serializable
+data class LessonSessionRequest(
+    val sessionId: String,
+)
+
+@Serializable
+data class LessonOpenResponse(
+    val lessonId: String,
+)
+
+@Serializable
+data class LessonCurrentResponse(
+    val lessonId: String? = null,
+)
+
+@Serializable
+data class LessonSealResponse(
+    val sealed: Boolean = false,
+)
+
+@Serializable
 data class ReminderClaimResponse(
     val targets: List<ReminderTarget> = emptyList(),
 )

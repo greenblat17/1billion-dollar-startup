@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 
 from app.dialogue import DialogueStore
+from app.lessons import LessonStore, MemoryLessonStore
 from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
@@ -40,6 +41,7 @@ class ClipPipeline:
         dialogue: DialogueStore,
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
+        lessons: LessonStore | None = None,
     ) -> None:
         self._stt = stt
         self._llm = llm
@@ -47,6 +49,7 @@ class ClipPipeline:
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
+        self._lessons = lessons if lessons is not None else MemoryLessonStore()
 
     @property
     def tts(self) -> TextToSpeech:
@@ -63,6 +66,10 @@ class ClipPipeline:
     @property
     def streaks(self) -> StreakStore:
         return self._streaks
+
+    @property
+    def lessons(self) -> LessonStore:
+        return self._lessons
 
     async def run(
         self,
@@ -89,6 +96,7 @@ class ClipPipeline:
             logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             await self._metrics.record_exchange(session_id)
+            await self._record_lesson_turn(session_id, stt_result.text, CLARIFY_TEXT, [])
             return PipelineResult(
                 audio=reply_audio,
                 transcript=stt_result.text,
@@ -118,6 +126,7 @@ class ClipPipeline:
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         await self._metrics.record_exchange(session_id)
+        await self._record_lesson_turn(session_id, stt_result.text, reply_text, corrections)
         return PipelineResult(
             audio=reply_audio,
             transcript=stt_result.text,
@@ -126,6 +135,23 @@ class ClipPipeline:
             corrections=list(corrections),
             streak=await self._record_streak(session_id),
         )
+
+    async def _record_lesson_turn(
+        self,
+        session_id: str,
+        transcript: str,
+        reply_text: str,
+        corrections: list[Correction],
+    ) -> None:
+        try:
+            await self._lessons.append_turn(
+                session_id,
+                transcript,
+                reply_text,
+                [item.to_json() for item in corrections],
+            )
+        except Exception:
+            logger.exception("lesson turn failed session=%s", session_id)
 
     async def _record_streak(self, session_id: str) -> StreakUpdate | None:
         try:

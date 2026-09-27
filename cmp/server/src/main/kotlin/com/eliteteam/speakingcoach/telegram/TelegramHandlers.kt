@@ -15,6 +15,7 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
+import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.chat.PrivateChat
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
@@ -75,6 +76,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val greetedStarts = ConcurrentHashMap.newKeySet<String>()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
+    val lessonGate = LessonGate()
     suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
         try {
             replyWithPhoto(
@@ -100,6 +102,34 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             answeredStreaks.remove(claim)
             log.error("Failed to send streak for {}", sessionId.value, error)
+            reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+        }
+    }
+    suspend fun endConversation(message: ChatMessage) {
+        val sessionId = telegramSessionId(message.chat.id)
+        val open = try {
+            ai.currentLesson(sessionId)
+        } catch (error: Throwable) {
+            log.error("Failed to read lesson for {}", sessionId.value, error)
+            reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            return
+        }
+        if (open == null) {
+            reply(message, SEND_VOICE_HINT)
+            return
+        }
+        try {
+            lessonGate.close(sessionId.value) {
+                ai.sealLesson(sessionId)
+                reply(
+                    message,
+                    CONVERSATION_ENDED_TEXT,
+                    allowSendingWithoutReply = true,
+                    replyMarkup = ReplyKeyboardRemove(),
+                )
+            }
+        } catch (error: Throwable) {
+            log.error("Failed to end lesson for {}", sessionId.value, error)
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
         }
     }
@@ -156,45 +186,54 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         when (val content = message.content) {
             is VoiceContent -> {
                 val sessionId = telegramSessionId(message.chat.id)
+                lessonGate.enter(sessionId.value)
                 try {
-                    ai.recordFunnelVoice(sessionId, telegramProfile(message.chat))
-                } catch (error: Throwable) {
-                    log.warn("Failed to record voice for {}", sessionId.value, error)
-                }
-                try {
-                    ai.ensureSession(sessionId)
-                    val result = sessionClipQueue.submit(
-                        sessionId = sessionId,
-                        source = {
-                            val bytes = downloadFile(content.media)
-                            AudioClip(bytes, "audio/ogg", "voice.ogg")
-                        },
-                        onQueuedBehind = {
-                            reply(message, QUEUED_TEXT)
-                        },
-                    )
-                    when (result) {
-                        ClipSubmitResult.QueueFull -> {
-                            reply(message, QUEUE_FULL_TEXT)
-                            log.info("Voice queue is full for {}", sessionId.value)
-                        }
-                        is ClipSubmitResult.Completed -> {
-                            if (result.reply.transcript.isNotBlank()) {
-                                reply(
-                                    message,
-                                    coachingEntities(result.reply.transcript, result.reply.corrections),
-                                )
-                            }
-                            sendVoice(
-                                message.chat.id,
-                                result.reply.audio.bytes.asMultipartFile(result.reply.audio.fileName),
-                            )
-                            log.info("Sent voice reply for {}", sessionId.value)
-                        }
+                    try {
+                        ai.recordFunnelVoice(sessionId, telegramProfile(message.chat))
+                    } catch (error: Throwable) {
+                        log.warn("Failed to record voice for {}", sessionId.value, error)
                     }
-                } catch (error: Throwable) {
-                    log.error("Failed to handle voice for tg-{}", message.chat.id, error)
-                    reply(message, ERROR_TEXT)
+                    try {
+                        ai.ensureSession(sessionId)
+                        ai.openLesson(sessionId)
+                        val result = sessionClipQueue.submit(
+                            sessionId = sessionId,
+                            source = {
+                                val bytes = downloadFile(content.media)
+                                AudioClip(bytes, "audio/ogg", "voice.ogg")
+                            },
+                            onQueuedBehind = {
+                                reply(message, QUEUED_TEXT)
+                            },
+                        )
+                        when (result) {
+                            ClipSubmitResult.QueueFull -> {
+                                reply(message, QUEUE_FULL_TEXT)
+                                log.info("Voice queue is full for {}", sessionId.value)
+                            }
+                            is ClipSubmitResult.Completed -> {
+                                val markup = readyReplyMarkup(!lessonGate.isClosing(sessionId.value))
+                                if (result.reply.transcript.isNotBlank()) {
+                                    reply(
+                                        message,
+                                        coachingEntities(result.reply.transcript, result.reply.corrections),
+                                        replyMarkup = markup,
+                                    )
+                                }
+                                sendVoice(
+                                    message.chat.id,
+                                    result.reply.audio.bytes.asMultipartFile(result.reply.audio.fileName),
+                                    replyMarkup = markup,
+                                )
+                                log.info("Sent voice reply for {}", sessionId.value)
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        log.error("Failed to handle voice for tg-{}", message.chat.id, error)
+                        reply(message, ERROR_TEXT)
+                    }
+                } finally {
+                    lessonGate.leave(sessionId.value)
                 }
             }
             is TextContent -> {
@@ -208,6 +247,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         content.text.substringBefore(' ').take(64),
                         message.chat.id,
                     )
+                } else if (isEndConversation(content.text)) {
+                    endConversation(message)
                 } else {
                     reply(message, SEND_VOICE_HINT)
                 }
