@@ -11,12 +11,6 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
 
-internal enum class StreakAccent(val title: String, val paint: Color) {
-    Orange("Orange", Color(0xFF, 0x7A, 0x1A)),
-    Green("Green", Color(0x34, 0xC7, 0x59)),
-    Blue("Blue", Color(0x2A, 0xAB, 0xEE)),
-}
-
 private const val CANVAS_WIDTH = 960
 private const val CANVAS_HEIGHT = 320
 private const val PAD_X = 56
@@ -28,9 +22,11 @@ private const val LABEL_GAP = 20
 private const val MARK_STROKE = 7f
 private const val OPEN_STROKE = 4f
 
-private val card = Color(0x1C, 0x1C, 0x1E)
-private val muted = Color(0x8E, 0x8E, 0x93)
-private val missedFill = Color(0x3A, 0x3A, 0x3C)
+private val cream = Color(0xFB, 0xFA, 0xF6)
+private val ink = Color(0x0E, 0x10, 0x20)
+private val flame = Color(0xE8, 0x5D, 0x04)
+private val muted = Color(0x9B, 0x9E, 0xA4)
+private val outline = Color(0xE4, 0xE4, 0xE4)
 private val mark = Color.WHITE
 
 private val regularFont: Font by lazy { loadFont("/font/inter_regular.ttf") }
@@ -38,14 +34,14 @@ private val boldFont: Font by lazy { loadFont("/font/inter_bold.ttf") }
 
 private object StreakWeekImage
 
-internal fun streakWeekPng(strip: WeekStrip, accent: StreakAccent): ByteArray {
+internal fun streakWeekPng(strip: WeekStrip): ByteArray {
     require(strip.days.size == 7)
     val image = BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB)
     val canvas = image.createGraphics()
     canvas.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     canvas.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
     canvas.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
-    canvas.color = card
+    canvas.color = cream
     canvas.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
     val headerFont = regularFont.deriveFont(26f)
     canvas.font = headerFont
@@ -57,11 +53,11 @@ internal fun streakWeekPng(strip: WeekStrip, accent: StreakAccent): ByteArray {
     }
     slots.forEach { (left, day) ->
         if (day.cell == WeekCell.Done) {
-            drawGlow(canvas, left + CIRCLE / 2f, circleTop + CIRCLE / 2f, accent.paint)
+            drawGlow(canvas, left + CIRCLE / 2f, circleTop + CIRCLE / 2f)
         }
     }
     slots.forEach { (left, day) ->
-        drawMark(canvas, left.toFloat(), circleTop.toFloat(), day, accent)
+        drawMark(canvas, left.toFloat(), circleTop.toFloat(), day)
     }
     slots.forEach { (left, day) ->
         drawLabel(canvas, left.toFloat(), circleTop.toFloat(), day)
@@ -72,22 +68,24 @@ internal fun streakWeekPng(strip: WeekStrip, accent: StreakAccent): ByteArray {
     return output.toByteArray()
 }
 
-private fun drawMark(canvas: Graphics2D, left: Float, top: Float, day: WeekDay, accent: StreakAccent) {
+private fun drawMark(canvas: Graphics2D, left: Float, top: Float, day: WeekDay) {
     val cx = left + CIRCLE / 2f
     val cy = top + CIRCLE / 2f
     when (day.cell) {
         WeekCell.Done -> {
-            canvas.color = accent.paint
+            canvas.color = flame
             canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
             drawCheck(canvas, cx, cy)
         }
         WeekCell.Missed -> {
-            canvas.color = missedFill
+            canvas.color = muted
             canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
             drawCross(canvas, cx, cy)
         }
         WeekCell.TodayOpen -> {
-            canvas.color = muted
+            canvas.color = cream
+            canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
+            canvas.color = outline
             canvas.stroke = BasicStroke(OPEN_STROKE)
             val inset = OPEN_STROKE / 2f
             canvas.draw(Ellipse2D.Float(left + inset, top + inset, CIRCLE - OPEN_STROKE, CIRCLE - OPEN_STROKE))
@@ -97,19 +95,19 @@ private fun drawMark(canvas: Graphics2D, left: Float, top: Float, day: WeekDay, 
 
 private fun drawLabel(canvas: Graphics2D, left: Float, top: Float, day: WeekDay) {
     canvas.font = if (day.isToday) boldFont.deriveFont(28f) else regularFont.deriveFont(26f)
-    canvas.color = if (day.isToday) mark else muted
+    canvas.color = if (day.isToday) ink else muted
     val metrics = canvas.fontMetrics
     val x = left + (CIRCLE - metrics.stringWidth(day.label)) / 2f
     val y = top + CIRCLE + LABEL_GAP + metrics.ascent
     canvas.drawString(day.label, x, y)
 }
 
-private fun drawGlow(canvas: Graphics2D, cx: Float, cy: Float, color: Color) {
+private fun drawGlow(canvas: Graphics2D, cx: Float, cy: Float) {
     val rings = 5
     for (ring in rings downTo 1) {
         val extra = ring * 7f
-        val alpha = 18 + (rings - ring) * 10
-        canvas.color = Color(color.red, color.green, color.blue, alpha)
+        val alpha = 40 + (rings - ring) * 14
+        canvas.color = Color(flame.red, flame.green, flame.blue, alpha)
         canvas.fill(
             Ellipse2D.Float(
                 cx - CIRCLE / 2f - extra,

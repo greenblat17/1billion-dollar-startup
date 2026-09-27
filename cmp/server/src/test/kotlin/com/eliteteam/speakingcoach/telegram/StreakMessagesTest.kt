@@ -8,7 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class StreakMessagesTest {
@@ -89,19 +88,15 @@ class StreakMessagesTest {
             listOf(true, true, false, true, true, true, false),
             today = LocalDate.of(2026, 9, 26),
         )
-        val accents = StreakAccent.entries.map { streakWeekPng(strip, it) }
-        accents.forEach { bytes ->
-            assertTrue(bytes.size > 8)
-            assertEquals(0x89, bytes[0].toInt() and 0xff)
-            assertEquals('P'.code, bytes[1].toInt() and 0xff)
-            assertEquals('N'.code, bytes[2].toInt() and 0xff)
-            assertEquals('G'.code, bytes[3].toInt() and 0xff)
-            val image = ImageIO.read(ByteArrayInputStream(bytes))
-            assertEquals(960, image.width)
-            assertEquals(320, image.height)
-        }
-        assertNotEquals(accents[0].toList(), accents[1].toList())
-        assertNotEquals(accents[1].toList(), accents[2].toList())
+        val bytes = streakWeekPng(strip)
+        assertTrue(bytes.size > 8)
+        assertEquals(0x89, bytes[0].toInt() and 0xff)
+        assertEquals('P'.code, bytes[1].toInt() and 0xff)
+        assertEquals('N'.code, bytes[2].toInt() and 0xff)
+        assertEquals('G'.code, bytes[3].toInt() and 0xff)
+        val image = ImageIO.read(ByteArrayInputStream(bytes))
+        assertEquals(960, image.width)
+        assertEquals(320, image.height)
     }
 
     @Test

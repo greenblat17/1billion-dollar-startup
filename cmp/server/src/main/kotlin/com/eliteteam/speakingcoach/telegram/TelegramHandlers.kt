@@ -75,16 +75,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val greetedStarts = ConcurrentHashMap.newKeySet<String>()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
-    suspend fun sendStreakWeek(
-        message: ChatMessage,
-        caption: String,
-        strip: WeekStrip,
-        accent: StreakAccent,
-    ) {
+    suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
         try {
             replyWithPhoto(
                 message,
-                streakWeekPng(strip, accent).asMultipartFile("streak.png"),
+                streakWeekPng(strip).asMultipartFile("streak.png"),
                 text = caption,
                 allowSendingWithoutReply = true,
             )
@@ -101,11 +96,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val sessionId = telegramSessionId(message.chat.id)
         try {
             val profile = ai.streakProfile(sessionId)
-            val strip = weekStrip(profile.last7)
-            val headline = streakProfileCaption(profile)
-            StreakAccent.entries.forEach { accent ->
-                sendStreakWeek(message, "$headline\n${accent.title}", strip, accent)
-            }
+            sendStreakWeek(message, streakProfileCaption(profile), weekStrip(profile.last7))
         } catch (error: Throwable) {
             answeredStreaks.remove(claim)
             log.error("Failed to send streak for {}", sessionId.value, error)
@@ -159,7 +150,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, caption, allowSendingWithoutReply = true)
             return
         }
-        sendStreakWeek(message, caption, weekStrip(last7), StreakAccent.Orange)
+        sendStreakWeek(message, caption, weekStrip(last7))
     }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->
         val text = message.content.text
