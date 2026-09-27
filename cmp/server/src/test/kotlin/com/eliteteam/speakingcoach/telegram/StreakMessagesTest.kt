@@ -8,26 +8,51 @@ import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class StreakMessagesTest {
     @Test
-    fun saturdayWeekMarksMissedTodayAndFuture() {
-        val cells = weekCells(
+    fun saturdayStripEndsOnToday() {
+        val strip = weekStrip(
             listOf(true, true, false, true, true, true, false),
             today = LocalDate.of(2026, 9, 26),
         )
+        assertEquals("SEP 20 - SEP 26", strip.header)
+        assertContentEquals(
+            listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"),
+            strip.days.map { it.label },
+        )
         assertContentEquals(
             listOf(
+                WeekCell.Done,
                 WeekCell.Done,
                 WeekCell.Missed,
                 WeekCell.Done,
                 WeekCell.Done,
                 WeekCell.Done,
                 WeekCell.TodayOpen,
-                WeekCell.Future,
             ),
-            cells,
+            strip.days.map { it.cell },
+        )
+        assertTrue(strip.days.last().isToday)
+        assertFalse(strip.days.first().isToday)
+    }
+
+    @Test
+    fun emptyWeekIsMissedUntilToday() {
+        val strip = weekStrip(emptyList(), today = LocalDate.of(2026, 9, 26))
+        assertContentEquals(
+            listOf(
+                WeekCell.Missed,
+                WeekCell.Missed,
+                WeekCell.Missed,
+                WeekCell.Missed,
+                WeekCell.Missed,
+                WeekCell.Missed,
+                WeekCell.TodayOpen,
+            ),
+            strip.days.map { it.cell },
         )
     }
 
@@ -42,11 +67,11 @@ class StreakMessagesTest {
     @Test
     fun profileCaptionNamesTheCount() {
         assertEquals(
-            "Current streak: 3 days",
+            "🔥 Current streak: 3 days",
             streakProfileCaption(StreakProfileResponse(current = 3)),
         )
         assertEquals(
-            "Current streak: 1 day",
+            "🔥 Current streak: 1 day",
             streakProfileCaption(StreakProfileResponse(current = 1)),
         )
     }
@@ -60,20 +85,23 @@ class StreakMessagesTest {
 
     @Test
     fun weekImageIsAPngOfTheCard() {
-        val bytes = streakWeekPng(
-            weekCells(
-                listOf(true, true, false, true, true, true, false),
-                today = LocalDate.of(2026, 9, 26),
-            ),
+        val strip = weekStrip(
+            listOf(true, true, false, true, true, true, false),
+            today = LocalDate.of(2026, 9, 26),
         )
-        assertTrue(bytes.size > 8)
-        assertEquals(0x89, bytes[0].toInt() and 0xff)
-        assertEquals('P'.code, bytes[1].toInt() and 0xff)
-        assertEquals('N'.code, bytes[2].toInt() and 0xff)
-        assertEquals('G'.code, bytes[3].toInt() and 0xff)
-        val image = ImageIO.read(ByteArrayInputStream(bytes))
-        assertEquals(808, image.width)
-        assertEquals(200, image.height)
+        val accents = StreakAccent.entries.map { streakWeekPng(strip, it) }
+        accents.forEach { bytes ->
+            assertTrue(bytes.size > 8)
+            assertEquals(0x89, bytes[0].toInt() and 0xff)
+            assertEquals('P'.code, bytes[1].toInt() and 0xff)
+            assertEquals('N'.code, bytes[2].toInt() and 0xff)
+            assertEquals('G'.code, bytes[3].toInt() and 0xff)
+            val image = ImageIO.read(ByteArrayInputStream(bytes))
+            assertEquals(960, image.width)
+            assertEquals(320, image.height)
+        }
+        assertNotEquals(accents[0].toList(), accents[1].toList())
+        assertNotEquals(accents[1].toList(), accents[2].toList())
     }
 
     @Test
