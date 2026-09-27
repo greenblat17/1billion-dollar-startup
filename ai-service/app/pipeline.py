@@ -96,7 +96,13 @@ class ClipPipeline:
             logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             await self._metrics.record_exchange(session_id)
-            await self._record_lesson_turn(session_id, stt_result.text, CLARIFY_TEXT, [])
+            await self._record_lesson_turn(
+                session_id,
+                stt_result.text,
+                CLARIFY_TEXT,
+                [],
+                stt_result.duration_seconds,
+            )
             return PipelineResult(
                 audio=reply_audio,
                 transcript=stt_result.text,
@@ -126,7 +132,13 @@ class ClipPipeline:
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         await self._metrics.record_exchange(session_id)
-        await self._record_lesson_turn(session_id, stt_result.text, reply_text, corrections)
+        await self._record_lesson_turn(
+            session_id,
+            stt_result.text,
+            reply_text,
+            corrections,
+            stt_result.duration_seconds,
+        )
         return PipelineResult(
             audio=reply_audio,
             transcript=stt_result.text,
@@ -142,6 +154,7 @@ class ClipPipeline:
         transcript: str,
         reply_text: str,
         corrections: list[Correction],
+        speech_seconds: float,
     ) -> None:
         try:
             await self._lessons.append_turn(
@@ -149,6 +162,7 @@ class ClipPipeline:
                 transcript,
                 reply_text,
                 [item.to_json() for item in corrections],
+                speech_seconds,
             )
         except Exception:
             logger.exception("lesson turn failed session=%s", session_id)

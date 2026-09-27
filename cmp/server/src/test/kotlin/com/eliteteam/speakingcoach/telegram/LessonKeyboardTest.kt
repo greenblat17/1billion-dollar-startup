@@ -11,10 +11,11 @@ import kotlin.test.assertTrue
 class LessonKeyboardTest {
     @Test
     fun endConversationMatchesTheButtonLabelOnly() {
-        assertTrue(isEndConversation("End conversation"))
-        assertTrue(isEndConversation("  End conversation  "))
+        assertTrue(isEndConversation("📞 End conversation"))
+        assertTrue(isEndConversation("  📞 End conversation  "))
+        assertFalse(isEndConversation("End conversation"))
         assertFalse(isEndConversation("end conversation"))
-        assertFalse(isEndConversation("End conversation."))
+        assertFalse(isEndConversation("📞 End conversation."))
         assertFalse(isEndConversation(SEND_VOICE_HINT))
     }
 

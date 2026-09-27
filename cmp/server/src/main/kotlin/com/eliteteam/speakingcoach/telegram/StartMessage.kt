@@ -3,7 +3,7 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
 
 internal const val SEND_VOICE_HINT = "Please send a voice message."
-internal const val END_CONVERSATION_TEXT = "End conversation"
+internal const val END_CONVERSATION_TEXT = "📞 End conversation"
 internal const val CONVERSATION_ENDED_TEXT = "Conversation ended."
 internal const val QUEUE_FULL_TEXT = "Too many voice messages at once. Wait for my reply, then send again."
 internal const val QUEUED_TEXT = "Got it — I'll answer in order."

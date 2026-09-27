@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import time
+
 import pytest
 from fakeredis import FakeAsyncRedis
 from fastapi.testclient import TestClient
 
 from app.dialogue import MemoryDialogueStore
-from app.lessons import MemoryLessonStore, RedisLessonStore
+from app.lessons import MemoryLessonStore, RedisLessonStore, format_lesson_report
 from app.llm import Correction
+from app.metrics import DEFAULT_RATES, MemoryMetricsStore
 from app.pipeline import CLARIFY_TEXT, ClipPipeline
 from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
 
@@ -45,6 +48,7 @@ async def test_pipeline_appends_corrections_and_seal_keeps_dialogue() -> None:
             "transcript": "I goes home",
             "replyText": "Got it: I goes home",
             "corrections": [{"wrong": "goes", "better": "go", "kind": "grammar"}],
+            "speechSeconds": 0.0,
         }
     ]
     history = await dialogue.history("tg-1")
@@ -101,6 +105,62 @@ async def test_redis_lesson_has_no_ttl_and_a_second_open_is_new() -> None:
     assert second != first
     indexed = await redis.lrange("lessons:by_user:tg-9", 0, -1)
     assert indexed == [first, second]
+    await store.aclose()
+
+
+@pytest.mark.asyncio
+async def test_recent_sealed_sums_speech_and_keeps_username() -> None:
+    lessons = MemoryLessonStore()
+    metrics = MemoryMetricsStore(DEFAULT_RATES)
+    await metrics.record_profile("tg-new", "alex", "Alex Green")
+    pipeline = ClipPipeline(
+        stt=FakeStt(["hello", "again"], durations=[80.2, 40.4]),
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        dialogue=MemoryDialogueStore(max_messages=40, ttl_seconds=86400),
+        lessons=lessons,
+    )
+    await lessons.open("tg-new")
+    await pipeline.run("tg-new", b"a", "audio/ogg", "a.ogg")
+    await pipeline.run("tg-new", b"b", "audio/ogg", "b.ogg")
+    await lessons.seal("tg-new")
+
+    old_id = await lessons.open("tg-old")
+    await lessons.append_turn("tg-old", "old", "ok", [], 10)
+    await lessons.seal("tg-old")
+    lessons._sealed[old_id] = time.time() - 20 * 86400
+
+    rows = await lessons.recent_sealed()
+    assert [row["userSessionId"] for row in rows] == ["tg-new"]
+    assert rows[0]["speechSeconds"] == pytest.approx(120.6)
+    profiles = await metrics.profiles(["tg-new", "tg-old"])
+    report = format_lesson_report(
+        rows,
+        {session_id: (profile.username, profile.name) for session_id, profile in profiles.items()},
+    )
+    assert report["count"] == 1
+    assert report["totalSeconds"] == 121
+    assert report["averageSeconds"] == 121
+    assert report["rows"][0]["username"] == "alex"
+    assert report["rows"][0]["name"] == "Alex Green"
+    assert report["rows"][0]["speechSeconds"] == 121
+
+
+@pytest.mark.asyncio
+async def test_redis_sealed_index_drops_lessons_older_than_fourteen_days() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = RedisLessonStore(redis)
+    old = await store.open("tg-old")
+    await store.append_turn("tg-old", "old", "ok", [], 5)
+    await store.seal("tg-old")
+    await redis.zadd("lessons:sealed", {old: time.time() - 20 * 86400})
+    await store.open("tg-new")
+    await store.append_turn("tg-new", "new", "ok", [], 3)
+    await store.seal("tg-new")
+
+    rows = await store.recent_sealed()
+    assert [row["userSessionId"] for row in rows] == ["tg-new"]
+    assert rows[0]["speechSeconds"] == pytest.approx(3)
     await store.aclose()
 
 

@@ -28,6 +28,7 @@ internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
+internal const val LESSONS_PATH = "/admin/metrics/lessons"
 internal const val NOTICE_STARTED = "started"
 internal const val NOTICE_BUSY = "busy"
 internal const val NOTICE_TEST_SENT = "test-sent"
@@ -88,6 +89,19 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         val html = try {
             streaksPageHtml(dashboard.source.load())
+        } catch (error: Throwable) {
+            log.warn("Metrics snapshot failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(LESSONS_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            lessonsPageHtml(dashboard.source.load())
         } catch (error: Throwable) {
             log.warn("Metrics snapshot failed", error)
             metricsUnavailableHtml()
@@ -304,7 +318,12 @@ internal fun card(label: String, value: String): String {
 }
 
 internal fun adminTabs(active: String): String {
-    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики")
+    val tabs = listOf(
+        METRICS_PATH to "Сводка",
+        REMINDERS_PATH to "Напоминания",
+        STREAKS_PATH to "Стрики",
+        LESSONS_PATH to "Разговоры",
+    )
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
         "<a href=\"$path\"$current>$label</a>"

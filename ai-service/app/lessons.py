@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+import time
+from datetime import datetime, time as clock, timezone
 from typing import Any, Protocol
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
+
+from app.metrics import FUNNEL_WINDOW_DAYS, METRICS_TIMEZONE, recent_days
 
 
 class LessonStore(Protocol):
@@ -20,11 +24,14 @@ class LessonStore(Protocol):
         transcript: str,
         reply_text: str,
         corrections: list[dict[str, str]],
+        speech_seconds: float = 0.0,
     ) -> None: ...
 
     async def seal(self, user_session_id: str) -> bool: ...
 
     async def get(self, lesson_id: str) -> dict[str, Any] | None: ...
+
+    async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]: ...
 
     async def aclose(self) -> None: ...
 
@@ -34,6 +41,7 @@ class MemoryLessonStore:
         self._lessons: dict[str, dict[str, Any]] = {}
         self._open: dict[str, str] = {}
         self._by_user: dict[str, list[str]] = {}
+        self._sealed: dict[str, float] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._meta = asyncio.Lock()
 
@@ -60,6 +68,7 @@ class MemoryLessonStore:
         transcript: str,
         reply_text: str,
         corrections: list[dict[str, str]],
+        speech_seconds: float = 0.0,
     ) -> None:
         user_session_id = _require_session_id(user_session_id)
         async with await self._lock_for(user_session_id):
@@ -67,7 +76,7 @@ class MemoryLessonStore:
             if lesson_id is None:
                 return
             lesson = self._lessons[lesson_id]
-            lesson["turns"].append(_turn(transcript, reply_text, corrections))
+            lesson["turns"].append(_turn(transcript, reply_text, corrections, speech_seconds))
 
     async def seal(self, user_session_id: str) -> bool:
         user_session_id = _require_session_id(user_session_id)
@@ -77,10 +86,26 @@ class MemoryLessonStore:
                 self._open.pop(user_session_id, None)
                 return False
             lesson = self._lessons[lesson_id]
+            ended_unix = time.time()
             lesson["status"] = "closed"
             lesson["endedAt"] = _now()
+            lesson["endedUnix"] = ended_unix
             self._open.pop(user_session_id, None)
+            self._sealed[lesson_id] = ended_unix
             return True
+
+    async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        start = _window_start(now if now is not None else time.time())
+        rows = []
+        for lesson_id, ended_unix in self._sealed.items():
+            if ended_unix < start:
+                continue
+            lesson = self._lessons.get(lesson_id)
+            if lesson is None or lesson.get("status") != "closed":
+                continue
+            rows.append(_sealed_row(lesson, ended_unix))
+        rows.sort(key=lambda row: float(row["endedUnix"]), reverse=True)
+        return rows
 
     async def get(self, lesson_id: str) -> dict[str, Any] | None:
         lesson = self._lessons.get(lesson_id)
@@ -139,6 +164,7 @@ class RedisLessonStore:
         transcript: str,
         reply_text: str,
         corrections: list[dict[str, str]],
+        speech_seconds: float = 0.0,
     ) -> None:
         user_session_id = _require_session_id(user_session_id)
         async with await self._lock_for(user_session_id):
@@ -153,7 +179,7 @@ class RedisLessonStore:
             if lesson.get("status") != "open":
                 await self._redis.delete(_open_key(user_session_id))
                 return
-            lesson["turns"].append(_turn(transcript, reply_text, corrections))
+            lesson["turns"].append(_turn(transcript, reply_text, corrections, speech_seconds))
             await self._redis.set(_lesson_key(lesson_id), _dump_lesson(lesson))
 
     async def seal(self, user_session_id: str) -> bool:
@@ -168,11 +194,25 @@ class RedisLessonStore:
                 await self._redis.delete(_open_key(user_session_id))
                 return False
             lesson = _load_lesson(raw)
+            ended_unix = time.time()
             lesson["status"] = "closed"
             lesson["endedAt"] = _now()
+            lesson["endedUnix"] = ended_unix
             await self._redis.set(_lesson_key(lesson_id), _dump_lesson(lesson))
             await self._redis.delete(_open_key(user_session_id))
+            await self._redis.zadd(_sealed_key(), {lesson_id: ended_unix})
             return True
+
+    async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]:
+        start = _window_start(now if now is not None else time.time())
+        scored = await self._redis.zrevrangebyscore(_sealed_key(), "+inf", start, withscores=True)
+        rows = []
+        for lesson_id, ended_unix in scored:
+            lesson = await self.get(str(lesson_id))
+            if lesson is None or lesson.get("status") != "closed":
+                continue
+            rows.append(_sealed_row(lesson, float(ended_unix)))
+        return rows
 
     async def get(self, lesson_id: str) -> dict[str, Any] | None:
         raw = await self._redis.get(_lesson_key(lesson_id))
@@ -236,11 +276,17 @@ def _new_lesson(user_session_id: str) -> dict[str, Any]:
     }
 
 
-def _turn(transcript: str, reply_text: str, corrections: list[dict[str, str]]) -> dict[str, Any]:
+def _turn(
+    transcript: str,
+    reply_text: str,
+    corrections: list[dict[str, str]],
+    speech_seconds: float = 0.0,
+) -> dict[str, Any]:
     return {
         "transcript": transcript,
         "replyText": reply_text,
         "corrections": [dict(item) for item in corrections],
+        "speechSeconds": _speech_seconds(speech_seconds),
     }
 
 
@@ -256,11 +302,75 @@ def _copy_lesson(lesson: dict[str, Any]) -> dict[str, Any]:
                 str(turn.get("transcript") or ""),
                 str(turn.get("replyText") or ""),
                 list(turn.get("corrections") or []),
+                _speech_seconds(turn.get("speechSeconds")),
             )
             for turn in turns
             if isinstance(turn, dict)
         ],
     }
+
+
+def format_lesson_report(
+    rows: list[dict[str, Any]],
+    profiles: dict[str, tuple[str, str]],
+) -> dict[str, Any]:
+    public = []
+    total = 0
+    for row in rows:
+        seconds = _rounded_seconds(row.get("speechSeconds"))
+        total += seconds
+        username, name = profiles.get(str(row.get("userSessionId") or ""), ("", ""))
+        public.append(
+            {
+                "sessionId": row.get("userSessionId"),
+                "username": username or None,
+                "name": name or None,
+                "startedAt": row.get("startedAt"),
+                "speechSeconds": seconds,
+            }
+        )
+    count = len(public)
+    return {
+        "count": count,
+        "averageSeconds": int(total / count + 0.5) if count else 0,
+        "totalSeconds": total,
+        "rows": public,
+    }
+
+
+def _sealed_row(lesson: dict[str, Any], ended_unix: float) -> dict[str, Any]:
+    turns = lesson.get("turns") if isinstance(lesson.get("turns"), list) else []
+    speech = sum(_speech_seconds(turn.get("speechSeconds")) for turn in turns if isinstance(turn, dict))
+    return {
+        "userSessionId": lesson.get("userSessionId"),
+        "startedAt": lesson.get("startedAt"),
+        "endedUnix": ended_unix,
+        "speechSeconds": speech,
+    }
+
+
+def _window_start(moment: float) -> float:
+    oldest = recent_days(moment, FUNNEL_WINDOW_DAYS)[-1]
+    start = datetime.combine(datetime.fromisoformat(oldest).date(), clock.min, tzinfo=ZoneInfo(METRICS_TIMEZONE))
+    return start.timestamp()
+
+
+def _speech_seconds(value: Any) -> float:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if seconds <= 0:
+        return 0.0
+    return seconds
+
+
+def _rounded_seconds(value: Any) -> int:
+    return int(_speech_seconds(value) + 0.5)
+
+
+def _sealed_key() -> str:
+    return "lessons:sealed"
 
 
 def _open_key(user_session_id: str) -> str:

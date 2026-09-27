@@ -12,7 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
-from app.lessons import build_lesson_store
+from app.lessons import build_lesson_store, format_lesson_report
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.pipeline import ClipPipeline
@@ -93,6 +93,7 @@ def create_app(
             **await streaks.snapshot(),
             "reminderBuckets": await reminder_ledger.week_streak_buckets(),
         }
+        payload["lessons"] = await _lesson_report(clip_pipeline)
         marks = await reminder_ledger.chat_marks([chat["sessionId"] for chat in payload["chats"]])
         for chat in payload["chats"]:
             mark = marks.get(chat["sessionId"], {})
@@ -299,6 +300,16 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         default_headers=openai_headers or None,
     )
     return OpenAiSessionReviewer(client, settings.llm_model)
+
+
+async def _lesson_report(pipeline: ClipPipeline) -> dict[str, Any]:
+    rows = await pipeline.lessons.recent_sealed()
+    profiles = await pipeline.metrics.profiles([str(row.get("userSessionId") or "") for row in rows])
+    named = {
+        session_id: (profile.username, profile.name)
+        for session_id, profile in profiles.items()
+    }
+    return format_lesson_report(rows, named)
 
 
 def _lesson_session_id(payload: dict[str, Any]) -> str:

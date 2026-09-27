@@ -33,14 +33,16 @@ def test_settings() -> Settings:
 
 
 class FakeStt(SpeechToText):
-    def __init__(self, texts: list[str]) -> None:
+    def __init__(self, texts: list[str], durations: list[float] | None = None) -> None:
         self._texts = list(texts)
+        self._durations = list(durations or [])
         self.calls = 0
 
     async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
         self.calls += 1
         text = self._texts.pop(0) if self._texts else ""
-        return SttResult(text=text, no_speech=not text.strip())
+        duration = self._durations.pop(0) if self._durations else 0.0
+        return SttResult(text=text, no_speech=not text.strip(), duration_seconds=duration)
 
 
 class FakeLlm(ChatModel):

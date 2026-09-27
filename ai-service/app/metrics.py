@@ -166,6 +166,8 @@ class MetricsStore(Protocol):
 
     async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None: ...
 
+    async def profiles(self, session_ids: list[str]) -> dict[str, ChatProfile]: ...
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
     async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]: ...
@@ -249,6 +251,14 @@ class MemoryMetricsStore:
             return
         async with self._lock:
             self._profiles[session] = normalize_profile(username, name)
+
+    async def profiles(self, session_ids: list[str]) -> dict[str, ChatProfile]:
+        async with self._lock:
+            return {
+                session_id: self._profiles[session_id]
+                for session_id in session_ids
+                if session_id in self._profiles
+            }
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
@@ -404,6 +414,21 @@ class RedisMetricsStore:
             _chat_key(session),
             mapping={"username": profile.username, "name": profile.name},
         )
+
+    async def profiles(self, session_ids: list[str]) -> dict[str, ChatProfile]:
+        if not session_ids:
+            return {}
+        pipe = self._redis.pipeline()
+        for session_id in session_ids:
+            pipe.hmget(_chat_key(session_id), "username", "name")
+        fields = await pipe.execute()
+        found: dict[str, ChatProfile] = {}
+        for session_id, values in zip(session_ids, fields, strict=True):
+            username, name = (values or (None, None))[:2]
+            if not username and not name:
+                continue
+            found[session_id] = ChatProfile(username=username or "", name=name or "")
+        return found
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)

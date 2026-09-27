@@ -83,6 +83,24 @@ data class MetricsSnapshot(
     val funnelSources: List<FunnelSource> = emptyList(),
     val reminders: RemindersSnapshot? = null,
     val streaks: StreaksSnapshot? = null,
+    val lessons: LessonsSnapshot? = null,
+)
+
+@Serializable
+data class LessonsSnapshot(
+    val count: Long = 0,
+    val averageSeconds: Long = 0,
+    val totalSeconds: Long = 0,
+    val rows: List<LessonLengthRow> = emptyList(),
+)
+
+@Serializable
+data class LessonLengthRow(
+    val sessionId: String,
+    val username: String? = null,
+    val name: String? = null,
+    val startedAt: String = "",
+    val speechSeconds: Long = 0,
 )
 
 @Serializable
