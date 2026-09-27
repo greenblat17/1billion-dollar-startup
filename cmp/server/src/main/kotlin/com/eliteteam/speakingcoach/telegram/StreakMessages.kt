@@ -7,51 +7,45 @@ import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
 private val MOSCOW = ZoneId.of("Europe/Moscow")
-private val WEEKDAY = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
-private const val LABEL_GAP = "  "
-private const val SQUARE_GAP = "  "
 
-internal fun streakKickoffText(
-    current: Int,
+internal enum class WeekCell {
+    Done,
+    Missed,
+    TodayOpen,
+    Future,
+}
+
+internal val WEEKDAY_LABELS = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+
+internal fun weekCells(
     last7: List<Boolean>,
     today: LocalDate = LocalDate.now(MOSCOW),
-): String {
-    val headline = "Day $current. Glad you're here. Let's talk."
-    val grid = weekGrid(last7, today) ?: return escapeHtml(headline)
-    return "${escapeHtml(headline)}\n\n<pre>$grid</pre>"
-}
-
-internal fun streakProfileText(
-    profile: StreakProfileResponse,
-    today: LocalDate = LocalDate.now(MOSCOW),
-): String {
-    val headline = if (profile.current > 0) {
-        val days = if (profile.current == 1) "day" else "days"
-        "🔥 Current streak: ${profile.current} $days"
+): List<WeekCell> {
+    val active = if (last7.isEmpty()) {
+        emptyMap()
     } else {
-        "No streak yet. Send me a voice message to start one!"
-    }
-    val grid = weekGrid(profile.last7, today) ?: return escapeHtml(headline)
-    return "${escapeHtml(headline)}\n\n<pre>$grid</pre>"
-}
-
-private fun weekGrid(days: List<Boolean>, today: LocalDate): String? {
-    if (days.isEmpty()) {
-        return null
-    }
-    val active = days.indices.associate { index ->
-        today.minusDays((days.lastIndex - index).toLong()) to days[index]
+        last7.indices.associate { index ->
+            today.minusDays((last7.lastIndex - index).toLong()) to last7[index]
+        }
     }
     val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-    val squares = (0..6).map { offset ->
+    return (0..6).map { offset ->
         val day = monday.plusDays(offset.toLong())
-        if (active[day] == true) "🟩" else "⬜"
+        val spoke = active[day] == true
+        when {
+            day.isAfter(today) -> WeekCell.Future
+            day == today && !spoke -> WeekCell.TodayOpen
+            spoke -> WeekCell.Done
+            else -> WeekCell.Missed
+        }
     }
-    return WEEKDAY.joinToString(LABEL_GAP) + "\n" + squares.joinToString(SQUARE_GAP)
 }
 
-private fun escapeHtml(text: String): String = text
-    .replace("&", "&amp;")
-    .replace("<", "&lt;")
-    .replace(">", "&gt;")
+internal fun streakKickoffCaption(current: Int): String = "Day $current. Glad you're here. Let's talk."
 
+internal fun streakProfileCaption(profile: StreakProfileResponse): String = if (profile.current > 0) {
+    val days = if (profile.current == 1) "day" else "days"
+    "Current streak: ${profile.current} $days"
+} else {
+    "No streak yet. Send me a voice message to start one!"
+}

@@ -10,12 +10,12 @@ import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
+import dev.inmo.tgbotapi.extensions.api.send.replyWithPhoto
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.chat.Chat
-import dev.inmo.tgbotapi.types.message.HTMLParseMode
 import dev.inmo.tgbotapi.types.chat.PrivateChat
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
@@ -75,6 +75,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val greetedStarts = ConcurrentHashMap.newKeySet<String>()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
+    suspend fun sendStreakWeek(message: ChatMessage, caption: String, cells: List<WeekCell>) {
+        try {
+            replyWithPhoto(
+                message,
+                streakWeekPng(cells).asMultipartFile("streak.png"),
+                text = caption,
+                allowSendingWithoutReply = true,
+            )
+        } catch (error: Throwable) {
+            log.warn("Failed to send streak week for {}", message.chat.id, error)
+            reply(message, caption, allowSendingWithoutReply = true)
+        }
+    }
     suspend fun sendStreak(message: ChatMessage) {
         val claim = "${message.chat.id}:${message.messageId}"
         if (!answeredStreaks.add(claim)) {
@@ -82,12 +95,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val sessionId = telegramSessionId(message.chat.id)
         try {
-            reply(
-                message,
-                streakProfileText(ai.streakProfile(sessionId)),
-                parseMode = HTMLParseMode,
-                allowSendingWithoutReply = true,
-            )
+            val profile = ai.streakProfile(sessionId)
+            sendStreakWeek(message, streakProfileCaption(profile), weekCells(profile.last7))
         } catch (error: Throwable) {
             answeredStreaks.remove(claim)
             log.error("Failed to send streak for {}", sessionId.value, error)
@@ -133,22 +142,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
     }
     suspend fun sendStreakNote(message: ChatMessage, sessionId: SessionId, current: Int) {
+        val caption = streakKickoffCaption(current)
         val last7 = try {
             ai.streakProfile(sessionId).last7
         } catch (error: Throwable) {
             log.warn("Failed to load streak week for {}", sessionId.value, error)
-            emptyList()
+            reply(message, caption, allowSendingWithoutReply = true)
+            return
         }
-        try {
-            reply(
-                message,
-                streakKickoffText(current, last7),
-                parseMode = HTMLParseMode,
-                allowSendingWithoutReply = true,
-            )
-        } catch (error: Throwable) {
-            log.warn("Failed to send streak note for {}", message.chat.id, error)
-        }
+        sendStreakWeek(message, caption, weekCells(last7))
     }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->
         val text = message.content.text
