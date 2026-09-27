@@ -7,6 +7,7 @@ import java.awt.Graphics2D
 import java.awt.RenderingHints
 import java.awt.geom.Ellipse2D
 import java.awt.geom.Path2D
+import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
@@ -23,9 +24,11 @@ private const val MARK_STROKE = 7f
 private const val OPEN_STROKE = 4f
 
 private val cream = Color(0xFB, 0xFA, 0xF6)
+private val card = Color.WHITE
 private val ink = Color(0x0E, 0x10, 0x20)
-private val flame = Color(0xE8, 0x5D, 0x04)
+private val blue = Color(0x18, 0x74, 0xFC)
 private val muted = Color(0x9B, 0x9E, 0xA4)
+private val missedFill = Color(0xE8, 0xE9, 0xED)
 private val outline = Color(0xE4, 0xE4, 0xE4)
 private val mark = Color.WHITE
 
@@ -43,6 +46,7 @@ internal fun streakWeekPng(strip: WeekStrip): ByteArray {
     canvas.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
     canvas.color = cream
     canvas.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+    drawCard(canvas)
     val headerFont = regularFont.deriveFont(26f)
     canvas.font = headerFont
     canvas.color = muted
@@ -68,22 +72,45 @@ internal fun streakWeekPng(strip: WeekStrip): ByteArray {
     return output.toByteArray()
 }
 
+private fun drawCard(canvas: Graphics2D) {
+    val inset = 16f
+    val radius = 40f
+    val width = CANVAS_WIDTH - inset * 2
+    val height = CANVAS_HEIGHT - inset * 2
+    for (layer in 3 downTo 1) {
+        val grow = layer * 4f
+        canvas.color = Color(ink.red, ink.green, ink.blue, 8 + (3 - layer) * 6)
+        canvas.fill(
+            RoundRectangle2D.Float(
+                inset - grow / 2f,
+                inset + 6f,
+                width + grow,
+                height + grow,
+                radius,
+                radius,
+            ),
+        )
+    }
+    canvas.color = card
+    canvas.fill(RoundRectangle2D.Float(inset, inset, width, height, radius, radius))
+}
+
 private fun drawMark(canvas: Graphics2D, left: Float, top: Float, day: WeekDay) {
     val cx = left + CIRCLE / 2f
     val cy = top + CIRCLE / 2f
     when (day.cell) {
         WeekCell.Done -> {
-            canvas.color = flame
+            canvas.color = blue
             canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
             drawCheck(canvas, cx, cy)
         }
         WeekCell.Missed -> {
-            canvas.color = muted
+            canvas.color = missedFill
             canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
             drawCross(canvas, cx, cy)
         }
         WeekCell.TodayOpen -> {
-            canvas.color = cream
+            canvas.color = card
             canvas.fill(Ellipse2D.Float(left, top, CIRCLE.toFloat(), CIRCLE.toFloat()))
             canvas.color = outline
             canvas.stroke = BasicStroke(OPEN_STROKE)
@@ -103,11 +130,11 @@ private fun drawLabel(canvas: Graphics2D, left: Float, top: Float, day: WeekDay)
 }
 
 private fun drawGlow(canvas: Graphics2D, cx: Float, cy: Float) {
-    val rings = 5
+    val rings = 4
     for (ring in rings downTo 1) {
-        val extra = ring * 7f
-        val alpha = 40 + (rings - ring) * 14
-        canvas.color = Color(flame.red, flame.green, flame.blue, alpha)
+        val extra = ring * 5f
+        val alpha = 22 + (rings - ring) * 12
+        canvas.color = Color(blue.red, blue.green, blue.blue, alpha)
         canvas.fill(
             Ellipse2D.Float(
                 cx - CIRCLE / 2f - extra,
@@ -130,7 +157,7 @@ private fun drawCheck(canvas: Graphics2D, cx: Float, cy: Float) {
 }
 
 private fun drawCross(canvas: Graphics2D, cx: Float, cy: Float) {
-    canvas.color = mark
+    canvas.color = muted
     canvas.stroke = BasicStroke(MARK_STROKE, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
     val arm = 15f
     canvas.draw(line(cx - arm, cy - arm, cx + arm, cy + arm))
