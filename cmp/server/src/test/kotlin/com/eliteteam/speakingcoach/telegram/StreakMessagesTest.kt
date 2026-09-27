@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.StreakProfileResponse
 import java.io.ByteArrayInputStream
 import java.time.LocalDate
 import javax.imageio.ImageIO
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -64,15 +65,17 @@ class StreakMessagesTest {
     }
 
     @Test
-    fun profileCaptionNamesTheCount() {
-        assertEquals(
-            "🔥 Current streak: 3 days",
-            streakProfileCaption(StreakProfileResponse(current = 3)),
-        )
-        assertEquals(
-            "🔥 Current streak: 1 day",
-            streakProfileCaption(StreakProfileResponse(current = 1)),
-        )
+    fun profileCaptionNamesTheCountAndACheer() {
+        val threeDays = streakProfileCaption(StreakProfileResponse(current = 3), Random(0))
+        val oneDay = streakProfileCaption(StreakProfileResponse(current = 1), Random(0))
+        assertTrue(threeDays.startsWith("🔥 Current streak: 3 days\n"))
+        assertTrue(oneDay.startsWith("🔥 Current streak: 1 day\n"))
+        assertTrue(STREAK_CHEERS.any { threeDays.endsWith(it) })
+        assertTrue(STREAK_CHEERS.any { oneDay.endsWith(it) })
+        val seen = (0..24).map { seed ->
+            streakProfileCaption(StreakProfileResponse(current = 2), Random(seed.toLong()))
+        }.toSet()
+        assertTrue(seen.size > 1)
     }
 
     @Test
