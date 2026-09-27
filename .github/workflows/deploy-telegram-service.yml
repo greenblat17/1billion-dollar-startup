@@ -1,0 +1,74 @@
+name: Deploy telegram-service
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy telegram-service (dev)
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    concurrency:
+      group: telegram-service-dev
+      cancel-in-progress: false
+    env:
+      DEV_TELEGRAM_SERVICE_HOST: ${{ secrets.DEV_TELEGRAM_SERVICE_HOST }}
+      DEV_TELEGRAM_SERVICE_USER: ${{ secrets.DEV_TELEGRAM_SERVICE_USER }}
+      DEV_TELEGRAM_SERVICE_SSH_KEY: ${{ secrets.DEV_TELEGRAM_SERVICE_SSH_KEY }}
+      DEV_TELEGRAM_SERVICE_ENV: ${{ secrets.DEV_TELEGRAM_SERVICE_ENV }}
+      METRICS_PASSWORD: ${{ secrets.METRICS_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download fat JAR
+        uses: actions/download-artifact@v7
+        with:
+          name: telegram-service-all
+          path: vps-upload
+
+      - name: Stage runtime files
+        run: |
+          set -euo pipefail
+          cp infra/telegram-service/Dockerfile.runtime vps-upload/Dockerfile.runtime
+          cp infra/telegram-service/deploy-remote.sh vps-upload/deploy-remote.sh
+          chmod +x vps-upload/deploy-remote.sh
+          umask 077
+          if [ -z "${DEV_TELEGRAM_SERVICE_ENV:-}" ]; then
+            echo "DEV_TELEGRAM_SERVICE_ENV is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "$DEV_TELEGRAM_SERVICE_ENV" > vps-upload/.env
+          if [ -n "${METRICS_PASSWORD:-}" ]; then
+            tmp=$(mktemp)
+            grep -v '^METRICS_PASSWORD=' vps-upload/.env > "$tmp" || true
+            printf 'METRICS_PASSWORD=%s\n' "$METRICS_PASSWORD" >> "$tmp"
+            mv "$tmp" vps-upload/.env
+          fi
+          chmod 600 vps-upload/.env
+
+      - name: Copy files and restart container
+        run: |
+          set -euo pipefail
+          HOST="$DEV_TELEGRAM_SERVICE_HOST"
+          USER="$DEV_TELEGRAM_SERVICE_USER"
+          KEY_BODY="$DEV_TELEGRAM_SERVICE_SSH_KEY"
+          : "${HOST:?}"
+          : "${USER:?}"
+          : "${KEY_BODY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/telegram-service
+          scp "${SSH_OPTS[@]}" \
+            vps-upload/telegram-service-all.jar \
+            vps-upload/Dockerfile.runtime \
+            vps-upload/deploy-remote.sh \
+            vps-upload/.env \
+            "${USER}@${HOST}:/opt/telegram-service/"
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            bash /opt/telegram-service/deploy-remote.sh

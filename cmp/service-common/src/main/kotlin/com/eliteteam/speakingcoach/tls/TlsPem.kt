@@ -9,9 +9,12 @@ import java.security.cert.X509Certificate
 import java.security.spec.PKCS8EncodedKeySpec
 import java.util.Base64
 
-internal const val TLS_KEY_ALIAS = "ktor"
+const val TLS_KEY_ALIAS = "ktor"
 
-internal fun loadPemKeyStore(certFile: File, keyFile: File, password: CharArray): KeyStore {
+fun pemTlsReady(certPath: String, keyPath: String): Boolean =
+    File(certPath).isFile && File(keyPath).isFile
+
+fun loadPemKeyStore(certFile: File, keyFile: File, password: CharArray): KeyStore {
     require(certFile.isFile) { "TLS certificate not found: ${certFile.path}" }
     require(keyFile.isFile) { "TLS private key not found: ${keyFile.path}" }
     val certificates = CertificateFactory.getInstance("X.509")

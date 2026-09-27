@@ -1,0 +1,69 @@
+name: Deploy cmp-service
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy cmp-service (dev)
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    concurrency:
+      group: cmp-service-dev
+      cancel-in-progress: false
+    env:
+      DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
+      DEV_CMP_SERVICE_USER: ${{ secrets.DEV_CMP_SERVICE_USER }}
+      DEV_CMP_SERVICE_SSH_KEY: ${{ secrets.DEV_CMP_SERVICE_SSH_KEY }}
+      DEV_CMP_SERVICE_ENV: ${{ secrets.DEV_CMP_SERVICE_ENV }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download fat JAR
+        uses: actions/download-artifact@v7
+        with:
+          name: cmp-service-all
+          path: vps-upload
+
+      - name: Stage runtime files
+        run: |
+          set -euo pipefail
+          cp infra/cmp-service/Dockerfile.runtime vps-upload/Dockerfile.runtime
+          cp infra/cmp-service/deploy-remote.sh vps-upload/deploy-remote.sh
+          cp infra/postgres/deploy-remote.sh vps-upload/deploy-postgres.sh
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-postgres.sh
+          umask 077
+          if [ -z "${DEV_CMP_SERVICE_ENV:-}" ]; then
+            echo "DEV_CMP_SERVICE_ENV is empty" >&2
+            exit 1
+          fi
+          printf '%s\n' "$DEV_CMP_SERVICE_ENV" > vps-upload/.env
+          chmod 600 vps-upload/.env
+
+      - name: Copy files and restart container
+        run: |
+          set -euo pipefail
+          HOST="$DEV_CMP_SERVICE_HOST"
+          USER="$DEV_CMP_SERVICE_USER"
+          KEY_BODY="$DEV_CMP_SERVICE_SSH_KEY"
+          : "${HOST:?}"
+          : "${USER:?}"
+          : "${KEY_BODY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/cmp-service
+          scp "${SSH_OPTS[@]}" \
+            vps-upload/cmp-service-all.jar \
+            vps-upload/Dockerfile.runtime \
+            vps-upload/deploy-remote.sh \
+            vps-upload/deploy-postgres.sh \
+            vps-upload/.env \
+            "${USER}@${HOST}:/opt/cmp-service/"
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+            bash /opt/cmp-service/deploy-remote.sh

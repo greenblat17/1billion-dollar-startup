@@ -245,8 +245,6 @@ class MetricsDashboardTest {
         serverPort = 8080,
         tlsCertPath = AppConfig.DEFAULT_TLS_CERT_PATH,
         tlsKeyPath = AppConfig.DEFAULT_TLS_KEY_PATH,
-        jwtSecret = null,
-        databaseUrl = null,
         metricsPassword = password,
     )
 

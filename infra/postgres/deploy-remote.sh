@@ -4,7 +4,7 @@ set -euo pipefail
 # Create-if-missing Postgres on the Ktor host. Listen on loopback only.
 # Never docker rm postgres: volume speaking-coach-postgres keeps users.
 
-APP=/opt/speaking-coach
+APP=/opt/cmp-service
 ENV_FILE="$APP/.env"
 NAME=postgres
 

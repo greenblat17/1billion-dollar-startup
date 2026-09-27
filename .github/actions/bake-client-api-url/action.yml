@@ -12,8 +12,8 @@ runs:
           host="${PROD_CMP_SERVER_HOST:-}"
           missing=PROD_CMP_SERVER_HOST
         else
-          host="${DEV_CMP_SERVER_HOST:-}"
-          missing=DEV_CMP_SERVER_HOST
+          host="${DEV_CMP_SERVICE_HOST:-}"
+          missing=DEV_CMP_SERVICE_HOST
         fi
         host="${host#https://}"
         host="${host#http://}"

@@ -31,8 +31,6 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
-internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
-
 class HttpClipClient(
     baseUrl: String,
     private val http: HttpClient,

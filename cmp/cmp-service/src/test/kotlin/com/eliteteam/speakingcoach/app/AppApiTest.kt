@@ -230,9 +230,6 @@ class AppApiTest {
     )
 
     private fun appTestConfig() = AppConfig(
-        telegramBotToken = null,
-        telegramWebhookUrl = null,
-        telegramWebhookSecret = null,
         aiServiceBaseUrl = "http://127.0.0.1:8090",
         aiInternalToken = "test-internal-token",
         serverPort = 8080,

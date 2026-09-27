@@ -8,9 +8,10 @@ Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DE
 
 | Job | Touch |
 | --- | --- |
-| Telegram UX, queue, webhook, session ids | `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/`, `speaking/` |
-| Clip HTTP client / OpenAPI proxy | `cmp/server/.../ai/` |
-| Server env, TLS, webhook vs no-bot | `AppConfig.kt`, `Application.kt` |
+| Telegram UX, queue, webhook, reminders, metrics | `cmp/telegram-service/` |
+| Clip HTTP client | `cmp/telegram-service/.../ai/` |
+| CMP client API (auth, call, review) | `cmp/cmp-service/` |
+| TLS PEM, health, AI HTTP client | `cmp/service-common/` |
 | STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
 | VPS scripts / 8090 allowlist | `infra/` |
 | CI / GitHub secret **names** | `.github/workflows/` |

@@ -16,7 +16,7 @@ on:
         type: boolean
         default: true
       server:
-        description: Server test and fat JAR
+        description: telegram-service and cmp-service test and fat JAR
         type: boolean
         default: true
   push:
@@ -25,7 +25,8 @@ on:
       - master
     paths:
       - 'cmp/**'
-      - 'infra/server/**'
+      - 'infra/cmp-service/**'
+      - 'infra/telegram-service/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
@@ -33,7 +34,8 @@ on:
   pull_request:
     paths:
       - 'cmp/**'
-      - 'infra/server/**'
+      - 'infra/cmp-service/**'
+      - 'infra/telegram-service/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
@@ -95,7 +97,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -171,7 +173,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -213,7 +215,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -255,16 +257,24 @@ jobs:
         uses: ./.github/actions/setup-cmp
 
       - name: Test
-        run: ./gradlew :server:test
+        run: ./gradlew :service-common:test :telegram-service:test :cmp-service:test
 
       - name: Package
-        run: ./gradlew :server:buildFatJar
+        run: ./gradlew :telegram-service:buildFatJar :cmp-service:buildFatJar
 
-      - name: Upload fat JAR
+      - name: Upload telegram-service fat JAR
         uses: actions/upload-artifact@v6
         with:
-          name: server-all
-          path: cmp/server/build/libs/server-all.jar
+          name: telegram-service-all
+          path: cmp/telegram-service/build/libs/telegram-service-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload cmp-service fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: cmp-service-all
+          path: cmp/cmp-service/build/libs/cmp-service-all.jar
           if-no-files-found: error
           retention-days: 1
 

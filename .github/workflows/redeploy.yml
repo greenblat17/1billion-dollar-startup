@@ -3,12 +3,16 @@ name: Redeploy DEV
 on:
   workflow_dispatch:
     inputs:
-      cmp_server:
-        description: cmp-server
+      cmp_service:
+        description: cmp-service
         type: boolean
         default: true
-      ai_server:
-        description: ai-server
+      telegram_service:
+        description: telegram-service
+        type: boolean
+        default: true
+      ai_service:
+        description: ai-service
         type: boolean
         default: true
 
@@ -20,16 +24,16 @@ jobs:
     name: Require a host
     runs-on: ubuntu-latest
     steps:
-      - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
+      - name: Fail if every host is off
+        if: ${{ inputs.cmp_service != true && inputs.telegram_service != true && inputs.ai_service != true }}
         run: |
-          echo "Enable cmp-server and/or ai-server" >&2
+          echo "Enable cmp-service, telegram-service, and/or ai-service" >&2
           exit 1
 
-  package-server:
-    name: Package cmp-server
+  package-cmp-service:
+    name: Package cmp-service
     needs: require-target
-    if: ${{ inputs.cmp_server }}
+    if: ${{ inputs.cmp_service }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,23 +47,53 @@ jobs:
         uses: ./.github/actions/setup-cmp
 
       - name: Test
-        run: ./gradlew :server:test
+        run: ./gradlew :service-common:test :cmp-service:test
 
       - name: Package
-        run: ./gradlew :server:buildFatJar
+        run: ./gradlew :cmp-service:buildFatJar
 
       - name: Upload fat JAR
         uses: actions/upload-artifact@v6
         with:
-          name: server-all
-          path: cmp/server/build/libs/server-all.jar
+          name: cmp-service-all
+          path: cmp/cmp-service/build/libs/cmp-service-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  package-telegram-service:
+    name: Package telegram-service
+    needs: require-target
+    if: ${{ inputs.telegram_service }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :service-common:test :telegram-service:test
+
+      - name: Package
+        run: ./gradlew :telegram-service:buildFatJar
+
+      - name: Upload fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: telegram-service-all
+          path: cmp/telegram-service/build/libs/telegram-service-all.jar
           if-no-files-found: error
           retention-days: 1
 
   package-ai:
-    name: Package ai-server
+    name: Package ai-service
     needs: require-target
-    if: ${{ inputs.ai_server }}
+    if: ${{ inputs.ai_service }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -94,23 +128,30 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  deploy-server:
-    name: Deploy cmp-server
+  deploy-cmp-service:
+    name: Deploy cmp-service
     needs:
       - require-target
-      - package-server
-    if: ${{ !cancelled() && inputs.cmp_server && needs.package-server.result == 'success' }}
-    uses: ./.github/workflows/deploy-cmp-server.yml
-    with:
-      destination: dev
+      - package-cmp-service
+    if: ${{ !cancelled() && inputs.cmp_service && needs.package-cmp-service.result == 'success' }}
+    uses: ./.github/workflows/deploy-cmp-service.yml
+    secrets: inherit
+
+  deploy-telegram-service:
+    name: Deploy telegram-service
+    needs:
+      - require-target
+      - package-telegram-service
+    if: ${{ !cancelled() && inputs.telegram_service && needs.package-telegram-service.result == 'success' }}
+    uses: ./.github/workflows/deploy-telegram-service.yml
     secrets: inherit
 
   deploy-ai:
-    name: Deploy ai-server
+    name: Deploy ai-service
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
+    if: ${{ !cancelled() && inputs.ai_service && needs.package-ai.result == 'success' }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
