@@ -66,8 +66,6 @@ internal fun weekStrip(
     return WeekStrip(header = "${monthDay(start)} - ${monthDay(today)}", days = days)
 }
 
-internal fun streakKickoffCaption(current: Int): String = "Day $current. Glad you're here. Let's talk."
-
 internal val STREAK_CHEERS = listOf(
     "Keep going.",
     "Nice. Don't stop now.",

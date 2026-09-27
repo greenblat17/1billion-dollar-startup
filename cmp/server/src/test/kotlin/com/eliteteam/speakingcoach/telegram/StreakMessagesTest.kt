@@ -57,14 +57,6 @@ class StreakMessagesTest {
     }
 
     @Test
-    fun kickoffCaptionNamesTheDay() {
-        assertEquals(
-            "Day 3. Glad you're here. Let's talk.",
-            streakKickoffCaption(3),
-        )
-    }
-
-    @Test
     fun profileCaptionNamesTheCountAndACheer() {
         val threeDays = streakProfileCaption(StreakProfileResponse(current = 3), Random(0))
         val oneDay = streakProfileCaption(StreakProfileResponse(current = 1), Random(0))

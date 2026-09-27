@@ -141,17 +141,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
         }
     }
-    suspend fun sendStreakNote(message: ChatMessage, sessionId: SessionId, current: Int) {
-        val caption = streakKickoffCaption(current)
-        val last7 = try {
-            ai.streakProfile(sessionId).last7
-        } catch (error: Throwable) {
-            log.warn("Failed to load streak week for {}", sessionId.value, error)
-            reply(message, caption, allowSendingWithoutReply = true)
-            return
-        }
-        sendStreakWeek(message, caption, weekStrip(last7))
-    }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->
         val text = message.content.text
         if (isStartCommand(text)) {
@@ -190,11 +179,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.info("Voice queue is full for {}", sessionId.value)
                         }
                         is ClipSubmitResult.Completed -> {
-                            result.reply.streak?.let { streak ->
-                                if (streak.firstToday) {
-                                    sendStreakNote(message, sessionId, streak.current)
-                                }
-                            }
                             if (result.reply.transcript.isNotBlank()) {
                                 reply(
                                     message,
