@@ -27,9 +27,13 @@ class LessonStore(Protocol):
         speech_seconds: float = 0.0,
     ) -> None: ...
 
-    async def seal(self, user_session_id: str) -> bool: ...
+    async def seal(self, user_session_id: str) -> str | None: ...
 
     async def get(self, lesson_id: str) -> dict[str, Any] | None: ...
+
+    async def stored_scores(self, lesson_id: str) -> dict[str, int] | None: ...
+
+    async def save_scores(self, lesson_id: str, scores: dict[str, int]) -> bool: ...
 
     async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]: ...
 
@@ -78,13 +82,13 @@ class MemoryLessonStore:
             lesson = self._lessons[lesson_id]
             lesson["turns"].append(_turn(transcript, reply_text, corrections, speech_seconds))
 
-    async def seal(self, user_session_id: str) -> bool:
+    async def seal(self, user_session_id: str) -> str | None:
         user_session_id = _require_session_id(user_session_id)
         async with await self._lock_for(user_session_id):
             lesson_id = self._live_open(user_session_id)
             if lesson_id is None:
                 self._open.pop(user_session_id, None)
-                return False
+                return None
             lesson = self._lessons[lesson_id]
             ended_unix = time.time()
             lesson["status"] = "closed"
@@ -92,7 +96,20 @@ class MemoryLessonStore:
             lesson["endedUnix"] = ended_unix
             self._open.pop(user_session_id, None)
             self._sealed[lesson_id] = ended_unix
-            return True
+            return lesson_id
+
+    async def stored_scores(self, lesson_id: str) -> dict[str, int] | None:
+        lesson = self._lessons.get(lesson_id)
+        if lesson is None:
+            return None
+        return _copy_scores(lesson)
+
+    async def save_scores(self, lesson_id: str, scores: dict[str, int]) -> bool:
+        lesson = self._lessons.get(lesson_id)
+        if lesson is None or lesson.get("status") != "closed":
+            return False
+        lesson["scores"] = {key: int(scores[key]) for key in ("grammar", "vocabulary", "fluency")}
+        return True
 
     async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]:
         start = _window_start(now if now is not None else time.time())
@@ -182,17 +199,17 @@ class RedisLessonStore:
             lesson["turns"].append(_turn(transcript, reply_text, corrections, speech_seconds))
             await self._redis.set(_lesson_key(lesson_id), _dump_lesson(lesson))
 
-    async def seal(self, user_session_id: str) -> bool:
+    async def seal(self, user_session_id: str) -> str | None:
         user_session_id = _require_session_id(user_session_id)
         async with await self._lock_for(user_session_id):
             lesson_id = await self._live_open(user_session_id)
             if lesson_id is None:
                 await self._redis.delete(_open_key(user_session_id))
-                return False
+                return None
             raw = await self._redis.get(_lesson_key(lesson_id))
             if raw is None:
                 await self._redis.delete(_open_key(user_session_id))
-                return False
+                return None
             lesson = _load_lesson(raw)
             ended_unix = time.time()
             lesson["status"] = "closed"
@@ -201,7 +218,24 @@ class RedisLessonStore:
             await self._redis.set(_lesson_key(lesson_id), _dump_lesson(lesson))
             await self._redis.delete(_open_key(user_session_id))
             await self._redis.zadd(_sealed_key(), {lesson_id: ended_unix})
-            return True
+            return lesson_id
+
+    async def stored_scores(self, lesson_id: str) -> dict[str, int] | None:
+        lesson = await self.get(lesson_id)
+        if lesson is None:
+            return None
+        return _copy_scores(lesson)
+
+    async def save_scores(self, lesson_id: str, scores: dict[str, int]) -> bool:
+        raw = await self._redis.get(_lesson_key(lesson_id))
+        if raw is None:
+            return False
+        lesson = _load_lesson(raw)
+        if lesson.get("status") != "closed":
+            return False
+        lesson["scores"] = {key: int(scores[key]) for key in ("grammar", "vocabulary", "fluency")}
+        await self._redis.set(_lesson_key(lesson_id), _dump_lesson(lesson))
+        return True
 
     async def recent_sealed(self, *, now: float | None = None) -> list[dict[str, Any]]:
         start = _window_start(now if now is not None else time.time())
@@ -297,6 +331,7 @@ def _copy_lesson(lesson: dict[str, Any]) -> dict[str, Any]:
         "startedAt": lesson.get("startedAt"),
         "endedAt": lesson.get("endedAt"),
         "status": lesson.get("status"),
+        "scores": _copy_scores(lesson),
         "turns": [
             _turn(
                 str(turn.get("transcript") or ""),
@@ -353,6 +388,16 @@ def _window_start(moment: float) -> float:
     oldest = recent_days(moment, FUNNEL_WINDOW_DAYS)[-1]
     start = datetime.combine(datetime.fromisoformat(oldest).date(), clock.min, tzinfo=ZoneInfo(METRICS_TIMEZONE))
     return start.timestamp()
+
+
+def _copy_scores(lesson: dict[str, Any]) -> dict[str, int] | None:
+    raw = lesson.get("scores")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return {key: int(raw[key]) for key in ("grammar", "vocabulary", "fluency")}
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def _speech_seconds(value: Any) -> float:

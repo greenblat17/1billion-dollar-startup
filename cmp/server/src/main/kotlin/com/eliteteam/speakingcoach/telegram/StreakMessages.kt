@@ -77,6 +77,14 @@ internal val STREAK_CHEERS = listOf(
     "Small days, real progress.",
 )
 
+internal fun lessonEndStreakCaption(profile: StreakProfileResponse): String {
+    if (profile.current <= 0) {
+        return "No streak yet."
+    }
+    val days = if (profile.current == 1) "day" else "days"
+    return "Current streak: ${profile.current} $days. Best: ${profile.best}."
+}
+
 internal fun streakProfileCaption(
     profile: StreakProfileResponse,
     random: Random = Random.Default,

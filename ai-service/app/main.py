@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
+from app.lesson_score import LessonScorer, OpenAiLessonScorer, lesson_score_payload
 from app.lessons import build_lesson_store, format_lesson_report
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
@@ -34,6 +35,7 @@ def create_app(
     pipeline: ClipPipeline | None = None,
     realtime: RealtimeGateway | None = None,
     reviewer: SessionReviewer | None = None,
+    lesson_scorer: LessonScorer | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     if not settings.ai_internal_token:
@@ -46,6 +48,9 @@ def create_app(
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
+    scorer = lesson_scorer if lesson_scorer is not None else _build_lesson_scorer(settings, clip_pipeline.metrics)
+    score_locks: dict[str, asyncio.Lock] = {}
+    score_locks_guard = asyncio.Lock()
     greeting_audio: bytes | None = None
     greeting_lock = asyncio.Lock()
     tasks: set[asyncio.Task[None]] = set()
@@ -157,9 +162,35 @@ def create_app(
         return {"lessonId": await clip_pipeline.lessons.current(session_id)}
 
     @app.post("/internal/lessons/seal")
-    async def lessons_seal(request: Request) -> dict[str, bool]:
+    async def lessons_seal(request: Request) -> dict[str, bool | str | None]:
         session_id = _lesson_session_id(await _json_object(request))
-        return {"sealed": await clip_pipeline.lessons.seal(session_id)}
+        lesson_id = await clip_pipeline.lessons.seal(session_id)
+        return {"sealed": lesson_id is not None, "lessonId": lesson_id}
+
+    @app.post("/internal/lessons/score")
+    async def lessons_score(request: Request) -> dict[str, Any]:
+        if scorer is None:
+            raise HTTPException(status_code=503, detail="lesson score unavailable")
+        payload = await _json_object(request)
+        lesson_id = str(payload.get("lessonId") or "").strip()
+        if not lesson_id:
+            raise HTTPException(status_code=400, detail="lessonId required")
+        async with score_locks_guard:
+            lock = score_locks.get(lesson_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                score_locks[lesson_id] = lock
+        async with lock:
+            lesson = await clip_pipeline.lessons.get(lesson_id)
+            if lesson is None or lesson.get("status") != "closed":
+                raise HTTPException(status_code=404, detail="unknown lesson")
+            scores = await clip_pipeline.lessons.stored_scores(lesson_id)
+            if scores is None:
+                scores = await scorer.score(lesson)
+                saved = await clip_pipeline.lessons.save_scores(lesson_id, scores)
+                if not saved:
+                    raise HTTPException(status_code=404, detail="unknown lesson")
+            return lesson_score_payload(scores, lesson)
 
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
@@ -283,6 +314,26 @@ def _build_realtime(settings: Settings) -> RealtimeGateway | None:
     if not settings.openai_realtime_api_key:
         return None
     return OpenAiRealtimeGateway(settings.openai_realtime_api_key)
+
+
+def _build_lesson_scorer(settings: Settings, metrics: MetricsStore) -> LessonScorer | None:
+    if not settings.openai_api_key:
+        return None
+    return OpenAiLessonScorer(_openai_client(settings), settings.llm_model, metrics=metrics)
+
+
+def _openai_client(settings: Settings) -> AsyncOpenAI:
+    openai_headers = {}
+    if "openrouter.ai" in settings.openai_base_url:
+        openai_headers = {
+            "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
+            "X-Title": "Speaky",
+        }
+    return AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        default_headers=openai_headers or None,
+    )
 
 
 def _build_reviewer(settings: Settings) -> SessionReviewer | None:

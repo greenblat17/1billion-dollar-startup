@@ -227,6 +227,20 @@ data class LessonCurrentResponse(
 @Serializable
 data class LessonSealResponse(
     val sealed: Boolean = false,
+    val lessonId: String? = null,
+)
+
+@Serializable
+data class LessonScoreRequest(
+    val lessonId: String,
+)
+
+@Serializable
+data class LessonScoreResponse(
+    val grammar: Int = 0,
+    val vocabulary: Int = 0,
+    val fluency: Int = 0,
+    val corrections: List<ClipCorrectionResponse> = emptyList(),
 )
 
 @Serializable

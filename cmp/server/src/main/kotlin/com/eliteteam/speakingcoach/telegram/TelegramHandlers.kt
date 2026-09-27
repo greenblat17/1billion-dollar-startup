@@ -7,13 +7,20 @@ import com.eliteteam.speakingcoach.speaking.ClipSubmitResult
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
+import com.eliteteam.speakingcoach.ai.LessonScore
+import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.replyWithPhoto
+import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
+import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
+import dev.inmo.tgbotapi.types.ChatIdentifier
+import dev.inmo.tgbotapi.types.buttons.KeyboardMarkup
+import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.types.chat.Chat
@@ -77,17 +84,23 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val greetedStarts = ConcurrentHashMap.newKeySet<String>()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
     val lessonGate = LessonGate()
-    suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
+    suspend fun sendStreakWeek(
+        message: ChatMessage,
+        caption: String,
+        strip: WeekStrip,
+        replyMarkup: KeyboardMarkup? = null,
+    ) {
         try {
             replyWithPhoto(
                 message,
                 streakWeekPng(strip).asMultipartFile("streak.png"),
                 text = caption,
                 allowSendingWithoutReply = true,
+                replyMarkup = replyMarkup,
             )
         } catch (error: Throwable) {
             log.warn("Failed to send streak week for {}", message.chat.id, error)
-            reply(message, caption, allowSendingWithoutReply = true)
+            reply(message, caption, allowSendingWithoutReply = true, replyMarkup = replyMarkup)
         }
     }
     suspend fun sendStreak(message: ChatMessage) {
@@ -105,6 +118,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
         }
     }
+    suspend fun sendLessonScoreOffer(message: ChatMessage, sessionId: SessionId, lessonId: String) {
+        val markup = grammarScoreKeyboard(lessonId)
+        val profile = try {
+            ai.streakProfile(sessionId)
+        } catch (error: Throwable) {
+            log.warn("Failed to load streak for {}", sessionId.value, error)
+            null
+        }
+        if (profile == null) {
+            reply(message, "No streak yet.", allowSendingWithoutReply = true, replyMarkup = markup)
+            return
+        }
+        sendStreakWeek(message, lessonEndStreakCaption(profile), weekStrip(profile.last7), markup)
+    }
     suspend fun endConversation(message: ChatMessage) {
         val sessionId = telegramSessionId(message.chat.id)
         val open = try {
@@ -120,13 +147,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         try {
             lessonGate.close(sessionId.value) {
-                ai.sealLesson(sessionId)
+                val lessonId = ai.sealLesson(sessionId)
                 reply(
                     message,
                     CONVERSATION_ENDED_TEXT,
                     allowSendingWithoutReply = true,
                     replyMarkup = ReplyKeyboardRemove(),
                 )
+                if (lessonId != null) {
+                    sendLessonScoreOffer(message, sessionId, lessonId)
+                }
             }
         } catch (error: Throwable) {
             log.error("Failed to end lesson for {}", sessionId.value, error)
@@ -169,6 +199,38 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             greetedStarts.remove(claim)
             log.error("Failed to start session for tg-{}", message.chat.id, error)
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+        }
+    }
+    suspend fun sendScoreCard(chatId: ChatIdentifier, metric: LessonScoreMetric, lessonId: String, scored: LessonScore) {
+        val score = when (metric) {
+            LessonScoreMetric.GRAMMAR -> scored.grammar
+            LessonScoreMetric.VOCABULARY -> scored.vocabulary
+            LessonScoreMetric.FLUENCY -> scored.fluency
+        }
+        sendMessage(
+            chatId,
+            lessonScoreCard(metric, score, scored.corrections),
+            replyMarkup = nextScoreKeyboard(metric, lessonId),
+        )
+    }
+    onDataCallbackQuery { query ->
+        val parsed = parseLessonScoreCallback(query.data)
+        val chatId = (query as? AbstractMessageCallbackQuery)?.message?.chat?.id
+        if (parsed == null || chatId == null) {
+            answerCallbackQuery(query)
+            return@onDataCallbackQuery
+        }
+        val (metric, lessonId) = parsed
+        try {
+            sendScoreCard(chatId, metric, lessonId, ai.scoreLesson(lessonId))
+        } catch (error: Throwable) {
+            log.error("Failed to score lesson {}", lessonId, error)
+            sendMessage(chatId, SCORE_FAILED_TEXT)
+        }
+        try {
+            answerCallbackQuery(query)
+        } catch (error: Throwable) {
+            log.warn("Failed to answer score callback for {}", lessonId, error)
         }
     }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->

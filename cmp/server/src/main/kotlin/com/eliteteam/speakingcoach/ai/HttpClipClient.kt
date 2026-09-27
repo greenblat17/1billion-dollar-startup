@@ -144,7 +144,7 @@ class HttpClipClient(
         return response.body<LessonCurrentResponse>().lessonId
     }
 
-    suspend fun sealLesson(sessionId: SessionId): Boolean {
+    suspend fun sealLesson(sessionId: SessionId): String? {
         val response = http.post("$root/internal/lessons/seal") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
@@ -153,7 +153,34 @@ class HttpClipClient(
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/lessons/seal returned ${response.status}")
         }
-        return response.body<LessonSealResponse>().sealed
+        val body = response.body<LessonSealResponse>()
+        return body.lessonId?.takeIf { body.sealed && it.isNotBlank() }
+    }
+
+    suspend fun scoreLesson(lessonId: String): LessonScore {
+        val response = http.post("$root/internal/lessons/score") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LessonScoreRequest(lessonId))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/lessons/score returned ${response.status}")
+        }
+        val body = response.body<LessonScoreResponse>()
+        return LessonScore(
+            grammar = body.grammar,
+            vocabulary = body.vocabulary,
+            fluency = body.fluency,
+            corrections = body.corrections.mapNotNull { item ->
+                val wrong = item.wrong.trim()
+                val better = item.better.trim()
+                if (wrong.isEmpty() || better.isEmpty()) {
+                    null
+                } else {
+                    Correction(wrong, better, CorrectionKind.fromWire(item.kind))
+                }
+            },
+        )
     }
 
     suspend fun loadMetrics(): MetricsSnapshot {
@@ -265,6 +292,13 @@ class HttpClipClient(
         }
     }
 }
+
+data class LessonScore(
+    val grammar: Int,
+    val vocabulary: Int,
+    val fluency: Int,
+    val corrections: List<Correction>,
+)
 
 data class ChatProfile(
     val username: String?,

@@ -54,7 +54,7 @@ async def test_pipeline_appends_corrections_and_seal_keeps_dialogue() -> None:
     history = await dialogue.history("tg-1")
     assert [item.content for item in history] == ["I goes home", "Got it: I goes home"]
 
-    assert await lessons.seal("tg-1") is True
+    assert await lessons.seal("tg-1") == lesson_id
     assert await dialogue.history("tg-1") == history
     sealed = await lessons.get(lesson_id)
     assert sealed is not None
@@ -66,7 +66,7 @@ async def test_pipeline_appends_corrections_and_seal_keeps_dialogue() -> None:
     after = await lessons.get(lesson_id)
     assert after is not None
     assert len(after["turns"]) == 1
-    assert await lessons.seal("tg-1") is False
+    assert await lessons.seal("tg-1") is None
 
 
 @pytest.mark.asyncio
@@ -185,8 +185,10 @@ def test_lesson_routes_open_current_and_seal() -> None:
 
         sealed = client.post("/internal/lessons/seal", json={"sessionId": "tg-3"})
         assert sealed.json()["sealed"] is True
+        assert sealed.json()["lessonId"] == lesson_id
         empty = client.post("/internal/lessons/seal", json={"sessionId": "tg-3"})
         assert empty.json()["sealed"] is False
+        assert empty.json()["lessonId"] is None
         assert client.post("/internal/lessons/current", json={"sessionId": "tg-3"}).json()["lessonId"] is None
 
         fresh = client.post("/internal/lessons/open", json={"sessionId": "tg-3"})
