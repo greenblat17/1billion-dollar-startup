@@ -1,0 +1,4 @@
+FROM azul/zulu-openjdk:21-jre
+WORKDIR /app
+COPY cmp-service-all.jar /app/cmp-service-all.jar
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "/app/cmp-service-all.jar"]

@@ -25,10 +25,10 @@ jobs:
       PROD_AI_SERVER_USER: ${{ secrets.PROD_AI_SERVER_USER }}
       PROD_AI_SERVER_SSH_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
       PROD_AI_SERVER_ENV: ${{ secrets.PROD_AI_SERVER_ENV }}
-      DEV_AI_SERVER_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
-      DEV_AI_SERVER_USER: ${{ secrets.DEV_AI_SERVER_USER }}
-      DEV_AI_SERVER_SSH_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
-      DEV_AI_SERVER_ENV: ${{ secrets.DEV_AI_SERVER_ENV }}
+      DEV_AI_SERVICE_HOST: ${{ secrets.DEV_AI_SERVICE_HOST }}
+      DEV_AI_SERVICE_USER: ${{ secrets.DEV_AI_SERVICE_USER }}
+      DEV_AI_SERVICE_SSH_KEY: ${{ secrets.DEV_AI_SERVICE_SSH_KEY }}
+      DEV_AI_SERVICE_ENV: ${{ secrets.DEV_AI_SERVICE_ENV }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -53,8 +53,8 @@ jobs:
             ENV_BODY="${PROD_AI_SERVER_ENV:-}"
             ENV_NAME=PROD_AI_SERVER_ENV
           else
-            ENV_BODY="${DEV_AI_SERVER_ENV:-}"
-            ENV_NAME=DEV_AI_SERVER_ENV
+            ENV_BODY="${DEV_AI_SERVICE_ENV:-}"
+            ENV_NAME=DEV_AI_SERVICE_ENV
           fi
           if [ -z "$ENV_BODY" ]; then
             echo "$ENV_NAME is empty" >&2
@@ -71,9 +71,9 @@ jobs:
             USER="$PROD_AI_SERVER_USER"
             KEY_BODY="$PROD_AI_SERVER_SSH_KEY"
           else
-            HOST="$DEV_AI_SERVER_HOST"
-            USER="$DEV_AI_SERVER_USER"
-            KEY_BODY="$DEV_AI_SERVER_SSH_KEY"
+            HOST="$DEV_AI_SERVICE_HOST"
+            USER="$DEV_AI_SERVICE_USER"
+            KEY_BODY="$DEV_AI_SERVICE_SSH_KEY"
           fi
           : "${HOST:?}"
           : "${USER:?}"

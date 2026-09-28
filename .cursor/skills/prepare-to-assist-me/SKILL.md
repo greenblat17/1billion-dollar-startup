@@ -34,9 +34,9 @@ Skip `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md` as current truth.
 
 Open the live sources, not `bin/`:
 
-- `cmp/server/.../telegram/TelegramHandlers.kt`, `CoachingFeedback.kt`, `StartMessage.kt`
-- `cmp/server/.../ai/HttpClipClient.kt`, `ClipDtos.kt`
-- `cmp/server/.../Application.kt`, `AppConfig.kt`
+- `cmp/telegram-service/.../telegram/TelegramHandlers.kt`, `CoachingFeedback.kt`, `StartMessage.kt`
+- `cmp/telegram-service/.../ai/HttpClipClient.kt`, `ClipDtos.kt`
+- `cmp/telegram-service/.../Application.kt`, `AppConfig.kt` and `cmp/cmp-service/.../Application.kt`, `AppConfig.kt`
 - `ai-service/app/pipeline.py`, `llm.py`, `sessions.py`, `dialogue.py`, `main.py`
 
 If the user already named a task, read only the files for that layer plus the docs above.
@@ -46,7 +46,7 @@ If the user already named a task, read only the files for that layer plus the do
 - Shipped: Telegram **webhook** voice coach **Speaky** (Ktor → FastAPI STT/LLM/TTS, Redis dialogue).
 - Not shipped: CMP Android/iOS/Desktop as the product UI; pronunciation/fluency scores; exercise loops from `product.md`.
 - Notes are `wrong|||better` spliced into a quote as whole words/phrases; the notes LLM chooses span width.
-- Two deploys: Redeploy cmp-server → `/opt/speaking-coach`; Redeploy ai-server → `/opt/ai-service` + Redis left running.
+- Deploys: Redeploy cmp-service → `/opt/cmp-service`; Redeploy telegram-service → `/opt/telegram-service` (checkbox off until `DEV_TELEGRAM_SERVICE_*` / `PROD_TELEGRAM_SERVICE_*` exist); Redeploy ai-server → `/opt/ai-service` + Redis left running.
 - Gradle from `cmp/` with `GRADLE_USER_HOME=$HOME/.gradle`.
 
 ## 4. When ready

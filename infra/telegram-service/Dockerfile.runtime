@@ -1,0 +1,4 @@
+FROM azul/zulu-openjdk:21-jre
+WORKDIR /app
+COPY telegram-service-all.jar /app/telegram-service-all.jar
+ENTRYPOINT ["java", "-Xmx512m", "-jar", "/app/telegram-service-all.jar"]

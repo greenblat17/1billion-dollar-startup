@@ -15,8 +15,12 @@ on:
         description: iOS simulator test and app zip
         type: boolean
         default: true
-      server:
-        description: Server test and fat JAR
+      cmp_service:
+        description: cmp-service test and fat JAR
+        type: boolean
+        default: true
+      telegram_service:
+        description: telegram-service test and fat JAR
         type: boolean
         default: true
   push:
@@ -25,7 +29,8 @@ on:
       - master
     paths:
       - 'cmp/**'
-      - 'infra/server/**'
+      - 'infra/cmp-service/**'
+      - 'infra/telegram-service/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
@@ -33,7 +38,8 @@ on:
   pull_request:
     paths:
       - 'cmp/**'
-      - 'infra/server/**'
+      - 'infra/cmp-service/**'
+      - 'infra/telegram-service/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
       - '.github/actions/setup-cmp/**'
@@ -95,7 +101,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -171,7 +177,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -213,7 +219,7 @@ jobs:
       - name: Bake client API URL
         uses: ./.github/actions/bake-client-api-url
         env:
-          DEV_CMP_SERVER_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          DEV_CMP_SERVICE_HOST: ${{ secrets.DEV_CMP_SERVICE_HOST }}
           PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
 
       - name: Package
@@ -238,10 +244,10 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  server-package:
-    name: Server
+  cmp-service:
+    name: cmp-service
     needs: detekt
-    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.cmp_service == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -255,16 +261,46 @@ jobs:
         uses: ./.github/actions/setup-cmp
 
       - name: Test
-        run: ./gradlew :server:test
+        run: ./gradlew :service-common:test :cmp-service:test
 
       - name: Package
-        run: ./gradlew :server:buildFatJar
+        run: ./gradlew :cmp-service:buildFatJar
 
-      - name: Upload fat JAR
+      - name: Upload cmp-service fat JAR
         uses: actions/upload-artifact@v6
         with:
-          name: server-all
-          path: cmp/server/build/libs/server-all.jar
+          name: cmp-service-all
+          path: cmp/cmp-service/build/libs/cmp-service-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  telegram-service:
+    name: telegram-service
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.telegram_service == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :service-common:test :telegram-service:test
+
+      - name: Package
+        run: ./gradlew :telegram-service:buildFatJar
+
+      - name: Upload telegram-service fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: telegram-service-all
+          path: cmp/telegram-service/build/libs/telegram-service-all.jar
           if-no-files-found: error
           retention-days: 1
 
@@ -276,7 +312,8 @@ jobs:
       - desktop-test
       - desktop-package
       - ios
-      - server-package
+      - cmp-service
+      - telegram-service
     if: >-
       ${{
         github.event_name != 'workflow_dispatch' &&
@@ -286,7 +323,8 @@ jobs:
         needs.desktop-test.result != 'failure' &&
         needs.desktop-package.result != 'failure' &&
         needs.ios.result != 'failure' &&
-        needs.server-package.result != 'failure'
+        needs.cmp-service.result != 'failure' &&
+        needs.telegram-service.result != 'failure'
       }}
     runs-on: ubuntu-latest
     permissions:

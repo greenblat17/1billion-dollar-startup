@@ -17,7 +17,9 @@ This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM), Se
   The most important subfolder is [commonMain](./core/src/commonMain/kotlin). If preferred, you
   can add code to the platform-specific folders here too.
 
-* [/server](./server/src/main/kotlin) is for the Ktor server application.
+* [/telegram-service](./telegram-service/src/main/kotlin) is the Telegram bot (webhook, clips, reminders, metrics).
+* [/cmp-service](./cmp-service/src/main/kotlin) is the HTTP API for the CMP clients.
+* [/service-common](./service-common/src/main/kotlin) is TLS, health, and the shared AI HTTP client.
 
 ### Running the apps
 
@@ -28,7 +30,8 @@ options:
 - Desktop app:
     - Hot reload: `./gradlew :app:desktopApp:hotRun --auto`
     - Standard run: `./gradlew :app:desktopApp:run`
-- Server: `./gradlew :server:run`
+- Telegram bot: `./gradlew :telegram-service:run`
+- Client API: `./gradlew :cmp-service:run`
 - iOS app: open the [/app/iosApp](./app/iosApp) directory in Xcode and run it from there.
 
 ### Running tests
@@ -37,7 +40,7 @@ Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
 
 - Android tests: `./gradlew :app:shared:testAndroidHostTest`
 - Desktop tests: `./gradlew :app:shared:jvmTest`
-- Server tests: `./gradlew :server:test`
+- Service tests: `./gradlew :telegram-service:test :cmp-service:test`
 - iOS tests: `./gradlew :app:shared:iosSimulatorArm64Test`
 
 ---

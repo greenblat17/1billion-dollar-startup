@@ -2,7 +2,7 @@
 
 ## Compiled `bin/` trees
 
-`cmp/server/bin/` and `cmp/app/desktopApp/bin/` are **IDE/compiler output**, not source. They show up untracked. Never edit them; never commit them. Change `src/` only. `cmp/.gitignore` ignores `**/build/` but not `bin/`.
+`cmp/telegram-service/bin/`, `cmp/cmp-service/bin/`, and `cmp/app/desktopApp/bin/` are **IDE/compiler output**, not source. They show up untracked. Never edit them; never commit them. Change `src/` only. `cmp/.gitignore` ignores `**/build/` but not `bin/`.
 
 ## Template Compose `App.kt`
 
@@ -16,19 +16,20 @@ The **bot username, display name, and token** are set in Telegram BotFather / Gi
 
 Do not put tokens, SSH keys, VPS passwords, or `.env` values into docs or commits. `.env` is gitignored. Template names only: `.env.example`.
 
-Выкат — только `workflow_dispatch` Redeploy DEV / Redeploy PROD, одинаково с `main` и с PR. В Deployments только environment `deploy-dev` и `deploy-prod`, без required reviewers. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из SSH `PROD_CMP_SERVER_HOST` (ветка `main`) или `DEV_CMP_SERVER_HOST`, не из блоба `.env` и не отдельной var. Беспрефиксные repo secrets (`CMP_SERVER_*`, `AI_SERVICE_HOST`, `TELEGRAM_*`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`) для CI больше не нужны. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
+Выкат — только `workflow_dispatch` Redeploy DEV / Redeploy PROD. В Deployments только environment `deploy-dev` и `deploy-prod`, без required reviewers. Секреты серверов — **repository Actions secrets**, не Environment secrets. CMP packages склеивают клиентский HTTPS из `PROD_CMP_SERVER_HOST` (ветка `main`) или `DEV_CMP_SERVICE_HOST` (остальные ветки), не из блоба `.env`. Беспрефиксные repo secrets (`CMP_SERVER_*`, `AI_SERVICE_HOST`, `TELEGRAM_*`, `GROQ_API_KEY`, `OPENAI_API_KEY`, `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`) для CI больше не нужны. Внутренние URL вроде `AI_SERVICE_BASE_URL` в vars не класть.
 
-**Prod** (префикс `PROD_`, содержимое блобов оператор кладёт сам; workflow Redeploy PROD):
+**Prod** — workflow как на `main`, один процесс. Секреты не переименовывать:
 
 - SSH: `PROD_CMP_SERVER_HOST`, `PROD_CMP_SERVER_USER`, `PROD_CMP_SERVER_SSH_KEY`, `PROD_AI_SERVER_HOST`, `PROD_AI_SERVER_USER`, `PROD_AI_SERVER_SSH_KEY`
 - Runtime KV: `PROD_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `PROD_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
 
-**Dev** (префикс `DEV_`, содержимое блобов оператор кладёт сам; workflow Redeploy DEV):
+**Dev** — секрет называется по сервису, хост может быть общий (`HOST` / `USER` / `SSH_KEY` совпадают, `ENV` разный):
 
-- SSH: `DEV_CMP_SERVER_HOST`, `DEV_CMP_SERVER_USER`, `DEV_CMP_SERVER_SSH_KEY`, `DEV_AI_SERVER_HOST`, `DEV_AI_SERVER_USER`, `DEV_AI_SERVER_SSH_KEY`
-- Runtime KV: `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env`, `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (`REDIS_URL` только во втором; `AI_INTERNAL_TOKEN` один и тот же в обоих)
+- `DEV_CMP_SERVICE_HOST` / `USER` / `SSH_KEY` / `ENV` → `/opt/cmp-service/.env`
+- `DEV_TELEGRAM_SERVICE_HOST` / `USER` / `SSH_KEY` / `ENV` → `/opt/telegram-service/.env`
+- `DEV_AI_SERVICE_HOST` / `USER` / `SSH_KEY` / `ENV` → `/opt/ai-service/.env` (`REDIS_URL` только здесь)
 
-VPS layout (mechanism): `/opt/speaking-coach/` (JAR, TLS, `.env`), `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Postgres container name `postgres`, **127.0.0.1:5432 on the Ktor host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running). **Do not `docker rm` Postgres** (`infra/postgres/deploy-remote.sh`).
+VPS layout (mechanism): DEV `/opt/cmp-service/` и `/opt/telegram-service/`; prod Ktor всё ещё `/opt/speaking-coach/`. `/opt/ai-service/` (image sources, `.env`, `8090.allow`). Redis container name `redis`, Docker network `speaking-coach` **on the AI host only**. Postgres container name `postgres`, **127.0.0.1:5432 on the cmp-service host only**. Hosts may be different providers — no same-DC private LAN. **Do not `docker rm` Redis** on deploy (`infra/redis/deploy-remote.sh` creates if missing, else leaves running). **Do not `docker rm` Postgres** (`infra/postgres/deploy-remote.sh`). Each service deploy `docker rm`s only its own container. Do not `docker rm` the old `speaking-coach` container from these scripts.
 
 ## Stub vs real notes
 

@@ -1,4 +1,0 @@
-FROM azul/zulu-openjdk:21-jre
-WORKDIR /app
-COPY server-all.jar /app/server-all.jar
-ENTRYPOINT ["java", "-Xmx512m", "-jar", "/app/server-all.jar"]

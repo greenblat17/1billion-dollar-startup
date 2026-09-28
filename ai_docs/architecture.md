@@ -8,8 +8,9 @@
 
 | Слой | Где код | Роль |
 | --- | --- | --- |
-| Telegram | `cmp/server/.../telegram/` | Webhook, `/start`, голос, цитата, очередь |
-| Ktor | `cmp/server` | TLS webhook, health; клипы только внутренним `HttpClipClient` |
+| Telegram | `cmp/telegram-service/` | Webhook, `/start`, голос, цитата, очередь, напоминания, метрики |
+| Клиенты | `cmp/cmp-service/` | Auth, home, call, review. Postgres на этом хосте |
+| Общее | `cmp/service-common/` | TLS PEM, `GET /` и `/health`, HTTP-клиент к ai-service |
 | ai-service | `ai-service/` | STT → LLM → TTS, сессии, jobs |
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
 | CMP UI | `cmp/app/` | Releva Auth/Home/Call(WebRTC)/Review против Ktor; карточка «Последний разговор» мок. **Не** clip API |
@@ -22,7 +23,7 @@
 flowchart LR
   user[User]
   tg[Telegram]
-  ktor[Ktor_speakingCoach]
+  ktor[telegram_service]
   ai[FastAPI_aiService]
   redis[(Redis)]
   groq[Groq_STT]
@@ -39,7 +40,7 @@ flowchart LR
   ai --> kokoro
 ```
 
-Ktor на VPS слушает **443** с PEM, регистрирует webhook с сертификатом. Секрет заголовка `X-Telegram-Bot-Api-Secret-Token`. Ответ Telegram **200** сразу, обработка в отдельном scope.
+telegram-service на VPS слушает свой `SERVER_PORT` с PEM и регистрирует webhook с сертификатом. Секрет заголовка `X-Telegram-Bot-Api-Secret-Token`. Ответ Telegram **200** сразу, обработка в отдельном scope. cmp-service — отдельный процесс для клиентов.
 
 ## Голосовой ход
 
@@ -117,26 +118,32 @@ Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service
 ```mermaid
 flowchart TB
   subgraph local [Local_unit]
-    gradle[gradle_server_test]
+    gradle[gradle_service_tests]
     pytest[ai_service_pytest]
   end
 
   subgraph dev [DEV_Redeploy]
-    ktorDev[cmp_server]
+    cmpDev[cmp_service]
+    tgDev[telegram_service]
     aiDev[ai_server]
     redisDev[redis]
-    ktorDev --> aiDev --> redisDev
+    cmpDev --> aiDev
+    tgDev --> aiDev
+    aiDev --> redisDev
   end
 
   subgraph vps [Prod_Redeploy]
-    ktorProd[speaking_coach_443]
+    cmpProd[cmp_service]
+    tgProd[telegram_service]
     aiProd[ai_service]
     redisProd[redis]
-    ktorProd --> aiProd --> redisProd
+    cmpProd --> aiProd
+    tgProd --> aiProd
+    aiProd --> redisProd
   end
 ```
 
-- Локально: `:server:test` / `pytest` / `:server:run` без Telegram.
+- Локально: `:telegram-service:test`, `:cmp-service:test`, `pytest`. `:telegram-service:run` без webhook не поднимает бота. `:cmp-service:run` без PEM слушает HTTP.
 - Интеграция Speaky: Redeploy на DEV-хосты.
 - Прод: workflow Redeploy PROD, secrets `PROD_*`. Имя/аватар бота — BotFather, не репозиторий.
 
@@ -147,9 +154,11 @@ CMP Android / iOS / Desktop (`App.kt`) — мок-экраны Releva, к сес
 ## Границы ответственности при правках
 
 ```text
-Telegram UX / очередь / цитата     → cmp/server/.../telegram + speaking
-HTTP клиент к FastAPI (внутренний токен) → cmp/server/.../ai
-TLS, webhook vs HTTP-only          → AppConfig.kt, Application.kt
+Telegram UX / очередь / цитата     → cmp/telegram-service/.../telegram + speaking
+Напоминания и /admin/metrics       → cmp/telegram-service
+HTTP клиент клипов к FastAPI       → cmp/telegram-service/.../ai
+App API (auth, call, review)       → cmp/cmp-service
+TLS PEM, health, AI HTTP client    → cmp/service-common
 STT LLM TTS Redis notes prompt     → ai-service/app
 VPS scripts / CI secret names      → infra/, .github/workflows
 ```
