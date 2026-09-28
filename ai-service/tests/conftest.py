@@ -37,7 +37,7 @@ class FakeStt(SpeechToText):
         self._texts = list(texts)
         self.calls = 0
 
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         self.calls += 1
         text = self._texts.pop(0) if self._texts else ""
         return SttResult(text=text, no_speech=not text.strip())

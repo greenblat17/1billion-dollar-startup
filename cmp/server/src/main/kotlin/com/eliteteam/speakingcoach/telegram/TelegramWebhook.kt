@@ -97,5 +97,6 @@ internal suspend fun registerBotCommands(bot: TelegramBot) {
     bot.setMyCommands(
         BotCommand("start", "Start a conversation"),
         BotCommand("streak", "Show your streak"),
+        BotCommand("onboarding", "Get to know Speaky"),
     )
 }

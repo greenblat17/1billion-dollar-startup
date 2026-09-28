@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
 import com.eliteteam.speakingcoach.speaking.ClipReply
@@ -120,6 +121,26 @@ class HttpClipClient(
         return SessionId(createSession(sessionId).sessionId)
     }
 
+    suspend fun onboardingState(sessionId: SessionId, requestId: String, reset: String = ""): OnboardingStateResponse {
+        val response = http.post("$root/internal/onboarding/state") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(OnboardingRequest(sessionId.value, requestId, reset = reset))
+        }
+        check(response.status.isSuccess()) { "ai-service onboarding state returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
+        val response = http.post("$root/internal/onboarding/actions") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(OnboardingRequest(sessionId.value, requestId, runId = runId, action = action))
+        }
+        check(response.status == HttpStatusCode.Accepted) { "ai-service onboarding action returned ${response.status}" }
+        return awaitJob(response.body<ClipAcceptedResponse>().jobId)
+    }
+
     suspend fun loadMetrics(): MetricsSnapshot {
         val response = http.get("$root/internal/metrics") {
             applyInternalToken()
@@ -145,14 +166,19 @@ class HttpClipClient(
     }
 
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
-        val jobId = submit(sessionId, clip)
+        return awaitJob(submit(sessionId, clip))
+    }
+
+    private suspend fun awaitJob(jobId: String): ClipReply {
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
                 is ClipJobStatus.Ok -> return ClipReply(
                     corrections = status.corrections,
-                    audio = downloadAudio(jobId),
+                    audio = if (status.audioAvailable) downloadAudio(jobId) else null,
+                    text = status.text,
+                    onboarding = status.onboarding?.let { OnboardingStatus(it.runId, it.status, it.seconds) },
                     transcript = status.transcript,
                     streak = status.streak,
                 )
@@ -167,6 +193,9 @@ class HttpClipClient(
             url = "$root/v1/clips",
             formData = formData {
                 append("sessionId", sessionId.value)
+                clip.onboardingRunId?.let { append("onboardingRunId", it) }
+                clip.requestId?.let { append("requestId", it) }
+                append("durationSeconds", clip.durationSeconds.toString())
                 append(
                     "audio",
                     clip.bytes,
@@ -202,6 +231,9 @@ class HttpClipClient(
                 corrections = body.result?.let(::corrections).orEmpty(),
                 transcript = body.result?.transcript?.ifBlank { null } ?: body.transcript.orEmpty(),
                 streak = body.result?.streak?.let(::turnStreak),
+                text = body.replyText,
+                audioAvailable = body.result?.audioAvailable ?: true,
+                onboarding = body.result?.onboarding,
             )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
@@ -243,7 +275,14 @@ internal class HttpMetricsSource(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data class Ok(val corrections: List<Correction>, val transcript: String, val streak: TurnStreak?) : ClipJobStatus
+    data class Ok(
+        val corrections: List<Correction>,
+        val transcript: String,
+        val streak: TurnStreak?,
+        val text: String,
+        val audioAvailable: Boolean,
+        val onboarding: OnboardingStateResponse?,
+    ) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }
 

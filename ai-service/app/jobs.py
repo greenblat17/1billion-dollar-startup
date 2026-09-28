@@ -19,6 +19,7 @@ class ClipJob:
     corrections: list[dict[str, str]] = field(default_factory=list)
     timings_ms: dict[str, int] | None = None
     streak: dict[str, Any] | None = None
+    onboarding: dict[str, Any] | None = None
     error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.monotonic)
 
@@ -35,6 +36,9 @@ class ClipJob:
                 "corrections": [dict(item) for item in self.corrections],
                 "transcript": self.transcript or "",
             }
+            if self.onboarding is not None:
+                payload["result"]["onboarding"] = self.onboarding
+                payload["result"]["audioAvailable"] = self.reply_audio is not None
             if self.streak is not None:
                 payload["result"]["streak"] = self.streak
         if self.transcript is not None:

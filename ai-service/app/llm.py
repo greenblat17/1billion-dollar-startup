@@ -138,6 +138,9 @@ class OpenAiChatModel:
         text = await self._complete(messages, self._notes_temperature)
         return parse_corrections(text)
 
+    async def complete_json(self, system: str, data: str, temperature: float = 0.0) -> str:
+        return await self._complete([{"role": "system", "content": system}, {"role": "user", "content": data}], temperature)
+
     async def _complete(self, messages: list[dict[str, str]], temperature: float) -> str:
         async def call() -> Any:
             return await self._client.chat.completions.create(

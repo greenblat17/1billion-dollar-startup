@@ -172,6 +172,8 @@ class MetricsStore(Protocol):
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
 
+    async def is_known(self, session_id: str) -> bool: ...
+
     async def is_activated(self, session_id: str) -> bool: ...
 
     async def aclose(self) -> None: ...
@@ -286,6 +288,10 @@ class MemoryMetricsStore:
             return sum(
                 1 for session in self._reminder_candidates(day_name) if (day_name, session) not in self._reminded
             )
+
+    async def is_known(self, session_id: str) -> bool:
+        async with self._lock:
+            return session_id in self._funnel_users or session_id in self._chats
 
     async def is_activated(self, session_id: str) -> bool:
         async with self._lock:
@@ -454,6 +460,9 @@ class RedisMetricsStore:
         for session in sessions:
             pipe.exists(_reminder_sent_key(day_name, session))
         return sum(1 for sent in await pipe.execute() if not sent)
+
+    async def is_known(self, session_id: str) -> bool:
+        return bool(await self._redis.exists(_funnel_user_key(session_id))) or await self._redis.zscore(_CHATS_KEY, session_id) is not None
 
     async def is_activated(self, session_id: str) -> bool:
         return bool(await self._redis.hget(_funnel_user_key(session_id), "activated_day"))

@@ -30,6 +30,7 @@ data class ClipStatusResponse(
     val result: ClipResultResponse? = null,
     val error: ClipErrorResponse? = null,
     val transcript: String? = null,
+    val replyText: String = "",
 )
 
 @Serializable
@@ -38,6 +39,8 @@ data class ClipResultResponse(
     val corrections: List<ClipCorrectionResponse> = emptyList(),
     val transcript: String = "",
     val streak: ClipStreakResponse? = null,
+    val audioAvailable: Boolean = true,
+    val onboarding: OnboardingStateResponse? = null,
 )
 
 @Serializable
@@ -264,4 +267,23 @@ data class MetricsChat(
     val name: String? = null,
     val lastReminderAt: String? = null,
     val reminderIgnored: Long = 0,
+)
+
+@Serializable
+data class OnboardingRequest(
+    val sessionId: String,
+    val requestId: String,
+    val reset: String = "",
+    val runId: String = "",
+    val action: String = "",
+)
+
+@Serializable
+data class OnboardingStateResponse(
+    val runId: String = "",
+    val status: String,
+    val seconds: Double = 0.0,
+    val cefr: String? = null,
+    val resultText: String? = null,
+    val retryAvailable: Boolean = false,
 )

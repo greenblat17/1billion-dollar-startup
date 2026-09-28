@@ -18,7 +18,7 @@ class SttResult:
 
 
 class SpeechToText(Protocol):
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         ...
 
 
@@ -28,19 +28,19 @@ class GroqSpeechToText:
         self._model = model
         self._ffmpeg_bin = ffmpeg_bin
 
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         try:
-            return await self._transcribe_file(audio, filename, content_type)
+            return await self._transcribe_file(audio, filename, content_type, language)
         except BadRequestError:
             wav = await to_wav_mono_16k(self._ffmpeg_bin, audio, suffix=_suffix(filename))
-            return await self._transcribe_file(wav, "voice.wav", "audio/wav")
+            return await self._transcribe_file(wav, "voice.wav", "audio/wav", language)
 
-    async def _transcribe_file(self, audio: bytes, filename: str, content_type: str) -> SttResult:
+    async def _transcribe_file(self, audio: bytes, filename: str, content_type: str, language: str | None) -> SttResult:
         async def call() -> Any:
             return await self._client.audio.transcriptions.create(
                 model=self._model,
                 file=(filename, audio, content_type),
-                language="en",
+                **({"language": language} if language else {}),
                 response_format="verbose_json",
                 timestamp_granularities=["word"],
             )

@@ -8,13 +8,16 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
+from redis.asyncio import Redis
 
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
-from app.pipeline import ClipPipeline
+from app.onboarding import OnboardingService, OnboardingStore
+from app.onboarding_model import OnboardingModel
+from app.pipeline import ClipPipeline, PipelineResult
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.reminders import build_reminder_ledger, parse_report
 from app.review import OpenAiSessionReviewer, SessionReviewer
@@ -33,6 +36,8 @@ def create_app(
     pipeline: ClipPipeline | None = None,
     realtime: RealtimeGateway | None = None,
     reviewer: SessionReviewer | None = None,
+    onboarding_model: Any = None,
+    onboarding_store: OnboardingStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     if not settings.ai_internal_token:
@@ -40,6 +45,10 @@ def create_app(
     logging.basicConfig(level=settings.log_level)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
+    onboarding = OnboardingService(
+        onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
+        clip_pipeline, onboarding_model or OnboardingModel(clip_pipeline.llm),
+    )
     sessions = clip_pipeline.dialogue
     streaks = clip_pipeline.streaks
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -53,6 +62,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         await streaks.backfill()
         yield
+        await onboarding.store.aclose()
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()
 
@@ -65,6 +75,7 @@ def create_app(
     app.state.settings = settings
     app.state.jobs = jobs
     app.state.pipeline = clip_pipeline
+    app.state.onboarding = onboarding
 
     @app.middleware("http")
     async def require_internal_token(request: Request, call_next):
@@ -143,6 +154,30 @@ def create_app(
             )
         return {"targets": claimed}
 
+    @app.post("/internal/onboarding/state")
+    async def onboarding_state(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id, request_id = _onboarding_identity(payload)
+        reset = str(payload.get("reset") or "")
+        if reset not in {"", "start", "force"}:
+            raise HTTPException(status_code=400, detail="invalid reset")
+        return await onboarding.resolve(session_id, request_id, reset)
+
+    @app.post("/internal/onboarding/actions", status_code=202)
+    async def onboarding_action(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id, request_id = _onboarding_identity(payload)
+        run_id = str(payload.get("runId") or "")
+        action = str(payload.get("action") or "")
+        if not run_id or action not in {"begin", "retry", "continue"}:
+            raise HTTPException(status_code=400, detail="invalid action")
+        await sessions.create(session_id)
+        job = jobs.create(session_id)
+        task = asyncio.create_task(_run_onboarding_action(job, onboarding, run_id, action, settings.pipeline_timeout_seconds, request_id))
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return {"jobId": job.job_id}
+
     @app.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
         session_id = await sessions.create(await _requested_session_id(request))
@@ -162,17 +197,23 @@ def create_app(
     async def create_clip(
         sessionId: str = Form(),
         audio: UploadFile = File(),
+        onboardingRunId: str | None = Form(default=None),
+        requestId: str | None = Form(default=None),
+        durationSeconds: float = Form(default=0),
     ) -> dict[str, str]:
         if not await sessions.exists(sessionId):
             raise HTTPException(status_code=404, detail="unknown session")
         payload = await audio.read()
         if not payload:
             raise HTTPException(status_code=400, detail="empty audio")
+        if onboardingRunId and not requestId:
+            raise HTTPException(status_code=400, detail="requestId required for onboarding")
         job = jobs.create(sessionId)
         content_type = audio.content_type or "audio/ogg"
         filename = audio.filename or "voice.ogg"
         task = asyncio.create_task(
-            _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds),
+            _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
+                     onboarding, onboardingRunId, requestId, durationSeconds),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -329,21 +370,18 @@ async def _run_job(
     filename: str,
     pipeline: ClipPipeline,
     timeout_seconds: float,
+    onboarding: OnboardingService | None = None,
+    run_id: str | None = None,
+    request_id: str | None = None,
+    duration: float = 0.0,
 ) -> None:
     try:
         result = await asyncio.wait_for(
-            pipeline.run(job.session_id, audio, content_type, filename),
+            onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
+            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename),
             timeout=timeout_seconds,
         )
-        job.transcript = result.transcript
-        job.reply_text = result.reply_text
-        job.notes = list(result.notes)
-        job.corrections = [item.to_json() for item in result.corrections]
-        job.timings_ms = result.timings_ms
-        job.streak = result.streak.to_json() if result.streak is not None else None
-        job.reply_audio = result.audio
-        job.reply_content_type = CONTENT_TYPE_OGG
-        job.status = "ok"
+        _complete_job(job, result)
     except Exception as error:
         logger.exception("clip job failed job_id=%s session=%s", job.job_id, job.session_id)
         job.status = "error"
@@ -361,3 +399,34 @@ def _public_error(error: BaseException) -> str:
     if len(text) > 240:
         return text[:240]
     return text
+
+
+def _onboarding_identity(payload: dict) -> tuple[str, str]:
+    session_id = str(payload.get("sessionId") or "").strip()
+    request_id = str(payload.get("requestId") or "").strip()
+    if not session_id or not request_id:
+        raise HTTPException(status_code=400, detail="sessionId and requestId required")
+    return session_id, request_id
+
+
+async def _run_onboarding_action(job: ClipJob, service: OnboardingService, run_id: str, action: str, timeout: float, request_id: str) -> None:
+    try:
+        result = await asyncio.wait_for(service.action(job.session_id, run_id, action, request_id), timeout=timeout)
+        _complete_job(job, result)
+    except Exception as error:
+        logger.exception("onboarding action failed job=%s", job.job_id)
+        job.status = "error"
+        job.error = {"code": _error_code(error), "message": _public_error(error)}
+
+
+def _complete_job(job: ClipJob, result: PipelineResult) -> None:
+    job.transcript = result.transcript
+    job.reply_text = result.reply_text
+    job.notes = list(result.notes)
+    job.corrections = [item.to_json() for item in result.corrections]
+    job.timings_ms = result.timings_ms
+    job.streak = result.streak.to_json() if result.streak is not None else None
+    job.reply_audio = result.audio
+    job.reply_content_type = CONTENT_TYPE_OGG
+    job.status = "ok"
+    job.onboarding = result.onboarding
