@@ -37,6 +37,16 @@ data class ClipResultResponse(
     val notes: List<String> = emptyList(),
     val corrections: List<ClipCorrectionResponse> = emptyList(),
     val transcript: String = "",
+    val streak: ClipStreakResponse? = null,
+)
+
+@Serializable
+data class ClipStreakResponse(
+    val current: Int = 0,
+    val best: Int = 0,
+    val firstToday: Boolean = false,
+    val firstEver: Boolean = false,
+    val newRecord: Boolean = false,
 )
 
 @Serializable
@@ -72,6 +82,7 @@ data class MetricsSnapshot(
     val funnelDays: List<FunnelDay> = emptyList(),
     val funnelSources: List<FunnelSource> = emptyList(),
     val reminders: RemindersSnapshot? = null,
+    val streaks: StreaksSnapshot? = null,
 )
 
 @Serializable
@@ -189,6 +200,59 @@ data class ReminderClaimResponse(
 data class ReminderTarget(
     val sessionId: String,
     val name: String? = null,
+    val streak: Int = 0,
+)
+
+@Serializable
+data class StreakProfileResponse(
+    val current: Int = 0,
+    val best: Int = 0,
+    val last7: List<Boolean> = emptyList(),
+)
+
+@Serializable
+data class StreakBucket(
+    val bucket: String,
+    val users: Long = 0,
+)
+
+@Serializable
+data class StreakReminderBucket(
+    val bucket: String,
+    val sent: Long = 0,
+    val returned: Long = 0,
+)
+
+@Serializable
+data class RetentionCohort(
+    val week: String = "",
+    val size: Long = 0,
+    val d1: Double? = null,
+    val d7: Double? = null,
+    val d30: Double? = null,
+)
+
+@Serializable
+data class RetentionSlice(
+    val size: Long = 0,
+    val d1: Double? = null,
+    val d7: Double? = null,
+    val d30: Double? = null,
+)
+
+@Serializable
+data class RetentionSnapshot(
+    val cohorts: List<RetentionCohort> = emptyList(),
+    val before: RetentionSlice = RetentionSlice(),
+    val after: RetentionSlice = RetentionSlice(),
+    val releasedDay: String? = null,
+)
+
+@Serializable
+data class StreaksSnapshot(
+    val buckets: List<StreakBucket> = emptyList(),
+    val reminderBuckets: List<StreakReminderBucket> = emptyList(),
+    val retention: RetentionSnapshot = RetentionSnapshot(),
 )
 
 @Serializable

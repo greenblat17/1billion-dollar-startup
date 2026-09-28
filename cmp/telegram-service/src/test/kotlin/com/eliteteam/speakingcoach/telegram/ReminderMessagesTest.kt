@@ -14,11 +14,14 @@ class ReminderMessagesTest {
 
     @Test
     fun templateIdsAreUniqueAndStable() {
-        val ids = REMINDER_TEMPLATES.map { it.id }
+        val ids = (REMINDER_TEMPLATES + STREAK_REMINDER_TEMPLATES).map { it.id }
         assertEquals(ids.size, ids.toSet().size)
         assertTrue(ids.all { Regex("^[a-z0-9_]{1,64}$").matches(it) })
         assertEquals("weekend_plan", reminderTemplateById("weekend_plan")?.id)
+        assertEquals("smile_today", reminderTemplateById("smile_today")?.id)
         assertNull(reminderTemplateById("missing"))
+        assertFalse(REMINDER_TEMPLATES.any { it.id == "smile_today" })
+        assertTrue(STREAK_REMINDER_TEMPLATES.any { it.id == "smile_today" })
     }
 
     @Test
@@ -35,6 +38,31 @@ class ReminderMessagesTest {
     @Test
     fun negativeChatIdsStillPickATemplate() {
         assertTrue(REMINDER_TEMPLATES.contains(reminderTemplate(-100123, day)))
+    }
+
+    @Test
+    fun streakOfTwoUsesTheStreakPool() {
+        assertTrue(STREAK_REMINDER_TEMPLATES.contains(reminderTemplate(42, day, streak = 2)))
+        assertTrue(REMINDER_TEMPLATES.contains(reminderTemplate(42, day, streak = 1)))
+        val ids = STREAK_REMINDER_TEMPLATES.indices.map { offset ->
+            reminderTemplate(42, day.plusDays(offset.toLong()), streak = 3).id
+        }
+        assertEquals(STREAK_REMINDER_TEMPLATES.size, ids.toSet().size)
+    }
+
+    @Test
+    fun streakSlotsAreFilled() {
+        val template = reminderTemplateById("streak_next")!!
+        val text = renderReminder(template, "Alex", streak = 4)
+        assertFalse("{streak}" in text)
+        assertFalse("{next}" in text)
+        assertFalse("{name}" in text)
+        assertTrue("Day 5" in text)
+        assertTrue(", Alex" in text)
+        assertEquals(
+            "5 days in a row!",
+            renderReminder(reminderTemplateById("streak_tonight")!!, null, streak = 5).substringBefore(" Don't"),
+        )
     }
 
     @Test

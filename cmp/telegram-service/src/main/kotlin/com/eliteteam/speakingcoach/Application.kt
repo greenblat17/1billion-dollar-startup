@@ -12,7 +12,10 @@ import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.launchDailyReminder
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
+import com.eliteteam.speakingcoach.telegram.registerBotCommands
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
+import com.eliteteam.speakingcoach.telegram.telegramSessionId
+import kotlinx.coroutines.CancellationException
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
@@ -68,6 +71,16 @@ private suspend fun startWebhookServer(config: AppConfig) {
         claim = ai::claimReminders,
         report = ai::reportReminders,
         send = { chatId, text -> behaviourContext.sendTextMessage(ChatId(RawChatId(chatId)), text) },
+        streakOf = { chatId ->
+            try {
+                ai.streakProfile(telegramSessionId(chatId)).current
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Failed to load streak for tg-{}", chatId, error)
+                0
+            }
+        },
     )
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
@@ -111,6 +124,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
         certificateFile = File(config.tlsCertPath),
     )
     log.info("Telegram webhook registered at {}", webhookUrl)
+    try {
+        registerBotCommands(behaviourContext)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.error("Failed to register bot commands", error)
+    }
     webhookScope.launchDailyReminder(reminderRunner)
     try {
         awaitCancellation()
