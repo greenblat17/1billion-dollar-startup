@@ -16,7 +16,7 @@ on:
         type: boolean
         default: true
       server:
-        description: telegram-service and cmp-service test and fat JAR
+        description: cmp-service and telegram-service test and fat JAR
         type: boolean
         default: true
   push:
@@ -240,8 +240,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  server-package:
-    name: Server
+  cmp-service:
+    name: cmp-service
     needs: detekt
     if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
     runs-on: ubuntu-latest
@@ -257,24 +257,46 @@ jobs:
         uses: ./.github/actions/setup-cmp
 
       - name: Test
-        run: ./gradlew :service-common:test :telegram-service:test :cmp-service:test
+        run: ./gradlew :service-common:test :cmp-service:test
 
       - name: Package
-        run: ./gradlew :telegram-service:buildFatJar :cmp-service:buildFatJar
-
-      - name: Upload telegram-service fat JAR
-        uses: actions/upload-artifact@v6
-        with:
-          name: telegram-service-all
-          path: cmp/telegram-service/build/libs/telegram-service-all.jar
-          if-no-files-found: error
-          retention-days: 1
+        run: ./gradlew :cmp-service:buildFatJar
 
       - name: Upload cmp-service fat JAR
         uses: actions/upload-artifact@v6
         with:
           name: cmp-service-all
           path: cmp/cmp-service/build/libs/cmp-service-all.jar
+          if-no-files-found: error
+          retention-days: 1
+
+  telegram-service:
+    name: telegram-service
+    needs: detekt
+    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: cmp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up CMP
+        uses: ./.github/actions/setup-cmp
+
+      - name: Test
+        run: ./gradlew :service-common:test :telegram-service:test
+
+      - name: Package
+        run: ./gradlew :telegram-service:buildFatJar
+
+      - name: Upload telegram-service fat JAR
+        uses: actions/upload-artifact@v6
+        with:
+          name: telegram-service-all
+          path: cmp/telegram-service/build/libs/telegram-service-all.jar
           if-no-files-found: error
           retention-days: 1
 
@@ -286,7 +308,8 @@ jobs:
       - desktop-test
       - desktop-package
       - ios
-      - server-package
+      - cmp-service
+      - telegram-service
     if: >-
       ${{
         github.event_name != 'workflow_dispatch' &&
@@ -296,7 +319,8 @@ jobs:
         needs.desktop-test.result != 'failure' &&
         needs.desktop-package.result != 'failure' &&
         needs.ios.result != 'failure' &&
-        needs.server-package.result != 'failure'
+        needs.cmp-service.result != 'failure' &&
+        needs.telegram-service.result != 'failure'
       }}
     runs-on: ubuntu-latest
     permissions:
