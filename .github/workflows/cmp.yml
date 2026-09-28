@@ -15,8 +15,12 @@ on:
         description: iOS simulator test and app zip
         type: boolean
         default: true
-      server:
-        description: cmp-service and telegram-service test and fat JAR
+      cmp_service:
+        description: cmp-service test and fat JAR
+        type: boolean
+        default: true
+      telegram_service:
+        description: telegram-service test and fat JAR
         type: boolean
         default: true
   push:
@@ -243,7 +247,7 @@ jobs:
   cmp-service:
     name: cmp-service
     needs: detekt
-    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.cmp_service == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -273,7 +277,7 @@ jobs:
   telegram-service:
     name: telegram-service
     needs: detekt
-    if: github.event_name != 'workflow_dispatch' || inputs.server == 'true'
+    if: github.event_name != 'workflow_dispatch' || inputs.telegram_service == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
