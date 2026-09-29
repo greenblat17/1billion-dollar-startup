@@ -1,5 +1,8 @@
-from app.onboarding_model import REVIEW_SYSTEM, parse_review
+import pytest
+
+from app.onboarding_model import REVIEW_SYSTEM, SYSTEM, parse_review
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
+from app.onboarding_score import SCORE_TABLE, apply_skill, skill_confidence, skill_score
 from app.stt import speech_words
 
 
@@ -44,6 +47,11 @@ def test_callback_stays_inside_the_closing_frame():
     assert "I like movies" in REVIEW_SYSTEM
     assert "I work as a developer" in REVIEW_SYSTEM
     assert "I need English for work" in REVIEW_SYSTEM
+    assert "Absence of evidence is not evidence of inability." in REVIEW_SYSTEM
+    assert "Absence of evidence is not evidence of inability." in SYSTEM
+    assert "illustrative, not a checklist" in REVIEW_SYSTEM
+    assert "not thresholds" in REVIEW_SYSTEM
+    assert "0 to 100" not in REVIEW_SYSTEM.split("Do not return a score from 0 to 100.", 1)[1]
 
 
 def test_fluency_uses_word_timings_inside_one_recording():
@@ -95,18 +103,62 @@ def test_speech_words_keep_compact_timings():
     assert words == [{"w": "Hello", "s": 0.0, "e": 0.4}, {"w": "there", "s": 0.5, "e": 0.9}]
 
 
-def test_parse_review_rejects_a_score_outside_the_scale():
+def _skill_json(band="B1", position="high", flags=None):
+    if flags is None:
+        flags = ["simple_clauses"]
+    return (
+        '{"band":' + ("null" if band is None else f'"{band}"')
+        + ',"position":' + ("null" if position is None else f'"{position}"')
+        + ',"text":"A few patterns.","notes":"Linked clauses hold.",'
+        + '"flags":[' + ",".join(f'"{flag}"' for flag in flags) + "]}"
+    )
+
+
+def test_parse_review_maps_bands_and_rejects_a_raw_score():
     raw = (
         '{"callback":null,"levelText":"You keep going.",'
-        '"grammarScore":62,"grammarText":"A few patterns.","vocabularyScore":71,"vocabularyText":"Enough words.",'
-        '"fluencyScore":68,"fluencyText":"You keep moving."}'
+        f'"grammar":{_skill_json()},'
+        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis", "invented"])},'
+        f'"fluency":{_skill_json("B2", "low", ["completed_turns", "timings_present"])}}}'
     )
     parsed = parse_review(raw)
     assert parsed["callback"] is None
-    assert parsed["grammarScore"] == 62
-    broken = raw.replace('"grammarScore":62', '"grammarScore":"B1"')
-    try:
-        parse_review(broken)
-    except ValueError:
-        return
-    raise AssertionError("letter score was accepted")
+    assert parsed["grammar"]["band"] == "B1"
+    assert parsed["grammar"]["position"] == "high"
+    assert parsed["vocabulary"]["flags"] == ["concrete_lexis"]
+    assert parsed["fluency"]["flags"] == ["completed_turns"]
+    with pytest.raises(ValueError):
+        parse_review(raw.replace('"band":"B1"', '"band":62', 1))
+    with pytest.raises(ValueError):
+        parse_review(raw.replace('"position":"high"', '"position":"high","band":null', 1))
+
+
+def test_score_table_is_closed_and_null_stays_empty():
+    assert skill_score("B1", "high") == 57
+    assert skill_score("B2", "low") == 63
+    assert skill_score("C1", "high") == 94
+    assert skill_score(None, None) is None
+    for band, positions in SCORE_TABLE.items():
+        for position, score in positions.items():
+            assert skill_score(band, position) == score
+
+
+def test_confidence_caps_at_two_minutes_and_ignores_bare_duration():
+    grammar = ["simple_clauses", "tense_contrast", "linked_clauses", "complex_clause", "complex_repeated"]
+    assert skill_confidence(grammar, set(grammar), 120) == 0.6
+    assert skill_confidence([], set(grammar), 120) == 0.15
+    scored = apply_skill(
+        {
+            "band": None,
+            "position": None,
+            "text": "Not much speech yet.",
+            "notes": "Only isolated words.",
+            "flags": [],
+        },
+        120,
+        "fluency",
+        timings=True,
+    )
+    assert scored["score"] is None
+    assert scored["flags"] == ["timings_present"]
+    assert scored["confidence"] < 0.6

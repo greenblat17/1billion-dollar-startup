@@ -286,14 +286,14 @@ data class OnboardingExample(
 
 @Serializable
 data class OnboardingSkill(
-    val score: Int = 0,
+    val score: Int? = null,
     val text: String = "",
     val examples: List<OnboardingExample> = emptyList(),
 )
 
 @Serializable
 data class OnboardingFluency(
-    val score: Int = 0,
+    val score: Int? = null,
     val text: String = "",
     val paceWpm: Int? = null,
     val longPauses: Int? = null,

@@ -81,6 +81,15 @@ class OnboardingMessagesTest {
         )
         assertTrue(grammarSlide(review).plain().contains("62 / 100"))
         assertTrue(grammarSlide(review).plain().contains("I work in startup → I work at a startup"))
+        val unknown = grammarSlide(
+            review.copy(grammar = OnboardingSkill(text = "Thin sample.")),
+        ).plain()
+        assertTrue(unknown.contains(SKILL_UNKNOWN))
+        assertTrue(!unknown.contains("/ 100"))
+        val quiet = fluencySlide(review.copy(fluency = review.fluency.copy(score = null))).plain()
+        assertTrue(quiet.contains(SKILL_UNKNOWN))
+        assertTrue(quiet.contains("Speaking pace · 104 words/min"))
+        assertTrue(!quiet.contains("/ 100"))
         assertTrue(vocabularySlide(review).plain().contains(NO_VOCABULARY_PATTERNS))
         val fluency = fluencySlide(review).plain()
         assertTrue(fluency.contains("Speaking pace · 104 words/min"))

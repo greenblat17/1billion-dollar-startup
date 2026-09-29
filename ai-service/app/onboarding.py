@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 
 from app.llm import Correction
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
+from app.onboarding_score import apply_skill
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
@@ -92,10 +93,36 @@ def public_state(state: dict) -> dict:
     }
     review = state.get("review")
     if isinstance(review, dict):
-        payload["review"] = {
-            key: review.get(key) for key in ("levelText", "grammar", "vocabulary", "fluency")
-        }
+        payload["review"] = _public_review(review)
     return payload
+
+
+def _public_review(review: dict) -> dict:
+    return {
+        "levelText": review.get("levelText") or "",
+        "grammar": _public_skill(review.get("grammar") or {}),
+        "vocabulary": _public_skill(review.get("vocabulary") or {}),
+        "fluency": _public_fluency(review.get("fluency") or {}),
+    }
+
+
+def _public_skill(skill: dict) -> dict:
+    return {
+        "score": skill.get("score"),
+        "text": skill.get("text") or "",
+        "examples": skill.get("examples") or [],
+    }
+
+
+def _public_fluency(skill: dict) -> dict:
+    return {
+        "score": skill.get("score"),
+        "text": skill.get("text") or "",
+        "paceWpm": skill.get("paceWpm"),
+        "longPauses": skill.get("longPauses"),
+        "fillers": skill.get("fillers"),
+        "longestStretchSec": skill.get("longestStretchSec"),
+    }
 
 
 def _attempt(receipts: list[str] | None = None) -> dict:
@@ -369,26 +396,24 @@ class OnboardingService:
         })
         callback = grounded_callback(raw.get("callback"), transcripts)
         subtitle, spoken = closing_lines(callback)
+        seconds = float(state.get("seconds") or 0)
+        timings = bool(metrics.get("hasWords"))
+        grammar = apply_skill(raw["grammar"], seconds, "grammar")
+        vocabulary = apply_skill(raw["vocabulary"], seconds, "vocabulary")
+        fluency = apply_skill(raw["fluency"], seconds, "fluency", timings=timings)
+        grammar["examples"] = examples["grammar"]
+        vocabulary["examples"] = examples["vocabulary"]
+        fluency.update({
+            "paceWpm": metrics["paceWpm"],
+            "longPauses": metrics["longPauses"],
+            "fillers": metrics["fillers"],
+            "longestStretchSec": metrics["longestStretchSec"],
+        })
         return {
             "levelText": raw["levelText"],
-            "grammar": {
-                "score": raw["grammarScore"],
-                "text": raw["grammarText"],
-                "examples": examples["grammar"],
-            },
-            "vocabulary": {
-                "score": raw["vocabularyScore"],
-                "text": raw["vocabularyText"],
-                "examples": examples["vocabulary"],
-            },
-            "fluency": {
-                "score": raw["fluencyScore"],
-                "text": raw["fluencyText"],
-                "paceWpm": metrics["paceWpm"],
-                "longPauses": metrics["longPauses"],
-                "fillers": metrics["fillers"],
-                "longestStretchSec": metrics["longestStretchSec"],
-            },
+            "grammar": grammar,
+            "vocabulary": vocabulary,
+            "fluency": fluency,
             "closingText": subtitle,
             "spokenText": spoken,
         }

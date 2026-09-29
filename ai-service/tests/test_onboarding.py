@@ -80,12 +80,27 @@ class Model:
         return {
             "callback": callback,
             "levelText": "You can keep a conversation going about your own work.",
-            "grammarScore": 62,
-            "grammarText": "You handle basic sentences, and a few patterns still trip you up.",
-            "vocabularyScore": 71,
-            "vocabularyText": "You have enough words for everyday conversation.",
-            "fluencyScore": 68,
-            "fluencyText": "You can keep your thoughts moving.",
+            "grammar": {
+                "band": "B1",
+                "position": "high",
+                "text": "You handle basic sentences, and a few patterns still trip you up.",
+                "notes": "Common linked clauses hold, with recurring article slips.",
+                "flags": ["simple_clauses", "tense_contrast", "linked_clauses"],
+            },
+            "vocabulary": {
+                "band": "B1",
+                "position": "mid",
+                "text": "You have enough words for everyday conversation.",
+                "notes": "Familiar topics use concrete words, without much precision.",
+                "flags": ["concrete_lexis", "topic_spread"],
+            },
+            "fluency": {
+                "band": "B2",
+                "position": "low",
+                "text": "You can keep your thoughts moving.",
+                "notes": "Turns finish, and ideas connect, with some search still visible.",
+                "flags": ["completed_turns", "linked_ideas"],
+            },
         }
 
 
@@ -135,7 +150,15 @@ async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_reco
         assert "Let me show you what I noticed." in result.reply_text
         assert "😊" not in s.pipeline.tts.texts[-1]
         assert result.onboarding["resultText"] is None
-        assert result.onboarding["review"]["grammar"]["score"] == 62
+        assert result.onboarding["review"]["grammar"]["score"] == 57
+        assert result.onboarding["review"]["vocabulary"]["score"] == 52
+        assert result.onboarding["review"]["fluency"]["score"] == 63
+        assert "notes" not in result.onboarding["review"]["grammar"]
+        assert "confidence" not in result.onboarding["review"]["grammar"]
+        stored_review = (await s.store.get("tg-test"))["review"]
+        assert stored_review["grammar"]["confidence"] > 0
+        assert stored_review["grammar"]["band"] == "B1"
+        assert "notes" in stored_review["grammar"]
         history = await s.pipeline.dialogue.history("tg-test")
         assert history[-2].content == "I build software. I need English to work with clients."
         assert "I really enjoyed talking with you" in history[-1].content

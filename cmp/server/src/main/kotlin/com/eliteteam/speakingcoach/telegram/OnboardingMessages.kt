@@ -18,6 +18,7 @@ internal const val ONBOARDING_VOICE_HINT =
         "You can talk about your work, studies, hobbies — anything you like."
 internal const val LEVEL_TITLE = "Your English level"
 internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."
+internal const val SKILL_UNKNOWN = "Not enough from this chat yet."
 internal const val NO_GRAMMAR_PATTERNS = "No clear grammar patterns stood out in this chat."
 internal const val NO_VOCABULARY_PATTERNS = "No clear vocabulary patterns stood out in this chat."
 internal const val PRACTICE_ASK =
@@ -160,9 +161,10 @@ internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("Fluency")
     regularln("")
-    regularln("${review.fluency.score} / 100")
+    regularln(scoreLine(review.fluency.score))
     regularln("")
-    regularln(review.fluency.text.trim())
+    val text = review.fluency.text.trim()
+    if (text.isNotEmpty()) regularln(text)
     val lines = fluencyLines(review.fluency)
     if (lines.isNotEmpty()) regular(lines.joinToString("\n"))
 }
@@ -170,15 +172,18 @@ internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEnti
 private fun skillSlide(title: String, skill: OnboardingSkill, empty: String): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
-    regularln("${skill.score} / 100")
+    regularln(scoreLine(skill.score))
     regularln("")
-    regularln(skill.text.trim())
+    val text = skill.text.trim()
+    if (text.isNotEmpty()) regularln(text)
     if (skill.examples.isEmpty()) {
         regular(empty)
     } else {
         regular(skill.examples.joinToString("\n") { "${it.wrong} → ${it.better}" })
     }
 }
+
+private fun scoreLine(score: Int?): String = score?.let { "$it / 100" } ?: SKILL_UNKNOWN
 
 internal fun fluencyLines(fluency: OnboardingFluency): List<String> = buildList {
     fluency.paceWpm?.let { add("Speaking pace · $it words/min") }
