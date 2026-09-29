@@ -33,8 +33,17 @@ internal fun spokenTextKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 
 internal fun withSpokenText(keyboard: InlineKeyboardMarkup?, spoken: Boolean): InlineKeyboardMarkup? {
     if (!spoken) return keyboard
-    val button = spokenTextKeyboard()
-    return if (keyboard == null) button else keyboard + button
+    if (keyboard == null || keyboard.keyboard.isEmpty()) return spokenTextKeyboard()
+    return inlineKeyboard {
+        keyboard.keyboard.forEachIndexed { index, buttons ->
+            row {
+                buttons.forEach { add(it) }
+                if (index == keyboard.keyboard.lastIndex) {
+                    dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
+                }
+            }
+        }
+    }
 }
 
 internal val noInlineKeyboard: InlineKeyboardMarkup = inlineKeyboard { }

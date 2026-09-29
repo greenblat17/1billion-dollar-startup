@@ -37,6 +37,9 @@ class OnboardingMessagesTest {
             (row.single() as CallbackDataInlineKeyboardButton).text
         }
         assertEquals("Повторить", labels.last())
+        val sideBySide = withSpokenText(onboardingProgressKeyboard(0.0), spoken = true)!!.keyboard.single()
+        val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
+        assertEquals(listOf("🎙 0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
     }
 
     private fun progressLabels(seconds: Double): List<String> =
