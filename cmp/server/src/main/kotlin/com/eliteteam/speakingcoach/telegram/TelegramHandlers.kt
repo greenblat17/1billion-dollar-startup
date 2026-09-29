@@ -147,12 +147,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val voice = sendVoice(
                 message.chat.id,
                 audio.bytes.asMultipartFile(audio.fileName),
+                text = if (firstQuestion) ONBOARDING_VOICE_HINT else null,
                 replyMarkup = withSpokenText(progress, spoken),
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
-            if (firstQuestion) {
-                reply(message, ONBOARDING_VOICE_HINT, allowSendingWithoutReply = true)
-            }
             if (result.onboarding?.status == "completed") {
                 reply(message, ONBOARDING_REMEMBERED, allowSendingWithoutReply = true)
             }
