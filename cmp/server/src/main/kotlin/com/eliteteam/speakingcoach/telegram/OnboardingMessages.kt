@@ -12,6 +12,7 @@ import dev.inmo.tgbotapi.utils.buildEntities
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.row
+import dev.inmo.tgbotapi.utils.strikethrough
 
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n" +
@@ -19,8 +20,6 @@ internal const val ONBOARDING_VOICE_HINT =
 internal const val LEVEL_TITLE = "Your English level"
 internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."
 internal const val SKILL_UNKNOWN = "Not enough from this chat yet."
-internal const val NO_GRAMMAR_PATTERNS = "No clear grammar patterns stood out in this chat."
-internal const val NO_VOCABULARY_PATTERNS = "No clear vocabulary patterns stood out in this chat."
 internal const val PRACTICE_ASK_LEAD = "🚀 This is your starting point."
 internal const val PRACTICE_ASK_BODY = "A little practice every day can make a big difference."
 internal const val PRACTICE_ASK_PROGRESS = "Now let's make progress one conversation at a time."
@@ -176,10 +175,10 @@ internal fun levelSlide(
 }
 
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("✍️ Grammar", review.grammar, NO_GRAMMAR_PATTERNS)
+    skillSlide("✍️ Grammar", review.grammar)
 
 internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("📚 Vocabulary", review.vocabulary, NO_VOCABULARY_PATTERNS)
+    skillSlide("📚 Vocabulary", review.vocabulary)
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("🎙 Fluency")
@@ -199,12 +198,13 @@ internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEnti
     }
 }
 
-internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?): TextSourcesList = buildEntities {
+internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?, pointsToNext: Int? = null): TextSourcesList = buildEntities {
     bold(PRACTICE_ASK_LEAD)
     regularln("")
     regularln("")
     if (cefr != null && score != null && nextBand != null) {
-        bold("$cefr · $score/100 → $nextBand")
+        val target = pointsToNext?.let { " · ${score + it}/100" }.orEmpty()
+        bold("$cefr · $score/100 → $nextBand$target")
         regularln("")
         regularln("")
         regularln(PRACTICE_ASK_PROGRESS)
@@ -215,7 +215,7 @@ internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?): TextSou
     regular(PRACTICE_ASK_QUESTION)
 }
 
-private fun skillSlide(title: String, skill: OnboardingSkill, empty: String): TextSourcesList = buildEntities {
+private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
     regularln("")
@@ -226,13 +226,15 @@ private fun skillSlide(title: String, skill: OnboardingSkill, empty: String): Te
         regularln("")
         regularln(text)
     }
-    regularln("")
-    if (skill.examples.isEmpty()) {
-        regular(empty)
-    } else {
-        skill.examples.forEachIndexed { index, example ->
-            if (index > 0) regularln("")
-            regular("${example.wrong} → ")
+    if (skill.examples.isNotEmpty()) {
+        regularln("")
+        bold("What I noticed")
+        regularln("")
+        regularln("")
+        skill.examples.take(2).forEachIndexed { index, example ->
+            if (index > 0) regular("\n\n")
+            strikethrough(example.wrong)
+            regular("\n→ ")
             bold(example.better)
         }
     }
@@ -248,6 +250,6 @@ private fun scoreLine(score: Int?): String = score?.let { "$it / 100" } ?: SKILL
 internal fun fluencyLines(fluency: OnboardingFluency): List<String> = buildList {
     fluency.paceWpm?.let { add("Speaking pace · $it words/min") }
     fluency.longPauses?.let { add("Long pauses · $it") }
-    fluency.fillers?.let { add("Filler words · $it") }
+    fluency.fillers?.takeIf { it > 0 }?.let { add("Detected filler words · $it") }
     fluency.longestStretchSec?.let { add("Longest stretch without a long pause · $it sec") }
 }

@@ -7,6 +7,7 @@ import com.eliteteam.speakingcoach.ai.OnboardingSkill
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
+import dev.inmo.tgbotapi.types.message.textsources.StrikethroughTextSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -89,7 +90,8 @@ class OnboardingMessagesTest {
         val grammar = grammarSlide(review)
         assertTrue(grammar.plain().contains("✍️ Grammar"))
         assertTrue(grammar.plain().contains("62 / 100"))
-        assertTrue(grammar.plain().contains("I work in startup → I work at a startup"))
+        assertTrue(grammar.plain().contains("I work in startup\n→ I work at a startup"))
+        assertTrue(grammar.any { it is StrikethroughTextSource && it.source == "I work in startup" })
         assertTrue(grammar.any { it is BoldTextSource && it.source == "I work at a startup" })
         val unknown = grammarSlide(
             review.copy(grammar = OnboardingSkill(text = "Thin sample.")),
@@ -100,12 +102,12 @@ class OnboardingMessagesTest {
         assertTrue(quiet.contains(SKILL_UNKNOWN))
         assertTrue(quiet.contains("Speaking pace · 104 words/min"))
         assertTrue(!quiet.contains("/ 100"))
-        assertTrue(vocabularySlide(review).plain().contains(NO_VOCABULARY_PATTERNS))
+        assertTrue(!vocabularySlide(review).plain().contains("What I noticed"))
         val fluency = fluencySlide(review).plain()
         assertTrue(fluency.contains("🎙 Fluency"))
         assertTrue(fluency.contains("Speaking pace · 104 words/min"))
         assertTrue(fluency.contains("Long pauses · 6"))
-        assertTrue(fluency.contains("Filler words · 9"))
+        assertTrue(fluency.contains("Detected filler words · 9"))
         assertTrue(fluency.contains("Longest stretch without a long pause · 18 sec"))
         assertEquals(
             listOf("Long pauses · 6"),
@@ -126,15 +128,38 @@ class OnboardingMessagesTest {
         val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("See what I noticed →", report.text)
         assertEquals(
-            "🚀 This is your starting point.\n\nB1 · 57/100 → B2\n\n" +
+            "🚀 This is your starting point.\n\nB1 · 57/100 → B2 · 63/100\n\n" +
                 "Now let's make progress one conversation at a time.\n\n" +
                 "How much time do you want to practice each day?",
-            practiceAsk("B1", 57, "B2").plain(),
+            practiceAsk("B1", 57, "B2", 6).plain(),
         )
         assertTrue(practiceAsk(null, null, null).plain().contains(PRACTICE_ASK_BODY))
         assertTrue(!practiceAsk("C2", null, null).plain().contains("→"))
         val carryOn = onboardingKeyboard("finish", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("Continue →", carryOn.text)
+    }
+
+    @Test
+    fun examplesAreSeparatedAndCappedAndZeroFillersAreHidden() {
+        val review = OnboardingReview(grammar = OnboardingSkill(
+            score = 52,
+            text = "You connect ideas, with some agreement errors.",
+            examples = listOf(
+                OnboardingExample("I builds", "I build"),
+                OnboardingExample("he work", "he works"),
+                OnboardingExample("she go", "she goes"),
+            ),
+        ))
+        assertEquals(
+            "✍️ Grammar\n\n52 / 100\n\nYou connect ideas, with some agreement errors.\n\n" +
+                "What I noticed\n\nI builds\n→ I build\n\nhe work\n→ he works",
+            grammarSlide(review).plain(),
+        )
+        assertEquals(emptyList(), fluencyLines(OnboardingFluency(fillers = 0)))
+        assertEquals(emptyList(), fluencyLines(OnboardingFluency(fillers = null)))
+        assertEquals(listOf("Detected filler words · 2"), fluencyLines(OnboardingFluency(fillers = 2)))
+        assertTrue(practiceAsk("A2", 38, "B1", 9).plain().contains("A2 · 38/100 → B1 · 47/100"))
+        assertTrue(!practiceAsk("C1", 90, null).plain().contains("→"))
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }

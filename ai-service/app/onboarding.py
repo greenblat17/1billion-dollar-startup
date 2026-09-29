@@ -11,7 +11,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 from app.llm import Correction
-from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
+from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, overall_progress
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 
@@ -378,7 +378,14 @@ class OnboardingService:
         return {"minutes": minutes}
 
     async def _compose_review(self, state: dict) -> dict:
-        examples = select_examples(state["turns"])
+        candidates = correction_candidates(state["turns"])
+        accepted: set[str] = set()
+        if candidates:
+            try:
+                accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
+            except Exception:
+                logger.exception("onboarding correction verification failed; omitting examples")
+        examples = select_examples(candidates, accepted)
         metrics = fluency_metrics(state["turns"])
         transcripts = [str(turn.get("transcript") or "").strip() for turn in state["turns"]]
         transcripts = [text for text in transcripts if text]

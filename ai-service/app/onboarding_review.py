@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 PAUSE_SECONDS = 1.0
-EXAMPLE_LIMIT = 5
+EXAMPLE_LIMIT = 2
 FILLERS = frozenset({"um", "uh", "uhm", "umm", "er", "erm", "ah", "ahh", "hmm", "mm", "mhm"})
 CLOSING_OPEN = "You know what, I really enjoyed talking with you."
 CLOSING_MID = "I feel like I know you a little better now."
@@ -19,9 +19,9 @@ _STOP = frozenset({
 })
 
 
-def select_examples(turns: list[dict], limit: int = EXAMPLE_LIMIT) -> dict[str, list[dict[str, str]]]:
-    """Up to five recurring, then earlier, mistakes. Grammar stays separate from word choice."""
-    notes = _notes(turns)
+def select_examples(candidates: list[dict], accepted: set[str], limit: int = EXAMPLE_LIMIT) -> dict[str, list[dict[str, str]]]:
+    """Rank only verified candidates; the model cannot supply replacement pairs."""
+    notes = [note for note in candidates if note["id"] in accepted]
     grammar = _ranked([note for note in notes if note["kind"] == "grammar"])[:limit]
     vocabulary = (
         _ranked([note for note in notes if note["kind"] == "word"])
@@ -55,7 +55,7 @@ def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
     return {
         "paceWpm": pace,
         "longPauses": sum(_pause_count(words) for words in (_timed_words(turn) for turn in timed)),
-        "fillers": sum(_filler_count(words) for words in (_timed_words(turn) for turn in timed)),
+        "fillers": sum(_filler_count(words) for words in (_timed_words(turn) for turn in timed)) or None,
         "longestStretchSec": round(longest),
         "hasWords": True,
     }
@@ -95,7 +95,7 @@ def closing_lines(callback: str | None) -> tuple[str, str]:
     return subtitle, spoken
 
 
-def _notes(turns: list[dict]) -> list[dict]:
+def correction_candidates(turns: list[dict]) -> list[dict]:
     collected = []
     for turn_index, turn in enumerate(turns):
         for order, note in enumerate(turn.get("corrections") or []):
@@ -104,9 +104,16 @@ def _notes(turns: list[dict]) -> list[dict]:
             wrong = str(note.get("wrong") or "").strip()
             better = str(note.get("better") or "").strip()
             kind = str(note.get("kind") or "")
-            if not wrong or not better or kind not in {"grammar", "word", "natural"}:
+            transcript = str(turn.get("transcript") or "")
+            if (
+                not wrong or not better or wrong == better
+                or kind not in {"grammar", "word", "natural"}
+                or not re.search(r"(?<!\w)" + re.escape(wrong) + r"(?!\w)", transcript)
+            ):
                 continue
             collected.append({
+                "id": f"{turn_index}:{order}",
+                "transcript": transcript,
                 "wrong": wrong,
                 "better": better,
                 "kind": kind,

@@ -341,7 +341,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "finish:${query.id}",
                         )
                         val ask = if (state.runId == callback.runId) {
-                            practiceAsk(state.cefr, state.overallScore, state.nextBand)
+                            practiceAsk(state.cefr, state.overallScore, state.nextBand, state.pointsToNext)
                         } else {
                             practiceAsk(null, null, null)
                         }

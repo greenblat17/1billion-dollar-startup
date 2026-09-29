@@ -71,6 +71,9 @@ class Model:
         self.continue_calls += 1
         return "What would you like to build next?"
 
+    async def verify_corrections(self, candidates):
+        return {item["id"] for item in candidates}
+
     async def compose_review(self, payload):
         self.review_calls += 1
         self.review_payloads.append(deepcopy(payload))
@@ -107,9 +110,9 @@ class Model:
         }
 
 
-def service(stt=None, model=None, store=None, tts=None):
+def service(stt=None, model=None, store=None, tts=None, llm=None):
     pipeline = ClipPipeline(
-        stt=stt or Stt(), llm=FakeLlm([Correction("I builds", "I build")]),
+        stt=stt or Stt(), llm=llm or FakeLlm([Correction("I builds", "I build")]),
         tts=tts or FakeTts(), dialogue=MemoryDialogueStore(40, 3600),
     )
     return OnboardingService(store or OnboardingStore(), pipeline, model or Model())
@@ -580,3 +583,28 @@ def test_http_goal_requires_auth_and_known_minutes():
         )
         assert saved.status_code == 200
         assert saved.json() == {"minutes": 15}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_review_uses_only_verified_examples_and_survives_verification_failure(fails):
+    class FilteringModel(Model):
+        async def verify_corrections(self, candidates):
+            assert any(item["wrong"] == "the Rodri" for item in candidates)
+            if fails:
+                raise TimeoutError("verification unavailable")
+            return {item["id"] for item in candidates if item["wrong"] == "I builds"}
+
+    model = FilteringModel()
+    llm = FakeLlm([
+        Correction("I builds", "I build", "grammar"),
+        Correction("the Rodri", "Rodri", "grammar"),
+    ])
+    s = service(stt=Stt(120, "I builds tools. I talked to the Rodri."), model=model, llm=llm)
+    run = await begin(s)
+    result = await turn(s, run)
+    expected = [] if fails else [{"wrong": "I builds", "better": "I build"}]
+    assert result.onboarding["status"] == "completed"
+    assert model.review_payloads[0]["grammarExamples"] == expected
+    assert result.onboarding["review"]["grammar"]["examples"] == expected
+    assert model.review_payloads[0]["vocabularyExamples"] == []

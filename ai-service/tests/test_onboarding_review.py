@@ -1,24 +1,27 @@
+import json
+
 import pytest
 
 from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
-from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
+from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, correction_candidates, select_examples
 from app.onboarding_score import SCORE_TABLE, apply_skill, overall_progress, skill_confidence, skill_score
 from app.stt import speech_words
 
 
 def test_repeated_mistake_outranks_an_earlier_one_off():
     turns = [
-        {"corrections": [
+        {"transcript": "I work in startup. I made a photo.", "corrections": [
             {"wrong": "I work in startup", "better": "I work at a startup", "kind": "grammar"},
             {"wrong": "made a photo", "better": "took a photo", "kind": "word"},
         ]},
-        {"corrections": [
+        {"transcript": "I am agree. It is very interesting.", "corrections": [
             {"wrong": "I am agree", "better": "I agree", "kind": "grammar"},
             {"wrong": "very interesting", "better": "really fun", "kind": "natural"},
         ]},
-        {"corrections": [{"wrong": "I am agree", "better": "I agree", "kind": "grammar"}]},
+        {"transcript": "I am agree.", "corrections": [{"wrong": "I am agree", "better": "I agree", "kind": "grammar"}]},
     ]
-    picked = select_examples(turns)
+    candidates = correction_candidates(turns)
+    picked = select_examples(candidates, {item["id"] for item in candidates})
     assert picked["grammar"][0] == {"wrong": "I am agree", "better": "I agree"}
     assert picked["grammar"][1]["wrong"] == "I work in startup"
     assert [item["wrong"] for item in picked["vocabulary"]] == ["made a photo", "very interesting"]
@@ -88,7 +91,7 @@ def test_fluency_uses_word_timings_inside_one_recording():
         ]},
     ])
     assert almost["longPauses"] == 0
-    assert almost["fillers"] == 0
+    assert almost["fillers"] is None
 
 
 def test_speech_words_keep_compact_timings():
@@ -206,3 +209,52 @@ async def test_compose_review_reserves_room_for_the_skill_json():
     parsed = await OnboardingModel(llm).compose_review({})
     assert llm.max_tokens == REVIEW_MAX_TOKENS == 1200
     assert parsed["grammar"]["position"] == "high"
+
+
+def test_candidates_require_exact_whole_phrase_and_changed_correction():
+    candidates = correction_candidates([{
+        "transcript": "I builds tools.",
+        "corrections": [
+            {"wrong": "build", "better": "builds", "kind": "grammar"},
+            {"wrong": "I builds", "better": "I builds", "kind": "grammar"},
+            {"wrong": "not spoken", "better": "invented", "kind": "word"},
+            {"wrong": "I builds", "better": "I build", "kind": "grammar"},
+        ],
+    }])
+    assert len(candidates) == 1
+    assert candidates[0]["id"] == "0:3"
+    assert select_examples(candidates, {"invented"}) == {"grammar": [], "vocabulary": []}
+
+
+def test_verification_precedes_ranking_and_caps_each_skill_at_two():
+    turns = []
+    for phrase in ("the Rodri", "the Rodri", "I builds", "he work", "she go"):
+        turns.append({"transcript": phrase, "corrections": [
+            {"wrong": phrase, "better": phrase + " corrected", "kind": "grammar"},
+        ]})
+    candidates = correction_candidates(turns)
+    picked = select_examples(candidates, {item["id"] for item in candidates if item["wrong"] != "the Rodri"})
+    assert [item["wrong"] for item in picked["grammar"]] == ["I builds", "he work"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", [[], ["0:0"], ["0:0", "0:0"], ["invented"], [1], None])
+async def test_verifier_accepts_only_existing_ids(selection):
+    candidates = correction_candidates([{
+        "transcript": "I builds tools.",
+        "corrections": [{"wrong": "I builds", "better": "I build", "kind": "grammar"}],
+    }])
+
+    class Llm:
+        async def complete_json(self, system, data, **kwargs):
+            sent = json.loads(data)["candidates"]
+            assert sent[0]["transcript"] == "I builds tools."
+            assert sent[0]["better"] == "I build"
+            return json.dumps({"acceptedIds": selection})
+
+    model = OnboardingModel(Llm())
+    if selection is None or selection in (["invented"], [1]):
+        with pytest.raises(ValueError):
+            await model.verify_corrections(candidates)
+    else:
+        assert await model.verify_corrections(candidates) == set(selection)
