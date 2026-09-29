@@ -18,7 +18,7 @@ internal fun onboardingProgressLabel(seconds: Double): String {
     val clock = "%d:%02d".format(whole / 60, whole % 60)
     val filled = (capped / ONBOARDING_PROGRESS_SECONDS * ONBOARDING_PROGRESS_CELLS).toInt()
         .coerceIn(0, ONBOARDING_PROGRESS_CELLS)
-    val bar = "▰".repeat(filled) + "░".repeat(ONBOARDING_PROGRESS_CELLS - filled)
+    val bar = "●".repeat(filled) + "○".repeat(ONBOARDING_PROGRESS_CELLS - filled)
     return "$clock из 2:00 $bar"
 }
 
