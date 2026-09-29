@@ -11,9 +11,9 @@ internal const val GRAMMAR_LABEL = "Грамматически верно:"
 internal const val WORD_LABEL = "Лучше подойдёт слово:"
 internal const val NATURAL_LABEL = "Нейтив сказал бы так:"
 
-internal const val ONBOARDING_GRAMMAR_LABEL = "Правильнее было бы сказать так:"
-internal const val ONBOARDING_WORD_LABEL = "Лучше использовать другое слово:"
-internal const val ONBOARDING_NATURAL_LABEL = "Нейтив сформулировал бы так:"
+internal const val ONBOARDING_GRAMMAR_LABEL = "Правильно:"
+internal const val ONBOARDING_WORD_LABEL = "Лучше здесь сказать:"
+internal const val ONBOARDING_NATURAL_LABEL = "Естественнее:"
 
 internal fun onboardingCorrectionLabel(kind: CorrectionKind?): String = when (kind) {
     CorrectionKind.WORD -> ONBOARDING_WORD_LABEL
