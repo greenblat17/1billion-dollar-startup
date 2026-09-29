@@ -26,11 +26,15 @@ class OnboardingMessagesTest {
 
     @Test
     fun progressButtonsCountSpeechUpToTwoMinutes() {
-        assertEquals("🎙 0:00 / 2:00", progressLabels(0.0).single())
-        assertEquals("🎙 0:38 / 2:00", progressLabels(38.0).single())
-        assertEquals("🎙 1:17 / 2:00", progressLabels(77.0).single())
-        assertEquals("🎙 2:00+", progressLabels(120.0).single())
-        assertEquals("🎙 2:00+", progressLabels(150.0).single())
+        assertEquals("0:00 / 2:00", progressLabels(0.0).single())
+        assertEquals("0:38 / 2:00", progressLabels(38.0).single())
+        assertEquals("1:17 / 2:00", progressLabels(77.0).single())
+        assertEquals("2:00+", progressLabels(120.0).single())
+        assertEquals("2:00+", progressLabels(150.0).single())
+        assertEquals(
+            "🎙 This tracks how much English you've spoken. Around 2 minutes is usually enough for me to get to know you a little.",
+            ONBOARDING_PROGRESS_HINT,
+        )
         val run = "a".repeat(32)
         val withRetry = onboardingProgressKeyboard(38.0) + onboardingKeyboard("retry", run)
         val labels = withRetry.keyboard.map { row ->
@@ -39,7 +43,7 @@ class OnboardingMessagesTest {
         assertEquals("Повторить", labels.last())
         val sideBySide = withSpokenText(onboardingProgressKeyboard(0.0), spoken = true)!!.keyboard.single()
         val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("🎙 0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
+        assertEquals(listOf("0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
     }
 
     private fun progressLabels(seconds: Double): List<String> =

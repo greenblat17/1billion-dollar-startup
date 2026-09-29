@@ -277,6 +277,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
         }
+        if (query.data == ONBOARDING_PROGRESS_CALLBACK) {
+            val voiceMessage = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            reply(voiceMessage, ONBOARDING_PROGRESS_HINT, allowSendingWithoutReply = true)
+            return@onDataCallbackQuery
+        }
         if (query.data == SPOKEN_TEXT_CALLBACK) {
             val voiceMessage = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
             val spoken = spokenLines[spokenKey(voiceMessage.chat.id, voiceMessage.messageId)] ?: return@onDataCallbackQuery
