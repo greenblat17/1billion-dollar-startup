@@ -10,6 +10,7 @@ import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
+import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.types.MessageId
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
@@ -151,8 +152,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = withSpokenText(progress, spoken),
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
-            if (result.onboarding?.status == "completed") {
-                reply(message, ONBOARDING_REMEMBERED, allowSendingWithoutReply = true)
+            val completed = result.onboarding
+            if (completed?.status == "completed" && completed.review != null) {
+                reply(
+                    message,
+                    levelSlide(completed.cefr, completed.review.levelText),
+                    allowSendingWithoutReply = true,
+                    replyMarkup = onboardingKeyboard("results", completed.runId),
+                )
             }
             if (progress != null) progressMessages[message.chat.id.toString()] = voice.messageId
         } else if (result.text.isNotBlank()) {
@@ -290,15 +297,45 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val callback = parseOnboardingCallback(query.data) ?: return@onDataCallbackQuery
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+        val requestId = when (callback.action) {
+            "retry" -> "callback:${query.id}"
+            "m5", "m10", "m15" -> "callback:goal:${callback.runId}"
+            else -> "callback:${callback.action}:${callback.runId}"
+        }
         try {
-            actions.run(
-                message.chat.id.toString(),
-                if (callback.action == "retry") "callback:${query.id}" else "callback:${callback.action}:${callback.runId}",
-            ) {
-                val result = ai.onboardingAction(
-                    telegramSessionId(message.chat.id), "callback:${query.id}", callback.runId, callback.action,
-                )
-                deliver(message, result, firstQuestion = callback.action == "begin")
+            actions.run(message.chat.id.toString(), requestId) {
+                when (callback.action) {
+                    "results", "vocab", "fluency" -> showReviewSlide(ai, log, message, callback)
+                    "finish" -> {
+                        clearOnboardingMarkup(message)
+                        reply(message, PRACTICE_ASK, allowSendingWithoutReply = true, replyMarkup = practiceMinutesKeyboard(callback.runId))
+                    }
+                    "m5", "m10", "m15" -> {
+                        val minutes = when (callback.action) {
+                            "m5" -> 5
+                            "m10" -> 10
+                            else -> 15
+                        }
+                        ai.savePracticeGoal(telegramSessionId(message.chat.id), "goal:${query.id}", minutes)
+                        clearOnboardingMarkup(message)
+                        reply(
+                            message,
+                            practiceDeal(minutes),
+                            allowSendingWithoutReply = true,
+                            replyMarkup = practiceDealKeyboard(callback.runId),
+                        )
+                    }
+                    "bye" -> reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
+                    else -> {
+                        val result = ai.onboardingAction(
+                            telegramSessionId(message.chat.id),
+                            "callback:${query.id}",
+                            callback.runId,
+                            if (callback.action == "talk") "continue" else callback.action,
+                        )
+                        deliver(message, result, firstQuestion = callback.action == "begin")
+                    }
+                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -333,5 +370,42 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 else -> Unit
             }
         }
+    }
+}
+
+private suspend fun BehaviourContext.clearOnboardingMarkup(message: ChatMessage) {
+    try {
+        editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Throwable) {
+    }
+}
+
+private suspend fun BehaviourContext.showReviewSlide(
+    ai: HttpClipClient,
+    log: org.slf4j.Logger,
+    message: ChatMessage,
+    callback: OnboardingCallback,
+) {
+    val state = ai.onboardingState(
+        telegramSessionId(message.chat.id),
+        "slide:${message.messageId.long}:${callback.action}",
+    )
+    val review = state.review
+    if (state.runId != callback.runId || review == null) return
+    val slide = when (callback.action) {
+        "results" -> grammarSlide(review) to "vocab"
+        "vocab" -> vocabularySlide(review) to "fluency"
+        else -> fluencySlide(review) to "finish"
+    }
+    val markup = onboardingKeyboard(slide.second, callback.runId)
+    try {
+        editMessageText(message.chat.id, message.messageId, slide.first, replyMarkup = markup)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.warn("Failed to edit onboarding slide for {}", message.chat.id, error)
+        reply(message, slide.first, allowSendingWithoutReply = true, replyMarkup = markup)
     }
 }

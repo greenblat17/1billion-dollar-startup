@@ -52,6 +52,9 @@ class Model:
         }
         self.calls = 0
         self.fail = False
+        self.review_fail = False
+        self.review_calls = 0
+        self.review_callback: str | None = None
         self.continue_calls = 0
         self.asks: list[str] = []
 
@@ -65,6 +68,25 @@ class Model:
     async def continue_question(self, profile):
         self.continue_calls += 1
         return "What would you like to build next?"
+
+    async def compose_review(self, payload):
+        self.review_calls += 1
+        if self.review_fail:
+            raise RuntimeError("review unavailable")
+        transcripts = " ".join(payload.get("transcripts") or [])
+        callback = self.review_callback
+        if callback is None and "startup" in transcripts.lower():
+            callback = "And your startup sounds really interesting — I hope you’ll tell me more about it sometime."
+        return {
+            "callback": callback,
+            "levelText": "You can keep a conversation going about your own work.",
+            "grammarScore": 62,
+            "grammarText": "You handle basic sentences, and a few patterns still trip you up.",
+            "vocabularyScore": 71,
+            "vocabularyText": "You have enough words for everyday conversation.",
+            "fluencyScore": 68,
+            "fluencyText": "You can keep your thoughts moving.",
+        }
 
 
 def service(stt=None, model=None, store=None, tts=None):
@@ -109,13 +131,15 @@ async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_reco
     assert result.corrections
     assert "Estimated English" not in result.reply_text
     if status == "completed":
-        assert result.reply_text == "What do you enjoy about your work?"
+        assert result.reply_text.startswith("You know what, I really enjoyed talking with you. I feel like I know you a little better now. 😊")
+        assert "Let me show you what I noticed." in result.reply_text
+        assert "😊" not in s.pipeline.tts.texts[-1]
         assert result.onboarding["resultText"] is None
+        assert result.onboarding["review"]["grammar"]["score"] == 62
         history = await s.pipeline.dialogue.history("tg-test")
-        assert [item.content for item in history] == [
-            "I build software. I need English to work with clients.",
-            "What do you enjoy about your work?",
-        ]
+        assert history[-2].content == "I build software. I need English to work with clients."
+        assert "I really enjoyed talking with you" in history[-1].content
+        assert "😊" not in history[-1].content
 
 
 @pytest.mark.asyncio
@@ -189,6 +213,11 @@ async def test_onboarding_keeps_only_the_first_ranked_correction():
     result = await turn(s, run)
     assert [(item.wrong, item.better, item.kind) for item in result.corrections] == [
         ("you is", "you are", "grammar"),
+    ]
+    stored = (await s.store.get("tg-test"))["turns"][0]["corrections"]
+    assert [(item["wrong"], item["kind"]) for item in stored] == [
+        ("you is", "grammar"),
+        ("made a photo", "word"),
     ]
 
 
@@ -297,7 +326,7 @@ async def test_close_remembers_profile_and_restart_wipes_it():
         "Old topic",
         "Old reply",
         "I build software. I need English to work with clients.",
-        "What do you enjoy about your work?",
+        "You know what, I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I’ve got a pretty good sense of your English too. Let me show you what I noticed.",
     ]
     saved = await s.store.get("tg-test")
     assert saved["profile"]["work"] == "software developer"
@@ -363,7 +392,8 @@ def test_http_contract_returns_closing_audio_and_requires_auth():
                 break
         assert body["status"] == "ok"
         assert body["result"]["audioAvailable"] is True
-        assert body["replyText"] == "What do you enjoy about your work?"
+        assert "I really enjoyed talking with you" in body["replyText"]
+        assert body["result"]["onboarding"]["review"]["levelText"]
         assert body["result"]["onboarding"]["status"] == "completed"
         assert body["result"]["onboarding"]["resultText"] is None
         assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 200
@@ -404,3 +434,89 @@ async def test_stt_failure_never_counts_the_recording():
     state = await s.resolve("tg-test", "check")
     assert state["seconds"] == 0
     assert state["retryAvailable"] is False
+
+
+@pytest.mark.asyncio
+async def test_generic_answer_keeps_the_closing_frame_and_a_startup_gets_a_callback():
+    generic = service(stt=Stt(120, "I work as a developer. I like movies. I need English for work."))
+    generic_run = await begin(generic)
+    generic_result = await turn(generic, generic_run)
+    assert generic_result.reply_text.startswith(
+        "You know what, I really enjoyed talking with you. I feel like I know you a little better now. 😊"
+    )
+    assert "startup" not in generic_result.reply_text
+    assert "Let me show you what I noticed." in generic_result.reply_text
+
+    model = Model()
+    model.review_callback = "And your startup sounds really interesting — I hope you’ll tell me more about it sometime."
+    ungrounded = service(stt=Stt(120, "I work as a developer."), model=model)
+    ungrounded_run = await begin(ungrounded, "tg-plain")
+    dropped = await turn(ungrounded, ungrounded_run, session="tg-plain")
+    assert "startup" not in dropped.reply_text
+
+    specific = service(stt=Stt(120, "I am building a startup with two friends."))
+    specific_run = await begin(specific, "tg-startup")
+    heard = await turn(specific, specific_run, session="tg-startup")
+    text = heard.reply_text
+    assert text.index("enjoyed talking with you") < text.index("startup") < text.index("I feel like I know you")
+    assert text.endswith("Let me show you what I noticed.")
+    assert "😊" in text
+    assert "😊" not in specific.pipeline.tts.texts[-1]
+
+
+@pytest.mark.asyncio
+async def test_missing_level_still_returns_a_review():
+    s = service(stt=Stt(120), model=Model(cefr=None))
+    run = await begin(s)
+    result = await turn(s, run)
+    assert result.onboarding["status"] == "completed"
+    assert result.onboarding["cefr"] is None
+    assert result.onboarding["review"]["levelText"]
+    assert result.onboarding["review"]["fluency"]["longPauses"] is None
+
+
+@pytest.mark.asyncio
+async def test_review_failure_retries_without_another_recording():
+    model = Model()
+    model.review_fail = True
+    s = service(stt=Stt(120), model=model)
+    run = await begin(s)
+    failed = await turn(s, run)
+    assert failed.onboarding["status"] == "pending"
+    assert failed.audio is None
+    model.review_fail = False
+    result = await s.action("tg-test", run, "retry")
+    assert result.onboarding["status"] == "completed"
+    assert s.pipeline.stt.calls == 1
+    assert model.review_calls == 2
+    await s.action("tg-test", run, "retry")
+    assert model.review_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_practice_goal_survives_force_reset():
+    redis = FakeAsyncRedis(decode_responses=True)
+    s = service(store=OnboardingStore(redis), stt=Stt(120))
+    run = await begin(s)
+    await turn(s, run)
+    assert await s.set_goal("tg-test", 10) == {"minutes": 10}
+    restarted = await s.resolve("tg-test", "restart", "force")
+    assert restarted["status"] == "waiting"
+    assert (await s.store.get("tg-test"))["profile"] == {}
+    assert await s.store.get_goal("tg-test") == 10
+    assert await redis.ttl("practice-goal:tg-test") == -1
+
+
+def test_http_goal_requires_auth_and_known_minutes():
+    s = service()
+    app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model, onboarding_store=s.store)
+    with TestClient(app) as client:
+        assert client.post("/internal/onboarding/goal", json={}).status_code == 401
+        assert client.post(
+            "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "g", "minutes": 20},
+        ).status_code == 400
+        saved = client.post(
+            "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "g", "minutes": 15},
+        )
+        assert saved.status_code == 200
+        assert saved.json() == {"minutes": 15}

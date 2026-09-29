@@ -11,6 +11,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 from app.llm import Correction
+from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class OnboardingStore:
     def __init__(self, redis: Redis | None = None) -> None:
         self._redis = redis
         self._memory: dict[str, dict] = {}
+        self._goals: dict[str, int] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
     def lock(self, session_id: str) -> asyncio.Lock:
@@ -57,13 +59,44 @@ class OnboardingStore:
         if self._redis is not None:
             await self._redis.aclose()
 
+    async def set_goal(self, session_id: str, minutes: int) -> None:
+        payload = json.dumps({"minutes": minutes})
+        if self._redis is not None:
+            await self._redis.set(f"practice-goal:{session_id}", payload)
+        else:
+            self._goals[session_id] = minutes
+
+    async def get_goal(self, session_id: str) -> int | None:
+        if self._redis is not None:
+            raw = await self._redis.get(f"practice-goal:{session_id}")
+            if not raw:
+                return None
+            minutes = json.loads(raw).get("minutes")
+            return minutes if isinstance(minutes, int) else None
+        return self._goals.get(session_id)
+
+
+def _shown_corrections(turn: dict | None) -> list[Correction]:
+    notes = (turn or {}).get("corrections") or []
+    shown = []
+    for note in notes[:1]:
+        if isinstance(note, dict) and note.get("wrong") and note.get("better"):
+            shown.append(Correction(str(note["wrong"]), str(note["better"]), str(note.get("kind") or "grammar")))
+    return shown
+
 
 def public_state(state: dict) -> dict:
-    return {
+    payload = {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
         "react": state["status"] == "active" and not state.get("voiceArrived") and not state["turns"],
     }
+    review = state.get("review")
+    if isinstance(review, dict):
+        payload["review"] = {
+            key: review.get(key) for key in ("levelText", "grammar", "vocabulary", "fluency")
+        }
+    return payload
 
 
 def _attempt(receipts: list[str] | None = None) -> dict:
@@ -166,10 +199,12 @@ class OnboardingService:
             return self._result(state, FIRST_QUESTION, audio)
         if action == "retry":
             if state["status"] == "completed":
-                question = state.get("question") or ""
+                review = state.get("review") or {}
+                spoken = review.get("spokenText") or state.get("question") or ""
+                subtitle = review.get("closingText") or spoken
                 turn = state["turns"][-1] if state["turns"] else None
-                audio = await self.pipeline.tts.synthesize(question) if question else None
-                return self._result(state, question, audio, turn)
+                audio = await self.pipeline.tts.synthesize(spoken) if spoken else None
+                return self._result(state, subtitle, audio, turn)
             if state["status"] == "pending":
                 return await self._finish(session_id, state)
             if state["status"] == "active" and state["turns"]:
@@ -222,7 +257,8 @@ class OnboardingService:
                     raise ValueError("recording duration unavailable")
                 turn = {
                     "requestId": request_id, "question": state["question"], "transcript": stt.text,
-                    "seconds": seconds, "corrections": None, "analysis": None, "delivered": False,
+                    "seconds": seconds, "words": [dict(word) for word in stt.words],
+                    "corrections": None, "analysis": None, "delivered": False,
                 }
                 state["turns"].append(turn)
                 state["seconds"] += seconds
@@ -232,7 +268,7 @@ class OnboardingService:
     async def _advance_turn(self, session_id: str, state: dict, turn: dict) -> PipelineResult:
         if turn["corrections"] is None:
             notes = await self.pipeline.llm.complete_notes(turn["transcript"])
-            turn["corrections"] = [note.to_json() for note in notes[:1]]
+            turn["corrections"] = [note.to_json() for note in notes]
             await self.store.save(session_id, state)
         if turn["analysis"] is None:
             state["ask"] = next_ask(state.get("profile") or {})
@@ -277,18 +313,28 @@ class OnboardingService:
                 state["assessment"] = assessment
             state["profile"] = assessment["profile"]
             state["cefr"] = assessment["cefr"]
-            question = assessment["question"]
-            audio = await self.pipeline.tts.synthesize(question)
-            state["question"] = question
-            turn["reply"] = question
-            turn["delivered"] = True
             if not should_close(state):
+                question = assessment["question"]
+                audio = await self.pipeline.tts.synthesize(question)
+                state["question"] = question
+                turn["reply"] = question
+                turn["delivered"] = True
                 # The saved answer was not ready to close: keep asking the missing field.
                 state["status"] = "active"
                 await self.store.save(session_id, state)
                 result = self._result(state, question, audio, turn)
                 result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
                 return result
+            if state.get("review") is None:
+                state["review"] = await self._compose_review(state)
+                await self.store.save(session_id, state)
+            review = state["review"]
+            spoken = review["spokenText"]
+            subtitle = review["closingText"]
+            audio = await self.pipeline.tts.synthesize(spoken)
+            state["question"] = spoken
+            turn["reply"] = spoken
+            turn["delivered"] = True
             state["resultText"] = None
             state["status"] = "completed"
             await self._remember(session_id, state)
@@ -299,9 +345,57 @@ class OnboardingService:
             # Keep the accepted turns and pending status for an explicit retry without more speech.
             await self.store.save(session_id, state)
             return self._result(state, RETRY_TEXT, turn=turn)
-        result = self._result(state, question, audio, turn)
-        result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
+        result = self._result(state, subtitle, audio, turn)
+        result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(spoken))
         return result
+
+    async def set_goal(self, session_id: str, minutes: int) -> dict:
+        if minutes not in {5, 10, 15}:
+            raise ValueError("invalid practice goal")
+        async with self.store.lock(session_id):
+            await self.store.set_goal(session_id, minutes)
+        return {"minutes": minutes}
+
+    async def _compose_review(self, state: dict) -> dict:
+        examples = select_examples(state["turns"])
+        metrics = fluency_metrics(state["turns"])
+        transcripts = [str(turn.get("transcript") or "").strip() for turn in state["turns"]]
+        transcripts = [text for text in transcripts if text]
+        raw = await self.model.compose_review({
+            "transcripts": transcripts,
+            "profile": state.get("profile") or {},
+            "cefr": state.get("cefr"),
+            "grammarExamples": examples["grammar"],
+            "vocabularyExamples": examples["vocabulary"],
+            "fluency": {
+                key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")
+            },
+        })
+        callback = grounded_callback(raw.get("callback"), transcripts)
+        subtitle, spoken = closing_lines(callback)
+        return {
+            "levelText": raw["levelText"],
+            "grammar": {
+                "score": raw["grammarScore"],
+                "text": raw["grammarText"],
+                "examples": examples["grammar"],
+            },
+            "vocabulary": {
+                "score": raw["vocabularyScore"],
+                "text": raw["vocabularyText"],
+                "examples": examples["vocabulary"],
+            },
+            "fluency": {
+                "score": raw["fluencyScore"],
+                "text": raw["fluencyText"],
+                "paceWpm": metrics["paceWpm"],
+                "longPauses": metrics["longPauses"],
+                "fillers": metrics["fillers"],
+                "longestStretchSec": metrics["longestStretchSec"],
+            },
+            "closingText": subtitle,
+            "spokenText": spoken,
+        }
 
     async def _remember(self, session_id: str, state: dict) -> None:
         for item in state["turns"]:
@@ -319,6 +413,6 @@ class OnboardingService:
     def _result(state: dict | None, text: str = "", audio: bytes | None = None, turn: dict | None = None) -> PipelineResult:
         return PipelineResult(
             audio=audio, transcript=turn["transcript"] if turn else "", reply_text=text,
-            timings_ms={}, corrections=[Correction(**note) for note in (turn or {}).get("corrections") or []],
+            timings_ms={}, corrections=_shown_corrections(turn),
             onboarding=public_state(state) if state else {"status": "ignored"},
         )

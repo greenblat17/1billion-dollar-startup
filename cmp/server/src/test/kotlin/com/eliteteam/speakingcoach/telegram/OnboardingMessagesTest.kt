@@ -1,6 +1,11 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.ai.OnboardingExample
+import com.eliteteam.speakingcoach.ai.OnboardingFluency
+import com.eliteteam.speakingcoach.ai.OnboardingReview
+import com.eliteteam.speakingcoach.ai.OnboardingSkill
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
+import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -10,7 +15,7 @@ class OnboardingMessagesTest {
     @Test
     fun buttonsCarryTheAttemptAndFitTelegramLimit() {
         val run = "a".repeat(32)
-        for (action in listOf("begin", "retry", "continue")) {
+        for (action in listOf("begin", "retry", "continue", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15")) {
             val button = onboardingKeyboard(action, run).keyboard.single().single() as CallbackDataInlineKeyboardButton
             assertEquals(OnboardingCallback(action, run), parseOnboardingCallback(button.callbackData))
             assertTrue(button.callbackData.encodeToByteArray().size <= 64)
@@ -46,6 +51,57 @@ class OnboardingMessagesTest {
         assertEquals(listOf("0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
     }
 
+    @Test
+    fun resultsSlidesEditForwardAndKeepTheCommitmentCopy() {
+        val run = "b".repeat(32)
+        val review = OnboardingReview(
+            levelText = "You can keep a conversation going about your own work.",
+            grammar = OnboardingSkill(
+                score = 62,
+                text = "You handle basic sentence structures well.",
+                examples = listOf(OnboardingExample("I work in startup", "I work at a startup")),
+            ),
+            vocabulary = OnboardingSkill(score = 71, text = "You have enough vocabulary.", examples = emptyList()),
+            fluency = OnboardingFluency(
+                score = 68,
+                text = "You can keep your thoughts moving.",
+                paceWpm = 104,
+                longPauses = 6,
+                fillers = 9,
+                longestStretchSec = 18,
+            ),
+        )
+        assertEquals(
+            "Your English level\nB1\nIntermediate\nYou can keep a conversation going about your own work.",
+            levelSlide("B1", review.levelText).plain(),
+        )
+        assertEquals(
+            "Your English level\nI don't have a clear level from this chat yet.\nYou can keep a conversation going about your own work.",
+            levelSlide(null, review.levelText).plain(),
+        )
+        assertTrue(grammarSlide(review).plain().contains("62 / 100"))
+        assertTrue(grammarSlide(review).plain().contains("I work in startup → I work at a startup"))
+        assertTrue(vocabularySlide(review).plain().contains(NO_VOCABULARY_PATTERNS))
+        val fluency = fluencySlide(review).plain()
+        assertTrue(fluency.contains("Speaking pace · 104 words/min"))
+        assertTrue(fluency.contains("Long pauses · 6"))
+        assertTrue(fluency.contains("Filler words · 9"))
+        assertTrue(fluency.contains("Longest stretch without a long pause · 18 sec"))
+        assertEquals(
+            listOf("Long pauses · 6"),
+            fluencyLines(OnboardingFluency(longPauses = 6)),
+        )
+        val minutes = practiceMinutesKeyboard(run).keyboard.single().map { (it as CallbackDataInlineKeyboardButton).text }
+        assertEquals(listOf("5 min", "10 min", "15 min"), minutes)
+        assertTrue(practiceDeal(10).startsWith("10 minutes a day. Deal 🤝"))
+        assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
+        val deal = practiceDealKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
+        assertEquals(listOf("Keep talking 🎙", "See you tomorrow"), deal.map { it.text })
+        assertEquals("talk", parseOnboardingCallback(deal[0].callbackData)?.action)
+    }
+
+    private fun TextSourcesList.plain(): String = joinToString("") { it.source }
+
     private fun progressLabels(seconds: Double): List<String> =
         onboardingProgressKeyboard(seconds).keyboard.map { row ->
             val button = row.single() as CallbackDataInlineKeyboardButton
@@ -63,7 +119,6 @@ class OnboardingMessagesTest {
         assertTrue(onboardingInvitation("Alex").contains("a couple of minutes"))
         val begin = onboardingKeyboard("begin", "a".repeat(32)).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("Let’s chat 👋", begin.text)
-        assertEquals("Я тебя запомнила. Давай просто говорить.", ONBOARDING_REMEMBERED)
         assertTrue(isOnboardingCommand("/onboarding@speaky"))
         assertTrue(!isOnboardingCommand("/onboarding_extra"))
     }

@@ -131,6 +131,15 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun savePracticeGoal(sessionId: SessionId, requestId: String, minutes: Int) {
+        val response = http.post("$root/internal/onboarding/goal") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(PracticeGoalRequest(sessionId.value, requestId, minutes))
+        }
+        check(response.status.isSuccess()) { "ai-service practice goal returned ${response.status}" }
+    }
+
     suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
         val response = http.post("$root/internal/onboarding/actions") {
             applyInternalToken()
@@ -178,7 +187,9 @@ class HttpClipClient(
                     corrections = status.corrections,
                     audio = if (status.audioAvailable) downloadAudio(jobId) else null,
                     text = status.text,
-                    onboarding = status.onboarding?.let { OnboardingStatus(it.runId, it.status, it.seconds) },
+                    onboarding = status.onboarding?.let {
+                        OnboardingStatus(it.runId, it.status, it.seconds, it.cefr, it.review)
+                    },
                     transcript = status.transcript,
                     streak = status.streak,
                 )

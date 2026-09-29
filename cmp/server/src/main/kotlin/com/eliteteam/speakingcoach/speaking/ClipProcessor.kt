@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.speaking
 
+import com.eliteteam.speakingcoach.ai.OnboardingReview
+
 fun interface ClipSource {
     suspend fun load(): AudioClip
 }
@@ -76,4 +78,6 @@ data class OnboardingStatus(
     val runId: String,
     val status: String,
     val seconds: Double = 0.0,
+    val cefr: String? = null,
+    val review: OnboardingReview? = null,
 )

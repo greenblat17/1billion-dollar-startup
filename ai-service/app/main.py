@@ -163,6 +163,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="invalid reset")
         return await onboarding.resolve(session_id, request_id, reset)
 
+    @app.post("/internal/onboarding/goal")
+    async def onboarding_goal(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id, _request_id = _onboarding_identity(payload)
+        minutes = payload.get("minutes")
+        if minutes not in {5, 10, 15}:
+            raise HTTPException(status_code=400, detail="invalid practice goal")
+        return await onboarding.set_goal(session_id, minutes)
+
     @app.post("/internal/onboarding/actions", status_code=202)
     async def onboarding_action(request: Request) -> dict:
         payload = await _json_object(request)

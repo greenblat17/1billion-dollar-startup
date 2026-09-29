@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -15,6 +16,7 @@ class SttResult:
     raw: dict[str, Any] = field(default_factory=dict)
     no_speech: bool = False
     duration_seconds: float = 0.0
+    words: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SpeechToText(Protocol):
@@ -54,6 +56,7 @@ class GroqSpeechToText:
             raw=payload,
             no_speech=not text or no_speech_prob >= 0.8,
             duration_seconds=duration_seconds(payload),
+            words=speech_words(payload),
         )
 
 
@@ -70,6 +73,36 @@ def _as_dict(response: Any) -> dict[str, Any]:
     if callable(dump):
         return dump()
     return {"text": getattr(response, "text", "")}
+
+
+def speech_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compact word timings already present on a verbose transcription."""
+    raw = payload.get("words") or []
+    if not isinstance(raw, list):
+        return []
+    words: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("word") or item.get("text") or "").strip()
+        start = _timestamp(item.get("start"))
+        end = _timestamp(item.get("end"))
+        if not text or start is None or end is None or end < start:
+            continue
+        words.append({"w": text, "s": start, "e": end})
+    return words
+
+
+def _timestamp(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 def duration_seconds(payload: dict[str, Any]) -> float:

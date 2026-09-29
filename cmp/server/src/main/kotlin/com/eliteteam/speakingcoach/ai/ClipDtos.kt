@@ -279,6 +279,44 @@ data class OnboardingRequest(
 )
 
 @Serializable
+data class OnboardingExample(
+    val wrong: String = "",
+    val better: String = "",
+)
+
+@Serializable
+data class OnboardingSkill(
+    val score: Int = 0,
+    val text: String = "",
+    val examples: List<OnboardingExample> = emptyList(),
+)
+
+@Serializable
+data class OnboardingFluency(
+    val score: Int = 0,
+    val text: String = "",
+    val paceWpm: Int? = null,
+    val longPauses: Int? = null,
+    val fillers: Int? = null,
+    val longestStretchSec: Int? = null,
+)
+
+@Serializable
+data class OnboardingReview(
+    val levelText: String = "",
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
+)
+
+@Serializable
+data class PracticeGoalRequest(
+    val sessionId: String,
+    val requestId: String,
+    val minutes: Int,
+)
+
+@Serializable
 data class OnboardingStateResponse(
     val runId: String = "",
     val status: String,
@@ -287,4 +325,5 @@ data class OnboardingStateResponse(
     val resultText: String? = null,
     val retryAvailable: Boolean = false,
     val react: Boolean = false,
+    val review: OnboardingReview? = null,
 )

@@ -1,14 +1,30 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.ai.OnboardingFluency
+import com.eliteteam.speakingcoach.ai.OnboardingReview
+import com.eliteteam.speakingcoach.ai.OnboardingSkill
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
+import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
+import dev.inmo.tgbotapi.utils.bold
+import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.regular
+import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.row
 
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n" +
         "You can talk about your work, studies, hobbies — anything you like."
-internal const val ONBOARDING_REMEMBERED = "Я тебя запомнила. Давай просто говорить."
+internal const val LEVEL_TITLE = "Your English level"
+internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."
+internal const val NO_GRAMMAR_PATTERNS = "No clear grammar patterns stood out in this chat."
+internal const val NO_VOCABULARY_PATTERNS = "No clear vocabulary patterns stood out in this chat."
+internal const val PRACTICE_ASK =
+    "This is your starting point. 🚀\n" +
+        "A little practice every day can make a big difference.\n" +
+        "How much time do you want to practice each day?"
+internal const val SEE_YOU_TOMORROW = "See you tomorrow. I'll be here when you're ready."
 internal const val ONBOARDING_BEGIN_HINT = "Нажми «Let’s chat 👋», чтобы начать знакомство."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
@@ -59,9 +75,13 @@ internal fun onboardingInvitation(firstName: String?): String {
 
 internal data class OnboardingCallback(val action: String, val runId: String)
 
+private val onboardingActions = setOf(
+    "begin", "retry", "continue", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15",
+)
+
 internal fun parseOnboardingCallback(data: String): OnboardingCallback? {
     val parts = data.split(':')
-    if (parts.size != 3 || parts[0] != "ob" || parts[1] !in setOf("begin", "retry", "continue")) return null
+    if (parts.size != 3 || parts[0] != "ob" || parts[1] !in onboardingActions) return null
     if (!Regex("[a-f0-9]{32}").matches(parts[2])) return null
     return OnboardingCallback(parts[1], parts[2])
 }
@@ -71,8 +91,95 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
         val label = when (action) {
             "begin" -> "Let’s chat 👋"
             "retry" -> "Повторить"
+            "results" -> "See my results →"
+            "vocab" -> "Vocabulary →"
+            "fluency" -> "Fluency →"
+            "finish" -> "Finish →"
+            "talk" -> "Keep talking 🎙"
+            "bye" -> "See you tomorrow"
+            "m5" -> "5 min"
+            "m10" -> "10 min"
+            "m15" -> "15 min"
             else -> "Продолжить разговор →"
         }
         dataButton(label, "ob:$action:$runId")
     }
+}
+
+internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("5 min", "ob:m5:$runId")
+        dataButton("10 min", "ob:m10:$runId")
+        dataButton("15 min", "ob:m15:$runId")
+    }
+}
+
+internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("Keep talking 🎙", "ob:talk:$runId")
+        dataButton("See you tomorrow", "ob:bye:$runId")
+    }
+}
+
+internal fun practiceDeal(minutes: Int): String =
+    "$minutes minutes a day. Deal 🤝\n" +
+        "That's your daily goal from now on.\n\n" +
+        "We'll keep working on your grammar, vocabulary and fluency — and you'll be able to see how they change over time."
+
+internal fun cefrBandName(cefr: String?): String? = when (cefr) {
+    "A1" -> "Beginner"
+    "A2" -> "Elementary"
+    "B1" -> "Intermediate"
+    "B2" -> "Upper-Intermediate"
+    "C1" -> "Advanced"
+    "C2" -> "Proficient"
+    else -> null
+}
+
+internal fun levelSlide(cefr: String?, levelText: String): TextSourcesList = buildEntities {
+    bold(LEVEL_TITLE)
+    regularln("")
+    val band = cefrBandName(cefr)
+    if (cefr != null && band != null) {
+        regularln(cefr)
+        regularln(band)
+    } else {
+        regularln(LEVEL_UNKNOWN)
+    }
+    regular(levelText.trim())
+}
+
+internal fun grammarSlide(review: OnboardingReview): TextSourcesList = skillSlide("Grammar", review.grammar, NO_GRAMMAR_PATTERNS)
+
+internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
+    skillSlide("Vocabulary", review.vocabulary, NO_VOCABULARY_PATTERNS)
+
+internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
+    bold("Fluency")
+    regularln("")
+    regularln("${review.fluency.score} / 100")
+    regularln("")
+    regularln(review.fluency.text.trim())
+    val lines = fluencyLines(review.fluency)
+    if (lines.isNotEmpty()) regular(lines.joinToString("\n"))
+}
+
+private fun skillSlide(title: String, skill: OnboardingSkill, empty: String): TextSourcesList = buildEntities {
+    bold(title)
+    regularln("")
+    regularln("${skill.score} / 100")
+    regularln("")
+    regularln(skill.text.trim())
+    if (skill.examples.isEmpty()) {
+        regular(empty)
+    } else {
+        regular(skill.examples.joinToString("\n") { "${it.wrong} → ${it.better}" })
+    }
+}
+
+internal fun fluencyLines(fluency: OnboardingFluency): List<String> = buildList {
+    fluency.paceWpm?.let { add("Speaking pace · $it words/min") }
+    fluency.longPauses?.let { add("Long pauses · $it") }
+    fluency.fillers?.let { add("Filler words · $it") }
+    fluency.longestStretchSec?.let { add("Longest stretch without a long pause · $it sec") }
 }
