@@ -10,16 +10,15 @@ from openai import AsyncOpenAI
 from app.dialogue import ChatMessage
 from app.metrics import MetricsStore
 from app.retry import once_on_retryable
+from app.voice import SPEAKY_MANNER
 
-REPLY_SYSTEM = """You are Speaky, a warm English conversation partner helping the user practice speaking.
-
+REPLY_SYSTEM = SPEAKY_MANNER + """
 Always reply with a JSON object only:
 {"reply": string}
 
-"reply" is spoken to the user. Speak only English. Keep it to 2–4 short sentences.
-Stay slightly above their level. Ask a natural follow-up so the talk continues.
-Do not lecture, list grammar rules, give CEFR scores, or switch language unless they ask.
-Do not mention errors, corrections, or the transcript as a quote.
+"reply" is spoken aloud. Usually three to six sentences.
+The reaction comes first and is about the specific thing they said.
+One question, last, and only to continue this same thread.
 Do not put corrections in "reply".
 """
 

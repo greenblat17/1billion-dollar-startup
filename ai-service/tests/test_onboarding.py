@@ -10,13 +10,26 @@ from fastapi.testclient import TestClient
 from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
+from app.llm import REPLY_SYSTEM
 from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, RETRY_TEXT
+from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
+from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
 from tests.conftest import FakeLlm, FakeTts, test_settings as settings
 
 AUTH = {"X-Internal-Token": "test-internal-token"}
+
+
+def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
+    assert "I'm Speaky" in FIRST_QUESTION
+    assert "this is actually my voice" in FIRST_QUESTION
+    assert "good to hear you" not in FIRST_QUESTION
+    for prompt in (REPLY_SYSTEM, ONBOARDING_SYSTEM, SPEAKY_REALTIME_INSTRUCTIONS):
+        assert "2–4 short sentences" not in prompt
+        assert "cozy" in prompt
+        assert "Oh, that's cool" in prompt
 
 
 class Stt:
