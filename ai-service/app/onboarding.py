@@ -23,7 +23,6 @@ FIRST_QUESTION = (
 )
 RETRY_TEXT = "I couldn't prepare your result. Please try again."
 SPEECH_LIMIT_SECONDS = 120
-VOICE_LIMIT = 10
 PROFILE_FIELDS = ("work", "leisure", "goal")
 
 
@@ -130,15 +129,12 @@ def checklist_done(profile: dict) -> bool:
 
 
 def should_close(state: dict) -> bool:
-    """Close once the checklist exists and either the speech cap or the long-answer cap is met.
+    """Close once the checklist exists and recognized speech has reached two minutes.
 
-    Missing fields keep the introduction going past two minutes. Ten recognized answers
-    stop early only when a level estimate exists too.
+    Missing fields keep the introduction going. There is no cap on the number of answers.
     """
     if not checklist_done(state.get("profile") or {}):
         return False
-    if len(state["turns"]) >= VOICE_LIMIT and state.get("cefr"):
-        return True
     return state["seconds"] >= SPEECH_LIMIT_SECONDS
 
 
@@ -277,7 +273,7 @@ class OnboardingService:
             except Exception:
                 logger.exception("onboarding assessment failed session=%s", session_id)
                 # A long answer may already be ready to close. Retry reuses it instead of asking again.
-                if state["seconds"] >= SPEECH_LIMIT_SECONDS or len(state["turns"]) >= VOICE_LIMIT:
+                if state["seconds"] >= SPEECH_LIMIT_SECONDS:
                     state["status"] = "pending"
                     await self.store.save(session_id, state)
                     return self._result(state, RETRY_TEXT, turn=turn)

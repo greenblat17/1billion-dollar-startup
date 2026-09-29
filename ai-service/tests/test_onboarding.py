@@ -157,15 +157,16 @@ async def test_missing_field_continues_past_two_minutes_and_asks_that_slot():
 
 
 @pytest.mark.asyncio
-async def test_failed_tenth_answer_does_not_close_when_a_field_is_still_missing():
+async def test_failed_short_answer_does_not_close_or_wait_for_a_saved_retry():
     model = Model(leisure=None)
     s = service(stt=Stt(5), model=model)
     run = await begin(s)
     for i in range(9):
         assert (await turn(s, run, f"v{i}")).onboarding["status"] == "active"
     model.fail = True
-    failed = await turn(s, run, "v9")
-    assert failed.onboarding["status"] == "pending"
+    with pytest.raises(RuntimeError):
+        await turn(s, run, "v9")
+    assert (await s.store.get("tg-test"))["status"] == "active"
     model.fail = False
     retried = await s.action("tg-test", run, "retry")
     assert retried.onboarding["status"] == "active"
@@ -173,14 +174,12 @@ async def test_failed_tenth_answer_does_not_close_when_a_field_is_still_missing(
 
 
 @pytest.mark.asyncio
-async def test_ten_answers_close_only_when_level_is_known():
+async def test_many_short_answers_stay_open_until_two_minutes():
     ready = service(stt=Stt(5))
     run = await begin(ready)
-    for i in range(9):
+    for i in range(10):
         assert (await turn(ready, run, f"v{i}")).onboarding["status"] == "active"
-    closed = await turn(ready, run, "v9")
-    assert closed.onboarding["status"] == "completed"
-    assert closed.onboarding["seconds"] == 50
+    assert (await ready.store.get("tg-test"))["seconds"] == 50
 
     unknown = service(stt=Stt(5), model=Model(cefr=None))
     unknown_run = await begin(unknown)

@@ -25,11 +25,11 @@ internal const val PRACTICE_ASK =
         "A little practice every day can make a big difference.\n" +
         "How much time do you want to practice each day?"
 internal const val SEE_YOU_TOMORROW = "See you tomorrow. I'll be here when you're ready."
-internal const val ONBOARDING_BEGIN_HINT = "Нажми «Let’s chat 👋», чтобы начать знакомство."
+internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
-internal const val SPOKEN_TEXT_BUTTON = "Субтитры"
+internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val ONBOARDING_PROGRESS_HINT =
     "🎙 This tracks how much English you've spoken. Around 2 minutes is usually enough for me to get to know you a little."
 
@@ -90,12 +90,12 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
     row {
         val label = when (action) {
             "begin" -> "Let’s chat 👋"
-            "retry" -> "Повторить"
+            "retry" -> "Retry"
             "level" -> "See my results"
-            "results" -> "Detailed report →"
+            "results" -> "See breakdown →"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
-            "finish" -> "Finish →"
+            "finish" -> "Continue →"
             "talk" -> "Keep talking 🎙"
             "bye" -> "See you tomorrow"
             "m5" -> PRACTICE_5_LABEL

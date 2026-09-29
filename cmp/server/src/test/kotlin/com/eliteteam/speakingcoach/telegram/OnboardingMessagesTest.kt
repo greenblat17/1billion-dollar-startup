@@ -45,7 +45,7 @@ class OnboardingMessagesTest {
         val labels = withRetry.keyboard.map { row ->
             (row.single() as CallbackDataInlineKeyboardButton).text
         }
-        assertEquals("Повторить", labels.last())
+        assertEquals("Retry", labels.last())
         val sideBySide = withSpokenText(onboardingProgressKeyboard(0.0), spoken = true)!!.keyboard.single()
         val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
@@ -104,7 +104,9 @@ class OnboardingMessagesTest {
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("See my results", SPOKEN_TEXT_BUTTON), closingLabels)
         val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
-        assertEquals("Detailed report →", report.text)
+        assertEquals("See breakdown →", report.text)
+        val carryOn = onboardingKeyboard("finish", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals("Continue →", carryOn.text)
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }
