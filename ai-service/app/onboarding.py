@@ -63,6 +63,7 @@ def public_state(state: dict) -> dict:
     return {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
+        "react": state["status"] == "active" and not state.get("voiceArrived") and not state["turns"],
     }
 
 
@@ -211,6 +212,9 @@ class OnboardingService:
             if state["status"] == "pending":
                 return await self._finish(session_id, state)
             if turn is None:
+                if not state.get("voiceArrived"):
+                    state["voiceArrived"] = True
+                    await self.store.save(session_id, state)
                 stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
                 if stt.no_speech or not stt.text.strip():
                     return self._result(state, CLARIFY_TEXT, await self.pipeline.tts.synthesize(CLARIFY_TEXT))

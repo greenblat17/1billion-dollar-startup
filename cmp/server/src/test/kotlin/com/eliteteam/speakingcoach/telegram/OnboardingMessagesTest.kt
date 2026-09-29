@@ -50,8 +50,11 @@ class OnboardingMessagesTest {
     fun invitationSupportsMissingNameAndCommandMentions() {
         assertTrue(onboardingInvitation("Alex").startsWith("👋 Hey, Alex!"))
         assertTrue(onboardingInvitation(null).startsWith("👋 Hey!"))
+        assertTrue(onboardingInvitation("Alex").contains("Let’s get to know each other a little."))
+        assertTrue(onboardingInvitation("Alex").contains("a couple of minutes"))
+        val begin = onboardingKeyboard("begin", "a".repeat(32)).keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals("Let’s chat 👋", begin.text)
         assertEquals("Я тебя запомнила. Давай просто говорить.", ONBOARDING_REMEMBERED)
-        assertTrue(onboardingInvitation("Alex").contains("около двух минут"))
         assertTrue(isOnboardingCommand("/onboarding@speaky"))
         assertTrue(!isOnboardingCommand("/onboarding_extra"))
     }

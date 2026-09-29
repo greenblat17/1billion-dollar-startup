@@ -286,4 +286,5 @@ data class OnboardingStateResponse(
     val cefr: String? = null,
     val resultText: String? = null,
     val retryAvailable: Boolean = false,
+    val react: Boolean = false,
 )

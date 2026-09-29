@@ -6,9 +6,9 @@ Status: implemented on `feature/telegram-onboarding`; automated verification bel
 
 Only new Telegram users automatically enter onboarding. Resolve eligibility before recording their first new funnel event: an existing funnel/chat record means the old greeting and ordinary conversation continue. `/onboarding` explicitly starts a fresh attempt for anyone.
 
-1. `/start` sends the short bilingual invitation and inline `Давай 👋` button. Name comes from Telegram, with a nameless fallback. No greeting audio until the button is pressed.
+1. `/start` sends the short English invitation and inline `Let’s chat 👋` button. Name comes from Telegram, with a nameless fallback. No greeting audio until the button is pressed.
 2. The button sends a spoken introduction: Speaky names herself, says this is her voice, and that she wants to know them, then asks what is taking up their days. Then `🎙 Ответь голосовым на английском. Не переживай насчёт ошибок.` That hint carries one inert button, `0:00 из 2:00` plus 16 circles, filled `●` and empty `○`. After each later answer the button is removed from the previous message and attached to the latest reply. The bar counts recognized speech and stops at 2:00. Tapping it does nothing. Speaky does not mention it.
-3. Voice answers receive the existing correction quote and an English voice reply. The reply is a full turn: a specific warm reaction, then one question. The code still picks the next missing fact — work, then free time, then why English, then a personal follow-up — but the turn is not allowed to be only that question. No biography, no shared-interest claim, no Russian hint under the question, no timer.
+3. Voice answers receive the existing correction quote and an English voice reply. The first voice of the attempt also gets a ❤ reaction; later voices do not, including after a silent first recording. The reply is a full turn: a specific warm reaction, then one question. The code still picks the next missing fact — work, then free time, then why English, then a personal follow-up — but the turn is not allowed to be only that question. No biography, no shared-interest claim, no Russian hint under the question, no timer.
 4. The closing turn is still a correction quote plus a spoken English question. Telegram then sends `Я тебя запомнила. Давай просто говорить.` The progress button moves under that line. There is no continue button. The level is not shown. A grammar, vocabulary, and fluency review is deferred.
 5. The next voice is ordinary conversation. Old `Продолжить разговор →` buttons still work; new attempts do not send that button.
 
@@ -21,7 +21,7 @@ Only new Telegram users automatically enter onboarding. Resolve eligibility befo
 - A missing checklist field does not stop at 120 seconds, and there is no later safety cap.
 - Accept the recording that crosses a close condition in full.
 - Silence, failed recognition, and technical failures before recognition do not spend the recording budget. Recognized non-English speech spends time but is not evidence of English proficiency. Onboarding uses STT language autodetection; ordinary English practice retains its English hint.
-- Text gets the voice-message hint and is not analyzed. Voice before `Давай 👋` gets the start-button hint and is not consumed.
+- Text gets the voice-message hint and is not analyzed. Voice before `Let’s chat 👋` gets the start-button hint and is not consumed.
 - `/start` during an incomplete attempt resets it. Voice without `/start` continues the saved attempt. `/start` after completion uses the ordinary greeting.
 
 ## Implementation

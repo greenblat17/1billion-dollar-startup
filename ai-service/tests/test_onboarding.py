@@ -165,6 +165,20 @@ async def test_ten_answers_close_only_when_level_is_known():
 
 
 @pytest.mark.asyncio
+async def test_only_the_first_onboarding_voice_is_marked_for_a_reaction():
+    s = service(stt=Stt(60, ""))
+    state = await s.resolve("tg-test", "start", "start")
+    assert state["react"] is False
+    await s.action("tg-test", state["runId"], "begin")
+    started = await s.resolve("tg-test", "after-begin")
+    assert started["react"] is True
+    await turn(s, state["runId"])
+    heard = await s.resolve("tg-test", "after-voice")
+    assert heard["react"] is False
+    assert heard["seconds"] == 0
+
+
+@pytest.mark.asyncio
 async def test_silence_does_not_spend_budget_or_call_model():
     s = service(stt=Stt(60, ""))
     run = await begin(s)

@@ -19,6 +19,7 @@ import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.replyWithPhoto
+import dev.inmo.tgbotapi.extensions.api.send.setMessageReaction
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onCommand
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onContentMessage
@@ -223,6 +224,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (state.status == "pending") {
             reply(message, "I couldn't prepare your result. Please try again.", replyMarkup = onboardingKeyboard("retry", state.runId))
             return
+        }
+        if (state.react) {
+            try {
+                setMessageReaction(message.chat.id, message.messageId, "❤")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Failed to react to the first onboarding voice for {}", sessionId.value, error)
+            }
         }
         try {
             ai.recordFunnelVoice(sessionId, telegramProfile(message.chat))
