@@ -91,7 +91,9 @@ class OnboardingMessagesTest {
             listOf("Long pauses · 6"),
             fluencyLines(OnboardingFluency(longPauses = 6)),
         )
-        val minutes = practiceMinutesKeyboard(run).keyboard.single().map { (it as CallbackDataInlineKeyboardButton).text }
+        val minutes = practiceMinutesKeyboard(run).keyboard.map { row ->
+            (row.single() as CallbackDataInlineKeyboardButton).text
+        }
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL), minutes)
         assertTrue(practiceDeal(10).startsWith("10 minutes a day. Deal 🤝"))
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")

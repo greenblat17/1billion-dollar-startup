@@ -107,16 +107,14 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
     }
 }
 
-internal const val PRACTICE_5_LABEL = "☕ 5 min"
-internal const val PRACTICE_10_LABEL = "✨ 10 min"
-internal const val PRACTICE_15_LABEL = "🔥 15 min"
+internal const val PRACTICE_5_LABEL = "☕ 5 min/day"
+internal const val PRACTICE_10_LABEL = "✨ 10 min/day"
+internal const val PRACTICE_15_LABEL = "🔥 15 min/day"
 
 internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
-    row {
-        dataButton(PRACTICE_5_LABEL, "ob:m5:$runId")
-        dataButton(PRACTICE_10_LABEL, "ob:m10:$runId")
-        dataButton(PRACTICE_15_LABEL, "ob:m15:$runId")
-    }
+    row { dataButton(PRACTICE_5_LABEL, "ob:m5:$runId") }
+    row { dataButton(PRACTICE_10_LABEL, "ob:m10:$runId") }
+    row { dataButton(PRACTICE_15_LABEL, "ob:m15:$runId") }
 }
 
 internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
