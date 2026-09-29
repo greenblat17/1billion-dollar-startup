@@ -139,16 +139,20 @@ class OpenAiChatModel:
         text = await self._complete(messages, self._notes_temperature)
         return parse_corrections(text)
 
-    async def complete_json(self, system: str, data: str, temperature: float = 0.0) -> str:
-        return await self._complete([{"role": "system", "content": system}, {"role": "user", "content": data}], temperature)
+    async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None) -> str:
+        return await self._complete(
+            [{"role": "system", "content": system}, {"role": "user", "content": data}],
+            temperature,
+            max_tokens if max_tokens is not None else self._max_tokens,
+        )
 
-    async def _complete(self, messages: list[dict[str, str]], temperature: float) -> str:
+    async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None) -> str:
         async def call() -> Any:
             return await self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
                 temperature=temperature,
-                max_completion_tokens=self._max_tokens,
+                max_completion_tokens=self._max_tokens if max_tokens is None else max_tokens,
                 response_format={"type": "json_object"},
             )
 

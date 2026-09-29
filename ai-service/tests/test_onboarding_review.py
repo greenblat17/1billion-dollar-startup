@@ -1,6 +1,6 @@
 import pytest
 
-from app.onboarding_model import REVIEW_SYSTEM, SYSTEM, parse_review
+from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import SCORE_TABLE, apply_skill, skill_confidence, skill_score
 from app.stt import speech_words
@@ -162,3 +162,39 @@ def test_confidence_caps_at_two_minutes_and_ignores_bare_duration():
     assert scored["score"] is None
     assert scored["flags"] == ["timings_present"]
     assert scored["confidence"] < 0.6
+
+
+def test_parse_review_accepts_a_skill_without_flags_or_notes():
+    raw = (
+        '{"callback":null,"levelText":"You keep going.",'
+        '"grammar":{"band":"b1","position":"High","text":"A few patterns."},'
+        f'"vocabulary":{_skill_json(None, None, [])},'
+        f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
+    )
+    parsed = parse_review(raw)
+    assert parsed["grammar"]["band"] == "B1"
+    assert parsed["grammar"]["position"] == "high"
+    assert parsed["grammar"]["flags"] == []
+    assert parsed["grammar"]["notes"] == ""
+    assert parsed["vocabulary"]["band"] is None
+
+
+@pytest.mark.asyncio
+async def test_compose_review_reserves_room_for_the_skill_json():
+    class Llm:
+        def __init__(self):
+            self.max_tokens = None
+
+        async def complete_json(self, system, data, temperature=0.0, max_tokens=None):
+            self.max_tokens = max_tokens
+            return (
+                '{"callback":null,"levelText":"You keep going.",'
+                f'"grammar":{_skill_json()},'
+                f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
+                f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
+            )
+
+    llm = Llm()
+    parsed = await OnboardingModel(llm).compose_review({})
+    assert llm.max_tokens == REVIEW_MAX_TOKENS == 1200
+    assert parsed["grammar"]["position"] == "high"
