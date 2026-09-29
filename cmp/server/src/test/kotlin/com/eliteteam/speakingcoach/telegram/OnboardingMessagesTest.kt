@@ -26,9 +26,11 @@ class OnboardingMessagesTest {
 
     @Test
     fun progressButtonsCountSpeechUpToTwoMinutes() {
-        assertEquals("0:00 из 2:00 ○○○○○○○○○○○○○○○○", progressLabels(0.0).single())
-        assertEquals("0:38 из 2:00 ●●●●●○○○○○○○○○○○", progressLabels(38.0).single())
-        assertEquals("2:00 из 2:00 ●●●●●●●●●●●●●●●●", progressLabels(150.0).single())
+        assertEquals("🎙 0:00 / 2:00", progressLabels(0.0).single())
+        assertEquals("🎙 0:38 / 2:00", progressLabels(38.0).single())
+        assertEquals("🎙 1:17 / 2:00", progressLabels(77.0).single())
+        assertEquals("🎙 2:00+", progressLabels(120.0).single())
+        assertEquals("🎙 2:00+", progressLabels(150.0).single())
         val run = "a".repeat(32)
         val withRetry = onboardingProgressKeyboard(38.0) + onboardingKeyboard("retry", run)
         val labels = withRetry.keyboard.map { row ->

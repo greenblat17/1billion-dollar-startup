@@ -14,16 +14,13 @@ internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Субтитры"
-private const val ONBOARDING_PROGRESS_CELLS = 16
 
 internal fun onboardingProgressLabel(seconds: Double): String {
-    val capped = if (seconds.isFinite() && seconds > 0.0) seconds.coerceAtMost(ONBOARDING_PROGRESS_SECONDS) else 0.0
-    val whole = capped.toInt()
+    val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
+    if (elapsed >= ONBOARDING_PROGRESS_SECONDS) return "🎙 2:00+"
+    val whole = elapsed.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
-    val filled = (capped / ONBOARDING_PROGRESS_SECONDS * ONBOARDING_PROGRESS_CELLS).toInt()
-        .coerceIn(0, ONBOARDING_PROGRESS_CELLS)
-    val bar = "●".repeat(filled) + "○".repeat(ONBOARDING_PROGRESS_CELLS - filled)
-    return "$clock из 2:00 $bar"
+    return "🎙 $clock / 2:00"
 }
 
 internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup = inlineKeyboard {
