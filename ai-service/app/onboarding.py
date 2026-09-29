@@ -386,6 +386,7 @@ class OnboardingService:
             "transcripts": transcripts,
             "profile": state.get("profile") or {},
             "cefr": state.get("cefr"),
+            "position": state.get("position"),
             "grammarExamples": examples["grammar"],
             "vocabularyExamples": examples["vocabulary"],
             "fluency": {

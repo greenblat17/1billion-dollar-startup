@@ -94,9 +94,27 @@ or "I need English for work". Do not invent enthusiasm.
 The sentence must use a detail that appears in the transcripts.
 Do not mention a level, a score, a timer, or that you will remember them.
 
-levelText and each skill "text" are one or two sentences about this conversation.
-They are not a textbook description of a CEFR band.
-Do not include CEFR letters. Do not say the word "level" in levelText.
+"levelText" explains the supplied overall "cefr" and its "position" through the English
+demonstrated in the transcripts. Write two or three short English sentences addressed to "you".
+Describe observed language ability: connecting ideas, explaining reasons, grammatical control,
+or precise vocabulary. Ground the explanation in one or two brief, exact transcript excerpts
+and explain what they demonstrate; a quote alone is not evidence of a whole band.
+Use repeated patterns across turns when available. Mention a limitation only when the speech
+actually demonstrates it, and use supplied correction examples for claims about mistakes.
+Do not summarize the topics discussed or praise the person's ideas, interests, work, or personality.
+Do not give a generic textbook band description, invent examples, or infer weaknesses from
+constructions the person did not use. Do not judge pronunciation from a transcript.
+The supplied position describes consistency within the overall band, not a new score to choose.
+Do not invent a justification to fit the supplied band: if evidence is thin or mixed, say that
+the estimate is tentative and describe only what is supported.
+If "cefr" is null, explain that there is not enough connected English in this sample for a
+clear estimate, referring to the actual sample; do not assign a band or invent shortcomings.
+Use fewer excerpts or none when the sample cannot support them.
+Do not repeat CEFR letters, numeric scores, or internal low/mid/high labels in levelText;
+the card already shows the assessment.
+
+Each skill "text" is one or two sentences about the English demonstrated in this conversation,
+not its subject matter or a textbook description of a CEFR band. Do not include CEFR letters.
 Do not invent mistake examples or counts.
 Grammar text may refer only to the supplied grammar examples.
 Vocabulary text may refer only to the supplied vocabulary examples.

@@ -55,6 +55,7 @@ class Model:
         self.fail = False
         self.review_fail = False
         self.review_calls = 0
+        self.review_payloads = []
         self.review_callback: str | None = None
         self.continue_calls = 0
         self.asks: list[str] = []
@@ -72,6 +73,7 @@ class Model:
 
     async def compose_review(self, payload):
         self.review_calls += 1
+        self.review_payloads.append(deepcopy(payload))
         if self.review_fail:
             raise RuntimeError("review unavailable")
         transcripts = " ".join(payload.get("transcripts") or [])
@@ -513,6 +515,24 @@ async def test_missing_level_still_returns_a_review():
     assert result.onboarding["cefr"] is None
     assert result.onboarding["review"]["levelText"]
     assert result.onboarding["review"]["fluency"]["longPauses"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cefr,position", [("B1", "low"), ("B1", "mid"), ("B1", "high"), ("C2", None), (None, None)])
+async def test_review_receives_overall_assessment_and_its_speech_evidence(cefr, position):
+    model = Model(cefr=cefr)
+    model.assessment["position"] = position
+    transcript = "I builds tools because I want to help people learn."
+    s = service(stt=Stt(120, transcript), model=model)
+    run = await begin(s)
+    result = await turn(s, run)
+    payload = model.review_payloads[0]
+    assert payload["cefr"] == cefr
+    assert payload["position"] == position
+    assert payload["transcripts"] == [transcript]
+    assert payload["grammarExamples"] == [{"wrong": "I builds", "better": "I build"}]
+    assert result.onboarding["cefr"] == cefr
+    assert result.onboarding["review"]["levelText"] == (await s.store.get("tg-test"))["review"]["levelText"]
 
 
 @pytest.mark.asyncio
