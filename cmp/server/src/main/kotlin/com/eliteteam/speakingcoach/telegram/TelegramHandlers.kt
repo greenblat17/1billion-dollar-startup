@@ -321,7 +321,13 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         if (state.runId == callback.runId && review != null) {
                             reply(
                                 message,
-                                levelSlide(state.cefr, review.levelText),
+                                levelSlide(
+                                    state.cefr,
+                                    review.levelText,
+                                    state.overallScore,
+                                    state.nextBand,
+                                    state.pointsToNext,
+                                ),
                                 allowSendingWithoutReply = true,
                                 replyMarkup = onboardingKeyboard("results", callback.runId),
                             )
@@ -330,7 +336,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     "results", "vocab", "fluency" -> showReviewSlide(ai, log, message, callback)
                     "finish" -> {
                         clearOnboardingMarkup(message)
-                        reply(message, PRACTICE_ASK, allowSendingWithoutReply = true, replyMarkup = practiceMinutesKeyboard(callback.runId))
+                        val state = ai.onboardingState(
+                            telegramSessionId(message.chat.id),
+                            "finish:${query.id}",
+                        )
+                        val ask = if (state.runId == callback.runId) {
+                            practiceAsk(state.cefr, state.overallScore, state.nextBand)
+                        } else {
+                            practiceAsk(null, null, null)
+                        }
+                        reply(message, ask, allowSendingWithoutReply = true, replyMarkup = practiceMinutesKeyboard(callback.runId))
                     }
                     "m5", "m10", "m15" -> {
                         val minutes = when (callback.action) {

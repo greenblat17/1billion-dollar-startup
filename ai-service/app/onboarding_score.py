@@ -37,6 +37,25 @@ SKILL_FLAGS = {
 }
 
 
+_BANDS = ("A1", "A2", "B1", "B2", "C1")
+
+
+def overall_progress(cefr: str | None, position: str | None) -> dict:
+    """Holistic level only. Skill scores are never averaged into this."""
+    if cefr not in SCORE_TABLE or position not in SCORE_TABLE[cefr]:
+        return {"overallScore": None, "nextBand": None, "pointsToNext": None}
+    score = SCORE_TABLE[cefr][position]
+    index = _BANDS.index(cefr)
+    if index + 1 >= len(_BANDS):
+        return {"overallScore": score, "nextBand": None, "pointsToNext": None}
+    next_band = _BANDS[index + 1]
+    return {
+        "overallScore": score,
+        "nextBand": next_band,
+        "pointsToNext": SCORE_TABLE[next_band]["low"] - score,
+    }
+
+
 def skill_score(band: str | None, position: str | None) -> int | None:
     if band is None:
         return None

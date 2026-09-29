@@ -6,6 +6,7 @@ import com.eliteteam.speakingcoach.ai.OnboardingReview
 import com.eliteteam.speakingcoach.ai.OnboardingSkill
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
+import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -71,16 +72,25 @@ class OnboardingMessagesTest {
                 longestStretchSec = 18,
             ),
         )
+        val level = levelSlide("B1", review.levelText, overallScore = 57, nextBand = "B2", pointsToNext = 6)
         assertEquals(
-            "Your English level\nB1\nIntermediate\nYou can keep a conversation going about your own work.",
-            levelSlide("B1", review.levelText).plain(),
+            "🎯 Your English level\n\nB1\nIntermediate\n\n57 / 100\n${scoreBar(57)}\n\n✨ 6 points to B2\n\n" +
+                "You can keep a conversation going about your own work.",
+            level.plain(),
         )
+        assertTrue(level.any { it is BoldTextSource && it.source == "57 / 100" })
+        assertEquals(20, scoreBar(57).length)
         assertEquals(
-            "Your English level\nI don't have a clear level from this chat yet.\nYou can keep a conversation going about your own work.",
+            "🎯 Your English level\n\nI don't have a clear level from this chat yet.\n\n" +
+                "You can keep a conversation going about your own work.",
             levelSlide(null, review.levelText).plain(),
         )
-        assertTrue(grammarSlide(review).plain().contains("62 / 100"))
-        assertTrue(grammarSlide(review).plain().contains("I work in startup → I work at a startup"))
+        assertTrue(!levelSlide("C2", review.levelText).plain().contains("/ 100"))
+        val grammar = grammarSlide(review)
+        assertTrue(grammar.plain().contains("✍️ Grammar"))
+        assertTrue(grammar.plain().contains("62 / 100"))
+        assertTrue(grammar.plain().contains("I work in startup → I work at a startup"))
+        assertTrue(grammar.any { it is BoldTextSource && it.source == "I work at a startup" })
         val unknown = grammarSlide(
             review.copy(grammar = OnboardingSkill(text = "Thin sample.")),
         ).plain()
@@ -92,6 +102,7 @@ class OnboardingMessagesTest {
         assertTrue(!quiet.contains("/ 100"))
         assertTrue(vocabularySlide(review).plain().contains(NO_VOCABULARY_PATTERNS))
         val fluency = fluencySlide(review).plain()
+        assertTrue(fluency.contains("🎙 Fluency"))
         assertTrue(fluency.contains("Speaking pace · 104 words/min"))
         assertTrue(fluency.contains("Long pauses · 6"))
         assertTrue(fluency.contains("Filler words · 9"))
@@ -113,7 +124,15 @@ class OnboardingMessagesTest {
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("See my results", SPOKEN_TEXT_BUTTON), closingLabels)
         val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
-        assertEquals("See breakdown →", report.text)
+        assertEquals("See what I noticed →", report.text)
+        assertEquals(
+            "🚀 This is your starting point.\n\nB1 · 57/100 → B2\n\n" +
+                "Now let's make progress one conversation at a time.\n\n" +
+                "How much time do you want to practice each day?",
+            practiceAsk("B1", 57, "B2").plain(),
+        )
+        assertTrue(practiceAsk(null, null, null).plain().contains(PRACTICE_ASK_BODY))
+        assertTrue(!practiceAsk("C2", null, null).plain().contains("→"))
         val carryOn = onboardingKeyboard("finish", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("Continue →", carryOn.text)
     }

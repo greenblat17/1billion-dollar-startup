@@ -12,7 +12,7 @@ from redis.asyncio import Redis
 
 from app.llm import Correction
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
-from app.onboarding_score import apply_skill
+from app.onboarding_score import apply_skill, overall_progress
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,7 @@ def _shown_corrections(turn: dict | None) -> list[Correction]:
 def public_state(state: dict) -> dict:
     payload = {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
+        **overall_progress(state.get("cefr"), state.get("position")),
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
         "react": state["status"] == "active" and not state.get("voiceArrived") and not state["turns"],
     }
@@ -133,11 +134,17 @@ def _attempt(receipts: list[str] | None = None) -> dict:
         "turns": [],
         "profile": {},
         "cefr": None,
+        "position": None,
         "resultText": None,
         "question": FIRST_QUESTION,
         "receipts": receipts or [],
         "continued": False,
     }
+
+
+def _apply_level(state: dict, assessment: dict) -> None:
+    state["cefr"] = assessment.get("cefr")
+    state["position"] = assessment.get("position")
 
 
 def _filled(value: Any) -> bool:
@@ -306,11 +313,11 @@ class OnboardingService:
                     return self._result(state, RETRY_TEXT, turn=turn)
                 raise
             state["profile"] = turn["analysis"]["profile"]
-            state["cefr"] = turn["analysis"]["cefr"]
+            _apply_level(state, turn["analysis"])
             await self.store.save(session_id, state)
         assessment = turn["analysis"]
         state["profile"] = assessment["profile"]
-        state["cefr"] = assessment["cefr"]
+        _apply_level(state, assessment)
         if should_close(state):
             state["status"] = "pending"
             state["assessment"] = assessment
@@ -335,7 +342,7 @@ class OnboardingService:
                 assessment = await self.model.assess(state)
                 state["assessment"] = assessment
             state["profile"] = assessment["profile"]
-            state["cefr"] = assessment["cefr"]
+            _apply_level(state, assessment)
             if not should_close(state):
                 question = assessment["question"]
                 audio = await self.pipeline.tts.synthesize(question)

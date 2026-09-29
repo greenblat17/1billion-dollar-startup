@@ -2,7 +2,7 @@ import pytest
 
 from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, select_examples
-from app.onboarding_score import SCORE_TABLE, apply_skill, skill_confidence, skill_score
+from app.onboarding_score import SCORE_TABLE, apply_skill, overall_progress, skill_confidence, skill_score
 from app.stt import speech_words
 
 
@@ -131,6 +131,14 @@ def test_parse_review_maps_bands_and_rejects_a_raw_score():
         parse_review(raw.replace('"band":"B1"', '"band":62', 1))
     with pytest.raises(ValueError):
         parse_review(raw.replace('"position":"high"', '"position":"high","band":null', 1))
+
+
+def test_overall_progress_uses_the_same_table_and_not_an_average():
+    assert overall_progress("B1", "high") == {"overallScore": 57, "nextBand": "B2", "pointsToNext": 6}
+    assert overall_progress("B1", "mid")["pointsToNext"] == 11
+    assert overall_progress("C1", "high") == {"overallScore": 94, "nextBand": None, "pointsToNext": None}
+    assert overall_progress("C2", None)["overallScore"] is None
+    assert overall_progress(None, None)["overallScore"] is None
 
 
 def test_score_table_is_closed_and_null_stays_empty():

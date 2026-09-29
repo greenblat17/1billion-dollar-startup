@@ -188,7 +188,10 @@ class HttpClipClient(
                     audio = if (status.audioAvailable) downloadAudio(jobId) else null,
                     text = status.text,
                     onboarding = status.onboarding?.let {
-                        OnboardingStatus(it.runId, it.status, it.seconds, it.cefr, it.review)
+                        OnboardingStatus(
+                            it.runId, it.status, it.seconds, it.cefr, it.review,
+                            it.overallScore, it.nextBand, it.pointsToNext,
+                        )
                     },
                     transcript = status.transcript,
                     streak = status.streak,

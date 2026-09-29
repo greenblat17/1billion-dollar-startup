@@ -48,6 +48,7 @@ class Model:
         self.assessment = {
             "profile": {"work": work, "leisure": leisure, "goal": goal},
             "cefr": cefr,
+            "position": "high" if cefr in {"A1", "A2", "B1", "B2", "C1"} else None,
             "question": "What do you enjoy about your work?",
         }
         self.calls = 0
@@ -155,6 +156,10 @@ async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_reco
         assert result.onboarding["review"]["fluency"]["score"] == 63
         assert "notes" not in result.onboarding["review"]["grammar"]
         assert "confidence" not in result.onboarding["review"]["grammar"]
+        assert result.onboarding["overallScore"] == 57
+        assert result.onboarding["nextBand"] == "B2"
+        assert result.onboarding["pointsToNext"] == 6
+        assert "position" not in result.onboarding
         stored_review = (await s.store.get("tg-test"))["review"]
         assert stored_review["grammar"]["confidence"] > 0
         assert stored_review["grammar"]["band"] == "B1"
@@ -386,7 +391,15 @@ def test_assessment_validation_rejects_invalid_cefr_and_missing_fields():
         '{"profile":{"work":"does not work","leisure":" ","goal":null},"cefr":null,"question":"What do you do?"}'
     )
     assert parsed["cefr"] is None
+    assert parsed["position"] is None
     assert parsed["profile"] == {"work": "does not work", "leisure": None, "goal": None}
+    with pytest.raises(ValueError):
+        parse_assessment('{"profile":{},"cefr":"B1","question":"Hello?"}')
+    with pytest.raises(ValueError):
+        parse_assessment('{"profile":{},"cefr":"C2","position":"low","question":"Hello?"}')
+    placed = parse_assessment('{"profile":{},"cefr":"b1","position":"High","question":"Hello?"}')
+    assert placed["cefr"] == "B1"
+    assert placed["position"] == "high"
 
 
 def test_http_contract_returns_closing_audio_and_requires_auth():

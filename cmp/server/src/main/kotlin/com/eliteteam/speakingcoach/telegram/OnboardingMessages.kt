@@ -21,10 +21,10 @@ internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat ye
 internal const val SKILL_UNKNOWN = "Not enough from this chat yet."
 internal const val NO_GRAMMAR_PATTERNS = "No clear grammar patterns stood out in this chat."
 internal const val NO_VOCABULARY_PATTERNS = "No clear vocabulary patterns stood out in this chat."
-internal const val PRACTICE_ASK =
-    "This is your starting point. 🚀\n" +
-        "A little practice every day can make a big difference.\n" +
-        "How much time do you want to practice each day?"
+internal const val PRACTICE_ASK_LEAD = "🚀 This is your starting point."
+internal const val PRACTICE_ASK_BODY = "A little practice every day can make a big difference."
+internal const val PRACTICE_ASK_PROGRESS = "Now let's make progress one conversation at a time."
+internal const val PRACTICE_ASK_QUESTION = "How much time do you want to practice each day?"
 internal const val SEE_YOU_TOMORROW = "See you tomorrow. I'll be here when you're ready."
 internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
@@ -93,7 +93,7 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
             "begin" -> "Let’s chat 👋"
             "retry" -> "Retry"
             "level" -> "See my results"
-            "results" -> "See breakdown →"
+            "results" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
             "finish" -> "Continue →"
@@ -140,47 +140,107 @@ internal fun cefrBandName(cefr: String?): String? = when (cefr) {
     else -> null
 }
 
-internal fun levelSlide(cefr: String?, levelText: String): TextSourcesList = buildEntities {
-    bold(LEVEL_TITLE)
+internal fun levelSlide(
+    cefr: String?,
+    levelText: String,
+    overallScore: Int? = null,
+    nextBand: String? = null,
+    pointsToNext: Int? = null,
+): TextSourcesList = buildEntities {
+    bold("🎯 $LEVEL_TITLE")
+    regularln("")
     regularln("")
     val band = cefrBandName(cefr)
     if (cefr != null && band != null) {
-        regularln(cefr)
+        bold(cefr)
+        regularln("")
         regularln(band)
     } else {
         regularln(LEVEL_UNKNOWN)
     }
-    regular(levelText.trim())
+    if (overallScore != null) {
+        regularln("")
+        bold("$overallScore / 100")
+        regularln("")
+        regularln(scoreBar(overallScore))
+        if (nextBand != null && pointsToNext != null) {
+            regularln("")
+            regularln("✨ $pointsToNext points to $nextBand")
+        }
+    }
+    val text = levelText.trim()
+    if (text.isNotEmpty()) {
+        regularln("")
+        regular(text)
+    }
 }
 
-internal fun grammarSlide(review: OnboardingReview): TextSourcesList = skillSlide("Grammar", review.grammar, NO_GRAMMAR_PATTERNS)
+internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
+    skillSlide("✍️ Grammar", review.grammar, NO_GRAMMAR_PATTERNS)
 
 internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("Vocabulary", review.vocabulary, NO_VOCABULARY_PATTERNS)
+    skillSlide("📚 Vocabulary", review.vocabulary, NO_VOCABULARY_PATTERNS)
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
-    bold("Fluency")
+    bold("🎙 Fluency")
     regularln("")
-    regularln(scoreLine(review.fluency.score))
     regularln("")
+    bold(scoreLine(review.fluency.score))
     val text = review.fluency.text.trim()
-    if (text.isNotEmpty()) regularln(text)
+    if (text.isNotEmpty()) {
+        regularln("")
+        regularln("")
+        regularln(text)
+    }
     val lines = fluencyLines(review.fluency)
-    if (lines.isNotEmpty()) regular(lines.joinToString("\n"))
+    if (lines.isNotEmpty()) {
+        regularln("")
+        regular(lines.joinToString("\n"))
+    }
+}
+
+internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?): TextSourcesList = buildEntities {
+    bold(PRACTICE_ASK_LEAD)
+    regularln("")
+    regularln("")
+    if (cefr != null && score != null && nextBand != null) {
+        bold("$cefr · $score/100 → $nextBand")
+        regularln("")
+        regularln("")
+        regularln(PRACTICE_ASK_PROGRESS)
+    } else {
+        regularln(PRACTICE_ASK_BODY)
+    }
+    regularln("")
+    regular(PRACTICE_ASK_QUESTION)
 }
 
 private fun skillSlide(title: String, skill: OnboardingSkill, empty: String): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
-    regularln(scoreLine(skill.score))
     regularln("")
+    bold(scoreLine(skill.score))
     val text = skill.text.trim()
-    if (text.isNotEmpty()) regularln(text)
+    if (text.isNotEmpty()) {
+        regularln("")
+        regularln("")
+        regularln(text)
+    }
+    regularln("")
     if (skill.examples.isEmpty()) {
         regular(empty)
     } else {
-        regular(skill.examples.joinToString("\n") { "${it.wrong} → ${it.better}" })
+        skill.examples.forEachIndexed { index, example ->
+            if (index > 0) regularln("")
+            regular("${example.wrong} → ")
+            bold(example.better)
+        }
     }
+}
+
+internal fun scoreBar(score: Int): String {
+    val filled = (score.coerceIn(0, 100) / 100.0 * 20).let { kotlin.math.round(it).toInt() }.coerceIn(0, 20)
+    return "█".repeat(filled) + "░".repeat(20 - filled)
 }
 
 private fun scoreLine(score: Int?): String = score?.let { "$it / 100" } ?: SKILL_UNKNOWN

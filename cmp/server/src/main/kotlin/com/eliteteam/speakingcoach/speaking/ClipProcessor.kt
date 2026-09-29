@@ -80,4 +80,7 @@ data class OnboardingStatus(
     val seconds: Double = 0.0,
     val cefr: String? = null,
     val review: OnboardingReview? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
 )
