@@ -86,6 +86,12 @@ class HttpClipClient(
         }
     }
 
+    suspend fun progressProfile(sessionId: SessionId): ProgressProfileResponse {
+        val response = http.get("$root/internal/profile/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service progress profile returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun streakProfile(sessionId: SessionId): StreakProfileResponse {
         val response = http.get("$root/internal/streak/${sessionId.value}") {
             applyInternalToken()

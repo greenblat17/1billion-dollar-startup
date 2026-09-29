@@ -440,6 +440,10 @@ def test_http_contract_returns_closing_audio_and_requires_auth():
         assert "I really enjoyed talking with you" in body["replyText"]
         assert body["result"]["onboarding"]["review"]["levelText"]
         assert body["result"]["onboarding"]["status"] == "completed"
+        profile = client.get("/internal/profile/tg-new", headers=AUTH).json()
+        assert profile["assessment"]["cefr"] == "B1"
+        assert profile["assessment"]["grammar"] == 57
+        assert profile["currentStreak"] == 1
         assert body["result"]["onboarding"]["resultText"] is None
         assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 200
 
@@ -608,3 +612,72 @@ async def test_review_uses_only_verified_examples_and_survives_verification_fail
     assert model.review_payloads[0]["grammarExamples"] == expected
     assert result.onboarding["review"]["grammar"]["examples"] == expected
     assert model.review_payloads[0]["vocabularyExamples"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_profile_preserves_latest_assessment_goal_and_streak_during_reassessment(persistent):
+    redis = FakeAsyncRedis(decode_responses=True) if persistent else None
+    s = service(stt=Stt(120), store=OnboardingStore(redis))
+    assert await s.progress_profile("tg-test") == {
+        "assessment": None, "dailyMinutes": None, "currentStreak": 0,
+    }
+    assert await s.store.get("tg-test") is None
+    run = await begin(s)
+    await turn(s, run)
+    await s.set_goal("tg-test", 10)
+    before = await s.progress_profile("tg-test")
+    assert before["assessment"] == {
+        "cefr": "B1", "overallScore": 57, "nextBand": "B2", "pointsToNext": 6,
+        "grammar": 57, "vocabulary": 52, "fluency": 63,
+    }
+    assert before["dailyMinutes"] == 10
+    assert before["currentStreak"] == 1
+    if persistent:
+        s.store = OnboardingStore(redis)
+        assert await s.progress_profile("tg-test") == before
+    restarted = await s.resolve("tg-test", "restart", "force")
+    assert restarted["status"] == "waiting"
+    assert await s.progress_profile("tg-test") == before
+    await s.action("tg-test", restarted["runId"], "begin")
+    s.model.assessment.update(cefr="B2", position="low")
+    await turn(s, restarted["runId"], "new-voice")
+    after = await s.progress_profile("tg-test")
+    assert after["assessment"]["cefr"] == "B2"
+    assert after["assessment"]["overallScore"] == 63
+    assert after["dailyMinutes"] == 10
+    assert after["currentStreak"] == 1
+    if redis:
+        assert await redis.ttl("assessment:tg-test") == -1
+        await redis.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistent", [False, True])
+async def test_legacy_completed_attempt_is_preserved_before_reset(persistent):
+    redis = FakeAsyncRedis(decode_responses=True) if persistent else None
+    s = service(stt=Stt(120), store=OnboardingStore(redis))
+    await turn(s, await begin(s))
+    # Simulate a completion saved by the previous release, without a snapshot key.
+    if redis:
+        await redis.delete("assessment:tg-test")
+    else:
+        s.store._assessments.clear()
+    legacy = await s.progress_profile("tg-test")
+    assert legacy["assessment"]["cefr"] == "B1"
+    await s.resolve("tg-test", "restart", "force")
+    assert await s.progress_profile("tg-test") == legacy
+    if redis:
+        await redis.aclose()
+
+
+def test_profile_endpoint_requires_auth_and_does_not_create_an_attempt():
+    s = service()
+    app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
+    with TestClient(app) as client:
+        assert client.get("/internal/profile/tg-new").status_code == 401
+        response = client.get("/internal/profile/tg-new", headers=AUTH)
+        assert response.status_code == 200
+        assert response.json() == {"assessment": None, "dailyMinutes": None, "currentStreak": 0}
+        assert s.model.calls == 0
+        assert s.model.review_calls == 0

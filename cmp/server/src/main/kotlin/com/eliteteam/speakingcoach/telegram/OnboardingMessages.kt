@@ -124,10 +124,14 @@ internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineK
     }
 }
 
-internal fun practiceDeal(minutes: Int): String =
-    "$minutes minutes a day. Deal 🤝\n" +
-        "That's your daily goal from now on.\n\n" +
-        "We'll keep working on your grammar, vocabulary and fluency — and you'll be able to see how they change over time."
+internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): String = buildString {
+    append("$minutes minutes a day. Deal 🤝\n")
+    if (currentStreak != null && currentStreak > 0) {
+        append("🔥 Day $currentStreak of your streak\n")
+    }
+    append("Come back tomorrow for your $minutes-minute practice.\n")
+    append("You can check your progress anytime with /profile.")
+}
 
 internal fun cefrBandName(cefr: String?): String? = when (cefr) {
     "A1" -> "Beginner"

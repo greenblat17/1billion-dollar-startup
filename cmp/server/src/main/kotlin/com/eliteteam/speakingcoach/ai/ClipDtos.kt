@@ -330,3 +330,22 @@ data class OnboardingStateResponse(
     val react: Boolean = false,
     val review: OnboardingReview? = null,
 )
+
+
+@Serializable
+data class ProgressAssessment(
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val grammar: Int? = null,
+    val vocabulary: Int? = null,
+    val fluency: Int? = null,
+)
+
+@Serializable
+data class ProgressProfileResponse(
+    val assessment: ProgressAssessment? = null,
+    val dailyMinutes: Int? = null,
+    val currentStreak: Int = 0,
+)

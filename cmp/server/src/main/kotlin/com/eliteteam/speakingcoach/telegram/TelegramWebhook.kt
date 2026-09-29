@@ -96,6 +96,7 @@ internal suspend fun registerTelegramWebhook(
 internal suspend fun registerBotCommands(bot: TelegramBot) {
     bot.setMyCommands(
         BotCommand("start", "Start a conversation"),
+        BotCommand("profile", "Show your English progress"),
         BotCommand("streak", "Show your streak"),
         BotCommand("onboarding", "Get to know Speaky"),
     )

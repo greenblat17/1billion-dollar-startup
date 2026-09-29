@@ -46,6 +46,8 @@ internal fun isStartCommand(text: String): Boolean = isCommand(text, "/start")
 
 internal fun isOnboardingCommand(text: String): Boolean = isCommand(text, "/onboarding")
 
+internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile")
+
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
 private fun isCommand(text: String, name: String): Boolean {
@@ -115,8 +117,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, caption, allowSendingWithoutReply = true)
         }
     }
-    suspend fun sendStreak(message: ChatMessage) {
-        val claim = "${message.chat.id}:${message.messageId}"
+    suspend fun sendStreak(message: ChatMessage, claim: String = "${message.chat.id}:${message.messageId}") {
         if (!answeredStreaks.add(claim)) {
             return
         }
@@ -129,6 +130,13 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.error("Failed to send streak for {}", sessionId.value, error)
             reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
         }
+    }
+    suspend fun sendProfile(message: ChatMessage) {
+        val profile = ai.progressProfile(telegramSessionId(message.chat.id))
+        reply(
+            message, profileMessage((message.chat as? PrivateChat)?.firstName, profile),
+            allowSendingWithoutReply = true, replyMarkup = profileKeyboard(),
+        )
     }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
@@ -302,6 +310,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(voiceMessage, spokenQuote(spoken), allowSendingWithoutReply = true)
             return@onDataCallbackQuery
         }
+        if (query.data == PROFILE_STREAK_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            sendStreak(message, "profile:${query.id}")
+            return@onDataCallbackQuery
+        }
         val callback = parseOnboardingCallback(query.data) ?: return@onDataCallbackQuery
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
         val requestId = when (callback.action) {
@@ -354,10 +367,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             else -> 15
                         }
                         ai.savePracticeGoal(telegramSessionId(message.chat.id), "goal:${query.id}", minutes)
+                        val currentStreak = try {
+                            ai.streakProfile(telegramSessionId(message.chat.id)).current
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to load streak after saving daily goal", error)
+                            null
+                        }
                         clearOnboardingMarkup(message)
                         reply(
                             message,
-                            practiceDeal(minutes),
+                            practiceDeal(minutes, currentStreak),
                             allowSendingWithoutReply = true,
                             replyMarkup = practiceDealKeyboard(callback.runId),
                         )
@@ -390,6 +411,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("onboarding", requireOnlyCommandInMessage = false) { message ->
         if (isOnboardingCommand(message.content.text)) handle(message) { greet(message, message.content.text, force = true) }
     }
+    onCommand("profile", requireOnlyCommandInMessage = false) { message ->
+        if (isProfileCommand(message.content.text)) handle(message) { sendProfile(message) }
+    }
     onCommand("streak", requireOnlyCommandInMessage = false) { message ->
         if (isStreakCommand(message.content.text)) sendStreak(message)
     }
@@ -401,6 +425,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isStartCommand(content.text) -> greet(message, content.text)
                     isOnboardingCommand(content.text) -> greet(message, content.text, force = true)
                     isStreakCommand(content.text) -> sendStreak(message)
+                    isProfileCommand(content.text) -> sendProfile(message)
                     content.text.startsWith("/") -> Unit
                     else -> reply(message, SEND_VOICE_HINT)
                 }

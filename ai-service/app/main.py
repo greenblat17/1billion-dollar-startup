@@ -136,6 +136,10 @@ def create_app(
         await reminder_ledger.record_report(parse_report(await _json_object(request)))
         return {"ok": True}
 
+    @app.get("/internal/profile/{session_id}")
+    async def progress_profile(session_id: str) -> dict:
+        return await onboarding.progress_profile(session_id)
+
     @app.get("/internal/streak/{session_id}")
     async def streak_profile(session_id: str) -> dict[str, Any]:
         return await streaks.profile(session_id)

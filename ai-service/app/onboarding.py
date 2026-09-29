@@ -38,6 +38,7 @@ class OnboardingStore:
         self._redis = redis
         self._memory: dict[str, dict] = {}
         self._goals: dict[str, int] = {}
+        self._assessments: dict[str, dict] = {}
         self._locks: dict[str, asyncio.Lock] = {}
 
     def lock(self, session_id: str) -> asyncio.Lock:
@@ -50,10 +51,26 @@ class OnboardingStore:
         return deepcopy(self._memory.get(session_id))
 
     async def save(self, session_id: str, state: dict) -> None:
+        assessment = assessment_summary(state)
         if self._redis is not None:
-            await self._redis.set(f"onboarding:{session_id}", json.dumps(state))
+            async with self._redis.pipeline(transaction=True) as pipe:
+                pipe.set(f"onboarding:{session_id}", json.dumps(state))
+                if assessment is not None:
+                    pipe.set(f"assessment:{session_id}", json.dumps(assessment))
+                await pipe.execute()
         else:
             self._memory[session_id] = deepcopy(state)
+            if assessment is not None:
+                self._assessments[session_id] = deepcopy(assessment)
+
+    async def get_assessment(self, session_id: str) -> dict | None:
+        if self._redis is not None:
+            raw = await self._redis.get(f"assessment:{session_id}")
+            saved = json.loads(raw) if raw else None
+        else:
+            saved = deepcopy(self._assessments.get(session_id))
+        # Existing completed attempts are readable before the first snapshot write.
+        return saved if saved is not None else assessment_summary(await self.get(session_id))
 
     async def aclose(self) -> None:
         if self._redis is not None:
@@ -83,6 +100,17 @@ def _shown_corrections(turn: dict | None) -> list[Correction]:
         if isinstance(note, dict) and note.get("wrong") and note.get("better"):
             shown.append(Correction(str(note["wrong"]), str(note["better"]), str(note.get("kind") or "grammar")))
     return shown
+
+
+def assessment_summary(state: dict | None) -> dict | None:
+    if not state or state.get("status") != "completed" or not isinstance(state.get("review"), dict):
+        return None
+    return {
+        "cefr": state.get("cefr"),
+        **overall_progress(state.get("cefr"), state.get("position")),
+        **{skill: (state["review"].get(skill) or {}).get("score")
+           for skill in ("grammar", "vocabulary", "fluency")},
+    }
 
 
 def public_state(state: dict) -> dict:
@@ -194,6 +222,8 @@ class OnboardingService:
                     state["status"] = "exempt"
             if request_id not in state["receipts"]:
                 if reset == "force" or (reset == "start" and state["status"] in {"waiting", "active", "pending"}):
+                    if state["status"] == "completed":
+                        await self.store.save(session_id, state)
                     state = _attempt(state["receipts"])
                 state["receipts"] = (state["receipts"] + [request_id])[-256:]
                 await self.store.save(session_id, state)
@@ -369,6 +399,14 @@ class OnboardingService:
         result = self._result(state, subtitle, audio, turn)
         result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(spoken))
         return result
+
+    async def progress_profile(self, session_id: str) -> dict:
+        async with self.store.lock(session_id):
+            return {
+                "assessment": await self.store.get_assessment(session_id),
+                "dailyMinutes": await self.store.get_goal(session_id),
+                "currentStreak": await self.pipeline.streaks.shown(session_id),
+            }
 
     async def set_goal(self, session_id: str, minutes: int) -> dict:
         if minutes not in {5, 10, 15}:

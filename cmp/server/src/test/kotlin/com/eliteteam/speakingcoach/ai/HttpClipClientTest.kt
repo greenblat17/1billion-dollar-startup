@@ -248,6 +248,28 @@ class HttpClipClientTest {
         http.close()
     }
 
+    @Test
+    fun readsProgressProfileWithInternalAuthentication() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("/internal/profile/tg-1", request.url.encodedPath)
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            respond(
+                """{"assessment":{"cefr":"B1","overallScore":52,"nextBand":"B2","pointsToNext":11,
+                    "grammar":52,"vocabulary":52,"fluency":null},"dailyMinutes":10,"currentStreak":4}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val http = client(engine)
+        val profile = HttpClipClient("http://ai.local", http, internalToken = "secret").progressProfile(SessionId("tg-1"))
+        assertEquals(52, profile.assessment?.overallScore)
+        assertEquals(null, profile.assessment?.fluency)
+        assertEquals(10, profile.dailyMinutes)
+        assertEquals(4, profile.currentStreak)
+        http.close()
+    }
+
     private suspend fun processUntilOk(okBody: String): ClipReply {
         var polls = 0
         val engine = MockEngine { request ->

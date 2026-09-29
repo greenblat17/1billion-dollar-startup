@@ -60,3 +60,7 @@ Zero detected fillers become unknown (`null`) before review generation. Telegram
 Completed reviews remain cached; the new selection and wording apply to newly generated reviews. The new Telegram rendering also applies when opening cached cards, but does not retroactively verify their examples. Verify live outputs before release; unit tests with fakes cannot establish the semantic accuracy of the model's screening.
 
 Local validation for this change: all 118 AI-service tests passed; `:server:test detekt` passed. Real-model screening and Telegram visual acceptance were not run because no local provider credential is configured.
+
+### Profile overview (2026-09-29)
+
+After choosing daily minutes, the final reply includes the actual streak when available, a return-tomorrow invitation, and `You can check your progress anytime with /profile.` The existing two buttons remain; there is no extra onboarding step. A completed score summary is retained outside the attempt so `/profile` can show the latest assessment throughout a new onboarding attempt. See [profile contract and copy](../integrations/2026-09-29-telegram-profile.md).
