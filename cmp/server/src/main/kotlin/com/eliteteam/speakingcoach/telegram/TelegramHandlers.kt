@@ -9,7 +9,7 @@ import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
-import dev.inmo.tgbotapi.extensions.api.deleteMessage
+import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.types.MessageId
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
@@ -86,20 +86,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val actions = TelegramChatActions()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
     val progressMessages = ConcurrentHashMap<String, MessageId>()
-    suspend fun showProgress(chat: Chat, seconds: Double) {
-        val text = onboardingProgress(seconds)
+    suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
-        val existing = progressMessages.remove(key)
-        if (existing != null) {
-            try {
-                deleteMessage(chat.id, existing)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                log.warn("Failed to delete onboarding progress for {}", key, error)
-            }
+        val existing = progressMessages.remove(key) ?: return
+        try {
+            editMessageReplyMarkup(chat.id, existing, replyMarkup = noInlineKeyboard)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to clear onboarding progress for {}", key, error)
         }
-        progressMessages[key] = sendMessage(chat.id, text, disableNotification = true).messageId
     }
     suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
         try {
@@ -132,24 +128,55 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
+        val progress = onboarding?.let { onboardingProgressKeyboard(it.seconds) }
+        if (progress != null) clearProgress(message.chat)
         if (result.transcript.isNotBlank()) {
             reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
         }
         val audio = result.audio
         if (audio != null) {
-            sendVoice(message.chat.id, audio.bytes.asMultipartFile(audio.fileName))
-            if (firstQuestion) reply(message, ONBOARDING_VOICE_HINT, allowSendingWithoutReply = true)
-            if (result.onboarding?.status == "completed") {
-                reply(message, ONBOARDING_REMEMBERED, allowSendingWithoutReply = true)
+            val completed = result.onboarding?.status == "completed"
+            val voice = sendVoice(
+                message.chat.id,
+                audio.bytes.asMultipartFile(audio.fileName),
+                replyMarkup = if (progress != null && !firstQuestion && !completed) progress else null,
+            )
+            var marked = voice.messageId
+            if (firstQuestion) {
+                val hint = reply(
+                    message,
+                    ONBOARDING_VOICE_HINT,
+                    allowSendingWithoutReply = true,
+                    replyMarkup = if (progress != null && !completed) progress else null,
+                )
+                marked = hint.messageId
             }
+            if (completed) {
+                val remembered = reply(
+                    message,
+                    ONBOARDING_REMEMBERED,
+                    allowSendingWithoutReply = true,
+                    replyMarkup = progress,
+                )
+                marked = remembered.messageId
+            }
+            if (progress != null) progressMessages[message.chat.id.toString()] = marked
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
-            val keyboard = state?.let {
+            val action = state?.let {
                 onboardingKeyboard(if (it.status == "pending") "retry" else "continue", it.runId)
             }
-            reply(message, result.text, allowSendingWithoutReply = true, replyMarkup = keyboard)
+            val sent = reply(
+                message,
+                result.text,
+                allowSendingWithoutReply = true,
+                replyMarkup = when {
+                    progress != null && action != null -> progress + action
+                    else -> progress ?: action
+                },
+            )
+            if (progress != null) progressMessages[message.chat.id.toString()] = sent.messageId
         }
-        if (onboarding != null) showProgress(message.chat, onboarding.seconds)
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false) {
         val sessionId = telegramSessionId(message.chat.id)
@@ -164,6 +191,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to record start for {}", sessionId.value, error)
         }
         if (state.status == "waiting") {
+            clearProgress(message.chat)
             reply(
                 message,
                 onboardingInvitation((message.chat as? PrivateChat)?.firstName),

@@ -9,18 +9,34 @@ internal const val ONBOARDING_VOICE_HINT = "🎙 Ответь голосовым
 internal const val ONBOARDING_REMEMBERED = "Я тебя запомнила. Давай просто говорить."
 internal const val ONBOARDING_BEGIN_HINT = "Нажми «Давай 👋», чтобы начать знакомство."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
+internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 private const val ONBOARDING_PROGRESS_CELLS = 16
 
-internal fun onboardingProgress(seconds: Double): String {
+internal data class OnboardingProgress(val title: String, val bar: String, val hint: String?)
+
+internal fun onboardingProgress(seconds: Double): OnboardingProgress {
     val capped = if (seconds.isFinite() && seconds > 0.0) seconds.coerceAtMost(ONBOARDING_PROGRESS_SECONDS) else 0.0
     val whole = capped.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
     val filled = (capped / ONBOARDING_PROGRESS_SECONDS * ONBOARDING_PROGRESS_CELLS).toInt()
         .coerceIn(0, ONBOARDING_PROGRESS_CELLS)
-    val bar = "▰".repeat(filled) + "░".repeat(ONBOARDING_PROGRESS_CELLS - filled)
-    val hint = if (capped >= ONBOARDING_PROGRESS_SECONDS) "" else "\nМожно короткими фразами"
-    return "Знакомство\n$clock из 2:00\n$bar$hint"
+    return OnboardingProgress(
+        title = "Знакомство · $clock из 2:00",
+        bar = "▰".repeat(filled) + "░".repeat(ONBOARDING_PROGRESS_CELLS - filled),
+        hint = if (capped >= ONBOARDING_PROGRESS_SECONDS) null else "Можно короткими фразами",
+    )
 }
+
+internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup {
+    val progress = onboardingProgress(seconds)
+    return inlineKeyboard {
+        row { dataButton(progress.title, ONBOARDING_PROGRESS_CALLBACK) }
+        row { dataButton(progress.bar, ONBOARDING_PROGRESS_CALLBACK) }
+        progress.hint?.let { hint -> row { dataButton(hint, ONBOARDING_PROGRESS_CALLBACK) } }
+    }
+}
+
+internal val noInlineKeyboard: InlineKeyboardMarkup = inlineKeyboard { }
 
 internal fun onboardingInvitation(firstName: String?): String {
     val name = firstName?.trim().orEmpty()

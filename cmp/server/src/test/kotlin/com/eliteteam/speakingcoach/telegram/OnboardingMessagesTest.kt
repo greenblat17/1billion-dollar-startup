@@ -21,20 +21,35 @@ class OnboardingMessagesTest {
     }
 
     @Test
-    fun progressCountsSpeechUpToTwoMinutes() {
+    fun progressButtonsCountSpeechUpToTwoMinutes() {
         assertEquals(
-            "Знакомство\n0:00 из 2:00\n░░░░░░░░░░░░░░░░\nМожно короткими фразами",
-            onboardingProgress(0.0),
+            listOf("Знакомство · 0:00 из 2:00", "░░░░░░░░░░░░░░░░", "Можно короткими фразами"),
+            progressLabels(0.0),
         )
         assertEquals(
-            "Знакомство\n0:38 из 2:00\n▰▰▰▰▰░░░░░░░░░░░\nМожно короткими фразами",
-            onboardingProgress(38.0),
+            listOf("Знакомство · 0:38 из 2:00", "▰▰▰▰▰░░░░░░░░░░░", "Можно короткими фразами"),
+            progressLabels(38.0),
         )
         assertEquals(
-            "Знакомство\n2:00 из 2:00\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰",
-            onboardingProgress(150.0),
+            listOf("Знакомство · 2:00 из 2:00", "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"),
+            progressLabels(150.0),
         )
+        val run = "a".repeat(32)
+        val withRetry = onboardingProgressKeyboard(38.0) + onboardingKeyboard("retry", run)
+        val labels = withRetry.keyboard.map { row ->
+            (row.single() as CallbackDataInlineKeyboardButton).text
+        }
+        assertEquals("Повторить", labels.last())
     }
+
+    private fun progressLabels(seconds: Double): List<String> =
+        onboardingProgressKeyboard(seconds).keyboard.map { row ->
+            val button = row.single() as CallbackDataInlineKeyboardButton
+            assertEquals(ONBOARDING_PROGRESS_CALLBACK, button.callbackData)
+            assertNull(parseOnboardingCallback(button.callbackData))
+            assertTrue(button.text.length <= 64)
+            button.text
+        }
 
     @Test
     fun invitationSupportsMissingNameAndCommandMentions() {
