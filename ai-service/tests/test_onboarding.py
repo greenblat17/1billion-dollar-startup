@@ -23,8 +23,8 @@ AUTH = {"X-Internal-Token": "test-internal-token"}
 
 
 def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
-    assert "I'm Speaky" in FIRST_QUESTION
     assert "this is actually my voice" in FIRST_QUESTION
+    assert "tell me about yourself" in FIRST_QUESTION
     assert "good to hear you" not in FIRST_QUESTION
     for prompt in (REPLY_SYSTEM, ONBOARDING_SYSTEM, SPEAKY_REALTIME_INSTRUCTIONS):
         assert "2–4 short sentences" not in prompt

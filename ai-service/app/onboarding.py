@@ -16,10 +16,9 @@ from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 logger = logging.getLogger(__name__)
 
 FIRST_QUESTION = (
-    "Hey, I'm Speaky. Yep, this is actually my voice. "
-    "I'm your English tutor, and I'd genuinely love to get to know you — "
-    "not as a test, just as a person I get to talk with. "
-    "What's taking up most of your days right now?"
+    "Alright, now you can actually hear me. And yep, this is actually my voice. "
+    "I’d really love to get to know you a little. So, tell me about yourself — "
+    "whatever you’d like me to know."
 )
 RETRY_TEXT = "I couldn't prepare your result. Please try again."
 SPEECH_LIMIT_SECONDS = 120

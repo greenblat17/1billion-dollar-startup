@@ -5,7 +5,9 @@ import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
 import dev.inmo.tgbotapi.utils.row
 
-internal const val ONBOARDING_VOICE_HINT = "🎙 Ответь голосовым на английском. Не переживай насчёт ошибок."
+internal const val ONBOARDING_VOICE_HINT =
+    "🎙 Reply with a voice message in English\n" +
+        "You can talk about your work, studies, hobbies — anything you like."
 internal const val ONBOARDING_REMEMBERED = "Я тебя запомнила. Давай просто говорить."
 internal const val ONBOARDING_BEGIN_HINT = "Нажми «Let’s chat 👋», чтобы начать знакомство."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
