@@ -24,6 +24,7 @@ class OnboardingMessagesTest {
     fun invitationSupportsMissingNameAndCommandMentions() {
         assertTrue(onboardingInvitation("Alex").startsWith("👋 Hey, Alex!"))
         assertTrue(onboardingInvitation(null).startsWith("👋 Hey!"))
+        assertEquals("Я тебя запомнила. Давай просто говорить.", ONBOARDING_REMEMBERED)
         assertTrue(isOnboardingCommand("/onboarding@speaky"))
         assertTrue(!isOnboardingCommand("/onboarding_extra"))
     }

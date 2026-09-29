@@ -48,9 +48,11 @@ class FakeLlm(ChatModel):
         self.calls: list[tuple[list[str], str]] = []
         self.notes_calls: list[str] = []
         self.notes = list(notes or [])
+        self.profile_notes: list[str | None] = []
 
-    async def complete_reply(self, history, user_text: str) -> str:
+    async def complete_reply(self, history, user_text: str, profile_note: str | None = None) -> str:
         self.calls.append(([item.content for item in history], user_text))
+        self.profile_notes.append(profile_note)
         return f"Got it: {user_text}"
 
     async def complete_notes(self, user_text: str) -> list[Correction]:

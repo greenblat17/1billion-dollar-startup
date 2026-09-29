@@ -6,6 +6,7 @@ import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
 import dev.inmo.tgbotapi.utils.row
 
 internal const val ONBOARDING_VOICE_HINT = "🎙 Ответь голосовым на английском. Не переживай насчёт ошибок."
+internal const val ONBOARDING_REMEMBERED = "Я тебя запомнила. Давай просто говорить."
 internal const val ONBOARDING_BEGIN_HINT = "Нажми «Давай 👋», чтобы начать знакомство."
 
 internal fun onboardingInvitation(firstName: String?): String {

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
-from app.onboarding import FIRST_QUESTION, INSUFFICIENT_TEXT, OnboardingService, OnboardingStore
+from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, RETRY_TEXT
 from app.onboarding_model import parse_assessment
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
@@ -31,14 +31,20 @@ class Stt:
 
 
 class Model:
-    def __init__(self, context="software developer", goal="clients", cefr="B1"):
-        self.assessment = {"profile": {"context": context, "goal": goal}, "cefr": cefr, "question": "What do you enjoy about your work?"}
+    def __init__(self, work="software developer", leisure="hiking", goal="clients", cefr="B1"):
+        self.assessment = {
+            "profile": {"work": work, "leisure": leisure, "goal": goal},
+            "cefr": cefr,
+            "question": "What do you enjoy about your work?",
+        }
         self.calls = 0
         self.fail = False
         self.continue_calls = 0
+        self.asks: list[str] = []
 
     async def assess(self, state):
         self.calls += 1
+        self.asks.append(state.get("ask"))
         if self.fail:
             raise RuntimeError("provider unavailable")
         return deepcopy(self.assessment)
@@ -79,38 +85,70 @@ async def test_new_user_requires_button_and_existing_user_is_exempt():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("seconds,status", [(29, "active"), (30, "completed"), (60, "completed"), (90, "completed")])
-async def test_duration_boundaries_and_full_last_recording(seconds, status):
+@pytest.mark.parametrize("seconds,status", [(119, "active"), (120, "completed"), (150, "completed")])
+async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_recording(seconds, status):
     s = service(stt=Stt(seconds))
     run = await begin(s)
     result = await turn(s, run)
     assert result.onboarding["status"] == status
     assert result.onboarding["seconds"] == seconds
-    assert (result.audio is None) == (status == "completed")
+    assert result.audio
     assert result.corrections
+    assert "Estimated English" not in result.reply_text
     if status == "completed":
-        assert result.reply_text.startswith("Estimated English level: B1")
-        assert s.pipeline.tts.texts == [FIRST_QUESTION]
+        assert result.reply_text == "What do you enjoy about your work?"
+        assert result.onboarding["resultText"] is None
+        history = await s.pipeline.dialogue.history("tg-test")
+        assert [item.content for item in history] == [
+            "I build software. I need English to work with clients.",
+            "What do you enjoy about your work?",
+        ]
 
 
 @pytest.mark.asyncio
-async def test_missing_goal_waits_until_cap_but_never_asks_after_sixty():
-    s = service(stt=Stt(30), model=Model(goal=None))
+async def test_missing_field_continues_past_two_minutes_and_asks_that_slot():
+    model = Model(leisure=None)
+    s = service(stt=Stt(120), model=model)
     run = await begin(s)
-    assert (await turn(s, run)).onboarding["status"] == "active"
-    assert (await turn(s, run, "v2")).onboarding["status"] == "completed"
-    assert len(s.pipeline.tts.texts) == 2
+    first = await turn(s, run)
+    assert first.onboarding["status"] == "active"
+    assert model.asks == ["work"]
+    second = await turn(s, run, "v2")
+    assert second.onboarding["status"] == "active"
+    assert model.asks[-1] == "leisure"
+    assert second.onboarding["seconds"] == 240
 
 
 @pytest.mark.asyncio
-async def test_unlimited_short_answers_and_insufficient_english():
-    s = service(stt=Stt(5), model=Model(cefr=None))
+async def test_failed_tenth_answer_does_not_close_when_a_field_is_still_missing():
+    model = Model(leisure=None)
+    s = service(stt=Stt(5), model=model)
     run = await begin(s)
-    for i in range(11):
+    for i in range(9):
         assert (await turn(s, run, f"v{i}")).onboarding["status"] == "active"
-    result = await turn(s, run, "v11")
-    assert result.reply_text == INSUFFICIENT_TEXT
-    assert result.onboarding["status"] == "completed"
+    model.fail = True
+    failed = await turn(s, run, "v9")
+    assert failed.onboarding["status"] == "pending"
+    model.fail = False
+    retried = await s.action("tg-test", run, "retry")
+    assert retried.onboarding["status"] == "active"
+    assert retried.audio
+
+
+@pytest.mark.asyncio
+async def test_ten_answers_close_only_when_level_is_known():
+    ready = service(stt=Stt(5))
+    run = await begin(ready)
+    for i in range(9):
+        assert (await turn(ready, run, f"v{i}")).onboarding["status"] == "active"
+    closed = await turn(ready, run, "v9")
+    assert closed.onboarding["status"] == "completed"
+    assert closed.onboarding["seconds"] == 50
+
+    unknown = service(stt=Stt(5), model=Model(cefr=None))
+    unknown_run = await begin(unknown)
+    for i in range(10):
+        assert (await turn(unknown, unknown_run, f"v{i}")).onboarding["status"] == "active"
 
 
 @pytest.mark.asyncio
@@ -138,16 +176,17 @@ async def test_duplicate_voice_is_not_counted_twice_even_after_completion():
 async def test_summary_failure_retries_without_audio_or_double_counting():
     model = Model()
     model.fail = True
-    s = service(stt=Stt(60), model=model)
+    s = service(stt=Stt(120), model=model)
     run = await begin(s)
     failed = await turn(s, run)
     assert failed.onboarding["status"] == "pending"
     assert failed.audio is None
+    assert failed.reply_text == RETRY_TEXT
     model.fail = False
     result = await s.action("tg-test", run, "retry")
     assert result.onboarding["status"] == "completed"
     assert s.pipeline.stt.calls == 1
-    assert (await s.store.get("tg-test"))["seconds"] == 60
+    assert (await s.store.get("tg-test"))["seconds"] == 120
     calls = model.calls
     await s.action("tg-test", run, "retry")
     assert model.calls == calls
@@ -202,24 +241,40 @@ async def test_restart_keeps_state_without_dialogue_ttl():
     assert state["runId"] == run
     assert state["seconds"] == 15
     assert await redis.ttl("onboarding:tg-test") == -1
-    assert (await turn(restarted, run, "v2")).onboarding["status"] == "completed"
+    assert (await turn(restarted, run, "v2")).onboarding["status"] == "active"
 
 
 @pytest.mark.asyncio
-async def test_continue_uses_profile_once_without_replacing_ordinary_history():
-    s = service(stt=Stt(30))
+async def test_close_remembers_profile_and_restart_wipes_it():
+    s = service(stt=Stt(120))
     await s.pipeline.dialogue.create("tg-test")
     await s.pipeline.dialogue.record_turn("tg-test", "Old topic", "Old reply")
     run = await begin(s)
     await turn(s, run)
-    assert len(await s.pipeline.dialogue.history("tg-test")) == 2
+    history = await s.pipeline.dialogue.history("tg-test")
+    assert [item.content for item in history] == [
+        "Old topic",
+        "Old reply",
+        "I build software. I need English to work with clients.",
+        "What do you enjoy about your work?",
+    ]
+    saved = await s.store.get("tg-test")
+    assert saved["profile"]["work"] == "software developer"
+    assert saved["cefr"] == "B1"
+    follow = await turn(s, run, "later")
+    assert follow.onboarding is None or follow.onboarding.get("status") != "active"
+    assert "Hidden level: B1" in s.pipeline.llm.profile_notes[-1]
+    assert "Work: software developer" in s.pipeline.llm.profile_notes[-1]
+    assert "never say the level" in s.pipeline.llm.profile_notes[-1].lower()
     await s.action("tg-test", run, "continue")
     await s.action("tg-test", run, "continue")
     assert s.model.continue_calls == 1
-    history = await s.pipeline.dialogue.history("tg-test")
-    assert len(history) == 4
-    assert history[-1].content == "What would you like to build next?"
+    assert (await s.pipeline.dialogue.history("tg-test"))[-1].content == "What would you like to build next?"
     assert (await s.resolve("tg-test", "anotherStart", "start"))["status"] == "completed"
+    assert (await s.resolve("tg-test", "restart", "force"))["status"] == "waiting"
+    wiped = await s.store.get("tg-test")
+    assert wiped["profile"] == {}
+    assert wiped["cefr"] is None
 
 
 @pytest.mark.asyncio
@@ -235,12 +290,15 @@ def test_assessment_validation_rejects_invalid_cefr_and_missing_fields():
     for raw in ['{}', '{"profile":{},"cefr":73,"question":"Hello?"}', '{"profile":{},"cefr":"B1"}']:
         with pytest.raises(ValueError):
             parse_assessment(raw)
-    parsed = parse_assessment('{"profile":{"context":null},"cefr":null,"question":"What do you do?"}')
+    parsed = parse_assessment(
+        '{"profile":{"work":"does not work","leisure":" ","goal":null},"cefr":null,"question":"What do you do?"}'
+    )
     assert parsed["cefr"] is None
+    assert parsed["profile"] == {"work": "does not work", "leisure": None, "goal": None}
 
 
-def test_http_contract_returns_text_only_final_and_requires_auth():
-    s = service(stt=Stt(60))
+def test_http_contract_returns_closing_audio_and_requires_auth():
+    s = service(stt=Stt(120))
     app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
     with TestClient(app) as client:
         assert client.post("/internal/onboarding/state", json={}).status_code == 401
@@ -263,9 +321,11 @@ def test_http_contract_returns_text_only_final_and_requires_auth():
             if body["status"] != "pending":
                 break
         assert body["status"] == "ok"
-        assert body["result"]["audioAvailable"] is False
+        assert body["result"]["audioAvailable"] is True
+        assert body["replyText"] == "What do you enjoy about your work?"
         assert body["result"]["onboarding"]["status"] == "completed"
-        assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 404
+        assert body["result"]["onboarding"]["resultText"] is None
+        assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 200
 
 
 @pytest.mark.asyncio
@@ -287,7 +347,7 @@ async def test_missing_stt_duration_uses_telegram_recording_duration():
     run = await begin(s)
     result = await s.turn("tg-test", run, "voice", b"audio", "audio/ogg", "voice.ogg", 32)
     assert result.onboarding["seconds"] == 32
-    assert result.onboarding["status"] == "completed"
+    assert result.onboarding["status"] == "active"
 
 
 @pytest.mark.asyncio

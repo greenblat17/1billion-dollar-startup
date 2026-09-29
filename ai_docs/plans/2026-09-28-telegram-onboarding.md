@@ -7,17 +7,19 @@ Status: implemented on `feature/telegram-onboarding`; automated verification bel
 Only new Telegram users automatically enter onboarding. Resolve eligibility before recording their first new funnel event: an existing funnel/chat record means the old greeting and ordinary conversation continue. `/onboarding` explicitly starts a fresh attempt for anyone.
 
 1. `/start` sends the short bilingual invitation and inline `Давай 👋` button. Name comes from Telegram, with a nameless fallback. No greeting audio until the button is pressed.
-2. The button sends: “Hey! Nice to meet you. Let's start simple — tell me a little about yourself. What do you do and what do you enjoy doing?” Then `🎙 Ответь голосовым на английском. Не переживай насчёт ошибок.`
-3. Voice answers receive the existing correction quote and an English voice reply. Speaky acknowledges the answer and asks one follow-up, prioritizing missing personal context and the purpose of English. It simplifies English for a struggling speaker. No translation/help buttons or visible timer.
-4. End with text only: `Estimated English level: B1` plus `A first estimate based on this short conversation.` No scores, strengths, improvement list, or permanent-personalization promise. With insufficient evidence: `I need more English speech to estimate your level.`
-5. `Продолжить разговор →` sends one question based on the saved context/goal, then ordinary conversation resumes. Sending voice directly after the result also works.
+2. The button sends one question about how they spend their days: “Hey, it's good to hear you. What do you spend most of your days doing?” Then `🎙 Ответь голосовым на английском. Не переживай насчёт ошибок.`
+3. Voice answers receive the existing correction quote and an English voice reply. Speaky reacts to what was just said, then asks one question. The code picks the next slot: work, then free time (interests and hobbies together), then why they want English. After those are filled it asks a personal follow-up. No biography, no shared-interest claim, no Russian hint under the question, no timer.
+4. The closing turn is still a correction quote plus a spoken English question. Telegram then sends `Я тебя запомнила. Давай просто говорить.` with no button. The level is not shown. A grammar, vocabulary, and fluency review is deferred.
+5. The next voice is ordinary conversation. Old `Продолжить разговор →` buttons still work; new attempts do not send that button.
 
 ## Timing and boundaries
 
 - Count whole recordings with recognized speech, including pauses, using STT duration with Telegram duration as fallback. This is not measured speaking time.
-- Before 30 seconds, continue without a turn-count limit.
-- From 30 seconds, finish when personal context, goal, and a tentative English level are available.
-- At 60 seconds, finish regardless of missing context/goal/level. Accept the final recording in full even if it takes the total over 60.
+- Keep going until the checklist is filled: work, free time, and why English. "I don't work" or "no hobbies" fills the field.
+- Close when the checklist is filled and recognized speech has reached 120 seconds. A missing level does not block this close.
+- Close earlier when there are 10 recognized answers, the checklist is filled, and a CEFR estimate exists.
+- A missing checklist field does not stop at 120 seconds, and there is no later safety cap.
+- Accept the recording that crosses a close condition in full.
 - Silence, failed recognition, and technical failures before recognition do not spend the recording budget. Recognized non-English speech spends time but is not evidence of English proficiency. Onboarding uses STT language autodetection; ordinary English practice retains its English hint.
 - Text gets the voice-message hint and is not analyzed. Voice before `Давай 👋` gets the start-button hint and is not consumed.
 - `/start` during an incomplete attempt resets it. Voice without `/start` continues the saved attempt. `/start` after completion uses the ordinary greeting.
@@ -32,11 +34,11 @@ Checkpoints prevent technical retries from counting or transcribing a recognized
 
 At the final boundary the attempt becomes `pending`. Failure to build the result produces `Повторить`, which reuses the saved answers. Successful results are cached. Intermediate failures after recognition can also be retried with saved data; failure before recognition asks for another voice message. Telegram send/ack and Redis writes are not a distributed transaction; exactly-once external delivery is not guaranteed during a network loss.
 
-The profile is used only for the one continuation question. It is not injected into future ordinary conversation prompts or automatically updated. Ordinary dialogue history is kept separate and is not cleared by onboarding resets.
+On close, the introduction's recognized turns are copied into ordinary dialogue history. Later replies also receive a hidden note with work, free time, goal, and CEFR. The level may change how simple the English is, and it must not be spoken. Ordinary conversation does not update the profile. `/onboarding` replaces the attempt immediately, so the saved profile is gone until the new attempt completes. `/start` after completion does not reset it.
 
 ## Validation and release
 
-Automated coverage: timing boundaries, missing goal/level, unlimited short answers, silence, full long recording, duplicate actions, Redis persistence, resets and stale run ids, provider failures/retry, authenticated endpoints, text-only clip results, chat ordering/capacity and legacy clip behavior.
+Automated coverage: the 120-second close, the 10-answer close, missing fields past two minutes, missing level, silence, a recording that crosses the cap, duplicate actions, Redis persistence, profile wipe on `/onboarding`, hidden profile on the next reply, provider failures/retry, authenticated endpoints, closing audio, chat ordering/capacity and legacy clip behavior.
 
 Verified locally: Python 3.12 `pytest` — 82 passed; `:server:test` and repository `detekt` — passed. `git diff --check` — passed. No live provider calls or Telegram acceptance run.
 

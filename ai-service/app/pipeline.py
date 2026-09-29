@@ -79,6 +79,7 @@ class ClipPipeline:
         audio: bytes,
         content_type: str,
         filename: str,
+        profile_note: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
 
@@ -110,7 +111,7 @@ class ClipPipeline:
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
         reply_text, corrections = await asyncio.gather(
-            self._llm.complete_reply(history, stt_result.text),
+            self._llm.complete_reply(history, stt_result.text, profile_note),
             self._llm.complete_notes(stt_result.text),
         )
         await self._dialogue.record_turn(session_id, stt_result.text, reply_text)

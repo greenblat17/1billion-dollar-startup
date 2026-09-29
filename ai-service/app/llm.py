@@ -101,7 +101,7 @@ class Correction:
 
 
 class ChatModel(Protocol):
-    async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str: ...
+    async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str: ...
 
     async def complete_notes(self, user_text: str) -> list[Correction]: ...
 
@@ -123,8 +123,10 @@ class OpenAiChatModel:
         self._max_tokens = max_tokens
         self._metrics = metrics
 
-    async def complete_reply(self, history: list[ChatMessage], user_text: str) -> str:
+    async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str:
         messages = [{"role": "system", "content": REPLY_SYSTEM}]
+        if profile_note:
+            messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
         text = await self._complete(messages, self._reply_temperature)

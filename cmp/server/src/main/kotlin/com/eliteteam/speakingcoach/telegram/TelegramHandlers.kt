@@ -120,6 +120,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (audio != null) {
             sendVoice(message.chat.id, audio.bytes.asMultipartFile(audio.fileName))
             if (firstQuestion) reply(message, ONBOARDING_VOICE_HINT, allowSendingWithoutReply = true)
+            if (result.onboarding?.status == "completed") {
+                reply(message, ONBOARDING_REMEMBERED, allowSendingWithoutReply = true)
+            }
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
             val keyboard = state?.let {
