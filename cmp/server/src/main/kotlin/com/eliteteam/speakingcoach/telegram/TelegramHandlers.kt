@@ -9,7 +9,9 @@ import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
+import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
+import dev.inmo.tgbotapi.types.MessageId
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
@@ -83,6 +85,25 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
+    val progressMessages = ConcurrentHashMap<String, MessageId>()
+    suspend fun showProgress(chat: Chat, seconds: Double) {
+        val text = onboardingProgress(seconds)
+        val key = chat.id.toString()
+        val existing = progressMessages[key]
+        if (existing != null) {
+            try {
+                editMessageText(chat.id, existing, text)
+                return
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (error.message?.contains("message is not modified", ignoreCase = true) == true) return
+                log.warn("Failed to edit onboarding progress for {}", key, error)
+                progressMessages.remove(key)
+            }
+        }
+        progressMessages[key] = sendMessage(chat.id, text).messageId
+    }
     suspend fun sendStreakWeek(message: ChatMessage, caption: String, strip: WeekStrip) {
         try {
             replyWithPhoto(
@@ -113,6 +134,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
+        val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
+        if (firstQuestion && onboarding != null) showProgress(message.chat, onboarding.seconds)
         if (result.transcript.isNotBlank()) {
             reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
         }
@@ -130,6 +153,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             reply(message, result.text, allowSendingWithoutReply = true, replyMarkup = keyboard)
         }
+        if (!firstQuestion && onboarding != null) showProgress(message.chat, onboarding.seconds)
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false) {
         val sessionId = telegramSessionId(message.chat.id)

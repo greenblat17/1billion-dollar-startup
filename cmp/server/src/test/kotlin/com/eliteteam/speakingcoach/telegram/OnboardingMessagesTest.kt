@@ -21,10 +21,27 @@ class OnboardingMessagesTest {
     }
 
     @Test
+    fun progressCountsSpeechUpToTwoMinutes() {
+        assertEquals(
+            "Знакомство\n0:00 из 2:00\n░░░░░░░░░░░░░░░░\nМожно короткими фразами",
+            onboardingProgress(0.0),
+        )
+        assertEquals(
+            "Знакомство\n0:38 из 2:00\n▰▰▰▰▰░░░░░░░░░░░\nМожно короткими фразами",
+            onboardingProgress(38.0),
+        )
+        assertEquals(
+            "Знакомство\n2:00 из 2:00\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰",
+            onboardingProgress(150.0),
+        )
+    }
+
+    @Test
     fun invitationSupportsMissingNameAndCommandMentions() {
         assertTrue(onboardingInvitation("Alex").startsWith("👋 Hey, Alex!"))
         assertTrue(onboardingInvitation(null).startsWith("👋 Hey!"))
         assertEquals("Я тебя запомнила. Давай просто говорить.", ONBOARDING_REMEMBERED)
+        assertTrue(onboardingInvitation("Alex").contains("около двух минут"))
         assertTrue(isOnboardingCommand("/onboarding@speaky"))
         assertTrue(!isOnboardingCommand("/onboarding_extra"))
     }
