@@ -137,7 +137,7 @@ async def test_new_user_requires_button_and_existing_user_is_exempt():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("seconds,status", [(119, "active"), (120, "completed"), (150, "completed")])
-async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_recording(seconds, status):
+async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
     s = service(stt=Stt(seconds))
     run = await begin(s)
     result = await turn(s, run)
@@ -171,17 +171,22 @@ async def test_speech_cap_closes_when_checklist_is_full_and_keeps_the_whole_reco
 
 
 @pytest.mark.asyncio
-async def test_missing_field_continues_past_two_minutes_and_asks_that_slot():
-    model = Model(leisure=None)
-    s = service(stt=Stt(120), model=model)
+@pytest.mark.parametrize("missing", [("work",), ("leisure",), ("goal",), ("work", "leisure", "goal")])
+async def test_incomplete_profile_closes_at_two_minutes(missing):
+    model = Model(**{field: None for field in missing})
+    s = service(stt=Stt(60), model=model)
     run = await begin(s)
     first = await turn(s, run)
     assert first.onboarding["status"] == "active"
     assert model.asks == ["work"]
     second = await turn(s, run, "v2")
-    assert second.onboarding["status"] == "active"
-    assert model.asks[-1] == "leisure"
-    assert second.onboarding["seconds"] == 240
+    assert second.onboarding["status"] == "completed"
+    assert model.asks[-1] == missing[0]
+    assert second.onboarding["seconds"] == 120
+    assert second.onboarding["review"]
+    assert "Let me show you what I noticed." in second.reply_text
+    state = await s.store.get("tg-test")
+    assert all(state["profile"][field] is None for field in missing)
 
 
 @pytest.mark.asyncio
@@ -271,7 +276,7 @@ async def test_duplicate_voice_is_not_counted_twice_even_after_completion():
 
 @pytest.mark.asyncio
 async def test_summary_failure_retries_without_audio_or_double_counting():
-    model = Model()
+    model = Model(work=None, leisure=None, goal=None)
     model.fail = True
     s = service(stt=Stt(120), model=model)
     run = await begin(s)

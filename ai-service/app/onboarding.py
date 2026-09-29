@@ -158,17 +158,8 @@ def next_ask(profile: dict) -> str:
     return "followup"
 
 
-def checklist_done(profile: dict) -> bool:
-    return all(_filled(profile.get(key)) for key in PROFILE_FIELDS)
-
-
 def should_close(state: dict) -> bool:
-    """Close once the checklist exists and recognized speech has reached two minutes.
-
-    Missing fields keep the introduction going. There is no cap on the number of answers.
-    """
-    if not checklist_done(state.get("profile") or {}):
-        return False
+    """Close at two minutes of recognized speech, even with an incomplete profile."""
     return state["seconds"] >= SPEECH_LIMIT_SECONDS
 
 
@@ -349,7 +340,7 @@ class OnboardingService:
                 state["question"] = question
                 turn["reply"] = question
                 turn["delivered"] = True
-                # The saved answer was not ready to close: keep asking the missing field.
+                # The saved answer was not ready to close: keep the introduction going until the speech limit.
                 state["status"] = "active"
                 await self.store.save(session_id, state)
                 result = self._result(state, question, audio, turn)

@@ -16,8 +16,8 @@ Only new Telegram users automatically enter onboarding. Resolve eligibility befo
 
 - Count whole recordings with recognized speech, including pauses, using STT duration with Telegram duration as fallback. This is not measured speaking time.
 - Keep going until the checklist is filled: work, free time, and why English. "I don't work" or "no hobbies" fills the field.
-- Close when the checklist is filled and recognized speech has reached 120 seconds. A missing level does not block this close. There is no limit on the number of answers.
-- A missing checklist field does not stop at 120 seconds, and there is no later safety cap.
+- Close when recognized speech has reached 120 seconds, regardless of whether work, leisure, or goal is filled. A missing level does not block this close. There is no limit on the number of answers.
+- Updated 2026-09-29: missing profile fields never extend the introduction beyond the speech threshold. Finish after processing the whole recording that reaches or crosses 120 seconds.
 - Accept the recording that crosses a close condition in full.
 - Silence, failed recognition, and technical failures before recognition do not spend the recording budget. Recognized non-English speech spends time but is not evidence of English proficiency. Onboarding uses STT language autodetection; ordinary English practice retains its English hint.
 - Text gets the voice-message hint and is not analyzed. Voice before `Let’s chat 👋` gets the start-button hint and is not consumed.
@@ -37,7 +37,7 @@ On close, the introduction's recognized turns are copied into ordinary dialogue 
 
 ## Validation and release
 
-Automated coverage: the 120-second close, short answers that stay open past ten turns, missing fields past two minutes, missing level, silence, a recording that crosses the cap, duplicate actions, Redis persistence, profile wipe on `/onboarding`, hidden profile on the next reply, provider failures/retry, authenticated endpoints, closing audio, chat ordering/capacity and legacy clip behavior.
+Automated coverage: the 120-second close, short answers that stay open past ten turns, completion with missing profile fields at two minutes, missing level, silence, a recording that crosses the cap, duplicate actions, Redis persistence, profile wipe on `/onboarding`, hidden profile on the next reply, provider failures/retry, authenticated endpoints, closing audio, chat ordering/capacity and legacy clip behavior.
 
 Verified locally after the results slides: `pytest` — 95 passed; `:server:test` — passed. No live provider calls or Telegram acceptance run.
 
