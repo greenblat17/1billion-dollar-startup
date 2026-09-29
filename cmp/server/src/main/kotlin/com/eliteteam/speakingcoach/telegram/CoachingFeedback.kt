@@ -24,6 +24,16 @@ internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
     blockquote { regular(text.trim()) }
 }
 
+internal fun onboardingCorrection(correction: Correction): TextSourcesList {
+    val label = onboardingCorrectionLabel(correction.kind)
+    return buildEntities {
+        regularln(label)
+        strikethrough(correction.wrong)
+        regular("\n")
+        bold(correction.better)
+    }
+}
+
 internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
     val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))

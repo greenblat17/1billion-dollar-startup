@@ -232,7 +232,7 @@ class OnboardingService:
     async def _advance_turn(self, session_id: str, state: dict, turn: dict) -> PipelineResult:
         if turn["corrections"] is None:
             notes = await self.pipeline.llm.complete_notes(turn["transcript"])
-            turn["corrections"] = [note.to_json() for note in notes]
+            turn["corrections"] = [note.to_json() for note in notes[:1]]
             await self.store.save(session_id, state)
         if turn["analysis"] is None:
             state["ask"] = next_ask(state.get("profile") or {})

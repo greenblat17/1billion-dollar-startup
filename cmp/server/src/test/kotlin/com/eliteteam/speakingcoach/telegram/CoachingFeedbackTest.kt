@@ -23,6 +23,25 @@ class CoachingFeedbackTest {
     }
 
     @Test
+    fun quotesOneOnboardingMistakeWithoutTheRestOfTheSpeech() {
+        val grammar = onboardingCorrection(Correction("You is", "You are", CorrectionKind.GRAMMAR))
+        assertEquals(
+            "Правильнее было бы сказать так:\nYou is\nYou are",
+            grammar.joinToString("") { it.source },
+        )
+        val word = onboardingCorrection(Correction("made a photo", "took a photo", CorrectionKind.WORD))
+        assertEquals(
+            "Лучше использовать другое слово:\nmade a photo\ntook a photo",
+            word.joinToString("") { it.source },
+        )
+        val natural = onboardingCorrection(Correction("very interesting for me", "really fun", CorrectionKind.NATURAL))
+        assertEquals(
+            "Нейтив сформулировал бы так:\nvery interesting for me\nreally fun",
+            natural.joinToString("") { it.source },
+        )
+    }
+
+    @Test
     fun quotesTranscriptWhenThereAreNoNotes() {
         val sources = coachingEntities("Hello there", emptyList())
         assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })

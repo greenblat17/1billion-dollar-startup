@@ -134,42 +134,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
         val progress = onboarding?.let { onboardingProgressKeyboard(it.seconds) }
         if (progress != null) clearProgress(message.chat)
-        if (result.transcript.isNotBlank()) {
+        if (onboarding != null) {
+            result.corrections.minByOrNull { it.priority }?.let { correction ->
+                reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+            }
+        } else if (result.transcript.isNotBlank()) {
             reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
         }
         val audio = result.audio
         if (audio != null) {
-            val completed = result.onboarding?.status == "completed"
             val spoken = result.text.isNotBlank()
             val voice = sendVoice(
                 message.chat.id,
                 audio.bytes.asMultipartFile(audio.fileName),
-                replyMarkup = withSpokenText(
-                    if (progress != null && !firstQuestion && !completed) progress else null,
-                    spoken,
-                ),
+                replyMarkup = withSpokenText(progress, spoken),
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
-            var marked = voice.messageId
             if (firstQuestion) {
-                val hint = reply(
-                    message,
-                    ONBOARDING_VOICE_HINT,
-                    allowSendingWithoutReply = true,
-                    replyMarkup = if (progress != null && !completed) progress else null,
-                )
-                marked = hint.messageId
+                reply(message, ONBOARDING_VOICE_HINT, allowSendingWithoutReply = true)
             }
-            if (completed) {
-                val remembered = reply(
-                    message,
-                    ONBOARDING_REMEMBERED,
-                    allowSendingWithoutReply = true,
-                    replyMarkup = progress,
-                )
-                marked = remembered.messageId
+            if (result.onboarding?.status == "completed") {
+                reply(message, ONBOARDING_REMEMBERED, allowSendingWithoutReply = true)
             }
-            if (progress != null) progressMessages[message.chat.id.toString()] = marked
+            if (progress != null) progressMessages[message.chat.id.toString()] = voice.messageId
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
             val action = state?.let {

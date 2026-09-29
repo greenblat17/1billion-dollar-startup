@@ -179,6 +179,20 @@ async def test_only_the_first_onboarding_voice_is_marked_for_a_reaction():
 
 
 @pytest.mark.asyncio
+async def test_onboarding_keeps_only_the_first_ranked_correction():
+    s = service(stt=Stt(15, "I made a photo and you is kind"))
+    s.pipeline.llm.notes = [
+        Correction("you is", "you are", "grammar"),
+        Correction("made a photo", "took a photo", "word"),
+    ]
+    run = await begin(s)
+    result = await turn(s, run)
+    assert [(item.wrong, item.better, item.kind) for item in result.corrections] == [
+        ("you is", "you are", "grammar"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_silence_does_not_spend_budget_or_call_model():
     s = service(stt=Stt(60, ""))
     run = await begin(s)
