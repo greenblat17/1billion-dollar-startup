@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction
+from app.memory import MemoryStore
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
@@ -41,6 +42,7 @@ class ClipPipeline:
         dialogue: DialogueStore,
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
+        memory: MemoryStore | None = None,
     ) -> None:
         self._stt = stt
         self._llm = llm
@@ -48,6 +50,7 @@ class ClipPipeline:
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
+        self._memory = memory
 
     @property
     def stt(self) -> SpeechToText:
@@ -68,6 +71,13 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
+
+    @property
+    def memory(self) -> MemoryStore | None:
+        return self._memory
+
+    def bind_memory(self, memory: MemoryStore) -> None:
+        self._memory = memory
 
     @property
     def streaks(self) -> StreakStore:
@@ -110,8 +120,9 @@ class ClipPipeline:
 
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
+        note = await self._memory.note(session_id) if self._memory is not None else None
         reply_text, corrections = await asyncio.gather(
-            self._llm.complete_reply(history, stt_result.text, profile_note),
+            self._llm.complete_reply(history, stt_result.text, note if note is not None else profile_note),
             self._llm.complete_notes(stt_result.text),
         )
         await self._dialogue.record_turn(session_id, stt_result.text, reply_text)

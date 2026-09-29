@@ -11,6 +11,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
+from app.memory import MemoryStore, blank_document
 from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, RETRY_TEXT
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
@@ -67,12 +68,13 @@ class Model:
         return "What would you like to build next?"
 
 
-def service(stt=None, model=None, store=None, tts=None):
+def service(stt=None, model=None, store=None, tts=None, memory=None):
+    remembered = memory or MemoryStore()
     pipeline = ClipPipeline(
         stt=stt or Stt(), llm=FakeLlm([Correction("I builds", "I build")]),
-        tts=tts or FakeTts(), dialogue=MemoryDialogueStore(40, 3600),
+        tts=tts or FakeTts(), dialogue=MemoryDialogueStore(40, 3600), memory=remembered,
     )
-    return OnboardingService(store or OnboardingStore(), pipeline, model or Model())
+    return OnboardingService(store or OnboardingStore(), pipeline, model or Model(), remembered)
 
 
 async def begin(s, session="tg-test"):
@@ -304,6 +306,12 @@ async def test_close_remembers_profile_and_restart_wipes_it():
     assert saved["cefr"] == "B1"
     follow = await turn(s, run, "later")
     assert follow.onboarding is None or follow.onboarding.get("status") != "active"
+    saved_memory = await s.memory.get("tg-test")
+    assert saved_memory["slots"]["work"]["value"] == "software developer"
+    assert saved_memory["slots"]["cefr"]["value"] == "B1"
+    assert saved_memory["threads"] == []
+    assert saved_memory["lastTalkAt"] is None
+    assert "Name:" not in s.pipeline.llm.profile_notes[-1]
     assert "Hidden level: B1" in s.pipeline.llm.profile_notes[-1]
     assert "Work: software developer" in s.pipeline.llm.profile_notes[-1]
     assert "never say the level" in s.pipeline.llm.profile_notes[-1].lower()
@@ -316,6 +324,72 @@ async def test_close_remembers_profile_and_restart_wipes_it():
     wiped = await s.store.get("tg-test")
     assert wiped["profile"] == {}
     assert wiped["cefr"] is None
+    kept = await s.memory.get("tg-test")
+    assert kept["slots"]["work"]["value"] == "software developer"
+    assert kept["slots"]["cefr"]["value"] == "B1"
+
+
+@pytest.mark.asyncio
+async def test_repeat_onboarding_replaces_slots_and_keeps_threads_and_name():
+    s = service(stt=Stt(120))
+    await s.pipeline.metrics.record_profile("tg-test", "alex", "Alex Green")
+    prior = blank_document()
+    prior["slots"]["name"] = {"value": "Old Name", "updatedAt": 1}
+    prior["threads"] = [{"summary": "started university", "status": "open"}]
+    await s.memory.save("tg-test", prior)
+    run = await begin(s)
+    await turn(s, run)
+    seeded = await s.memory.get("tg-test")
+    assert seeded["slots"]["name"]["value"] == "Alex Green"
+    assert seeded["slots"]["work"]["value"] == "software developer"
+    assert seeded["threads"] == [{"summary": "started university", "status": "open"}]
+    assert (await s.resolve("tg-test", "restart", "force"))["status"] == "waiting"
+    assert (await s.memory.get("tg-test"))["slots"]["work"]["value"] == "software developer"
+    s.model.assessment["profile"]["work"] = "university student"
+    s.model.assessment["cefr"] = "B2"
+    await s.pipeline.metrics.record_profile("tg-test", "alex", "")
+    run2 = await begin(s)
+    await turn(s, run2, "v2")
+    updated = await s.memory.get("tg-test")
+    assert updated["slots"]["work"]["value"] == "university student"
+    assert updated["slots"]["cefr"]["value"] == "B2"
+    assert updated["slots"]["name"]["value"] == "Alex Green"
+    assert updated["threads"] == [{"summary": "started university", "status": "open"}]
+    await turn(s, run2, "later")
+    note = s.pipeline.llm.profile_notes[-1]
+    assert "Name: Alex Green" in note
+    assert "Work: university student" in note
+    assert "Hidden level: B2" in note
+
+
+@pytest.mark.asyncio
+async def test_completed_voice_seeds_memory_once_when_the_document_is_missing():
+    redis = FakeAsyncRedis(decode_responses=True)
+    s = service(stt=Stt(120), store=OnboardingStore(redis), memory=MemoryStore(redis))
+    run = await begin(s)
+    await turn(s, run)
+    assert await redis.ttl("memory:tg-test") == -1
+    await redis.delete("memory:tg-test")
+    await turn(s, run, "later")
+    restored = await s.memory.get("tg-test")
+    assert restored["slots"]["work"]["value"] == "software developer"
+    await s.memory.save("tg-test", blank_document() | {"slots": {"work": {"value": "teacher", "updatedAt": 1}}})
+    await turn(s, run, "after")
+    assert (await s.memory.get("tg-test"))["slots"]["work"]["value"] == "teacher"
+    assert "Work: teacher" in s.pipeline.llm.profile_notes[-1]
+
+
+@pytest.mark.asyncio
+async def test_ordinary_clip_reads_memory_without_onboarding():
+    s = service()
+    document = blank_document()
+    document["slots"]["work"] = {"value": "teacher", "updatedAt": 1}
+    await s.memory.save("tg-plain", document)
+    await s.pipeline.run("tg-plain", b"voice", "audio/ogg", "voice.ogg")
+    assert "Work: teacher" in s.pipeline.llm.profile_notes[-1]
+    assert "never say the level" in s.pipeline.llm.profile_notes[-1].lower()
+    await s.pipeline.run("tg-empty", b"voice", "audio/ogg", "voice.ogg")
+    assert s.pipeline.llm.profile_notes[-1] is None
 
 
 @pytest.mark.asyncio

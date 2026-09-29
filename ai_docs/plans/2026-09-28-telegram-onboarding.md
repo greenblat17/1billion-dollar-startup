@@ -34,11 +34,11 @@ Checkpoints prevent technical retries from counting or transcribing a recognized
 
 At the final boundary the attempt becomes `pending`. Failure to build the result produces `Повторить`, which reuses the saved answers. Successful results are cached. Intermediate failures after recognition can also be retried with saved data; failure before recognition asks for another voice message. Telegram send/ack and Redis writes are not a distributed transaction; exactly-once external delivery is not guaranteed during a network loss.
 
-On close, the introduction's recognized turns are copied into ordinary dialogue history. Later replies also receive a hidden note with work, free time, goal, and CEFR. The level may change how simple the English is, and it must not be spoken. Ordinary conversation does not update the profile. `/onboarding` replaces the attempt immediately, so the saved profile is gone until the new attempt completes. `/start` after completion does not reset it.
+On close, the introduction's recognized turns are copied into ordinary dialogue history, and the checklist is copied into `memory:{sessionId}` (see `plans/2026-09-29-conversation-memory.md`). Later replies read that document as a hidden note: work, free time, goal, CEFR, and the Telegram name when it is known. The level may change how simple the English is, and it must not be spoken. Ordinary conversation does not update the document yet. `/onboarding` still replaces the onboarding attempt immediately, but it leaves the memory document in place until the new attempt completes; completion then replaces the slots and keeps threads. `/start` after completion does not reset either record.
 
 ## Validation and release
 
-Automated coverage: the 120-second close, the 10-answer close, missing fields past two minutes, missing level, silence, a recording that crosses the cap, duplicate actions, Redis persistence, profile wipe on `/onboarding`, hidden profile on the next reply, provider failures/retry, authenticated endpoints, closing audio, chat ordering/capacity and legacy clip behavior.
+Automated coverage: the 120-second close, the 10-answer close, missing fields past two minutes, missing level, silence, a recording that crosses the cap, duplicate actions, Redis persistence, onboarding reset on `/onboarding` while conversation memory remains, hidden profile on the next reply, provider failures/retry, authenticated endpoints, closing audio, chat ordering/capacity and legacy clip behavior.
 
 Verified locally: Python 3.12 `pytest` — 82 passed; `:server:test` and repository `detekt` — passed. `git diff --check` — passed. No live provider calls or Telegram acceptance run.
 

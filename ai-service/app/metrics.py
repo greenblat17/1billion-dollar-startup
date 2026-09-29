@@ -166,6 +166,8 @@ class MetricsStore(Protocol):
 
     async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None: ...
 
+    async def chat_name(self, session_id: str) -> str | None: ...
+
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
     async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]: ...
@@ -251,6 +253,11 @@ class MemoryMetricsStore:
             return
         async with self._lock:
             self._profiles[session] = normalize_profile(username, name)
+
+    async def chat_name(self, session_id: str) -> str | None:
+        async with self._lock:
+            name = self._profiles.get(session_id.strip(), ChatProfile()).name
+        return name or None
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
@@ -410,6 +417,11 @@ class RedisMetricsStore:
             _chat_key(session),
             mapping={"username": profile.username, "name": profile.name},
         )
+
+    async def chat_name(self, session_id: str) -> str | None:
+        name = await self._redis.hget(_chat_key(session_id.strip()), "name")
+        text = str(name or "").strip()
+        return text or None
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)

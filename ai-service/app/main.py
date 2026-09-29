@@ -14,6 +14,7 @@ from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
+from app.memory import MemoryStore
 from app.metrics import MetricsStore, build_metrics_store
 from app.onboarding import OnboardingService, OnboardingStore
 from app.onboarding_model import OnboardingModel
@@ -44,10 +45,14 @@ def create_app(
         raise RuntimeError("AI_INTERNAL_TOKEN is required")
     logging.basicConfig(level=settings.log_level)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
-    clip_pipeline = pipeline or _build_pipeline(settings)
+    memory = MemoryStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    clip_pipeline = pipeline or _build_pipeline(settings, memory=memory)
+    clip_pipeline.bind_memory(memory)
+    onboarding_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url and onboarding_store is None else None
     onboarding = OnboardingService(
-        onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
+        onboarding_store or OnboardingStore(onboarding_redis),
         clip_pipeline, onboarding_model or OnboardingModel(clip_pipeline.llm),
+        memory,
     )
     sessions = clip_pipeline.dialogue
     streaks = clip_pipeline.streaks
@@ -63,6 +68,7 @@ def create_app(
         await streaks.backfill()
         yield
         await onboarding.store.aclose()
+        await memory.aclose()
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()
 
@@ -268,7 +274,7 @@ def create_app(
     return app
 
 
-def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -> ClipPipeline:
+def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None, memory: MemoryStore | None = None) -> ClipPipeline:
     if not settings.groq_api_key:
         raise RuntimeError("GROQ_API_KEY is required")
     if not settings.openai_api_key:
@@ -298,6 +304,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         ),
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
+        memory=memory,
     )
 
 
