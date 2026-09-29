@@ -11,7 +11,7 @@ internal const val ONBOARDING_BEGIN_HINT = "Нажми «Давай 👋», чт
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
-internal const val SPOKEN_TEXT_BUTTON = "Текст"
+internal const val SPOKEN_TEXT_BUTTON = "Субтитры"
 private const val ONBOARDING_PROGRESS_CELLS = 16
 
 internal fun onboardingProgressLabel(seconds: Double): String {

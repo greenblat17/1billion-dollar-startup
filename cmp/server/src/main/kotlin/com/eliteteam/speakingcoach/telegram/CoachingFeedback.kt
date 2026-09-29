@@ -19,7 +19,7 @@ private data class CorrectionSpan(
 )
 
 internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
-    regularln("💬 Said:")
+    regularln("💬 Speaky said:")
     regularln("")
     blockquote { regular(text.trim()) }
 }

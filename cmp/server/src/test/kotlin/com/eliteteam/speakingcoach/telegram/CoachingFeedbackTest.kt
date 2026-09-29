@@ -19,7 +19,7 @@ class CoachingFeedbackTest {
     @Test
     fun quotesWhatSpeakySaid() {
         val sources = spokenQuote("  Hey, I'm Speaky.  ")
-        assertEquals("💬 Said:\n\nHey, I'm Speaky.", sources.joinToString("") { it.source })
+        assertEquals("💬 Speaky said:\n\nHey, I'm Speaky.", sources.joinToString("") { it.source })
     }
 
     @Test
