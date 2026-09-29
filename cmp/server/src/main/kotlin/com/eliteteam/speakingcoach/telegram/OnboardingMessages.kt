@@ -76,7 +76,7 @@ internal fun onboardingInvitation(firstName: String?): String {
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
-    "begin", "retry", "continue", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15",
+    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15",
 )
 
 internal fun parseOnboardingCallback(data: String): OnboardingCallback? {
@@ -91,26 +91,31 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
         val label = when (action) {
             "begin" -> "Let’s chat 👋"
             "retry" -> "Повторить"
-            "results" -> "See my results →"
+            "level" -> "See my results"
+            "results" -> "Detailed report →"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
             "finish" -> "Finish →"
             "talk" -> "Keep talking 🎙"
             "bye" -> "See you tomorrow"
-            "m5" -> "5 min"
-            "m10" -> "10 min"
-            "m15" -> "15 min"
+            "m5" -> PRACTICE_5_LABEL
+            "m10" -> PRACTICE_10_LABEL
+            "m15" -> PRACTICE_15_LABEL
             else -> "Продолжить разговор →"
         }
         dataButton(label, "ob:$action:$runId")
     }
 }
 
+internal const val PRACTICE_5_LABEL = "☕ 5 min"
+internal const val PRACTICE_10_LABEL = "✨ 10 min"
+internal const val PRACTICE_15_LABEL = "🔥 15 min"
+
 internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
-        dataButton("5 min", "ob:m5:$runId")
-        dataButton("10 min", "ob:m10:$runId")
-        dataButton("15 min", "ob:m15:$runId")
+        dataButton(PRACTICE_5_LABEL, "ob:m5:$runId")
+        dataButton(PRACTICE_10_LABEL, "ob:m10:$runId")
+        dataButton(PRACTICE_15_LABEL, "ob:m15:$runId")
     }
 }
 

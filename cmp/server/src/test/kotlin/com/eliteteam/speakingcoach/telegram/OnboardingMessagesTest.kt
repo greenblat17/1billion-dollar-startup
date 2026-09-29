@@ -15,7 +15,7 @@ class OnboardingMessagesTest {
     @Test
     fun buttonsCarryTheAttemptAndFitTelegramLimit() {
         val run = "a".repeat(32)
-        for (action in listOf("begin", "retry", "continue", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15")) {
+        for (action in listOf("begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15")) {
             val button = onboardingKeyboard(action, run).keyboard.single().single() as CallbackDataInlineKeyboardButton
             assertEquals(OnboardingCallback(action, run), parseOnboardingCallback(button.callbackData))
             assertTrue(button.callbackData.encodeToByteArray().size <= 64)
@@ -92,12 +92,17 @@ class OnboardingMessagesTest {
             fluencyLines(OnboardingFluency(longPauses = 6)),
         )
         val minutes = practiceMinutesKeyboard(run).keyboard.single().map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("5 min", "10 min", "15 min"), minutes)
+        assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL), minutes)
         assertTrue(practiceDeal(10).startsWith("10 minutes a day. Deal 🤝"))
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
         val deal = practiceDealKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("Keep talking 🎙", "See you tomorrow"), deal.map { it.text })
         assertEquals("talk", parseOnboardingCallback(deal[0].callbackData)?.action)
+        val closing = withSpokenText(onboardingKeyboard("level", run), spoken = true)!!.keyboard.single()
+        val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
+        assertEquals(listOf("See my results", SPOKEN_TEXT_BUTTON), closingLabels)
+        val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals("Detailed report →", report.text)
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }

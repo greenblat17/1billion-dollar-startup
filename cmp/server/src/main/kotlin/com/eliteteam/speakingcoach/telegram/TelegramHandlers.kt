@@ -133,7 +133,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
-        val progress = onboarding?.let { onboardingProgressKeyboard(it.seconds) }
+        val finished = onboarding?.takeIf { it.status == "completed" && it.review != null }
+        val progress = when {
+            finished != null -> onboardingKeyboard("level", finished.runId)
+            onboarding != null -> onboardingProgressKeyboard(onboarding.seconds)
+            else -> null
+        }
         if (progress != null) clearProgress(message.chat)
         if (onboarding != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
@@ -152,15 +157,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = withSpokenText(progress, spoken),
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
-            val completed = result.onboarding
-            if (completed?.status == "completed" && completed.review != null) {
-                reply(
-                    message,
-                    levelSlide(completed.cefr, completed.review.levelText),
-                    allowSendingWithoutReply = true,
-                    replyMarkup = onboardingKeyboard("results", completed.runId),
-                )
-            }
             if (progress != null) progressMessages[message.chat.id.toString()] = voice.messageId
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
@@ -247,7 +243,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         )
         when (result) {
             ClipSubmitResult.QueueFull -> reply(message, QUEUE_FULL_TEXT)
-            is ClipSubmitResult.Completed -> deliver(message, result.reply)
+            is ClipSubmitResult.Completed -> {
+                deliver(message, result.reply)
+                if (result.reply.onboarding?.status == "completed") {
+                    try {
+                        setMessageReaction(message.chat.id, message.messageId, "🔥")
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        log.warn("Failed to react to the last onboarding voice for {}", sessionId.value, error)
+                    }
+                }
+            }
         }
     }
     suspend fun handle(message: ChatMessage, isVoice: Boolean = false, block: suspend () -> Unit) {
@@ -305,6 +312,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         try {
             actions.run(message.chat.id.toString(), requestId) {
                 when (callback.action) {
+                    "level" -> {
+                        val state = ai.onboardingState(
+                            telegramSessionId(message.chat.id),
+                            "level:${query.id}",
+                        )
+                        val review = state.review
+                        if (state.runId == callback.runId && review != null) {
+                            reply(
+                                message,
+                                levelSlide(state.cefr, review.levelText),
+                                allowSendingWithoutReply = true,
+                                replyMarkup = onboardingKeyboard("results", callback.runId),
+                            )
+                        }
+                    }
                     "results", "vocab", "fluency" -> showReviewSlide(ai, log, message, callback)
                     "finish" -> {
                         clearOnboardingMarkup(message)
