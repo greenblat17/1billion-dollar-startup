@@ -10,6 +10,8 @@ internal const val ONBOARDING_REMEMBERED = "Я тебя запомнила. Да
 internal const val ONBOARDING_BEGIN_HINT = "Нажми «Давай 👋», чтобы начать знакомство."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
+internal const val SPOKEN_TEXT_CALLBACK = "said"
+internal const val SPOKEN_TEXT_BUTTON = "Текст"
 private const val ONBOARDING_PROGRESS_CELLS = 16
 
 internal fun onboardingProgressLabel(seconds: Double): String {
@@ -24,6 +26,16 @@ internal fun onboardingProgressLabel(seconds: Double): String {
 
 internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(onboardingProgressLabel(seconds), ONBOARDING_PROGRESS_CALLBACK) }
+}
+
+internal fun spokenTextKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK) }
+}
+
+internal fun withSpokenText(keyboard: InlineKeyboardMarkup?, spoken: Boolean): InlineKeyboardMarkup? {
+    if (!spoken) return keyboard
+    val button = spokenTextKeyboard()
+    return if (keyboard == null) button else keyboard + button
 }
 
 internal val noInlineKeyboard: InlineKeyboardMarkup = inlineKeyboard { }

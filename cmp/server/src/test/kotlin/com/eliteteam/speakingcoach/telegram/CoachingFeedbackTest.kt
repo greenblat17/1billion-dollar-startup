@@ -17,6 +17,12 @@ class CoachingFeedbackTest {
     }
 
     @Test
+    fun quotesWhatSpeakySaid() {
+        val sources = spokenQuote("  Hey, I'm Speaky.  ")
+        assertEquals("💬 Said:\n\nHey, I'm Speaky.", sources.joinToString("") { it.source })
+    }
+
+    @Test
     fun quotesTranscriptWhenThereAreNoNotes() {
         val sources = coachingEntities("Hello there", emptyList())
         assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })

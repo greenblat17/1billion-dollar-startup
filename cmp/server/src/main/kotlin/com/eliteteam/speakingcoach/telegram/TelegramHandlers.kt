@@ -36,6 +36,8 @@ internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-T
 
 internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
 
+private fun spokenKey(chatId: Any, messageId: MessageId) = "$chatId:${messageId.long}"
+
 private val startSourcePattern = Regex("^[A-Za-z0-9_-]{1,64}$")
 
 internal fun isStartCommand(text: String): Boolean = isCommand(text, "/start")
@@ -86,6 +88,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val actions = TelegramChatActions()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
     val progressMessages = ConcurrentHashMap<String, MessageId>()
+    val spokenLines = ConcurrentHashMap<String, String>()
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
         val existing = progressMessages.remove(key) ?: return
@@ -136,11 +139,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val audio = result.audio
         if (audio != null) {
             val completed = result.onboarding?.status == "completed"
+            val spoken = result.text.isNotBlank()
             val voice = sendVoice(
                 message.chat.id,
                 audio.bytes.asMultipartFile(audio.fileName),
-                replyMarkup = if (progress != null && !firstQuestion && !completed) progress else null,
+                replyMarkup = withSpokenText(
+                    if (progress != null && !firstQuestion && !completed) progress else null,
+                    spoken,
+                ),
             )
+            if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
             var marked = voice.messageId
             if (firstQuestion) {
                 val hint = reply(
@@ -273,6 +281,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
+        }
+        if (query.data == SPOKEN_TEXT_CALLBACK) {
+            val voiceMessage = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            val spoken = spokenLines[spokenKey(voiceMessage.chat.id, voiceMessage.messageId)] ?: return@onDataCallbackQuery
+            reply(voiceMessage, spokenQuote(spoken), allowSendingWithoutReply = true)
+            return@onDataCallbackQuery
         }
         val callback = parseOnboardingCallback(query.data) ?: return@onDataCallbackQuery
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery

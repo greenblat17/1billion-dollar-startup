@@ -18,6 +18,12 @@ private data class CorrectionSpan(
     val correction: Correction,
 )
 
+internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
+    regularln("💬 Said:")
+    regularln("")
+    blockquote { regular(text.trim()) }
+}
+
 internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
     val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))
