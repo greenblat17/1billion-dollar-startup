@@ -380,6 +380,31 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             message,
                             practiceDeal(minutes, currentStreak),
                             allowSendingWithoutReply = true,
+                            replyMarkup = reminderAskKeyboard(callback.runId),
+                        )
+                    }
+                    "remind" -> {
+                        ai.scheduleReminder(
+                            telegramSessionId(message.chat.id),
+                            "remind:${query.id}",
+                            "ask",
+                            callback.runId,
+                        )
+                        clearOnboardingMarkup(message)
+                        reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)
+                    }
+                    "later" -> {
+                        ai.scheduleReminder(
+                            telegramSessionId(message.chat.id),
+                            "later:${query.id}",
+                            "decline",
+                            callback.runId,
+                        )
+                        clearOnboardingMarkup(message)
+                        reply(
+                            message,
+                            reminderSkipped(),
+                            allowSendingWithoutReply = true,
                             replyMarkup = practiceDealKeyboard(callback.runId),
                         )
                     }
@@ -427,7 +452,25 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
                     content.text.startsWith("/") -> Unit
-                    else -> reply(message, SEND_VOICE_HINT)
+                    else -> {
+                        val scheduled = ai.scheduleReminder(
+                            telegramSessionId(message.chat.id),
+                            "text:${message.messageId}",
+                            "submit",
+                            text = content.text,
+                        )
+                        when (scheduled.status) {
+                            "saved" -> reply(
+                                message,
+                                reminderSaved(scheduled.time.orEmpty()),
+                                allowSendingWithoutReply = true,
+                                replyMarkup = scheduled.runId.takeIf { it.isNotEmpty() }
+                                    ?.let { practiceDealKeyboard(it) },
+                            )
+                            "invalid" -> reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)
+                            else -> reply(message, SEND_VOICE_HINT)
+                        }
+                    }
                 }
                 else -> Unit
             }

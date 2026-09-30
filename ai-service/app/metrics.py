@@ -22,8 +22,8 @@ ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
 NAME_MAX_CHARS = 128
-TELEGRAM_SESSION_PREFIX = "tg-"
 REMINDER_SENT_TTL_SECONDS = 2 * 24 * 60 * 60
+REMINDER_GRACE = timedelta(hours=2)
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
@@ -32,6 +32,7 @@ _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
 _SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # Production Ktor builds ids from tgbotapi ChatId.toString(), e.g. "tg-ChatId(chatId=123)".
 _TELEGRAM_SESSION_RE = re.compile(r"tg-(-?\d+)|tg-ChatId\(chatId=(-?\d+)\)")
+_CLOCK_RE = re.compile(r"(\d{1,2}):(\d{2})")
 
 
 @dataclass(frozen=True)
@@ -168,9 +169,18 @@ class MetricsStore(Protocol):
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]: ...
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]: ...
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
+
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]: ...
 
     async def is_known(self, session_id: str) -> bool: ...
 
@@ -191,6 +201,8 @@ class MemoryMetricsStore:
         self._funnel_days: dict[str, FunnelCounts] = {}
         self._funnel_sources: dict[tuple[str, str], FunnelCounts] = {}
         self._reminded: set[tuple[str, str]] = set()
+        self._reminder_times: dict[str, str] = {}
+        self._reminder_pending: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     async def record_llm(
@@ -271,11 +283,37 @@ class MemoryMetricsStore:
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
             return payload
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
-        day_name = metrics_day(_moment(now))
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]:
+        session = session_id.strip()
+        if not session:
+            raise ValueError("session id required")
+        async with self._lock:
+            decision = schedule_decision(action, self._reminder_pending.get(session), text, run_id)
+            self._apply_schedule(session, decision)
+            return public_schedule(decision)
+
+    def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
+        if "write_pending" in decision:
+            if decision["write_pending"]:
+                self._reminder_pending[session] = decision["write_pending"]
+            else:
+                self._reminder_pending.pop(session, None)
+        if decision.get("time"):
+            self._reminder_times[session] = decision["time"]
+
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         async with self._lock:
             targets = []
-            for session in self._reminder_candidates(day_name):
+            for session in self._opted_in(day_name, moment, mode):
                 if (day_name, session) in self._reminded:
                     continue
                 self._reminded.add((day_name, session))
@@ -283,10 +321,13 @@ class MemoryMetricsStore:
             return targets
 
     async def reminder_forecast(self, *, now: float | None = None) -> int:
-        day_name = metrics_day(_moment(now))
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         async with self._lock:
             return sum(
-                1 for session in self._reminder_candidates(day_name) if (day_name, session) not in self._reminded
+                1
+                for session in self._opted_in(day_name, moment, "manual")
+                if (day_name, session) not in self._reminded
             )
 
     async def is_known(self, session_id: str) -> bool:
@@ -301,9 +342,13 @@ class MemoryMetricsStore:
     async def aclose(self) -> None:
         return None
 
-    def _reminder_candidates(self, day_name: str) -> list[str]:
-        known = set(self._funnel_users) | set(self._chats)
-        return sorted(reminder_candidates(known, self._dau.get(day_name, set())))
+    def _opted_in(self, day_name: str, moment: float, mode: str) -> list[str]:
+        return opted_reminder_sessions(
+            self._reminder_times,
+            self._dau.get(day_name, set()),
+            moment,
+            mode,
+        )
 
     def _add_turn(self, day_name: str, session: str, stt_ms: int, tts_chars: int, moment: float) -> None:
         day = self._days.setdefault(day_name, DayTotals())
@@ -435,10 +480,33 @@ class RedisMetricsStore:
     def redis(self) -> Redis:
         return self._redis
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
-        day_name = metrics_day(_moment(now))
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]:
+        session = session_id.strip()
+        if not session:
+            raise ValueError("session id required")
+        pending = await self._redis.get(_reminder_pending_key(session))
+        decision = schedule_decision(action, pending, text, run_id)
+        if "write_pending" in decision:
+            if decision["write_pending"]:
+                await self._redis.set(_reminder_pending_key(session), decision["write_pending"])
+            else:
+                await self._redis.delete(_reminder_pending_key(session))
+        if decision.get("time"):
+            await self._redis.set(_reminder_time_key(session), decision["time"])
+        return public_schedule(decision)
+
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         targets = []
-        for session in await self._reminder_candidates(day_name):
+        for session in await self._opted_in(day_name, moment, mode):
             claimed = await self._redis.set(
                 _reminder_sent_key(day_name, session),
                 "1",
@@ -452,8 +520,9 @@ class RedisMetricsStore:
         return targets
 
     async def reminder_forecast(self, *, now: float | None = None) -> int:
-        day_name = metrics_day(_moment(now))
-        sessions = await self._reminder_candidates(day_name)
+        moment = _moment(now)
+        day_name = metrics_day(moment)
+        sessions = await self._opted_in(day_name, moment, "manual")
         if not sessions:
             return 0
         pipe = self._redis.pipeline()
@@ -467,15 +536,16 @@ class RedisMetricsStore:
     async def is_activated(self, session_id: str) -> bool:
         return bool(await self._redis.hget(_funnel_user_key(session_id), "activated_day"))
 
-    async def _reminder_candidates(self, day_name: str) -> list[str]:
-        prefix = _funnel_user_key(TELEGRAM_SESSION_PREFIX)
-        known = {
-            str(key).removeprefix(_funnel_user_key(""))
-            async for key in self._redis.scan_iter(match=f"{prefix}*")
-        }
-        known.update(str(member) for member in await self._redis.zrange(_CHATS_KEY, 0, -1))
+    async def _opted_in(self, day_name: str, moment: float, mode: str) -> list[str]:
+        times: dict[str, str] = {}
+        prefix = _reminder_time_key("")
+        async for key in self._redis.scan_iter(match=f"{prefix}*"):
+            session = str(key).removeprefix(prefix)
+            value = await self._redis.get(key)
+            if value:
+                times[session] = str(value)
         active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
-        return sorted(reminder_candidates(known, active))
+        return opted_reminder_sessions(times, active, moment, mode)
 
     async def aclose(self) -> None:
         await self._redis.aclose()
@@ -604,10 +674,70 @@ def telegram_chat_id(session_id: str) -> int | None:
     return int(match.group(1) or match.group(2))
 
 
-def reminder_candidates(known: set[str], active_today: set[str]) -> set[str]:
-    return {
-        session for session in known if telegram_chat_id(session) is not None and session not in active_today
-    }
+def parse_reminder_clock(text: str) -> str | None:
+    match = _CLOCK_RE.fullmatch(text.strip())
+    if match is None:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def reminder_is_due(moment: float, hhmm: str) -> bool:
+    clock = parse_reminder_clock(hhmm)
+    if clock is None:
+        return False
+    local = datetime.fromtimestamp(moment, _TZ)
+    hour, minute = (int(part) for part in clock.split(":"))
+    start = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return start <= local < start + REMINDER_GRACE
+
+
+def opted_reminder_sessions(
+    times: dict[str, str],
+    active_today: set[str],
+    moment: float,
+    mode: str,
+) -> list[str]:
+    if mode not in {"auto", "manual"}:
+        raise ValueError("invalid reminder mode")
+    chosen = []
+    for session, hhmm in times.items():
+        if telegram_chat_id(session) is None or session in active_today:
+            continue
+        if mode != "manual" and not reminder_is_due(moment, hhmm):
+            continue
+        chosen.append(session)
+    return sorted(chosen)
+
+
+def schedule_decision(action: str, pending: str | None, text: str | None, run_id: str) -> dict[str, str]:
+    if action == "ask":
+        saved = run_id.strip()
+        if not saved:
+            raise ValueError("run id required")
+        return {"status": "asking", "write_pending": saved}
+    if action == "decline":
+        return {"status": "declined", "write_pending": ""}
+    if action == "submit":
+        if not pending:
+            return {"status": "ignored"}
+        clock = parse_reminder_clock(text or "")
+        if clock is None:
+            return {"status": "invalid"}
+        return {"status": "saved", "time": clock, "runId": pending, "write_pending": ""}
+    raise ValueError("invalid schedule action")
+
+
+def public_schedule(decision: dict[str, str]) -> dict[str, str]:
+    body = {"status": decision["status"]}
+    if decision.get("time"):
+        body["time"] = decision["time"]
+    if decision.get("runId"):
+        body["runId"] = decision["runId"]
+    return body
 
 
 def _one_line(value: str | None) -> str:
@@ -734,6 +864,14 @@ def _funnel_user_key(session_id: str) -> str:
 
 def _reminder_sent_key(day_name: str, session_id: str) -> str:
     return f"reminder:sent:{day_name}:{session_id}"
+
+
+def _reminder_time_key(session_id: str) -> str:
+    return f"reminder-time:{session_id}"
+
+
+def _reminder_pending_key(session_id: str) -> str:
+    return f"reminder-pending:{session_id}"
 
 
 def _funnel_day_key(day_name: str) -> str:

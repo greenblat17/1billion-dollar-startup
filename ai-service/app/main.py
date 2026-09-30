@@ -149,9 +149,32 @@ def create_app(
     async def streak_profile(session_id: str) -> dict[str, Any]:
         return await streaks.profile(session_id)
 
+    @app.post("/internal/reminders/schedule")
+    async def reminders_schedule(request: Request) -> dict[str, str]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        text = payload.get("text")
+        try:
+            return await clip_pipeline.metrics.schedule_reminder(
+                session_id,
+                str(payload.get("action") or ""),
+                text=None if text is None else str(text),
+                run_id=str(payload.get("runId") or ""),
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @app.post("/internal/reminders/claim")
-    async def reminders_claim() -> dict[str, list[dict[str, str | int | None]]]:
-        targets = await clip_pipeline.metrics.claim_reminders()
+    async def reminders_claim(request: Request) -> dict[str, list[dict[str, str | int | None]]]:
+        mode = "auto"
+        if await request.body():
+            payload = await _json_object(request)
+            mode = str(payload.get("mode") or "auto")
+        if mode not in {"auto", "manual"}:
+            raise HTTPException(status_code=400, detail="invalid reminder mode")
+        targets = await clip_pipeline.metrics.claim_reminders(mode=mode)
         claimed = []
         for target in targets:
             claimed.append(

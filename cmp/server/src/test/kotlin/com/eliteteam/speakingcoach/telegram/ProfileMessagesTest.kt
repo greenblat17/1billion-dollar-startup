@@ -51,17 +51,17 @@ class ProfileMessagesTest {
     }
 
     @Test
-    fun finalGoalMessageUsesActualStreakAndAlwaysLinksProfile() {
+    fun goalMessageUsesActualStreakAndAsksAboutAReminder() {
         assertEquals(
-            "10 minutes a day. Deal 🤝\n🔥 Day 4 of your streak\n" +
+            "10 minutes a day. Deal 🤝\n🔥 Day 4 of your streak\n\n" +
                 "Come back tomorrow for your 10-minute practice.\n" +
-                "You can check your progress anytime with /profile.",
+                "Want me to remind you?",
             practiceDeal(10, 4),
         )
         assertTrue(practiceDeal(5, 1).contains("Day 1"))
         for (streak in listOf(null, 0)) {
             assertFalse(practiceDeal(15, streak).contains("Day 1"))
-            assertTrue(practiceDeal(15, streak).contains("/profile"))
+            assertTrue(practiceDeal(15, streak).contains("Want me to remind you?"))
         }
         assertTrue(isProfileCommand("/profile"))
         assertTrue(isProfileCommand("/profile@speaky"))

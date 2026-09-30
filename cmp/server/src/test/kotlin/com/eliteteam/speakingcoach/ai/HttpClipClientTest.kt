@@ -126,7 +126,7 @@ class HttpClipClientTest {
             }
         }
         val http = client(engine)
-        val targets = HttpClipClient("http://ai.local", http, internalToken = "secret-token").claimReminders()
+        val targets = HttpClipClient("http://ai.local", http, internalToken = "secret-token").claimReminders("auto")
 
         assertEquals(
             listOf(ReminderTarget("tg-1", "Alex Green"), ReminderTarget("tg-2", null)),

@@ -102,14 +102,32 @@ class HttpClipClient(
         return response.body()
     }
 
-    suspend fun claimReminders(): List<ReminderTarget> {
+    suspend fun claimReminders(mode: String): List<ReminderTarget> {
         val response = http.post("$root/internal/reminders/claim") {
             applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(ReminderClaimRequest(mode))
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/reminders/claim returned ${response.status}")
         }
         return response.body<ReminderClaimResponse>().targets
+    }
+
+    suspend fun scheduleReminder(
+        sessionId: SessionId,
+        requestId: String,
+        action: String,
+        runId: String = "",
+        text: String = "",
+    ): ReminderScheduleResponse {
+        val response = http.post("$root/internal/reminders/schedule") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(ReminderScheduleRequest(sessionId.value, requestId, action, runId, text))
+        }
+        check(response.status.isSuccess()) { "ai-service reminder schedule returned ${response.status}" }
+        return response.body()
     }
 
     suspend fun reportReminders(report: ReminderReport) {

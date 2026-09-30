@@ -118,6 +118,22 @@ class OnboardingMessagesTest {
         }
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL), minutes)
         assertTrue(practiceDeal(10).startsWith("10 minutes a day. Deal 🤝"))
+        assertTrue(practiceDeal(10).endsWith("Want me to remind you?"))
+        val ask = reminderAskKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
+        assertEquals(listOf("🔔 Set reminder", "Not now"), ask.map { it.text })
+        assertEquals("remind", parseOnboardingCallback(ask[0].callbackData)?.action)
+        assertEquals("later", parseOnboardingCallback(ask[1].callbackData)?.action)
+        assertEquals("08:05", parseReminderClock("8:05"))
+        assertEquals("13:00", parseReminderClock(" 13:00 "))
+        assertEquals(null, parseReminderClock("evening"))
+        assertEquals(null, parseReminderClock("13"))
+        assertEquals(null, parseReminderClock("24:00"))
+        assertEquals(
+            "Perfect. I'll remind you every day at 13:00 🔔\n\nYou can check your progress anytime with /profile.",
+            reminderSaved("13:00"),
+        )
+        assertEquals("You can check your progress anytime with /profile.", reminderSkipped())
+        assertEquals(REMINDER_TIME_PROMPT, "When should I remind you?\nSend a time like 13:00")
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
         val deal = practiceDealKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("Keep talking 🎙", "See you tomorrow"), deal.map { it.text })

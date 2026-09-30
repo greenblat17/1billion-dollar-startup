@@ -427,18 +427,28 @@ async def test_reminders_skip_today_speakers_and_claim_once_per_day() -> None:
             await store.record_turn("app-session", 1, 1, now=day1 - 86400)
             await store.record_start("tg-abc", None, now=day1)
             await store.record_start("tg-ChatId(chatId=-100)", None, now=day1)
+            for session in ("tg-1", "tg-2", "tg-3", "tg-abc", "tg-ChatId(chatId=-100)", "app-session"):
+                await store.schedule_reminder(session, "ask", run_id="run")
+                await store.schedule_reminder(session, "submit", text="10:00")
+            await store.schedule_reminder("tg-9", "ask", run_id="run")
+            await store.schedule_reminder("tg-9", "submit", text="13:00")
 
-            first = await store.claim_reminders(now=day1 + 3600)
+            assert await store.claim_reminders(now=day1 - 60) == []
+            first = await store.claim_reminders(now=day1)
             assert [(item.session_id, item.name) for item in first] == [
                 ("tg-1", "Alex Green"),
                 ("tg-2", ""),
                 ("tg-ChatId(chatId=-100)", ""),
             ]
-            assert await store.claim_reminders(now=day1 + 7200) == []
+            assert await store.claim_reminders(now=day1) == []
+            assert await store.claim_reminders(now=day1 + 2 * 3600) == []
+            assert [item.session_id for item in await store.claim_reminders(now=day1, mode="manual")] == ["tg-9"]
 
             next_day = await store.claim_reminders(now=day2)
             assert [item.session_id for item in next_day] == ["tg-1", "tg-2", "tg-3", "tg-ChatId(chatId=-100)"]
         assert await opened.redis.ttl("reminder:sent:2026-09-24:tg-1") > 0
+        assert await opened.redis.ttl("reminder-time:tg-1") == -1
+        assert await opened.redis.get("reminder-pending:tg-1") is None
     finally:
         await opened.aclose()
 
@@ -449,6 +459,11 @@ async def test_reminders_claim_route_requires_token() -> None:
     await store.record_start("tg-7", None)
     await store.record_profile("tg-7", None, "Alex")
     await store.record_start("tg-8", None)
+    await store.schedule_reminder("tg-7", "ask", run_id="run")
+    assert (await store.schedule_reminder("tg-7", "submit", text="8:05"))["time"] == "08:05"
+    await store.schedule_reminder("tg-8", "ask", run_id="run")
+    await store.schedule_reminder("tg-8", "submit", text="13:00")
+    assert (await store.schedule_reminder("tg-8", "submit", text="evening"))["status"] == "ignored"
     pipeline = ClipPipeline(
         stt=FakeStt(["hi"]),
         llm=FakeLlm(),
@@ -464,8 +479,20 @@ async def test_reminders_claim_route_requires_token() -> None:
     )
     with TestClient(app) as client:
         assert client.post("/internal/reminders/claim").status_code == 401
-        first = client.post("/internal/reminders/claim", headers=AUTH)
-        second = client.post("/internal/reminders/claim", headers=AUTH)
+        asking = client.post(
+            "/internal/reminders/schedule",
+            headers=AUTH,
+            json={"sessionId": "tg-9", "action": "ask", "runId": "run"},
+        )
+        invalid = client.post(
+            "/internal/reminders/schedule",
+            headers=AUTH,
+            json={"sessionId": "tg-9", "action": "submit", "text": "24:00"},
+        )
+        first = client.post("/internal/reminders/claim", headers=AUTH, json={"mode": "manual"})
+        second = client.post("/internal/reminders/claim", headers=AUTH, json={"mode": "manual"})
+    assert asking.status_code == 200
+    assert invalid.json() == {"status": "invalid"}
     assert first.status_code == 200
     assert first.json() == {
         "targets": [

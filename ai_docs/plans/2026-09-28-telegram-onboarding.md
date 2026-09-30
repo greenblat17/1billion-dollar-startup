@@ -63,7 +63,7 @@ Local validation for this change: all 118 AI-service tests passed; `:server:test
 
 ### Profile overview (2026-09-29)
 
-After choosing daily minutes, the final reply includes the actual streak when available, a return-tomorrow invitation, and `You can check your progress anytime with /profile.` The existing two buttons remain; there is no extra onboarding step. A completed score summary is retained outside the attempt so `/profile` can show the latest assessment throughout a new onboarding attempt. See [profile contract and copy](../integrations/2026-09-29-telegram-profile.md).
+After choosing daily minutes, the bot asks whether to send a reminder. A typed Moscow `HH:MM` is saved and confirmed; `Not now` skips it. Both finish with the profile line and `Keep talking 🎙` / `See you tomorrow`. Only a saved time receives the daily reminder. A completed score summary is retained outside the attempt so `/profile` can show the latest assessment throughout a new onboarding attempt. See [profile contract and copy](../integrations/2026-09-29-telegram-profile.md).
 
 ### Fast introduction audio (2026-09-30)
 

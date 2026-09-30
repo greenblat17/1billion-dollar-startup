@@ -76,7 +76,8 @@ internal fun onboardingInvitation(firstName: String?): String {
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
-    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15",
+    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye",
+    "m5", "m10", "m15", "remind", "later",
 )
 
 internal fun parseOnboardingCallback(data: String): OnboardingCallback? {
@@ -124,13 +125,38 @@ internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineK
     }
 }
 
+internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("🔔 Set reminder", "ob:remind:$runId")
+        dataButton("Not now", "ob:later:$runId")
+    }
+}
+
+internal const val REMINDER_TIME_PROMPT = "When should I remind you?\nSend a time like 13:00"
+internal const val PROFILE_ANYTIME = "You can check your progress anytime with /profile."
+
+private val reminderClock = Regex("""(\d{1,2}):(\d{2})""")
+
+internal fun parseReminderClock(text: String): String? {
+    val match = reminderClock.matchEntire(text.trim()) ?: return null
+    val hour = match.groupValues[1].toInt()
+    val minute = match.groupValues[2].toInt()
+    if (hour > 23 || minute > 59) return null
+    return "%02d:%02d".format(hour, minute)
+}
+
+internal fun reminderSaved(time: String): String =
+    "Perfect. I'll remind you every day at $time 🔔\n\n$PROFILE_ANYTIME"
+
+internal fun reminderSkipped(): String = PROFILE_ANYTIME
+
 internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): String = buildString {
     append("$minutes minutes a day. Deal 🤝\n")
     if (currentStreak != null && currentStreak > 0) {
         append("🔥 Day $currentStreak of your streak\n")
     }
-    append("Come back tomorrow for your $minutes-minute practice.\n")
-    append("You can check your progress anytime with /profile.")
+    append("\nCome back tomorrow for your $minutes-minute practice.\n")
+    append("Want me to remind you?")
 }
 
 internal fun cefrBandName(cefr: String?): String? = when (cefr) {

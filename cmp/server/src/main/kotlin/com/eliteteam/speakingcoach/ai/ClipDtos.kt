@@ -195,8 +195,29 @@ data class FunnelVoiceRequest(
 )
 
 @Serializable
+data class ReminderClaimRequest(
+    val mode: String,
+)
+
+@Serializable
 data class ReminderClaimResponse(
     val targets: List<ReminderTarget> = emptyList(),
+)
+
+@Serializable
+data class ReminderScheduleRequest(
+    val sessionId: String,
+    val requestId: String,
+    val action: String,
+    val runId: String = "",
+    val text: String = "",
+)
+
+@Serializable
+data class ReminderScheduleResponse(
+    val status: String,
+    val time: String? = null,
+    val runId: String = "",
 )
 
 @Serializable
