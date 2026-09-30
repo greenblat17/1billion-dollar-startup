@@ -31,6 +31,8 @@ def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
         assert "cozy" in prompt
         assert "Oh, that's cool" in prompt
         assert "the phrase still cannot pass by" in prompt
+        assert "answer before your own question" in prompt
+        assert "love teaching people to speak English" in prompt
 
 
 class Stt:
