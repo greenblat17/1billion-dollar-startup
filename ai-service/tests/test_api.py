@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.onboarding import FIRST_QUESTION
+
 from dataclasses import replace
 
 import pytest
@@ -125,7 +127,7 @@ def test_clip_contract_returns_audio() -> None:
         assert audio.status_code == 200
         assert audio.headers["content-type"].startswith("audio/ogg")
         assert audio.content.startswith(b"OggS")
-        assert tts.texts == ["Got it: I went to the shop"]
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
 
 
 def test_empty_transcript_clarifies_without_llm() -> None:
@@ -146,7 +148,7 @@ def test_empty_transcript_clarifies_without_llm() -> None:
         assert body["result"]["notes"] == []
         assert llm.calls == []
         assert llm.notes_calls == []
-        assert tts.texts == ["I didn't catch that. Could you say it again?"]
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["I didn't catch that. Could you say it again?"]
 
 
 def test_second_clip_includes_dialogue_history() -> None:
@@ -212,7 +214,7 @@ def test_clip_includes_coaching_notes() -> None:
             {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar"},
         ]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
-        assert tts.texts == ["Got it: I was in Turkey last summer"]
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I was in Turkey last summer"]
 
 
 def test_internal_realtime_and_review() -> None:

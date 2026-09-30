@@ -370,8 +370,8 @@ async def test_close_remembers_profile_and_restart_wipes_it():
     assert saved["cefr"] == "B1"
     follow = await turn(s, run, "later")
     assert follow.onboarding is None or follow.onboarding.get("status") != "active"
-    assert "Hidden level: B1" in s.pipeline.llm.profile_notes[-1]
-    assert "Work: software developer" in s.pipeline.llm.profile_notes[-1]
+    assert '"overall_cefr": "B1"' in s.pipeline.llm.profile_notes[-1]
+    assert '"work": "software developer"' in s.pipeline.llm.profile_notes[-1]
     assert "never say the level" in s.pipeline.llm.profile_notes[-1].lower()
     await s.action("tg-test", run, "continue")
     await s.action("tg-test", run, "continue")
@@ -681,3 +681,63 @@ def test_profile_endpoint_requires_auth_and_does_not_create_an_attempt():
         assert response.json() == {"assessment": None, "dailyMinutes": None, "currentStreak": 0}
         assert s.model.calls == 0
         assert s.model.review_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_keep_talking_receives_person_proficiency_and_recent_conversation():
+    class PersonalModel(Model):
+        async def update_person(self, person, transcripts):
+            return {"name": "Alex", "work": "startup", "leisure": "football", "goal": "work",
+                    "facts": ["Watches matches alone to concentrate"]}
+
+        async def continue_question(self, profile):
+            self.continue_context = profile
+            return "What got you into football?"
+
+    model = PersonalModel()
+    s = service(stt=Stt(120, "I watch matches alone to concentrate."), model=model)
+    run = await begin(s)
+    await turn(s, run)
+    continued = await s.action("tg-test", run, "continue")
+    context = model.continue_context
+    assert "Watches matches alone to concentrate" in context["context"]
+    assert '\"overall_cefr\": \"B1\"' in context["context"]
+    assert '\"immediateContinuation\": true' in context["context"]
+    assert any(item["content"] == "I watch matches alone to concentrate." for item in context["recentConversation"])
+    assert continued.reply_text == "What got you into football?"
+
+
+@pytest.mark.asyncio
+async def test_intro_is_prepared_once_for_concurrent_users_and_reused_after_reset():
+    class SlowTts(FakeTts):
+        async def synthesize(self, text):
+            await asyncio.sleep(0)
+            return await super().synthesize(text)
+
+    s = service(tts=SlowTts())
+    warmup = asyncio.create_task(s.warm_intro(1))
+    await asyncio.gather(begin(s, "tg-one"), begin(s, "tg-two"), warmup)
+    assert s.pipeline.tts.texts == [FIRST_QUESTION]
+    restarted = await s.resolve("tg-one", "again", "force")
+    result = await s.action("tg-one", restarted["runId"], "begin")
+    assert result.audio == b"OggS" + FIRST_QUESTION.encode()
+    assert s.pipeline.tts.texts == [FIRST_QUESTION]
+
+
+@pytest.mark.asyncio
+async def test_failed_intro_warmup_does_not_cache_failure_or_prevent_begin():
+    class FlakyTts(FakeTts):
+        failed = False
+
+        async def synthesize(self, text):
+            if not self.failed:
+                self.failed = True
+                raise RuntimeError("temporary provider error")
+            return await super().synthesize(text)
+
+    s = service(tts=FlakyTts())
+    await s.warm_intro(1)
+    run = await begin(s)
+    assert (await s.store.get("tg-test"))["status"] == "active"
+    assert run
+    assert s.pipeline.tts.texts == [FIRST_QUESTION]

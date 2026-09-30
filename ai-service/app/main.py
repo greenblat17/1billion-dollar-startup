@@ -61,7 +61,12 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await streaks.backfill()
-        yield
+        intro_warmup = asyncio.create_task(onboarding.warm_intro(settings.pipeline_timeout_seconds))
+        try:
+            yield
+        finally:
+            intro_warmup.cancel()
+            await asyncio.gather(intro_warmup, return_exceptions=True)
         await onboarding.store.aclose()
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()

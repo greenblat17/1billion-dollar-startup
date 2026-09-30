@@ -42,6 +42,7 @@ class ClipPipeline:
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
     ) -> None:
+        self.personalization = None
         self._stt = stt
         self._llm = llm
         self._tts = tts
@@ -110,6 +111,8 @@ class ClipPipeline:
 
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
+        if self.personalization is not None:
+            profile_note = await self.personalization.prepare(session_id)
         reply_text, corrections = await asyncio.gather(
             self._llm.complete_reply(history, stt_result.text, profile_note),
             self._llm.complete_notes(stt_result.text),
@@ -126,6 +129,8 @@ class ClipPipeline:
             "total": _elapsed_ms(started),
         }
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
+        if self.personalization is not None:
+            await self.personalization.observe(session_id, stt_result.text)
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         await self._metrics.record_exchange(session_id)
         return PipelineResult(

@@ -30,7 +30,7 @@ AI-service composes this response without creating an onboarding attempt, callin
 - `practice-goal:{sessionId}`: existing daily-minutes choice, outside the attempt.
 - Existing streak storage: current display value including expiry, using the existing Moscow-day rule. A completed voice exchange counts; fulfilling the full daily goal is not required.
 
-Legacy completed attempts without a snapshot remain readable. Before `/onboarding` resets such an attempt, its summary is preserved. Already-reset attempts from before this release cannot be recovered. This snapshot is separate from the conversational work/leisure/goal profile, which still resets with the attempt.
+Legacy completed attempts without a snapshot remain readable. Before `/onboarding` resets such an attempt, its summary is preserved. Already-reset attempts from before this release cannot be recovered. This score snapshot is separate from the durable conversational learner memory described in [personalized conversation](2026-09-30-personalized-conversation.md); both now survive a new attempt.
 
 No assessment gives `assessment: null` and an invitation to complete `/onboarding`; goal and streak are still shown. Missing CEFR or individual scores remain unknown, never invented zeros. No goal shows `Not set yet`. C2 has no numeric overall score or next-band target. No active streak is `0 days`.
 

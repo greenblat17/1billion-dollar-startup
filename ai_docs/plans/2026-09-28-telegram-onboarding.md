@@ -33,7 +33,7 @@ Checkpoints prevent technical retries from counting or transcribing a recognized
 
 At the final boundary the attempt becomes `pending`. Failure to build the result produces `Retry`, which reuses the saved answers. Successful results are cached. Intermediate failures after recognition can also be retried with saved data; failure before recognition asks for another voice message. Telegram send/ack and Redis writes are not a distributed transaction; exactly-once external delivery is not guaranteed during a network loss.
 
-On close, the introduction's recognized turns are copied into ordinary dialogue history, with the closing goodbye as the last reply. Later replies also receive a hidden note with work, free time, goal, and CEFR. The level may change how simple the English is, and it must not be spoken. The text slides may show the letter. Ordinary conversation does not update the profile. `/onboarding` replaces the attempt immediately, so the saved profile is gone until the new attempt completes. The daily-minutes choice stays. `/start` after completion does not reset it.
+On close, the introduction's recognized turns are copied into ordinary dialogue history, with the closing goodbye as the last reply. Later replies also receive a hidden note with work, free time, goal, and CEFR. The level may change how simple the English is, and it must not be spoken. The text slides may show the letter. Ordinary conversation updates explicit personal facts in durable learner memory. `/onboarding` replaces the attempt but preserves that memory and fixed proficiency until another assessment completes. See [personalized conversation](../integrations/2026-09-30-personalized-conversation.md). The daily-minutes choice stays. `/start` after completion does not reset it.
 
 ## Validation and release
 
@@ -64,3 +64,7 @@ Local validation for this change: all 118 AI-service tests passed; `:server:test
 ### Profile overview (2026-09-29)
 
 After choosing daily minutes, the final reply includes the actual streak when available, a return-tomorrow invitation, and `You can check your progress anytime with /profile.` The existing two buttons remain; there is no extra onboarding step. A completed score summary is retained outside the attempt so `/profile` can show the latest assessment throughout a new onboarding attempt. See [profile contract and copy](../integrations/2026-09-29-telegram-profile.md).
+
+### Fast introduction audio (2026-09-30)
+
+The fixed `FIRST_QUESTION` audio is synthesized and converted once per AI-service process, then reused across users and onboarding resets. A background startup task prewarms it without blocking service startup; concurrent clicks share the same lock and synthesis. Failures and empty audio are not cached, allowing the next request to retry. Shutdown cancels unfinished warmup. A click during cold startup can still wait for the initial synthesis; warm clicks skip TTS and conversion but retain job polling, audio transfer and Telegram delivery. Restart clears the cache, ensuring deployed text/voice changes take effect. No live latency measurement was performed.
