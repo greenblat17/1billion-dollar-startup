@@ -161,6 +161,10 @@ def create_app(
     async def streak_profile(session_id: str) -> dict[str, Any]:
         return await streaks.profile(session_id)
 
+    @app.get("/internal/reminders/{session_id}")
+    async def reminder_time(session_id: str) -> dict[str, str | None]:
+        return {"time": await clip_pipeline.metrics.reminder_time(session_id)}
+
     @app.post("/internal/reminders/schedule")
     async def reminders_schedule(request: Request) -> dict[str, str]:
         payload = await _json_object(request)

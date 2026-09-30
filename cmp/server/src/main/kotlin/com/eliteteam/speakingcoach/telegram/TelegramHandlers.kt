@@ -50,6 +50,8 @@ internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile
 
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
+internal fun isRemindCommand(text: String): Boolean = isCommand(text, "/remind")
+
 private fun isCommand(text: String, name: String): Boolean {
     val command = text.trim().substringBefore(' ').substringBefore('@')
     return command == name
@@ -137,6 +139,31 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             message, profileMessage((message.chat as? PrivateChat)?.firstName, profile),
             allowSendingWithoutReply = true, replyMarkup = profileKeyboard(),
         )
+    }
+    suspend fun sendRemind(message: ChatMessage) {
+        val sessionId = telegramSessionId(message.chat.id)
+        val current = try {
+            ai.reminderTime(sessionId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to read reminder time for {}", sessionId.value, error)
+            null
+        }
+        ai.scheduleReminder(sessionId, "remind:${message.messageId}", "ask", REMIND_COMMAND_RUN)
+        reply(
+            message,
+            if (current.isNullOrBlank()) REMINDER_TIME_PROMPT else reminderChangePrompt(current),
+            allowSendingWithoutReply = true,
+        )
+    }
+    suspend fun reminderMissing(message: ChatMessage): Boolean = try {
+        ai.reminderTime(telegramSessionId(message.chat.id)).isNullOrBlank()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.warn("Failed to read reminder time for {}", message.chat.id, error)
+        false
     }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
@@ -385,12 +412,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (_: Throwable) {
         }
-        val goalMet = review.goalSeconds > 0.0 && review.todaySeconds >= review.goalSeconds
         reply(
             message,
-            callProgressMessage(review),
+            callProgressMessage(review, offerReminder = reminderMissing(message)),
             allowSendingWithoutReply = true,
-            replyMarkup = callReturnKeyboard(goalMet),
+            replyMarkup = callReturnKeyboard(),
         )
     }
     suspend fun endPracticeCall(message: ChatMessage) {
@@ -418,7 +444,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 actions.run(message.chat.id.toString(), "call:${query.id}") {
                     when (callCallback.action) {
                         "clock" -> reply(message, CALL_CLOCK_HINT, allowSendingWithoutReply = true)
-                        "talk" -> reply(message, CALL_KEEP_TALKING, allowSendingWithoutReply = true)
+                        "profile" -> sendProfile(message)
                         "bye" -> reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
                         "end" -> endPracticeCall(message)
                         "progress" -> showCallProgress(message, callCallback.callId)
@@ -573,6 +599,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("streak", requireOnlyCommandInMessage = false) { message ->
         if (isStreakCommand(message.content.text)) sendStreak(message)
     }
+    onCommand("remind", requireOnlyCommandInMessage = false) { message ->
+        if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
+    }
     onContentMessage { message ->
         handle(message, isVoice = message.content is VoiceContent) {
             when (val content = message.content) {
@@ -582,6 +611,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isOnboardingCommand(content.text) -> greet(message, content.text, force = true)
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
+                    isRemindCommand(content.text) -> sendRemind(message)
                     content.text.startsWith("/") -> Unit
                     else -> {
                         val scheduled = ai.scheduleReminder(
@@ -595,7 +625,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 message,
                                 reminderSaved(scheduled.time.orEmpty()),
                                 allowSendingWithoutReply = true,
-                                replyMarkup = scheduled.runId.takeIf { it.isNotEmpty() }
+                                replyMarkup = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
                                     ?.let { practiceDealKeyboard(it) },
                             )
                             "invalid" -> reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)

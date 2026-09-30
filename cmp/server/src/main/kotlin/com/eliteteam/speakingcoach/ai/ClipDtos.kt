@@ -222,6 +222,11 @@ data class ReminderScheduleResponse(
 )
 
 @Serializable
+data class ReminderTimeResponse(
+    val time: String? = null,
+)
+
+@Serializable
 data class ReminderTarget(
     val sessionId: String,
     val name: String? = null,

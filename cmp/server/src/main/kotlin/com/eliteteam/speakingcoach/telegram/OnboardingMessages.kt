@@ -140,6 +140,11 @@ internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKe
 }
 
 internal const val REMINDER_TIME_PROMPT = "When should I remind you?\nSend a time like 13:00"
+internal const val REMINDER_OFFER = "Want me to remind you tomorrow? Tap /remind"
+internal const val REMIND_COMMAND_RUN = "cmd"
+
+internal fun reminderChangePrompt(time: String): String =
+    "Your reminder is $time. Send a new time like 13:00 to change it."
 internal const val PROFILE_ANYTIME = "You can check your progress anytime with /profile."
 
 private val reminderClock = Regex("""(\d{1,2}):(\d{2})""")

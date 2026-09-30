@@ -182,6 +182,8 @@ class MetricsStore(Protocol):
         run_id: str = "",
     ) -> dict[str, str]: ...
 
+    async def reminder_time(self, session_id: str) -> str | None: ...
+
     async def is_known(self, session_id: str) -> bool: ...
 
     async def is_activated(self, session_id: str) -> bool: ...
@@ -298,6 +300,13 @@ class MemoryMetricsStore:
             decision = schedule_decision(action, self._reminder_pending.get(session), text, run_id)
             self._apply_schedule(session, decision)
             return public_schedule(decision)
+
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        async with self._lock:
+            return self._reminder_times.get(session)
 
     def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
         if "write_pending" in decision:
@@ -501,6 +510,13 @@ class RedisMetricsStore:
         if decision.get("time"):
             await self._redis.set(_reminder_time_key(session), decision["time"])
         return public_schedule(decision)
+
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        value = await self._redis.get(_reminder_time_key(session))
+        return str(value) if value else None
 
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
         moment = _moment(now)

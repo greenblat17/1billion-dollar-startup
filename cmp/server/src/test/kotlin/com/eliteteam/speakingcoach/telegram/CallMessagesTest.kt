@@ -22,6 +22,7 @@ class CallMessagesTest {
         val top = rows[0].map { (it as CallbackDataInlineKeyboardButton).callbackData }
         val end = rows[1].single() as CallbackDataInlineKeyboardButton
         assertEquals(listOf(CALL_CLOCK_CALLBACK, SPOKEN_TEXT_CALLBACK), top)
+        assertEquals("End conversation 📞", end.text)
         assertEquals(CallCallback("end", ""), parseCallCallback(end.callbackData))
         assertTrue(end.callbackData.encodeToByteArray().size <= 64)
     }
@@ -40,30 +41,58 @@ class CallMessagesTest {
     }
 
     @Test
-    fun returnKeyboardLeadsWithTomorrowOnlyAfterTheGoal() {
-        val early = callReturnKeyboard(goalMet = false).keyboard.single().map { (it as CallbackDataInlineKeyboardButton).callbackData }
-        val done = callReturnKeyboard(goalMet = true).keyboard.single().map { (it as CallbackDataInlineKeyboardButton).callbackData }
-        assertEquals(listOf("call:talk", "call:bye"), early)
-        assertEquals(listOf("call:bye", "call:talk"), done)
+    fun returnKeyboardOffersProfileAndFinish() {
+        val row = callReturnKeyboard().keyboard.single().map { it as CallbackDataInlineKeyboardButton }
+        assertEquals(listOf("Profile", "Finish for today"), row.map { it.text })
+        assertEquals(listOf("call:profile", "call:bye"), row.map { it.callbackData })
     }
 
     @Test
     fun progressLineShowsTheSmallStepFromTheStoredLevel() {
-        val text = callProgressMessage(
+        val up = callProgressMessage(
             CallReviewResponse(
-                overallScore = 54,
+                overallScore = 53,
                 previousScore = 52,
                 cefr = "B1",
-                todaySeconds = 504.0,
-                goalSeconds = 600.0,
-                streak = 4,
+                todaySeconds = 51.0,
+                goalSeconds = 300.0,
+                streak = 2,
             ),
         ).plain()
-        assertTrue(text.contains("8:24 / 10:00"))
-        assertTrue(text.contains("52 → 54"))
-        assertTrue(text.contains("B1 · Intermediate"))
-        assertTrue(text.contains("Day 4"))
-        assertTrue(!text.contains("80"))
+        assertTrue(up.contains("🎯 0:51 / 5:00 today"))
+        assertTrue(up.contains("52 → 53 ↑"))
+        assertTrue(up.contains("Nice — your speaking score went up."))
+        assertTrue(up.contains("B1 · Intermediate"))
+        assertTrue(up.contains("🔥 2 day streak"))
+        assertTrue(!up.contains("80"))
+
+        val down = callProgressMessage(
+            CallReviewResponse(
+                overallScore = 50,
+                previousScore = 52,
+                levelText = "The pauses got longer than usual.",
+                cefr = "B1",
+                streak = 2,
+            ),
+        ).plain()
+        assertTrue(down.contains("52 → 50 ↓"))
+        assertTrue(down.contains("This one came out a little lower."))
+        assertTrue(down.contains("The pauses got longer than usual."))
+
+        val same = callProgressMessage(
+            CallReviewResponse(overallScore = 52, previousScore = 52, cefr = "B1"),
+        ).plain()
+        assertTrue(same.contains("Speaking score: 52"))
+        assertTrue(same.contains("B1 · Intermediate"))
+        assertTrue(!same.contains("→"))
+        assertTrue(!same.contains("Nice"))
+        assertTrue(!same.contains("/remind"))
+
+        val offer = callProgressMessage(
+            CallReviewResponse(overallScore = 52, previousScore = 52, cefr = "B1", streak = 2),
+            offerReminder = true,
+        ).plain()
+        assertTrue(offer.endsWith(REMINDER_OFFER))
     }
 
     @Test

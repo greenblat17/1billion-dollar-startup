@@ -70,6 +70,10 @@ class ProfileMessagesTest {
         assertTrue(isProfileCommand("/profile"))
         assertTrue(isProfileCommand("/profile@speaky"))
         assertFalse(isProfileCommand("/profile_extra"))
+        assertTrue(isRemindCommand("/remind"))
+        assertTrue(isRemindCommand("/remind@speaky"))
+        assertFalse(isRemindCommand("/reminder"))
+        assertEquals("Your reminder is 13:00. Send a new time like 13:00 to change it.", reminderChangePrompt("13:00"))
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }

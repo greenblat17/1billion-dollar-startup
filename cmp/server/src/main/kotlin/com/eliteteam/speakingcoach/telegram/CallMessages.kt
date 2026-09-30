@@ -18,7 +18,6 @@ internal const val CALL_CLOCK_HINT =
     "This tracks how much English you've spoken today, toward your daily goal."
 internal const val CALL_RETRY_TEXT = "Couldn't score this conversation. Try again."
 internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
-internal const val CALL_KEEP_TALKING = "Send a voice when you're ready."
 
 internal data class CallCallback(val action: String, val callId: String)
 
@@ -49,13 +48,13 @@ internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boo
         dataButton(callClockLabel(todaySeconds, goalSeconds), CALL_CLOCK_CALLBACK)
         if (spoken) dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
     }
-    row { dataButton("End conversation", CALL_END_CALLBACK) }
+    row { dataButton("End conversation 📞", CALL_END_CALLBACK) }
 }
 
 internal fun parseCallCallback(data: String): CallCallback? = when (data) {
     CALL_CLOCK_CALLBACK -> CallCallback("clock", "")
     CALL_END_CALLBACK -> CallCallback("end", "")
-    "call:talk" -> CallCallback("talk", "")
+    "call:profile" -> CallCallback("profile", "")
     "call:bye" -> CallCallback("bye", "")
     else -> {
         val parts = data.split(':')
@@ -89,37 +88,52 @@ internal fun callYesterdayKeyboard(callId: String): InlineKeyboardMarkup = inlin
     row { dataButton("Yesterday's results", "call:review:$callId") }
 }
 
-internal fun callReturnKeyboard(goalMet: Boolean): InlineKeyboardMarkup = inlineKeyboard {
+internal fun callReturnKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
     row {
-        if (goalMet) {
-            dataButton("See you tomorrow", "call:bye")
-            dataButton("Keep talking 🎙", "call:talk")
-        } else {
-            dataButton("Keep talking 🎙", "call:talk")
-            dataButton("See you tomorrow", "call:bye")
-        }
+        dataButton("Profile", "call:profile")
+        dataButton("Finish for today", "call:bye")
     }
 }
 
-internal fun callProgressMessage(review: CallReviewResponse): TextSourcesList = buildEntities {
-    bold(callClockLabel(review.todaySeconds, review.goalSeconds))
-    regularln("")
-    regularln("")
+internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
+    bold("${callClockLabel(review.todaySeconds, review.goalSeconds)} today")
     val current = review.overallScore
     val previous = review.previousScore
-    if (current != null && previous != null && previous != current) {
-        bold("$previous → $current")
-    } else if (current != null) {
-        bold("$current / 100")
+    when {
+        current != null && previous != null && current > previous -> {
+            regularln("")
+            bold("$previous → $current ↑")
+            regularln("")
+            regular("Nice — your speaking score went up.")
+        }
+        current != null && previous != null && current < previous -> {
+            regularln("")
+            bold("$previous → $current ↓")
+            regularln("")
+            regular("This one came out a little lower.")
+            val reason = review.levelText.trim()
+            if (reason.isNotEmpty()) {
+                regularln("")
+                regular(reason)
+            }
+        }
+        current != null -> {
+            regularln("")
+            regular("Speaking score: $current")
+        }
     }
     val band = cefrBandName(review.cefr)
     if (review.cefr != null && band != null) {
         regularln("")
-        regularln("${review.cefr} · $band")
+        regular("${review.cefr} · $band")
     }
     if (review.streak > 0) {
         regularln("")
-        regular("Day ${review.streak} of your streak")
+        regular("🔥 ${review.streak} day streak")
+    }
+    if (offerReminder) {
+        regularln("")
+        regular(REMINDER_OFFER)
     }
 }
 

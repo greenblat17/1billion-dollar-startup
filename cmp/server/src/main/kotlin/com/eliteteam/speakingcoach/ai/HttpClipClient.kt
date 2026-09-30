@@ -115,6 +115,12 @@ class HttpClipClient(
         return response.body<ReminderClaimResponse>().targets
     }
 
+    suspend fun reminderTime(sessionId: SessionId): String? {
+        val response = http.get("$root/internal/reminders/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder time returned ${response.status}" }
+        return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun scheduleReminder(
         sessionId: SessionId,
         requestId: String,

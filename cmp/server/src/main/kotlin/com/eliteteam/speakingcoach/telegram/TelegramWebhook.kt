@@ -99,5 +99,6 @@ internal suspend fun registerBotCommands(bot: TelegramBot) {
         BotCommand("profile", "Show your English progress"),
         BotCommand("streak", "Show your streak"),
         BotCommand("onboarding", "Get to know Speaky"),
+        BotCommand("remind", "Set or change your daily reminder"),
     )
 }
