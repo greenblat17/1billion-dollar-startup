@@ -30,6 +30,7 @@ def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
         assert "2–4 short sentences" not in prompt
         assert "cozy" in prompt
         assert "Oh, that's cool" in prompt
+        assert "the phrase still cannot pass by" in prompt
 
 
 class Stt:

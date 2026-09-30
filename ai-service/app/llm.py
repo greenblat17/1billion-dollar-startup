@@ -19,7 +19,7 @@ Always reply with a JSON object only:
 {"reply": string}
 
 "reply" is spoken aloud. Usually three to six sentences.
-The reaction comes first and is about the specific thing they said.
+Open with a reaction to what they just said. Answer only if they asked.
 One question, last, and only to continue this same thread.
 Do not put corrections in "reply".
 """
