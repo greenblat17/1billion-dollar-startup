@@ -14,7 +14,7 @@ Authenticated `GET /internal/profile/{session_id}` returns:
     "cefr": "B1",
     "overallScore": 52,
     "nextBand": "B2",
-    "pointsToNext": 11,
+    "pointsToNext": 9,
     "grammar": 52,
     "vocabulary": 52,
     "fluency": 52

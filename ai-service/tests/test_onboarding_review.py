@@ -4,7 +4,9 @@ import pytest
 
 from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, correction_candidates, select_examples
-from app.onboarding_score import SCORE_TABLE, apply_skill, overall_progress, skill_confidence, skill_score
+from app.onboarding_score import (
+    SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
+)
 from app.stt import speech_words
 
 
@@ -55,6 +57,11 @@ def test_callback_stays_inside_the_closing_frame():
     assert "illustrative, not a checklist" in REVIEW_SYSTEM
     assert "not thresholds" in REVIEW_SYSTEM
     assert "0 to 100" not in REVIEW_SYSTEM.split("Do not return a score from 0 to 100.", 1)[1]
+    prompt = " ".join(REVIEW_SYSTEM.split())
+    assert 'Use "0" by default.' in prompt
+    assert "Do not use shade merely to create variation between scores." in prompt
+    assert "same story as that skill's band, position, and shade." in prompt
+    assert '"shade"' not in SYSTEM
 
 
 def test_fluency_uses_word_timings_inside_one_recording():
@@ -130,6 +137,10 @@ def test_parse_review_maps_bands_and_rejects_a_raw_score():
     assert parsed["grammar"]["position"] == "high"
     assert parsed["vocabulary"]["flags"] == ["concrete_lexis"]
     assert parsed["fluency"]["flags"] == ["completed_turns"]
+    assert parsed["shade"] == "0"
+    assert parsed["grammar"]["shade"] == "0"
+    with pytest.raises(ValueError):
+        parse_review(raw.replace('"levelText":"You keep going."', '"levelText":"You keep going.","shade":"high"', 1))
     with pytest.raises(ValueError):
         parse_review(raw.replace('"band":"B1"', '"band":62', 1))
     with pytest.raises(ValueError):
@@ -137,11 +148,49 @@ def test_parse_review_maps_bands_and_rejects_a_raw_score():
 
 
 def test_overall_progress_uses_the_same_table_and_not_an_average():
-    assert overall_progress("B1", "high") == {"overallScore": 57, "nextBand": "B2", "pointsToNext": 6}
-    assert overall_progress("B1", "mid")["pointsToNext"] == 11
+    assert overall_progress("B1", "high") == {"overallScore": 57, "nextBand": "B2", "pointsToNext": 4}
+    assert overall_progress("B1", "mid")["pointsToNext"] == 9
+    assert overall_progress("B1", "mid", "++") == {"overallScore": 54, "nextBand": "B2", "pointsToNext": 7}
     assert overall_progress("C1", "high") == {"overallScore": 94, "nextBand": None, "pointsToNext": None}
     assert overall_progress("C2", None)["overallScore"] is None
     assert overall_progress(None, None)["overallScore"] is None
+    grammar = skill_score("B1", "mid", "-")
+    vocabulary = skill_score("B1", "mid", "++")
+    fluency = skill_score("B1", "high", "-")
+    assert (grammar, vocabulary, fluency) == (51, 54, 56)
+    assert overall_progress("B1", "mid", "++")["overallScore"] != (grammar + vocabulary + fluency) / 3
+
+
+def test_shade_stays_inside_its_cell_and_bands_start_at_the_lowest_score():
+    assert [skill_score("B1", "mid", shade) for shade in ("--", "-", "0", "+", "++")] == [50, 51, 52, 53, 54]
+    assert skill_score("A2", "high", "+") == skill_score("A2", "high", "++") == 44
+    assert skill_score("B1", "low", "--") == skill_score("B1", "low", "-") == 46
+    assert skill_score("C1", "mid", "+") == skill_score("C1", "mid", "++") == 91
+    assert skill_score("C1", "high", "--") == skill_score("C1", "high", "-") == 93
+    assert [band_start(band) for band in ("A1", "A2", "B1", "B2", "C1")] == [10, 30, 46, 61, 81]
+    previous = None
+    for band, positions in SCORE_TABLE.items():
+        for position in ("low", "mid", "high"):
+            scores = [skill_score(band, position, shade) for shade in ("--", "-", "0", "+", "++")]
+            assert scores == sorted(scores)
+            assert scores[2] == positions[position]
+            if previous is not None:
+                assert min(scores) > previous
+            previous = max(scores)
+    placed = apply_skill(
+        {
+            "band": "B1",
+            "position": "mid",
+            "shade": "++",
+            "text": "You have enough words.",
+            "notes": "Precise choices repeat.",
+            "flags": ["concrete_lexis"],
+        },
+        120,
+        "vocabulary",
+    )
+    assert placed["score"] == 54
+    assert placed["shade"] == "++"
 
 
 def test_score_table_is_closed_and_null_stays_empty():
@@ -171,6 +220,7 @@ def test_confidence_caps_at_two_minutes_and_ignores_bare_duration():
         timings=True,
     )
     assert scored["score"] is None
+    assert scored["shade"] == "0"
     assert scored["flags"] == ["timings_present"]
     assert scored["confidence"] < 0.6
 
@@ -187,7 +237,18 @@ def test_parse_review_accepts_a_skill_without_flags_or_notes():
     assert parsed["grammar"]["position"] == "high"
     assert parsed["grammar"]["flags"] == []
     assert parsed["grammar"]["notes"] == ""
+    assert parsed["grammar"]["shade"] == "0"
     assert parsed["vocabulary"]["band"] is None
+    shaded = parse_review(
+        '{"callback":null,"levelText":"You keep going.","shade":"++",'
+        '"grammar":{"band":"B1","position":"mid","shade":"-","text":"A few patterns.","notes":"Mostly steady."},'
+        '"vocabulary":{"band":null,"position":null,"shade":"++","text":"Not enough.","notes":""},'
+        '"fluency":{"band":"B1","position":"high","shade":"-","text":"You keep going.","notes":"Few long pauses."}}'
+    )
+    assert shaded["shade"] == "++"
+    assert shaded["grammar"]["shade"] == "-"
+    assert shaded["vocabulary"]["shade"] == "0"
+    assert shaded["fluency"]["shade"] == "-"
 
 
 @pytest.mark.asyncio

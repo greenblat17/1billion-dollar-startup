@@ -12,7 +12,7 @@ from redis.asyncio import Redis
 
 from app.llm import Correction
 from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
-from app.onboarding_score import apply_skill, overall_progress
+from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 
@@ -121,7 +121,7 @@ def assessment_summary(state: dict | None) -> dict | None:
         return None
     return {
         "cefr": state.get("cefr"),
-        **overall_progress(state.get("cefr"), state.get("position")),
+        **overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state)),
         **{skill: (state["review"].get(skill) or {}).get("score")
            for skill in ("grammar", "vocabulary", "fluency")},
     }
@@ -130,7 +130,7 @@ def assessment_summary(state: dict | None) -> dict | None:
 def public_state(state: dict) -> dict:
     payload = {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
-        **overall_progress(state.get("cefr"), state.get("position")),
+        **overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state)),
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
         "react": state["status"] == "active" and not state.get("voiceArrived") and not state["turns"],
     }
@@ -138,6 +138,13 @@ def public_state(state: dict) -> dict:
     if isinstance(review, dict):
         payload["review"] = _public_review(review)
     return payload
+
+
+def _stored_shade(state: dict) -> str:
+    review = state.get("review")
+    if not isinstance(review, dict):
+        return "0"
+    return normalize_shade(review.get("shade"))
 
 
 def _public_review(review: dict) -> dict:
@@ -482,6 +489,7 @@ class OnboardingService:
         })
         return {
             "levelText": raw["levelText"],
+            "shade": normalize_shade(raw.get("shade")),
             "grammar": grammar,
             "vocabulary": vocabulary,
             "fluency": fluency,

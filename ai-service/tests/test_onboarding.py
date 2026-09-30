@@ -168,7 +168,9 @@ async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
         assert "confidence" not in result.onboarding["review"]["grammar"]
         assert result.onboarding["overallScore"] == 57
         assert result.onboarding["nextBand"] == "B2"
-        assert result.onboarding["pointsToNext"] == 6
+        assert result.onboarding["pointsToNext"] == 4
+        assert "shade" not in result.onboarding["review"]
+        assert "shade" not in result.onboarding["review"]["grammar"]
         assert "position" not in result.onboarding
         stored_review = (await s.store.get("tg-test"))["review"]
         assert stored_review["grammar"]["confidence"] > 0
@@ -633,7 +635,7 @@ async def test_profile_preserves_latest_assessment_goal_and_streak_during_reasse
     await s.set_goal("tg-test", 10)
     before = await s.progress_profile("tg-test")
     assert before["assessment"] == {
-        "cefr": "B1", "overallScore": 57, "nextBand": "B2", "pointsToNext": 6,
+        "cefr": "B1", "overallScore": 57, "nextBand": "B2", "pointsToNext": 4,
         "grammar": 57, "vocabulary": 52, "fluency": 63,
     }
     assert before["dailyMinutes"] == 10

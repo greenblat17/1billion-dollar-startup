@@ -38,13 +38,53 @@ SKILL_FLAGS = {
 
 
 _BANDS = ("A1", "A2", "B1", "B2", "C1")
+_POSITIONS = ("low", "mid", "high")
+SHADES = {"--": -2, "-": -1, "0": 0, "+": 1, "++": 2}
+_CELLS = tuple(
+    (band, position, SCORE_TABLE[band][position])
+    for band in _BANDS
+    for position in _POSITIONS
+)
+_CELL_INDEX = {(band, position): index for index, (band, position, _) in enumerate(_CELLS)}
 
 
-def overall_progress(cefr: str | None, position: str | None) -> dict:
+def normalize_shade(value: str | None) -> str:
+    """A missing shade is the cell center. The model never supplies the integer."""
+    return value if value in SHADES else "0"
+
+
+def _bounds(index: int) -> tuple[int, int]:
+    """Stay strictly closer to this anchor than to either neighbor. A midpoint belongs to neither."""
+    anchor = _CELLS[index][2]
+    lower = anchor - 2
+    upper = anchor + 2
+    if index > 0:
+        previous = _CELLS[index - 1][2]
+        lower = max(lower, (previous + anchor) // 2 + 1)
+    if index + 1 < len(_CELLS):
+        following = _CELLS[index + 1][2]
+        upper = min(upper, (anchor + following + 1) // 2 - 1)
+    return lower, upper
+
+
+def skill_score(band: str | None, position: str | None, shade: str = "0") -> int | None:
+    if band is None:
+        return None
+    index = _CELL_INDEX[(band, position)]
+    lower, upper = _bounds(index)
+    return min(max(_CELLS[index][2] + SHADES[normalize_shade(shade)], lower), upper)
+
+
+def band_start(band: str) -> int:
+    """The beginning of a band is the lowest score its low cell can reach."""
+    return skill_score(band, "low", "--")
+
+
+def overall_progress(cefr: str | None, position: str | None, shade: str = "0") -> dict:
     """Holistic level only. Skill scores are never averaged into this."""
     if cefr not in SCORE_TABLE or position not in SCORE_TABLE[cefr]:
         return {"overallScore": None, "nextBand": None, "pointsToNext": None}
-    score = SCORE_TABLE[cefr][position]
+    score = skill_score(cefr, position, shade)
     index = _BANDS.index(cefr)
     if index + 1 >= len(_BANDS):
         return {"overallScore": score, "nextBand": None, "pointsToNext": None}
@@ -52,14 +92,8 @@ def overall_progress(cefr: str | None, position: str | None) -> dict:
     return {
         "overallScore": score,
         "nextBand": next_band,
-        "pointsToNext": SCORE_TABLE[next_band]["low"] - score,
+        "pointsToNext": band_start(next_band) - score,
     }
-
-
-def skill_score(band: str | None, position: str | None) -> int | None:
-    if band is None:
-        return None
-    return SCORE_TABLE[band][position]
 
 
 def skill_confidence(flags: list[str], allowed: frozenset[str], seconds: float) -> float:
@@ -76,11 +110,13 @@ def apply_skill(raw: dict, seconds: float, kind: str, timings: bool = False) -> 
     flags = list(raw["flags"])
     if kind == "fluency" and timings and "timings_present" not in flags:
         flags.append("timings_present")
+    shade = "0" if raw["band"] is None else normalize_shade(raw.get("shade"))
     return {
-        "score": skill_score(raw["band"], raw["position"]),
+        "score": skill_score(raw["band"], raw["position"], shade),
         "text": raw["text"],
         "band": raw["band"],
         "position": raw["position"],
+        "shade": shade,
         "notes": raw["notes"],
         "flags": [flag for flag in flags if flag in allowed],
         "confidence": skill_confidence(flags, allowed, seconds),

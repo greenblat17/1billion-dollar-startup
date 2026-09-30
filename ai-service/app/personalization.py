@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app.onboarding_score import overall_progress
+from app.onboarding_score import normalize_shade, overall_progress
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +121,17 @@ class Personalization:
 
 def proficiency(state):
     review = state.get("review") or {}
+    shade = normalize_shade(review.get("shade")) if isinstance(review, dict) else "0"
     return {
         "overall_cefr": state.get("cefr"), "position": state.get("position"),
-        "overall_score": overall_progress(state.get("cefr"), state.get("position"))["overallScore"],
-        **{skill: {key: (review.get(skill) or {}).get(key)
-                   for key in ("band", "position", "score", "confidence")}
+        "overall_shade": shade,
+        "overall_score": overall_progress(state.get("cefr"), state.get("position"), shade)["overallScore"],
+        **{skill: _skill_proficiency(review.get(skill) or {})
            for skill in ("grammar", "vocabulary", "fluency")},
     }
+
+
+def _skill_proficiency(skill: dict) -> dict:
+    kept = {key: skill.get(key) for key in ("band", "position", "score", "confidence")}
+    kept["shade"] = normalize_shade(skill.get("shade"))
+    return kept
