@@ -1,6 +1,6 @@
 # Daily Telegram reminder
 
-Status: implemented (2026-09-26), including the admin controls and stats on `/admin/metrics`.
+Status: implemented (2026-09-26), including the admin controls and stats on `/admin/metrics`. Auto send is paused as of 2026-09-30: `shouldRunReminder` stays false, so the 19:00 Moscow window does not send. The manual dashboard button still can.
 
 ## Decisions
 

@@ -30,7 +30,7 @@ internal fun remindersPageHtml(
     <body>
     <h1>Speaky</h1>
     ${adminTabs(REMINDERS_PATH)}
-    <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Ежедневно в 19:00.</p>
+    <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Авторассылка в 19:00 выключена.</p>
     ${remindersSectionHtml(snapshot.reminders, notice, controls)}
     </body>
     </html>

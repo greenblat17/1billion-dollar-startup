@@ -20,7 +20,12 @@ internal val REMINDER_WINDOW_END: LocalTime = LocalTime.of(21, 0)
 
 private val log = LoggerFactory.getLogger("DailyReminder")
 
+internal const val REMINDERS_ENABLED: Boolean = false
+
 internal fun shouldRunReminder(now: ZonedDateTime, lastRunDay: LocalDate?): Boolean {
+    if (!REMINDERS_ENABLED) {
+        return false
+    }
     val local = now.withZoneSameInstant(REMINDER_ZONE)
     val time = local.toLocalTime()
     return time >= REMINDER_WINDOW_START && time < REMINDER_WINDOW_END && local.toLocalDate() != lastRunDay
