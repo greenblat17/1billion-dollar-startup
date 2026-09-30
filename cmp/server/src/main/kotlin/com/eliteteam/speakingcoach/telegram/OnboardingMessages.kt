@@ -26,6 +26,11 @@ internal const val PRACTICE_ASK_BODY = "A little practice every day can make a b
 internal const val PRACTICE_ASK_PROGRESS = "Now let's make progress one conversation at a time."
 internal const val PRACTICE_ASK_QUESTION = "How much time do you want to practice each day?"
 internal const val SEE_YOU_TOMORROW = "See you tomorrow. I'll be here when you're ready."
+internal const val FOUNDER_NOTE =
+    "Кстати, я Саша, один из создателей Speaky 👋\n" +
+        "Сейчас мы активно развиваем нашего English Buddy, поэтому мне правда интересно, как тебе первый разговор\n" +
+        "Если что-то понравилось, не понравилось или просто появилась идея — напиши мне напрямую: @alexgusev93\n" +
+        "Я читаю каждое сообщение и всегда отвечаю сам. Буду рад любому фидбеку 😊"
 internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
@@ -77,12 +82,12 @@ internal fun onboardingInvitation(firstName: String?): String {
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
-    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye",
+    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
     "m5", "m10", "m15", "remind", "later",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
-    "retry", "level", "results", "vocab", "fluency", "finish" -> "callback:$queryId"
+    "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
     "m5", "m10", "m15" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
@@ -127,8 +132,8 @@ internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inli
 
 internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
-        dataButton("Keep talking 🎙", "ob:talk:$runId")
-        dataButton("See you tomorrow", "ob:bye:$runId")
+        dataButton("Profile", "ob:profile:$runId")
+        dataButton("See you tomorrow 👋", "ob:bye:$runId")
     }
 }
 

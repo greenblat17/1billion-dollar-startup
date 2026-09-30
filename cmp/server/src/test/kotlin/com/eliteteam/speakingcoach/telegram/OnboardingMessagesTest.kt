@@ -17,7 +17,7 @@ class OnboardingMessagesTest {
     @Test
     fun buttonsCarryTheAttemptAndFitTelegramLimit() {
         val run = "a".repeat(32)
-        for (action in listOf("begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "bye", "m5", "m10", "m15")) {
+        for (action in listOf("begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye", "m5", "m10", "m15")) {
             val button = onboardingKeyboard(action, run).keyboard.single().single() as CallbackDataInlineKeyboardButton
             assertEquals(OnboardingCallback(action, run), parseOnboardingCallback(button.callbackData))
             assertTrue(button.callbackData.encodeToByteArray().size <= 64)
@@ -26,7 +26,7 @@ class OnboardingMessagesTest {
         assertNull(parseOnboardingCallback("ob:begin:another:chat"))
         assertNull(parseOnboardingCallback("ob:begin:"))
         assertNull(parseOnboardingCallback(SPOKEN_TEXT_CALLBACK))
-        for (action in listOf("level", "results", "vocab", "fluency", "finish")) {
+        for (action in listOf("level", "results", "vocab", "fluency", "finish", "profile")) {
             assertEquals("callback:q1", onboardingCallbackRequestId(action, run, "q1"))
             assertTrue(onboardingCallbackRequestId(action, run, "q1") != onboardingCallbackRequestId(action, run, "q2"))
         }
@@ -146,9 +146,12 @@ class OnboardingMessagesTest {
         assertEquals("You can check your progress anytime with /profile.", reminderSkipped())
         assertEquals(REMINDER_TIME_PROMPT, "When should I remind you?\nSend a time like 13:00")
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
+        assertTrue(FOUNDER_NOTE.contains("@alexgusev93"))
+        assertTrue(FOUNDER_NOTE.startsWith("Кстати, я Саша, один из создателей Speaky 👋"))
         val deal = practiceDealKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
-        assertEquals(listOf("Keep talking 🎙", "See you tomorrow"), deal.map { it.text })
-        assertEquals("talk", parseOnboardingCallback(deal[0].callbackData)?.action)
+        assertEquals(listOf("Profile", "See you tomorrow 👋"), deal.map { it.text })
+        assertEquals("profile", parseOnboardingCallback(deal[0].callbackData)?.action)
+        assertEquals("bye", parseOnboardingCallback(deal[1].callbackData)?.action)
         val closing = withSpokenText(onboardingKeyboard("level", run), spoken = true)!!.keyboard.single()
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("🔥 See my results", SPOKEN_TEXT_BUTTON), closingLabels)

@@ -93,6 +93,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
+    val founderNotes = ConcurrentHashMap.newKeySet<String>()
     val progressMessages = ConcurrentHashMap<String, MessageId>()
     val spokenLines = ConcurrentHashMap<String, String>()
     suspend fun clearProgress(chat: Chat) {
@@ -583,7 +584,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             replyMarkup = practiceDealKeyboard(callback.runId),
                         )
                     }
-                    "bye" -> reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
+                    "profile" -> {
+                        sendProfile(message)
+                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                    }
+                    "bye" -> {
+                        reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
+                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                    }
                     else -> {
                         val result = ai.onboardingAction(
                             telegramSessionId(message.chat.id),
