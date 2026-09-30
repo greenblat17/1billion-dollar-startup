@@ -33,6 +33,8 @@ import dev.inmo.tgbotapi.types.message.content.VoiceContent
 import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.time.TimeSource
 
 internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 
@@ -170,6 +172,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false) {
         if (result.onboarding?.status == "ignored") return
+        val deliveryStarted = TimeSource.Monotonic.markNow()
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
         val finished = onboarding?.takeIf { it.status == "completed" && it.review != null }
         val practice = result.call?.takeIf { onboarding == null }
@@ -193,6 +196,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } else if (result.transcript.isNotBlank()) {
             reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
         }
+        val beforeVoiceMs = deliveryStarted.elapsedNow().inWholeMilliseconds
         val audio = result.audio
         if (audio != null) {
             val spoken = result.text.isNotBlank()
@@ -221,6 +225,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
             if (progress != null) progressMessages[message.chat.id.toString()] = sent.messageId
         }
+        log.info(
+            "Telegram reply delivery session={} request=message:{} before_voice_ms={} voice_or_text_ms={} total_ms={}",
+            telegramSessionId(message.chat.id).value, message.messageId, beforeVoiceMs,
+            deliveryStarted.elapsedNow().inWholeMilliseconds - beforeVoiceMs,
+            deliveryStarted.elapsedNow().inWholeMilliseconds,
+        )
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false) {
         val sessionId = telegramSessionId(message.chat.id)
@@ -258,6 +268,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
     }
     suspend fun voice(message: ChatMessage, content: VoiceContent) {
+        val voiceStarted = TimeSource.Monotonic.markNow()
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = "message:${message.messageId}"
         val state = ai.onboardingState(sessionId, requestId)
@@ -316,17 +327,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to record voice for {}", sessionId.value, error)
         }
         ai.ensureSession(sessionId)
+        val setupMs = voiceStarted.elapsedNow().inWholeMilliseconds
+        val queueStarted = System.nanoTime()
+        val processingStarted = AtomicLong(0)
+        val downloadMs = AtomicLong(0)
         val result = sessionClipQueue.submit(
             sessionId = sessionId,
+            onProcessingStart = { processingStarted.set(System.nanoTime()) },
             source = {
+                val downloadStarted = TimeSource.Monotonic.markNow()
+                val bytes = downloadFile(content.media)
+                downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
                 AudioClip(
-                    downloadFile(content.media), "audio/ogg", "voice.ogg",
+                    bytes, "audio/ogg", "voice.ogg",
                     onboardingRunId = state.runId.takeIf { state.status == "active" || state.status == "completed" },
                     requestId = requestId,
                     durationSeconds = (content.media.duration ?: 0L).toDouble(),
                 )
             },
         )
+        val processedAt = processingStarted.get()
+        val queueMs = if (processedAt == 0L) 0L else (processedAt - queueStarted) / 1_000_000
+        val processingMs = if (processedAt == 0L) 0L else (System.nanoTime() - processedAt) / 1_000_000
+        val deliveryStarted = TimeSource.Monotonic.markNow()
         when (result) {
             ClipSubmitResult.QueueFull -> reply(message, QUEUE_FULL_TEXT)
             is ClipSubmitResult.Completed -> {
@@ -342,8 +365,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
             }
         }
+        log.info(
+            "Telegram voice stages session={} request={} setup_ms={} queue_ms={} download_ms={} processing_ms={} delivery_ms={} total_ms={}",
+            sessionId.value, requestId, setupMs, queueMs, downloadMs.get(), processingMs,
+            deliveryStarted.elapsedNow().inWholeMilliseconds, voiceStarted.elapsedNow().inWholeMilliseconds,
+        )
     }
     suspend fun handle(message: ChatMessage, isVoice: Boolean = false, block: suspend () -> Unit) {
+        val receivedAt = TimeSource.Monotonic.markNow()
+        var outcome = "ok"
         try {
             actions.run(
                 chatId = message.chat.id.toString(),
@@ -354,8 +384,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 action = block,
             )
         } catch (error: CancellationException) {
+            outcome = "cancelled"
             throw error
         } catch (error: Throwable) {
+            outcome = "error"
             log.error("Telegram message failed for {}", message.chat.id, error)
             val state = if (isVoice) {
                 runCatching { ai.onboardingState(telegramSessionId(message.chat.id), "error:${message.messageId}") }.getOrNull()
@@ -366,6 +398,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = state?.takeIf { it.retryAvailable }
                     ?.let { onboardingKeyboard("retry", it.runId) },
             )
+        } finally {
+            if (isVoice) {
+                log.info(
+                    "Telegram voice handled session={} request=message:{} outcome={} elapsed_ms={}",
+                    telegramSessionId(message.chat.id).value, message.messageId, outcome,
+                    receivedAt.elapsedNow().inWholeMilliseconds,
+                )
+            }
         }
     }
     suspend fun showCallLevel(message: ChatMessage, callId: String) {

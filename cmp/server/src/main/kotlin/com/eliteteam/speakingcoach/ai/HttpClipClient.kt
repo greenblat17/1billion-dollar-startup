@@ -29,6 +29,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.delay
+import org.slf4j.LoggerFactory
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -44,6 +45,7 @@ class HttpClipClient(
     private val internalToken: String = "",
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
+    private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
 
     suspend fun startSession(sessionId: SessionId? = null): SessionGreeting {
         val created = createSession(sessionId)
@@ -236,30 +238,49 @@ class HttpClipClient(
     }
 
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
-        return awaitJob(submit(sessionId, clip))
+        val started = TimeSource.Monotonic.markNow()
+        val jobId = submit(sessionId, clip)
+        val submitMs = started.elapsedNow().inWholeMilliseconds
+        val reply = awaitJob(jobId)
+        log.info(
+            "AI clip client session={} job={} submit_ms={} wait_and_audio_ms={} total_ms={}",
+            sessionId.value, jobId, submitMs, started.elapsedNow().inWholeMilliseconds - submitMs,
+            started.elapsedNow().inWholeMilliseconds,
+        )
+        return reply
     }
 
     private suspend fun awaitJob(jobId: String): ClipReply {
+        val started = TimeSource.Monotonic.markNow()
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
-                is ClipJobStatus.Ok -> return ClipReply(
-                    corrections = status.corrections,
-                    audio = if (status.audioAvailable) downloadAudio(jobId) else null,
-                    text = status.text,
-                    onboarding = status.onboarding?.let {
-                        OnboardingStatus(
-                            it.runId, it.status, it.seconds, it.cefr, it.review,
-                            it.overallScore, it.nextBand, it.pointsToNext,
-                        )
-                    },
-                    transcript = status.transcript,
-                    streak = status.streak,
-                    call = status.call?.let {
-                        CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
-                    },
-                )
+                is ClipJobStatus.Ok -> {
+                    val pollMs = started.elapsedNow().inWholeMilliseconds
+                    val audioStarted = TimeSource.Monotonic.markNow()
+                    val audio = if (status.audioAvailable) downloadAudio(jobId) else null
+                    log.info(
+                        "AI clip result job={} poll_ms={} audio_download_ms={}",
+                        jobId, pollMs, audioStarted.elapsedNow().inWholeMilliseconds,
+                    )
+                    return ClipReply(
+                        corrections = status.corrections,
+                        audio = audio,
+                        text = status.text,
+                        onboarding = status.onboarding?.let {
+                            OnboardingStatus(
+                                it.runId, it.status, it.seconds, it.cefr, it.review,
+                                it.overallScore, it.nextBand, it.pointsToNext,
+                            )
+                        },
+                        transcript = status.transcript,
+                        streak = status.streak,
+                        call = status.call?.let {
+                            CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
+                        },
+                    )
+                }
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
         }

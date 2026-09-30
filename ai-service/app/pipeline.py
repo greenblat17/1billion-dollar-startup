@@ -96,57 +96,81 @@ class ClipPipeline:
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             reply_audio = await self._tts.synthesize(CLARIFY_TEXT)
-            timings = {
-                "stt": stt_ms,
-                "llm": 0,
-                "tts": _elapsed_ms(tts_started),
-                "total": _elapsed_ms(started),
-            }
-            logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
+            timings = {"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)}
+            finalize_started = time.perf_counter()
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             await self._metrics.record_exchange(session_id)
+            streak = await self._record_streak(session_id)
+            call = await self._call_summary(session_id)
+            timings["finalize"] = _elapsed_ms(finalize_started)
+            timings["total"] = _elapsed_ms(started)
+            logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
             return PipelineResult(
                 audio=reply_audio,
                 transcript=stt_result.text,
                 reply_text=CLARIFY_TEXT,
                 timings_ms=timings,
                 corrections=[],
-                streak=await self._record_streak(session_id),
-                call=await self._call_summary(session_id),
+                streak=streak,
+                call=call,
             )
 
-        llm_started = time.perf_counter()
+        context_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
-        reply_text, corrections = await asyncio.gather(
-            self._llm.complete_reply(history, stt_result.text, profile_note),
-            self._llm.complete_notes(stt_result.text),
-        )
-        await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
-        llm_ms = _elapsed_ms(llm_started)
+        timings = {"stt": stt_ms, "context": _elapsed_ms(context_started)}
 
-        tts_started = time.perf_counter()
-        reply_audio = await self._tts.synthesize(reply_text)
-        timings = {
-            "stt": stt_ms,
-            "llm": llm_ms,
-            "tts": _elapsed_ms(tts_started),
-            "total": _elapsed_ms(started),
-        }
-        logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
+        async def measured(name: str, operation):
+            step_started = time.perf_counter()
+            try:
+                return await operation
+            finally:
+                timings[name] = _elapsed_ms(step_started)
+
+        tasks = [
+            asyncio.create_task(measured("notes", self._llm.complete_notes(stt_result.text))),
+        ]
         if self.personalization is not None:
-            await self.personalization.observe(session_id, stt_result.text)
+            tasks.append(asyncio.create_task(measured(
+                "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),
+            )))
+        try:
+            reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
+            tts_task = asyncio.create_task(measured("tts", self._tts.synthesize(reply_text)))
+            tasks.append(tts_task)
+            dialogue_started = time.perf_counter()
+            await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
+            timings["dialogue"] = _elapsed_ms(dialogue_started)
+            corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
+            if self.personalization is not None:
+                observation = await tasks[1]
+                save_started = time.perf_counter()
+                await self.personalization.save_observation(session_id, observation)
+                timings["memorySave"] = _elapsed_ms(save_started)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        timings["llm"] = max(timings["reply"], timings["notes"])
+        finalize_started = time.perf_counter()
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         await self._metrics.record_exchange(session_id)
+        streak = await self._record_streak(session_id)
+        call = await self._record_call(session_id, stt_result, reply_text, corrections)
+        timings["finalize"] = _elapsed_ms(finalize_started)
+        timings["total"] = _elapsed_ms(started)
+        logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
         return PipelineResult(
             audio=reply_audio,
             transcript=stt_result.text,
             reply_text=reply_text,
             timings_ms=timings,
             corrections=list(corrections),
-            streak=await self._record_streak(session_id),
-            call=await self._record_call(session_id, stt_result, reply_text, corrections),
+            streak=streak,
+            call=call,
         )
 
     async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:

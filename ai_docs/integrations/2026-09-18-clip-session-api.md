@@ -45,11 +45,13 @@ Notes on `ok`:
   },
   "transcript": "...",
   "replyText": "...",
-  "timingsMs": { "stt": 1, "llm": 2, "tts": 3, "total": 6 }
+  "timingsMs": { "stt": 1, "context": 1, "reply": 2, "notes": 2, "memoryExtract": 2, "dialogue": 1, "tts": 3, "memorySave": 1, "finalize": 1, "llm": 2, "total": 8 }
 }
 ```
 
 On `error`: `{ "code": "timeout"|"pipeline_failed", "message": "..." }` (message truncated to 240 chars).
+
+`timingsMs` is diagnostic and backward compatible: existing `stt`, `llm`, `tts`, and `total` remain. The additional keys describe parallel stages and can be absent on clarify turns. Stage values overlap; they must not be summed. `total` now ends after memory, metrics, streak and call updates, immediately before the successful pipeline result. The AI-service completion log includes the job id. Ktor logs clip submission, polling, audio download, Telegram download, queue time, and reply delivery. These logs contain identifiers and timings, not transcripts or personal facts. Compare the Telegram handler's elapsed time for end-to-end user-facing latency.
 
 ## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or 404
 

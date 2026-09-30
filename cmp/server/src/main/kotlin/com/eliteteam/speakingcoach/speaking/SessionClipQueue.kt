@@ -18,6 +18,7 @@ class SessionClipQueue(
         sessionId: SessionId,
         source: ClipSource,
         onQueuedBehind: suspend () -> Unit = {},
+        onProcessingStart: () -> Unit = {},
     ): ClipSubmitResult {
         val state = sessions.getOrPut(sessionId.value) { SessionState() }
         val deferred = CompletableDeferred<ClipSubmitResult>()
@@ -28,7 +29,7 @@ class SessionClipQueue(
                 return@withLock null
             }
             val behind = state.processing || state.queue.isNotEmpty()
-            state.queue.addLast(QueuedTurn(source, deferred))
+            state.queue.addLast(QueuedTurn(source, deferred, onProcessingStart))
             if (!state.processing) {
                 state.processing = true
                 scope.launch { processLoop(sessionId, state) }
@@ -51,6 +52,7 @@ class SessionClipQueue(
                 next
             } ?: return
             try {
+                turn.onProcessingStart()
                 val clip = turn.source.load()
                 val reply = processor.process(sessionId, clip)
                 turn.result.complete(ClipSubmitResult.Completed(reply))
@@ -69,5 +71,6 @@ class SessionClipQueue(
     private class QueuedTurn(
         val source: ClipSource,
         val result: CompletableDeferred<ClipSubmitResult>,
+        val onProcessingStart: () -> Unit,
     )
 }

@@ -75,6 +75,43 @@ async def test_failed_update_preserves_person_and_still_marks_contact():
 
 
 @pytest.mark.asyncio
+async def test_extraction_does_not_persist_until_successful_turn_is_committed():
+    store = OnboardingStore()
+    service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
+    await store.save_learner("tg-1", {"person": {"work": "developer"}})
+    observation = await service.extract_person("tg-1", "I changed jobs.")
+    assert (await store.get_learner("tg-1"))["person"] == {"work": "developer"}
+    assert "lastConversationAt" not in await store.get_learner("tg-1")
+    await service.save_observation("tg-1", observation)
+    memory = await store.get_learner("tg-1")
+    assert memory["person"]["work"] == "no longer working on a startup"
+    assert memory["lastConversationAt"] == 123
+
+
+@pytest.mark.asyncio
+async def test_observation_uses_newer_profile_if_it_changes_during_extraction():
+    store = OnboardingStore()
+    class PreserveModel:
+        def __init__(self):
+            self.previous = []
+
+        async def update_person(self, person, transcripts):
+            self.previous.append(person["work"])
+            return {**person, "facts": ["Changed jobs"]}
+
+    model = PreserveModel()
+    service = Personalization(store, model, Streaks(), clock=lambda: 123)
+    await store.save_learner("tg-1", {"person": {"work": "developer"}})
+    observation = await service.extract_person("tg-1", "I changed jobs.")
+    await store.save_learner("tg-1", {"person": {"work": "teacher"}})
+    await service.save_observation("tg-1", observation)
+    memory = await store.get_learner("tg-1")
+    assert model.previous == ["developer", "teacher"]
+    assert memory["person"]["work"] == "teacher"
+    assert memory["lastConversationAt"] == 123
+
+
+@pytest.mark.asyncio
 async def test_legacy_person_is_enriched_once_without_inventing_last_contact():
     store = OnboardingStore()
     state = {"runId": "legacy", "status": "completed", "profile": {"work": "startup"},

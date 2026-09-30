@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -456,6 +457,7 @@ async def _run_job(
     request_id: str | None = None,
     duration: float = 0.0,
 ) -> None:
+    started = time.perf_counter()
     try:
         result = await asyncio.wait_for(
             onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
@@ -463,6 +465,10 @@ async def _run_job(
             timeout=timeout_seconds,
         )
         _complete_job(job, result)
+        logger.info(
+            "clip job complete job_id=%s session=%s job_ms=%d timings_ms=%s",
+            job.job_id, job.session_id, int((time.perf_counter() - started) * 1000), result.timings_ms,
+        )
     except Exception as error:
         logger.exception("clip job failed job_id=%s session=%s", job.job_id, job.session_id)
         job.status = "error"
