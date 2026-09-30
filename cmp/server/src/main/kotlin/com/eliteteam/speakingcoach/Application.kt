@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.app.AppApi
@@ -70,11 +71,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val aiHttp = speakingCoachAiHttpClient()
     val webhookScope = newTelegramWebhookScope()
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
+    val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
     )
-    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
+    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope, onboardingAnalytics)
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
@@ -120,6 +122,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 HttpMetricsSource(ai),
                 secureCookie = true,
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+                onboarding = onboardingAnalytics,
             ),
         ) {
             route("/telegram/webhook") {
@@ -152,6 +155,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         behaviourContext.cancel()
         webhookScope.cancel()
         aiHttp.close()
+        onboardingAnalytics?.close()
         server.stop()
     }
 }
@@ -163,6 +167,10 @@ internal fun Application.module(
     metricsSource: MetricsSource? = null,
     reminderAdmin: ReminderAdmin? = null,
 ) {
+    val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
+    onboardingAnalytics?.let { store ->
+        monitor.subscribe(ApplicationStopped) { store.close() }
+    }
     if (appApi != null) {
         installAppPlugins(appApi)
     }
@@ -172,6 +180,7 @@ internal fun Application.module(
             metricsSource ?: ownedMetricsSource(config),
             secureCookie = false,
             reminders = reminderAdmin,
+            onboarding = onboardingAnalytics,
         ),
     ) {
         if (config.usesWebhook) {
@@ -196,12 +205,13 @@ private fun Application.metricsDashboard(
     source: MetricsSource?,
     secureCookie: Boolean,
     reminders: ReminderAdmin? = null,
+    onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders)
+    return MetricsDashboard(password, source, secureCookie, reminders, onboarding)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

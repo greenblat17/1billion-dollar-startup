@@ -344,6 +344,21 @@ data class PracticeGoalRequest(
 )
 
 @Serializable
+data class OnboardingVoiceAnalyticsResponse(
+    val voiceIndex: Int = 0,
+    val telegramDurationSec: Double = 0.0,
+    val recognizedDurationSec: Double = 0.0,
+    val recognized: Boolean = false,
+    val failureReason: String? = null,
+    val milestones: List<Int> = emptyList(),
+    val completedNow: Boolean = false,
+    val assessmentFailed: Boolean = false,
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val scoreAvailable: Boolean = false,
+)
+
+@Serializable
 data class OnboardingStateResponse(
     val runId: String = "",
     val status: String,
@@ -356,6 +371,7 @@ data class OnboardingStateResponse(
     val retryAvailable: Boolean = false,
     val react: Boolean = false,
     val review: OnboardingReview? = null,
+    val analytics: OnboardingVoiceAnalyticsResponse? = null,
 )
 
 @Serializable

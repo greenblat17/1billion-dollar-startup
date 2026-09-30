@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
@@ -28,6 +29,7 @@ internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
+internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
 internal const val NOTICE_STARTED = "started"
 internal const val NOTICE_BUSY = "busy"
 internal const val NOTICE_TEST_SENT = "test-sent"
@@ -46,6 +48,7 @@ internal class MetricsDashboard(
     val source: MetricsSource,
     val secureCookie: Boolean,
     val reminders: ReminderAdmin? = null,
+    val onboarding: OnboardingAnalytics? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -90,6 +93,20 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             streaksPageHtml(dashboard.source.load())
         } catch (error: Throwable) {
             log.warn("Metrics snapshot failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ONBOARDING_ANALYTICS_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            val report = dashboard.onboarding?.report()
+            onboardingReportHtml(report)
+        } catch (error: Throwable) {
+            log.warn("Onboarding analytics failed", error)
             metricsUnavailableHtml()
         }
         call.respondText(html, ContentType.Text.Html)
@@ -304,7 +321,12 @@ internal fun card(label: String, value: String): String {
 }
 
 internal fun adminTabs(active: String): String {
-    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики")
+    val tabs = listOf(
+        METRICS_PATH to "Сводка",
+        ONBOARDING_ANALYTICS_PATH to "Онбординг",
+        REMINDERS_PATH to "Напоминания",
+        STREAKS_PATH to "Стрики",
+    )
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
         "<a href=\"$path\"$current>$label</a>"

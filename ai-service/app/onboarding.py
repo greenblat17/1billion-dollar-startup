@@ -25,6 +25,7 @@ FIRST_QUESTION = (
 )
 RETRY_TEXT = "I couldn't prepare your result. Please try again."
 SPEECH_LIMIT_SECONDS = 120
+SPEECH_MILESTONES = (30, 60, 90, 120)
 PROFILE_FIELDS = ("work", "leisure", "goal")
 
 
@@ -379,14 +380,31 @@ class OnboardingService:
                     await self.store.save(session_id, state)
                 stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
                 if stt.no_speech or not stt.text.strip():
-                    return self._result(state, CLARIFY_TEXT, await self.pipeline.tts.synthesize(CLARIFY_TEXT))
+                    return self._result(
+                        state, CLARIFY_TEXT, await self.pipeline.tts.synthesize(CLARIFY_TEXT),
+                        analytics=_voice_analytics(
+                            voice_index=len(state["turns"]) + 1,
+                            telegram_duration=duration,
+                            recognized_duration=0.0,
+                            recognized=False,
+                            failure_reason="no_speech",
+                        ),
+                    )
                 seconds = stt.duration_seconds if stt.duration_seconds > 0 else duration
                 if not math.isfinite(seconds) or seconds <= 0:
                     raise ValueError("recording duration unavailable")
+                before = float(state["seconds"])
                 turn = {
                     "requestId": request_id, "question": state["question"], "transcript": stt.text,
                     "seconds": seconds, "words": [dict(word) for word in stt.words],
                     "corrections": None, "analysis": None, "delivered": False,
+                    "_analytics": _voice_analytics(
+                        voice_index=len(state["turns"]) + 1,
+                        telegram_duration=duration,
+                        recognized_duration=seconds,
+                        recognized=True,
+                        milestones=[mark for mark in SPEECH_MILESTONES if before < mark <= before + seconds],
+                    ),
                 }
                 state["turns"].append(turn)
                 state["seconds"] += seconds
@@ -408,7 +426,7 @@ class OnboardingService:
                 if state["seconds"] >= SPEECH_LIMIT_SECONDS:
                     state["status"] = "pending"
                     await self.store.save(session_id, state)
-                    return self._result(state, RETRY_TEXT, turn=turn)
+                    return self._result(state, RETRY_TEXT, turn=turn, analytics={"assessmentFailed": True})
                 raise
             state["profile"] = turn["analysis"]["profile"]
             _apply_level(state, turn["analysis"])
@@ -472,9 +490,15 @@ class OnboardingService:
             state["status"] = "pending"
             # Keep the accepted turns and pending status for an explicit retry without more speech.
             await self.store.save(session_id, state)
-            return self._result(state, RETRY_TEXT, turn=turn)
+            return self._result(state, RETRY_TEXT, turn=turn, analytics={"assessmentFailed": True})
         await self.personalization.seed(session_id, state)
-        result = self._result(state, subtitle, audio, turn)
+        progress = overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state))
+        result = self._result(state, subtitle, audio, turn, analytics={
+            "completedNow": True,
+            "cefr": state.get("cefr"),
+            "overallScore": progress["overallScore"],
+            "scoreAvailable": progress["overallScore"] is not None,
+        })
         result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(spoken))
         return result
 
@@ -554,9 +578,67 @@ class OnboardingService:
         return state if state and state["runId"] == run_id else None
 
     @staticmethod
-    def _result(state: dict | None, text: str = "", audio: bytes | None = None, turn: dict | None = None) -> PipelineResult:
+    def _result(
+        state: dict | None,
+        text: str = "",
+        audio: bytes | None = None,
+        turn: dict | None = None,
+        analytics: dict | None = None,
+    ) -> PipelineResult:
+        payload = public_state(state) if state else {"status": "ignored"}
+        facts = _public_analytics(turn, analytics)
+        if facts:
+            payload = {**payload, "analytics": facts}
         return PipelineResult(
             audio=audio, transcript=turn["transcript"] if turn else "", reply_text=text,
             timings_ms={}, corrections=_shown_corrections(turn),
-            onboarding=public_state(state) if state else {"status": "ignored"},
+            onboarding=payload,
         )
+
+
+def _voice_analytics(
+    *,
+    voice_index: int,
+    telegram_duration: float,
+    recognized_duration: float,
+    recognized: bool,
+    failure_reason: str | None = None,
+    milestones: list[int] | None = None,
+) -> dict:
+    telegram = telegram_duration if math.isfinite(telegram_duration) and telegram_duration > 0 else 0.0
+    recognized_seconds = recognized_duration if math.isfinite(recognized_duration) and recognized_duration > 0 else 0.0
+    return {
+        "voiceIndex": voice_index,
+        "telegramDurationSec": telegram,
+        "recognizedDurationSec": recognized_seconds,
+        "recognized": recognized,
+        "failureReason": failure_reason,
+        "milestones": list(milestones or []),
+    }
+
+
+def _public_analytics(turn: dict | None, update: dict | None) -> dict | None:
+    """Voice facts for the product funnel. Transcripts and profile text stay out."""
+    facts: dict[str, Any] = {}
+    stored = (turn or {}).get("_analytics")
+    if isinstance(stored, dict):
+        facts.update(stored)
+    if update:
+        facts.update(update)
+    if not facts:
+        return None
+    milestones = [mark for mark in facts.get("milestones") or [] if mark in SPEECH_MILESTONES]
+    score = facts.get("overallScore")
+    return {
+        "voiceIndex": int(facts.get("voiceIndex") or 0),
+        "telegramDurationSec": float(facts.get("telegramDurationSec") or 0),
+        "recognizedDurationSec": float(facts.get("recognizedDurationSec") or 0),
+        "recognized": bool(facts.get("recognized")),
+        "failureReason": facts.get("failureReason") if isinstance(facts.get("failureReason"), str) else None,
+        "milestones": milestones,
+        "completedNow": bool(facts.get("completedNow")),
+        "assessmentFailed": bool(facts.get("assessmentFailed")),
+        "cefr": facts.get("cefr") if isinstance(facts.get("cefr"), str) else None,
+        "overallScore": score if isinstance(score, int) else None,
+        "scoreAvailable": bool(facts.get("scoreAvailable")),
+    }

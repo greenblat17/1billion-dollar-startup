@@ -5,6 +5,7 @@ import com.eliteteam.speakingcoach.speaking.CallProgress
 import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
+import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
@@ -251,7 +252,7 @@ class HttpClipClient(
                     onboarding = status.onboarding?.let {
                         OnboardingStatus(
                             it.runId, it.status, it.seconds, it.cefr, it.review,
-                            it.overallScore, it.nextBand, it.pointsToNext,
+                            it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
                         )
                     },
                     transcript = status.transcript,
@@ -365,6 +366,20 @@ private sealed interface ClipJobStatus {
     ) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }
+
+private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
+    voiceIndex = voiceIndex,
+    telegramDurationSec = telegramDurationSec,
+    recognizedDurationSec = recognizedDurationSec,
+    recognized = recognized,
+    failureReason = failureReason,
+    milestones = milestones,
+    completedNow = completedNow,
+    assessmentFailed = assessmentFailed,
+    cefr = cefr,
+    overallScore = overallScore,
+    scoreAvailable = scoreAvailable,
+)
 
 private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(
     current = streak.current,
