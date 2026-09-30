@@ -1,0 +1,7 @@
+# Onboarding analytics
+
+The morning page is `/admin/metrics/onboarding`, behind the same metrics password as the rest of `/admin/metrics`. It reads Postgres on the Ktor host (`DATABASE_URL`). Redis still keeps only the current onboarding attempt and replaces it. The analytics rows stay.
+
+Ktor writes a row after Telegram accepts the message. ai-service adds an optional `analytics` object on the onboarding voice result: durations, milestones, and whether the result was built. It does not include the transcript or profile text. A failed analytics write does not change the reply. Without `DATABASE_URL` the bot behaves as before and the page says history is not stored. Attempts from before this table exist are not backfilled.
+
+The main funnel is the first attempt that started from `/start`. A later `/onboarding` and an automatic restart when there is no score are a separate block. A Moscow start day is closed 24 hours after that day ends. A step counts only when it happens within 24 hours of that attempt's start. Return on the next day is a later ordinary voice with recognized speech, not the restart itself, and only after that next day has ended. Recognition failures and result-build failures are shown as a count, a share of the last 7 days, and the number of people. Voice processing time is stored on each onboarding voice and is not a separate screen. `onboarding_version` is `v1`.
