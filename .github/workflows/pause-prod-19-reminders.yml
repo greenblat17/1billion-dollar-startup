@@ -1,0 +1,77 @@
+name: Pause prod 19:00 reminders
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pause:
+    name: Pause 19:00 reminder times
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    env:
+      PROD_AI_SERVER_HOST: ${{ secrets.PROD_AI_SERVER_HOST }}
+      PROD_AI_SERVER_USER: ${{ secrets.PROD_AI_SERVER_USER }}
+      PROD_AI_SERVER_SSH_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
+    steps:
+      - name: Move 19:00 reminder times aside
+        run: |
+          set -euo pipefail
+          : "${PROD_AI_SERVER_HOST:?}"
+          : "${PROD_AI_SERVER_USER:?}"
+          : "${PROD_AI_SERVER_SSH_KEY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$PROD_AI_SERVER_SSH_KEY" > "$KEY"
+          SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          ssh "${SSH_OPTS[@]}" "${PROD_AI_SERVER_USER}@${PROD_AI_SERVER_HOST}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          docker inspect redis >/dev/null
+          TODAY=$(TZ=Europe/Moscow date +%F)
+          echo "moscow_day=$TODAY"
+          docker exec -i redis redis-cli EVAL "$(cat <<'LUA'
+          local function tally()
+            local counts = {}
+            local cursor = "0"
+            repeat
+              local res = redis.call("SCAN", cursor, "MATCH", "reminder-time:*", "COUNT", 200)
+              cursor = res[1]
+              for _, key in ipairs(res[2]) do
+                local val = redis.call("GET", key)
+                if val then
+                  counts[val] = (counts[val] or 0) + 1
+                end
+              end
+            until cursor == "0"
+            local parts = {}
+            for clock, count in pairs(counts) do
+              table.insert(parts, clock .. "=" .. count)
+            end
+            table.sort(parts)
+            return table.concat(parts, " ")
+          end
+
+          local before = tally()
+          local paused = 0
+          local cursor = "0"
+          local today = ARGV[1]
+          repeat
+            local res = redis.call("SCAN", cursor, "MATCH", "reminder-time:*", "COUNT", 200)
+            cursor = res[1]
+            for _, key in ipairs(res[2]) do
+              local val = redis.call("GET", key)
+              if val == "19:00" then
+                local session = string.sub(key, #"reminder-time:" + 1)
+                redis.call("SET", "reminder-paused-time:" .. session, "19:00")
+                redis.call("DEL", key)
+                redis.call("SET", "reminder:sent:" .. today .. ":" .. session, "1", "EX", "172800", "NX")
+                paused = paused + 1
+              end
+            end
+          until cursor == "0"
+          return "paused=" .. paused .. " before=[" .. before .. "] after=[" .. tally() .. "]"
+          LUA
+          )" 0 "$TODAY"
+          REMOTE
