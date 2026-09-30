@@ -81,6 +81,12 @@ private val onboardingActions = setOf(
     "m5", "m10", "m15", "remind", "later",
 )
 
+internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
+    "retry", "level" -> "callback:$queryId"
+    "m5", "m10", "m15" -> "callback:goal:$runId"
+    else -> "callback:$action:$runId"
+}
+
 internal fun parseOnboardingCallback(data: String): OnboardingCallback? {
     val parts = data.split(':')
     if (parts.size != 3 || parts[0] != "ob" || parts[1] !in onboardingActions) return null

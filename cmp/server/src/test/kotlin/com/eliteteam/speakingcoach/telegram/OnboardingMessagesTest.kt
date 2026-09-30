@@ -26,6 +26,10 @@ class OnboardingMessagesTest {
         assertNull(parseOnboardingCallback("ob:begin:another:chat"))
         assertNull(parseOnboardingCallback("ob:begin:"))
         assertNull(parseOnboardingCallback(SPOKEN_TEXT_CALLBACK))
+        assertEquals("callback:q1", onboardingCallbackRequestId("level", run, "q1"))
+        assertTrue(onboardingCallbackRequestId("level", run, "q1") != onboardingCallbackRequestId("level", run, "q2"))
+        assertEquals("callback:results:$run", onboardingCallbackRequestId("results", run, "q1"))
+        assertEquals("callback:results:$run", onboardingCallbackRequestId("results", run, "q2"))
         val spoken = spokenTextKeyboard().keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals(SPOKEN_TEXT_BUTTON, spoken.text)
         assertEquals(SPOKEN_TEXT_CALLBACK, spoken.callbackData)

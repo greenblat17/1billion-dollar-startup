@@ -317,11 +317,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val callback = parseOnboardingCallback(query.data) ?: return@onDataCallbackQuery
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
-        val requestId = when (callback.action) {
-            "retry" -> "callback:${query.id}"
-            "m5", "m10", "m15" -> "callback:goal:${callback.runId}"
-            else -> "callback:${callback.action}:${callback.runId}"
-        }
+        val requestId = onboardingCallbackRequestId(callback.action, callback.runId, query.id.toString())
         try {
             actions.run(message.chat.id.toString(), requestId) {
                 when (callback.action) {
