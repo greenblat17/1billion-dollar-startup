@@ -5,6 +5,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from typing import Any
+
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
@@ -19,12 +21,14 @@ CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
 
 @dataclass
 class PipelineResult:
-    audio: bytes
+    audio: bytes | None
     transcript: str
     reply_text: str
     timings_ms: dict[str, int]
     corrections: list[Correction]
     streak: StreakUpdate | None = None
+    onboarding: dict | None = None
+    call: dict | None = None
 
     @property
     def notes(self) -> list[str]:
@@ -40,13 +44,24 @@ class ClipPipeline:
         dialogue: DialogueStore,
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
+        calls: Any | None = None,
     ) -> None:
+        self.personalization = None
         self._stt = stt
         self._llm = llm
         self._tts = tts
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
+        self.calls = calls
+
+    @property
+    def stt(self) -> SpeechToText:
+        return self._stt
+
+    @property
+    def llm(self) -> ChatModel:
+        return self._llm
 
     @property
     def tts(self) -> TextToSpeech:
@@ -70,6 +85,7 @@ class ClipPipeline:
         audio: bytes,
         content_type: str,
         filename: str,
+        profile_note: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
 
@@ -96,12 +112,15 @@ class ClipPipeline:
                 timings_ms=timings,
                 corrections=[],
                 streak=await self._record_streak(session_id),
+                call=await self._call_summary(session_id),
             )
 
         llm_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
+        if self.personalization is not None:
+            profile_note = await self.personalization.prepare(session_id)
         reply_text, corrections = await asyncio.gather(
-            self._llm.complete_reply(history, stt_result.text),
+            self._llm.complete_reply(history, stt_result.text, profile_note),
             self._llm.complete_notes(stt_result.text),
         )
         await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
@@ -116,6 +135,8 @@ class ClipPipeline:
             "total": _elapsed_ms(started),
         }
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
+        if self.personalization is not None:
+            await self.personalization.observe(session_id, stt_result.text)
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         await self._metrics.record_exchange(session_id)
         return PipelineResult(
@@ -125,7 +146,38 @@ class ClipPipeline:
             timings_ms=timings,
             corrections=list(corrections),
             streak=await self._record_streak(session_id),
+            call=await self._record_call(session_id, stt_result, reply_text, corrections),
         )
+
+    async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:
+        await self._metrics.record_turn(session_id, seconds, tts_chars)
+        await self._metrics.record_exchange(session_id)
+        return await self._record_streak(session_id)
+
+    async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:
+        if self.calls is None:
+            return None
+        try:
+            return await self.calls.append_turn(
+                session_id,
+                stt_result.text,
+                reply_text,
+                [item.to_json() for item in corrections],
+                stt_result.duration_seconds,
+                stt_result.words,
+            )
+        except Exception:
+            logger.exception("call turn failed session=%s", session_id)
+            return None
+
+    async def _call_summary(self, session_id: str) -> dict | None:
+        if self.calls is None:
+            return None
+        try:
+            return await self.calls.summary(session_id)
+        except Exception:
+            logger.exception("call summary failed session=%s", session_id)
+            return None
 
     async def _record_streak(self, session_id: str) -> StreakUpdate | None:
         try:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -15,10 +16,11 @@ class SttResult:
     raw: dict[str, Any] = field(default_factory=dict)
     no_speech: bool = False
     duration_seconds: float = 0.0
+    words: list[dict[str, Any]] = field(default_factory=list)
 
 
 class SpeechToText(Protocol):
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         ...
 
 
@@ -28,19 +30,19 @@ class GroqSpeechToText:
         self._model = model
         self._ffmpeg_bin = ffmpeg_bin
 
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         try:
-            return await self._transcribe_file(audio, filename, content_type)
+            return await self._transcribe_file(audio, filename, content_type, language)
         except BadRequestError:
             wav = await to_wav_mono_16k(self._ffmpeg_bin, audio, suffix=_suffix(filename))
-            return await self._transcribe_file(wav, "voice.wav", "audio/wav")
+            return await self._transcribe_file(wav, "voice.wav", "audio/wav", language)
 
-    async def _transcribe_file(self, audio: bytes, filename: str, content_type: str) -> SttResult:
+    async def _transcribe_file(self, audio: bytes, filename: str, content_type: str, language: str | None) -> SttResult:
         async def call() -> Any:
             return await self._client.audio.transcriptions.create(
                 model=self._model,
                 file=(filename, audio, content_type),
-                language="en",
+                **({"language": language} if language else {}),
                 response_format="verbose_json",
                 timestamp_granularities=["word"],
             )
@@ -54,6 +56,7 @@ class GroqSpeechToText:
             raw=payload,
             no_speech=not text or no_speech_prob >= 0.8,
             duration_seconds=duration_seconds(payload),
+            words=speech_words(payload),
         )
 
 
@@ -70,6 +73,36 @@ def _as_dict(response: Any) -> dict[str, Any]:
     if callable(dump):
         return dump()
     return {"text": getattr(response, "text", "")}
+
+
+def speech_words(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Compact word timings already present on a verbose transcription."""
+    raw = payload.get("words") or []
+    if not isinstance(raw, list):
+        return []
+    words: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("word") or item.get("text") or "").strip()
+        start = _timestamp(item.get("start"))
+        end = _timestamp(item.get("end"))
+        if not text or start is None or end is None or end < start:
+            continue
+        words.append({"w": text, "s": start, "e": end})
+    return words
+
+
+def _timestamp(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
 
 
 def duration_seconds(payload: dict[str, Any]) -> float:

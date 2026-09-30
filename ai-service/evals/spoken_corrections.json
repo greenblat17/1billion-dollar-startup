@@ -1,0 +1,17 @@
+[
+  {"id":"self-repair","transcript":"I'm 22 years I'm 23 already years old","expect":"omit"},
+  {"id":"discourse-like","transcript":"I want to understand what like the app wants to improve","expect":"omit"},
+  {"id":"discourse-markers","transcript":"Well you know I mean I really like football","expect":"omit"},
+  {"id":"normal-preference","transcript":"I really like football.","expect":"omit"},
+  {"id":"correct-collocation","transcript":"I made a decision yesterday to cancel it.","expect":"omit"},
+  {"id":"optional-any","transcript":"I don't want to lose these opportunities.","expect":"omit"},
+  {"id":"regional-weekend","transcript":"Usually I walk on the weekend.","expect":"omit"},
+  {"id":"valid-interest","transcript":"We went to the sea and it was very interesting for me.","expect":"omit"},
+  {"id":"look-like","transcript":"I want to know what it looks like now.","expect":"omit"},
+  {"id":"ambiguous-name","transcript":"the Rodri","expect":"omit"},
+  {"id":"garbled-asr","transcript":"makes the bed makes makes Pedro not as bright","expect":"omit"},
+  {"id":"missing-context","transcript":"so I do not lose","expect":"omit"},
+  {"id":"agree","transcript":"I am agree with you.","expect":"correct","original":"I am agree with you","correction":"I agree with you"},
+  {"id":"decision","transcript":"I did a decision to leave.","expect":"correct","original":"I did a decision to leave","correction":"I made a decision to leave"},
+  {"id":"embedded-question","transcript":"I want to know how does it look like.","expect":"correct","original":"I want to know how does it look like","correction":"I want to know what it looks like"}
+]

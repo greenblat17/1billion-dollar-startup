@@ -126,7 +126,7 @@ class HttpClipClientTest {
             }
         }
         val http = client(engine)
-        val targets = HttpClipClient("http://ai.local", http, internalToken = "secret-token").claimReminders()
+        val targets = HttpClipClient("http://ai.local", http, internalToken = "secret-token").claimReminders("auto")
 
         assertEquals(
             listOf(ReminderTarget("tg-1", "Alex Green"), ReminderTarget("tg-2", null)),
@@ -203,8 +203,8 @@ class HttpClipClientTest {
 
         assertEquals(listOf(Correction("I go", "I went")), reply.corrections)
         assertEquals("I go to shop", reply.transcript)
-        assertEquals(byteArrayOf(1, 2, 3).toList(), reply.audio.bytes.toList())
-        assertEquals("audio/ogg", reply.audio.contentType)
+        assertEquals(byteArrayOf(1, 2, 3).toList(), checkNotNull(reply.audio).bytes.toList())
+        assertEquals("audio/ogg", checkNotNull(reply.audio).contentType)
     }
 
     @Test
@@ -224,6 +224,50 @@ class HttpClipClientTest {
             ),
             reply.corrections,
         )
+    }
+
+    @Test
+    fun onboardingResultDoesNotDownloadAudio() = runTest {
+        val engine = MockEngine { request ->
+            val body = when (request.url.encodedPath) {
+                "/internal/onboarding/actions" -> """{"jobId":"result"}"""
+                "/v1/clips/result" -> """{"jobId":"result","status":"ok","replyText":"Estimated English level: B1",
+                    "result":{"audioAvailable":false,"onboarding":{"runId":"abc","status":"completed","seconds":60}}}"""
+                else -> error("Must not download audio: ${request.url}")
+            }
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            respond(body, if (request.method == HttpMethod.Post) HttpStatusCode.Accepted else HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        val reply = HttpClipClient("http://ai.local", http, internalToken = "secret")
+            .onboardingAction(SessionId("tg-1"), "callback1", "abc", "retry")
+        assertEquals(null, reply.audio)
+        assertEquals("completed", reply.onboarding?.status)
+        assertEquals("Estimated English level: B1", reply.text)
+        http.close()
+    }
+
+    @Test
+    fun readsProgressProfileWithInternalAuthentication() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("/internal/profile/tg-1", request.url.encodedPath)
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            respond(
+                """{"assessment":{"cefr":"B1","overallScore":52,"nextBand":"B2","pointsToNext":11,
+                    "grammar":52,"vocabulary":52,"fluency":null},"dailyMinutes":10,"currentStreak":4}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val http = client(engine)
+        val profile = HttpClipClient("http://ai.local", http, internalToken = "secret").progressProfile(SessionId("tg-1"))
+        assertEquals(52, profile.assessment?.overallScore)
+        assertEquals(null, profile.assessment?.fluency)
+        assertEquals(10, profile.dailyMinutes)
+        assertEquals(4, profile.currentStreak)
+        http.close()
     }
 
     private suspend fun processUntilOk(okBody: String): ClipReply {

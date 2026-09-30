@@ -67,3 +67,15 @@ Kotlin: `SessionId` inline value. Telegram: `"tg-$chatId"` (`telegramSessionId`)
 - JSON value: `{ "messages": [ { "role", "content" } ] }` — **assistant content is spoken reply only**, not notes.
 
 Stored history is what the next LLM call sees (plus system prompt). `/start` creates/refreshes the session; it does not wipe Redis history if the key already exists.
+
+## Optional onboarding contract (2026-09-28)
+
+All operations below require the existing `X-Internal-Token`. They are internal AI-service endpoints, not public Ktor APIs.
+
+- `POST /internal/onboarding/state`: `{sessionId, requestId, reset?: ""|"start"|"force"}` → `{runId, status, seconds, cefr, resultText, retryAvailable}`. Resolves new/existing eligibility and persists the choice. Call before funnel events. `start` resets incomplete onboarding; `force` also restarts completed/exempt users. Duplicate recent request ids do not reset again.
+- `POST /internal/onboarding/actions`: `{sessionId, requestId, runId, action: "begin"|"retry"|"continue"}` → 202 `{jobId}`. Uses the existing status/audio polling endpoints. Stale run ids and duplicate callbacks produce an ignored result.
+- `POST /v1/clips` accepts optional `onboardingRunId`, `requestId` and `durationSeconds` multipart fields. A run id requires a request id. Without a run id, the existing clip flow is unchanged. Telegram duration is a fallback when STT duration is absent.
+- Onboarding jobs add `result.onboarding` with state and `result.audioAvailable`. Default `audioAvailable` for legacy jobs is true. `replyText` carries the result/error text. `pending` onboarding state means the user can retry result generation; it is distinct from the job's `pending` processing status.
+- A failed summary stays text-only (`audioAvailable` false, `/audio` 404) so the client can offer retry without more speech. A completed introduction has audio: the last spoken question. Clients **must not** download audio when `audioAvailable` is false. `onboarding.status == "ignored"` means no Telegram response should be sent. `resultText` is empty on completion; the level stays in `cefr` for the coach and is not a chat message.
+
+Deployment order: AI-service then Ktor. New AI-service does not enroll old clients automatically; enrollment is explicitly resolved by the updated Telegram client.

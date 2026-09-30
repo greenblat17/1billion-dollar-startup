@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.speaking.CallProgress
+import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
 import com.eliteteam.speakingcoach.speaking.ClipReply
@@ -85,6 +87,12 @@ class HttpClipClient(
         }
     }
 
+    suspend fun progressProfile(sessionId: SessionId): ProgressProfileResponse {
+        val response = http.get("$root/internal/profile/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service progress profile returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun streakProfile(sessionId: SessionId): StreakProfileResponse {
         val response = http.get("$root/internal/streak/${sessionId.value}") {
             applyInternalToken()
@@ -95,14 +103,38 @@ class HttpClipClient(
         return response.body()
     }
 
-    suspend fun claimReminders(): List<ReminderTarget> {
+    suspend fun claimReminders(mode: String): List<ReminderTarget> {
         val response = http.post("$root/internal/reminders/claim") {
             applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(ReminderClaimRequest(mode))
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/reminders/claim returned ${response.status}")
         }
         return response.body<ReminderClaimResponse>().targets
+    }
+
+    suspend fun reminderTime(sessionId: SessionId): String? {
+        val response = http.get("$root/internal/reminders/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder time returned ${response.status}" }
+        return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun scheduleReminder(
+        sessionId: SessionId,
+        requestId: String,
+        action: String,
+        runId: String = "",
+        text: String = "",
+    ): ReminderScheduleResponse {
+        val response = http.post("$root/internal/reminders/schedule") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(ReminderScheduleRequest(sessionId.value, requestId, action, runId, text))
+        }
+        check(response.status.isSuccess()) { "ai-service reminder schedule returned ${response.status}" }
+        return response.body()
     }
 
     suspend fun reportReminders(report: ReminderReport) {
@@ -118,6 +150,65 @@ class HttpClipClient(
 
     suspend fun ensureSession(sessionId: SessionId): SessionId {
         return SessionId(createSession(sessionId).sessionId)
+    }
+
+    suspend fun onboardingState(sessionId: SessionId, requestId: String, reset: String = ""): OnboardingStateResponse {
+        val response = http.post("$root/internal/onboarding/state") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(OnboardingRequest(sessionId.value, requestId, reset = reset))
+        }
+        check(response.status.isSuccess()) { "ai-service onboarding state returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun savePracticeGoal(sessionId: SessionId, requestId: String, minutes: Int) {
+        val response = http.post("$root/internal/onboarding/goal") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(PracticeGoalRequest(sessionId.value, requestId, minutes))
+        }
+        check(response.status.isSuccess()) { "ai-service practice goal returned ${response.status}" }
+    }
+
+    suspend fun openCall(sessionId: SessionId): OpenCallResponse {
+        val response = http.post("$root/internal/calls/open") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service open call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun endCall(sessionId: SessionId): EndCallResponse {
+        val response = http.post("$root/internal/calls/end") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service end call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun reviewCall(callId: String): CallReviewResponse {
+        val response = http.post("$root/internal/calls/review") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallReviewRequest(callId))
+        }
+        check(response.status.isSuccess()) { "ai-service call review returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
+        val response = http.post("$root/internal/onboarding/actions") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(OnboardingRequest(sessionId.value, requestId, runId = runId, action = action))
+        }
+        check(response.status == HttpStatusCode.Accepted) { "ai-service onboarding action returned ${response.status}" }
+        return awaitJob(response.body<ClipAcceptedResponse>().jobId)
     }
 
     suspend fun loadMetrics(): MetricsSnapshot {
@@ -145,16 +236,29 @@ class HttpClipClient(
     }
 
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
-        val jobId = submit(sessionId, clip)
+        return awaitJob(submit(sessionId, clip))
+    }
+
+    private suspend fun awaitJob(jobId: String): ClipReply {
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
             when (val status = poll(jobId)) {
                 ClipJobStatus.Pending -> delay(pollInterval)
                 is ClipJobStatus.Ok -> return ClipReply(
                     corrections = status.corrections,
-                    audio = downloadAudio(jobId),
+                    audio = if (status.audioAvailable) downloadAudio(jobId) else null,
+                    text = status.text,
+                    onboarding = status.onboarding?.let {
+                        OnboardingStatus(
+                            it.runId, it.status, it.seconds, it.cefr, it.review,
+                            it.overallScore, it.nextBand, it.pointsToNext,
+                        )
+                    },
                     transcript = status.transcript,
                     streak = status.streak,
+                    call = status.call?.let {
+                        CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
+                    },
                 )
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
@@ -167,6 +271,9 @@ class HttpClipClient(
             url = "$root/v1/clips",
             formData = formData {
                 append("sessionId", sessionId.value)
+                clip.onboardingRunId?.let { append("onboardingRunId", it) }
+                clip.requestId?.let { append("requestId", it) }
+                append("durationSeconds", clip.durationSeconds.toString())
                 append(
                     "audio",
                     clip.bytes,
@@ -202,6 +309,10 @@ class HttpClipClient(
                 corrections = body.result?.let(::corrections).orEmpty(),
                 transcript = body.result?.transcript?.ifBlank { null } ?: body.transcript.orEmpty(),
                 streak = body.result?.streak?.let(::turnStreak),
+                text = body.replyText,
+                audioAvailable = body.result?.audioAvailable ?: true,
+                onboarding = body.result?.onboarding,
+                call = body.result?.call,
             )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
@@ -243,7 +354,15 @@ internal class HttpMetricsSource(
 
 private sealed interface ClipJobStatus {
     data object Pending : ClipJobStatus
-    data class Ok(val corrections: List<Correction>, val transcript: String, val streak: TurnStreak?) : ClipJobStatus
+    data class Ok(
+        val corrections: List<Correction>,
+        val transcript: String,
+        val streak: TurnStreak?,
+        val text: String,
+        val audioAvailable: Boolean,
+        val onboarding: OnboardingStateResponse?,
+        val call: CallClipResponse?,
+    ) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }
 

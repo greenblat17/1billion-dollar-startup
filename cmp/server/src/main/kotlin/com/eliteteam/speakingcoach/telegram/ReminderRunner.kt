@@ -55,7 +55,7 @@ internal interface ReminderAdmin {
 }
 
 internal class ReminderRunner(
-    private val claim: suspend () -> List<ReminderTarget>,
+    private val claim: suspend (ReminderMode) -> List<ReminderTarget>,
     private val report: suspend (ReminderReport) -> Unit,
     private val send: suspend (chatId: Long, text: String) -> Unit,
     private val clock: () -> ZonedDateTime = { ZonedDateTime.now(REMINDER_ZONE) },
@@ -75,7 +75,10 @@ internal class ReminderRunner(
         try {
             val started = now()
             val day = started.toLocalDate()
-            val targets = claim()
+            val targets = claim(mode)
+            if (mode == ReminderMode.AUTO && targets.isEmpty()) {
+                return RoundOutcome(claimed = 0, sent = 0, blocked = 0, failed = 0)
+            }
             val results = mutableListOf<ReminderSendResult>()
             for (target in targets) {
                 val chatId = reminderChatId(target.sessionId) ?: continue

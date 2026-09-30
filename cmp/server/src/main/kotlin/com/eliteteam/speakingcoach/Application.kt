@@ -76,7 +76,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
     val reminderRunner = ReminderRunner(
-        claim = ai::claimReminders,
+        claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
         send = { chatId, text -> behaviourContext.sendTextMessage(ChatId(RawChatId(chatId)), text) },
         streakOf = { chatId ->

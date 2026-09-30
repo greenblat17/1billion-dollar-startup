@@ -30,6 +30,7 @@ data class ClipStatusResponse(
     val result: ClipResultResponse? = null,
     val error: ClipErrorResponse? = null,
     val transcript: String? = null,
+    val replyText: String = "",
 )
 
 @Serializable
@@ -38,6 +39,9 @@ data class ClipResultResponse(
     val corrections: List<ClipCorrectionResponse> = emptyList(),
     val transcript: String = "",
     val streak: ClipStreakResponse? = null,
+    val audioAvailable: Boolean = true,
+    val onboarding: OnboardingStateResponse? = null,
+    val call: CallClipResponse? = null,
 )
 
 @Serializable
@@ -192,8 +196,34 @@ data class FunnelVoiceRequest(
 )
 
 @Serializable
+data class ReminderClaimRequest(
+    val mode: String,
+)
+
+@Serializable
 data class ReminderClaimResponse(
     val targets: List<ReminderTarget> = emptyList(),
+)
+
+@Serializable
+data class ReminderScheduleRequest(
+    val sessionId: String,
+    val requestId: String,
+    val action: String,
+    val runId: String = "",
+    val text: String = "",
+)
+
+@Serializable
+data class ReminderScheduleResponse(
+    val status: String,
+    val time: String? = null,
+    val runId: String = "",
+)
+
+@Serializable
+data class ReminderTimeResponse(
+    val time: String? = null,
 )
 
 @Serializable
@@ -264,4 +294,136 @@ data class MetricsChat(
     val name: String? = null,
     val lastReminderAt: String? = null,
     val reminderIgnored: Long = 0,
+)
+
+@Serializable
+data class OnboardingRequest(
+    val sessionId: String,
+    val requestId: String,
+    val reset: String = "",
+    val runId: String = "",
+    val action: String = "",
+)
+
+@Serializable
+data class OnboardingExample(
+    val wrong: String = "",
+    val better: String = "",
+)
+
+@Serializable
+data class OnboardingSkill(
+    val score: Int? = null,
+    val text: String = "",
+    val examples: List<OnboardingExample> = emptyList(),
+)
+
+@Serializable
+data class OnboardingFluency(
+    val score: Int? = null,
+    val text: String = "",
+    val paceWpm: Int? = null,
+    val longPauses: Int? = null,
+    val fillers: Int? = null,
+    val longestStretchSec: Int? = null,
+)
+
+@Serializable
+data class OnboardingReview(
+    val levelText: String = "",
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
+)
+
+@Serializable
+data class PracticeGoalRequest(
+    val sessionId: String,
+    val requestId: String,
+    val minutes: Int,
+)
+
+@Serializable
+data class OnboardingStateResponse(
+    val runId: String = "",
+    val status: String,
+    val seconds: Double = 0.0,
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val resultText: String? = null,
+    val retryAvailable: Boolean = false,
+    val react: Boolean = false,
+    val review: OnboardingReview? = null,
+)
+
+@Serializable
+data class CallClipResponse(
+    val callId: String = "",
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+)
+
+@Serializable
+data class CallSessionRequest(
+    val sessionId: String,
+)
+
+@Serializable
+data class OpenCallResponse(
+    val callId: String = "",
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+    val unseenCallId: String? = null,
+)
+
+@Serializable
+data class EndCallResponse(
+    val callId: String? = null,
+)
+
+@Serializable
+data class CallReviewRequest(
+    val callId: String,
+)
+
+@Serializable
+data class CallReviewResponse(
+    val callId: String = "",
+    val retry: Boolean = false,
+    val levelText: String = "",
+    val recap: String = "",
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val previousScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val streak: Int = 0,
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
+)
+
+
+@Serializable
+data class ProgressAssessment(
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val grammar: Int? = null,
+    val vocabulary: Int? = null,
+    val fluency: Int? = null,
+)
+
+@Serializable
+data class ProgressProfileResponse(
+    val assessment: ProgressAssessment? = null,
+    val dailyMinutes: Int? = null,
+    val currentStreak: Int = 0,
 )

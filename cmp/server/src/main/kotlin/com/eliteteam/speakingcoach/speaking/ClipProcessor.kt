@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.speaking
 
+import com.eliteteam.speakingcoach.ai.OnboardingReview
+
 fun interface ClipSource {
     suspend fun load(): AudioClip
 }
@@ -16,11 +18,21 @@ data class TurnStreak(
     val newRecord: Boolean,
 )
 
+data class CallProgress(
+    val callId: String,
+    val todaySeconds: Double,
+    val goalSeconds: Double,
+    val goalJustCrossed: Boolean,
+)
+
 data class ClipReply(
     val corrections: List<Correction>,
-    val audio: AudioClip,
+    val audio: AudioClip?,
+    val text: String = "",
+    val onboarding: OnboardingStatus? = null,
     val transcript: String = "",
     val streak: TurnStreak? = null,
+    val call: CallProgress? = null,
 )
 
 enum class CorrectionKind(val wire: String) {
@@ -69,3 +81,14 @@ sealed interface ClipSubmitResult {
     data class Completed(val reply: ClipReply) : ClipSubmitResult
     data object QueueFull : ClipSubmitResult
 }
+
+data class OnboardingStatus(
+    val runId: String,
+    val status: String,
+    val seconds: Double = 0.0,
+    val cefr: String? = null,
+    val review: OnboardingReview? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+)

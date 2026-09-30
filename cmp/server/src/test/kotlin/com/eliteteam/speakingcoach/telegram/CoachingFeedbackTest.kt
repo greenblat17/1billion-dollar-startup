@@ -17,6 +17,31 @@ class CoachingFeedbackTest {
     }
 
     @Test
+    fun quotesWhatSpeakySaid() {
+        val sources = spokenQuote("  Hey, I'm Speaky.  ")
+        assertEquals("💬 Speaky said:\n\nHey, I'm Speaky.", sources.joinToString("") { it.source })
+    }
+
+    @Test
+    fun quotesOneOnboardingMistakeWithoutTheRestOfTheSpeech() {
+        val grammar = onboardingCorrection(Correction("You is", "You are", CorrectionKind.GRAMMAR))
+        assertEquals(
+            "Правильно:\nYou is\nYou are",
+            grammar.joinToString("") { it.source },
+        )
+        val word = onboardingCorrection(Correction("made a photo", "took a photo", CorrectionKind.WORD))
+        assertEquals(
+            "Лучше здесь сказать:\nmade a photo\ntook a photo",
+            word.joinToString("") { it.source },
+        )
+        val natural = onboardingCorrection(Correction("very interesting for me", "really fun", CorrectionKind.NATURAL))
+        assertEquals(
+            "Естественнее:\nvery interesting for me\nreally fun",
+            natural.joinToString("") { it.source },
+        )
+    }
+
+    @Test
     fun quotesTranscriptWhenThereAreNoNotes() {
         val sources = coachingEntities("Hello there", emptyList())
         assertEquals("🗣️ You said:\n\nHello there", sources.joinToString("") { it.source })
