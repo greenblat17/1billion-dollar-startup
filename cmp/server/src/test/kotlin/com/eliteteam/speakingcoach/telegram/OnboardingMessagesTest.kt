@@ -39,7 +39,7 @@ class OnboardingMessagesTest {
         assertEquals("🎯 2:00+", progressLabels(120.0).single())
         assertEquals("🎯 2:00+", progressLabels(150.0).single())
         assertEquals(
-            "🎙 This tracks how much English you've spoken. Around 2 minutes is usually enough for me to get to know you a little.",
+            "🎙 This tracks how much English you've spoken. Around 2 minutes gives me enough to get to know you and estimate your English level.",
             ONBOARDING_PROGRESS_HINT,
         )
         val run = "a".repeat(32)
@@ -76,14 +76,16 @@ class OnboardingMessagesTest {
         val level = levelSlide("B1", review.levelText, overallScore = 57, nextBand = "B2", pointsToNext = 6)
         assertEquals(
             "🎯 Your English level\n\nB1\nIntermediate\n\n57 / 100\n${scoreBar(57)}\n\n✨ 6 points to B2\n\n" +
-                "You can keep a conversation going about your own work.",
+                "You can keep a conversation going about your own work.\n\n" +
+                LEVEL_ESTIMATE,
             level.plain(),
         )
         assertTrue(level.any { it is BoldTextSource && it.source == "57 / 100" })
         assertEquals(20, scoreBar(57).length)
         assertEquals(
             "🎯 Your English level\n\nI don't have a clear level from this chat yet.\n\n" +
-                "You can keep a conversation going about your own work.",
+                "You can keep a conversation going about your own work.\n\n" +
+                LEVEL_ESTIMATE,
             levelSlide(null, review.levelText).plain(),
         )
         assertTrue(!levelSlide("C2", review.levelText).plain().contains("/ 100"))
@@ -117,8 +119,11 @@ class OnboardingMessagesTest {
             (row.single() as CallbackDataInlineKeyboardButton).text
         }
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL), minutes)
-        assertTrue(practiceDeal(10).startsWith("10 minutes a day. Deal 🤝"))
-        assertTrue(practiceDeal(10).endsWith("Want me to remind you?"))
+        val quietDeal = practiceDeal(10)
+        assertTrue(quietDeal.plain().startsWith("10 minutes a day. Deal 🤝"))
+        assertTrue(quietDeal.plain().endsWith("Come back tomorrow for your 10-minute practice."))
+        assertTrue(!quietDeal.plain().contains("/profile"))
+        assertTrue(quietDeal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
         val ask = reminderAskKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("🔔 Set reminder", "Not now"), ask.map { it.text })
         assertEquals("remind", parseOnboardingCallback(ask[0].callbackData)?.action)
@@ -193,8 +198,14 @@ class OnboardingMessagesTest {
     fun invitationSupportsMissingNameAndCommandMentions() {
         assertTrue(onboardingInvitation("Alex").startsWith("👋 Hey, Alex!"))
         assertTrue(onboardingInvitation(null).startsWith("👋 Hey!"))
-        assertTrue(onboardingInvitation("Alex").contains("Let’s get to know each other a little."))
-        assertTrue(onboardingInvitation("Alex").contains("a couple of minutes"))
+        assertTrue(onboardingInvitation("Alex").contains("Let’s talk in English for about 2 minutes."))
+        assertTrue(onboardingInvitation("Alex").contains("see what your English level is."))
+        assertEquals(
+            "🎙 Reply with a voice message in English\n" +
+                "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going.\n" +
+                "Work, studies, hobbies — anything you like.",
+            ONBOARDING_VOICE_HINT,
+        )
         val begin = onboardingKeyboard("begin", "a".repeat(32)).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("Let’s chat 👋", begin.text)
         assertTrue(isOnboardingCommand("/onboarding@speaky"))

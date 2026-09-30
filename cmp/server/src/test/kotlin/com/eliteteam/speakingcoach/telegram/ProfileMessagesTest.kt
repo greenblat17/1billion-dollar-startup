@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.ai.ProgressAssessment
 import com.eliteteam.speakingcoach.ai.ProgressProfileResponse
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
+import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -51,17 +52,20 @@ class ProfileMessagesTest {
     }
 
     @Test
-    fun goalMessageUsesActualStreakAndAsksAboutAReminder() {
+    fun goalMessageIsTheDailyCommitment() {
+        val deal = practiceDeal(10, 4)
         assertEquals(
-            "10 minutes a day. Deal 🤝\n🔥 Day 4 of your streak\n\n" +
-                "Come back tomorrow for your 10-minute practice.\n" +
-                "Want me to remind you?",
-            practiceDeal(10, 4),
+            "10 minutes a day. Deal 🤝\n\n🔥 Day 4 of your streak\n\n" +
+                "Come back tomorrow for your 10-minute practice.",
+            deal.plain(),
         )
-        assertTrue(practiceDeal(5, 1).contains("Day 1"))
+        assertTrue(deal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
+        assertTrue(!deal.plain().contains("/profile"))
+        assertTrue(practiceDeal(5, 1).plain().contains("Day 1"))
         for (streak in listOf(null, 0)) {
-            assertFalse(practiceDeal(15, streak).contains("Day 1"))
-            assertTrue(practiceDeal(15, streak).contains("Want me to remind you?"))
+            val text = practiceDeal(15, streak).plain()
+            assertFalse(text.contains("Day 1"))
+            assertTrue(text.endsWith("Come back tomorrow for your 15-minute practice."))
         }
         assertTrue(isProfileCommand("/profile"))
         assertTrue(isProfileCommand("/profile@speaky"))

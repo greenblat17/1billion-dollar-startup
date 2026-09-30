@@ -16,8 +16,10 @@ import dev.inmo.tgbotapi.utils.strikethrough
 
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n" +
-        "You can talk about your work, studies, hobbies — anything you like."
+        "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going.\n" +
+        "Work, studies, hobbies — anything you like."
 internal const val LEVEL_TITLE = "Your English level"
+internal const val LEVEL_ESTIMATE = "I'll make this more accurate as we talk more."
 internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."
 internal const val SKILL_UNKNOWN = "Not enough from this chat yet."
 internal const val PRACTICE_ASK_LEAD = "🚀 This is your starting point."
@@ -31,7 +33,7 @@ internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val ONBOARDING_PROGRESS_HINT =
-    "🎙 This tracks how much English you've spoken. Around 2 minutes is usually enough for me to get to know you a little."
+    "🎙 This tracks how much English you've spoken. Around 2 minutes gives me enough to get to know you and estimate your English level."
 
 internal fun onboardingProgressLabel(seconds: Double): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
@@ -70,7 +72,7 @@ internal fun onboardingInvitation(firstName: String?): String {
     val name = firstName?.trim().orEmpty()
     val hello = if (name.isEmpty()) "Hey!" else "Hey, $name!"
     return "👋 $hello I’m Speaky, your English practice buddy.\n\n" +
-        "Let’s get to know each other a little. We’ll chat in English for a couple of minutes, and I’ll get to know you along the way."
+        "Let’s talk in English for about 2 minutes. I’ll get to know you and see what your English level is."
 }
 
 internal data class OnboardingCallback(val action: String, val runId: String)
@@ -150,13 +152,18 @@ internal fun reminderSaved(time: String): String =
 
 internal fun reminderSkipped(): String = PROFILE_ANYTIME
 
-internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): String = buildString {
-    append("$minutes minutes a day. Deal 🤝\n")
+internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): TextSourcesList = buildEntities {
+    bold("$minutes minutes a day. Deal 🤝")
     if (currentStreak != null && currentStreak > 0) {
-        append("🔥 Day $currentStreak of your streak\n")
+        regularln("")
+        regularln("")
+        regularln("🔥 Day $currentStreak of your streak")
+        regularln("")
+    } else {
+        regularln("")
+        regularln("")
     }
-    append("\nCome back tomorrow for your $minutes-minute practice.\n")
-    append("Want me to remind you?")
+    regular("Come back tomorrow for your $minutes-minute practice.")
 }
 
 internal fun cefrBandName(cefr: String?): String? = when (cefr) {
@@ -200,8 +207,10 @@ internal fun levelSlide(
     val text = levelText.trim()
     if (text.isNotEmpty()) {
         regularln("")
-        regular(text)
+        regularln(text)
     }
+    regularln("")
+    regular(LEVEL_ESTIMATE)
 }
 
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
