@@ -3,6 +3,8 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import com.eliteteam.speakingcoach.speaking.parseCorrections
+import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
+import dev.inmo.tgbotapi.types.message.textsources.StrikethroughTextSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -26,17 +28,17 @@ class CoachingFeedbackTest {
     fun quotesOneOnboardingMistakeWithoutTheRestOfTheSpeech() {
         val grammar = onboardingCorrection(Correction("You is", "You are", CorrectionKind.GRAMMAR))
         assertEquals(
-            "Правильно:\nYou is\nYou are",
+            "Правильно:\nYou is are",
             grammar.joinToString("") { it.source },
         )
         val word = onboardingCorrection(Correction("made a photo", "took a photo", CorrectionKind.WORD))
         assertEquals(
-            "Лучше здесь сказать:\nmade a photo\ntook a photo",
+            "Лучше здесь сказать:\nmade took a photo",
             word.joinToString("") { it.source },
         )
         val natural = onboardingCorrection(Correction("very interesting for me", "really fun", CorrectionKind.NATURAL))
         assertEquals(
-            "Естественнее:\nvery interesting for me\nreally fun",
+            "Естественнее:\nvery interesting for me really fun",
             natural.joinToString("") { it.source },
         )
     }
@@ -54,7 +56,7 @@ class CoachingFeedbackTest {
             parseCorrections(listOf("I was in Turkey|||I went to Turkey")),
         )
         assertEquals(
-            "🗣️ You said:\n\nI was in Turkey\nI went to Turkey\n\nlast summer",
+            "🗣️ You said:\n\nI was in went to Turkey\n\nlast summer",
             sources.joinToString("") { it.source },
         )
     }
@@ -66,7 +68,7 @@ class CoachingFeedbackTest {
             parseCorrections(listOf("I go|||I went", "I was|||I got")),
         )
         assertEquals(
-            "🗣️ You said:\n\nI go\nI went\n\nto shop and\n\nI was\nI got\n\ntired",
+            "🗣️ You said:\n\nI go went\n\nto shop and\n\nI was got\n\ntired",
             sources.joinToString("") { it.source },
         )
     }
@@ -89,7 +91,7 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "🗣️ You said:\n\nI will think about it when I will have users\nI will think about it when I have users\n\nRight now my goal is an MVP",
+            "🗣️ You said:\n\nI will think about it when I will have have users\n\nRight now my goal is an MVP",
             sources.joinToString("") { it.source },
         )
     }
@@ -113,7 +115,7 @@ class CoachingFeedbackTest {
             listOf(Correction("made a photo", "took a photo", CorrectionKind.WORD)),
         )
         assertEquals(
-            "🗣️ You said:\n\nI\n\n$WORD_LABEL\nmade a photo\ntook a photo\n\nyesterday",
+            "🗣️ You said:\n\nI\n\n$WORD_LABEL\nmade took a photo\n\nyesterday",
             sources.joinToString("") { it.source },
         )
     }
@@ -128,7 +130,7 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "🗣️ You said:\n\n$GRAMMAR_LABEL\nIt were\nIt was\n\nvery interesting for me",
+            "🗣️ You said:\n\n$GRAMMAR_LABEL\nIt were was\n\nvery interesting for me",
             sources.joinToString("") { it.source },
         )
     }
@@ -145,8 +147,31 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "🗣️ You said:\n\n$NATURAL_LABEL\na\nA\n\nb\n\n$WORD_LABEL\nc\nC\n\n$GRAMMAR_LABEL\nd\nD",
+            "🗣️ You said:\n\n$NATURAL_LABEL\na A\n\nb\n\n$WORD_LABEL\nc C\n\n$GRAMMAR_LABEL\nd D",
             sources.joinToString("") { it.source },
         )
+    }
+
+    @Test
+    fun keepsContextWhileChangingOnlyTheMistake() {
+        val sources = onboardingCorrection(Correction(
+            "Yesterday I go to the office early.",
+            "Yesterday I went to the office early.",
+            CorrectionKind.GRAMMAR,
+        ))
+        assertEquals(
+            "Правильно:\nYesterday I go went to the office early.",
+            sources.joinToString("") { it.source },
+        )
+        assertEquals(listOf("go"), sources.filterIsInstance<StrikethroughTextSource>().map { it.source })
+        assertEquals(listOf("went"), sources.filterIsInstance<BoldTextSource>().map { it.source })
+    }
+
+    @Test
+    fun insertionsAndDeletionsKeepAVisibleReplacement() {
+        val insertion = onboardingCorrection(Correction("I bought car", "I bought a car"))
+        assertEquals("Правильно:\nI bought car a car", insertion.joinToString("") { it.source })
+        val deletion = onboardingCorrection(Correction("I am agree", "I agree"))
+        assertEquals("Правильно:\nI am agree agree", deletion.joinToString("") { it.source })
     }
 }

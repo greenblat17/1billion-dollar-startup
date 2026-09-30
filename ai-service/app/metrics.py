@@ -54,8 +54,8 @@ class MetricRates:
 
 # List prices in USD. The page shows rubles at a fixed rate and does not fetch FX.
 RUB_PER_USD = 90.0
-LLM_PROMPT_USD_PER_MILLION = 0.15  # OpenRouter openai/gpt-4o-mini input
-LLM_COMPLETION_USD_PER_MILLION = 0.60  # OpenRouter openai/gpt-4o-mini output
+LLM_PROMPT_USD_PER_MILLION = 0.20  # OpenRouter openai/gpt-5.6-luna input
+LLM_COMPLETION_USD_PER_MILLION = 1.20  # OpenRouter openai/gpt-5.6-luna output
 STT_USD_PER_HOUR = 0.111  # Groq whisper-large-v3
 TTS_USD_PER_MILLION_CHARS = 0.62  # OpenRouter hexgrad/kokoro-82m
 

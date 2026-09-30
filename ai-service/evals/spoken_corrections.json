@@ -1,17 +1,3151 @@
 [
-  {"id":"self-repair","transcript":"I'm 22 years I'm 23 already years old","expect":"omit"},
-  {"id":"discourse-like","transcript":"I want to understand what like the app wants to improve","expect":"omit"},
-  {"id":"discourse-markers","transcript":"Well you know I mean I really like football","expect":"omit"},
-  {"id":"normal-preference","transcript":"I really like football.","expect":"omit"},
-  {"id":"correct-collocation","transcript":"I made a decision yesterday to cancel it.","expect":"omit"},
-  {"id":"optional-any","transcript":"I don't want to lose these opportunities.","expect":"omit"},
-  {"id":"regional-weekend","transcript":"Usually I walk on the weekend.","expect":"omit"},
-  {"id":"valid-interest","transcript":"We went to the sea and it was very interesting for me.","expect":"omit"},
-  {"id":"look-like","transcript":"I want to know what it looks like now.","expect":"omit"},
-  {"id":"ambiguous-name","transcript":"the Rodri","expect":"omit"},
-  {"id":"garbled-asr","transcript":"makes the bed makes makes Pedro not as bright","expect":"omit"},
-  {"id":"missing-context","transcript":"so I do not lose","expect":"omit"},
-  {"id":"agree","transcript":"I am agree with you.","expect":"correct","original":"I am agree with you","correction":"I agree with you"},
-  {"id":"decision","transcript":"I did a decision to leave.","expect":"correct","original":"I did a decision to leave","correction":"I made a decision to leave"},
-  {"id":"embedded-question","transcript":"I want to know how does it look like.","expect":"correct","original":"I want to know how does it look like","correction":"I want to know what it looks like"}
+  {
+    "id": "self-repair",
+    "transcript": "I'm 22 years I'm 23 already years old",
+    "expect": "omit"
+  },
+  {
+    "id": "discourse-like",
+    "transcript": "I want to understand what like the app wants to improve",
+    "expect": "omit"
+  },
+  {
+    "id": "discourse-markers",
+    "transcript": "Well you know I mean I really like football",
+    "expect": "omit"
+  },
+  {
+    "id": "normal-preference",
+    "transcript": "I really like football.",
+    "expect": "omit"
+  },
+  {
+    "id": "correct-collocation",
+    "transcript": "I made a decision yesterday to cancel it.",
+    "expect": "omit"
+  },
+  {
+    "id": "optional-any",
+    "transcript": "I don't want to lose these opportunities.",
+    "expect": "omit"
+  },
+  {
+    "id": "regional-weekend",
+    "transcript": "Usually I walk on the weekend.",
+    "expect": "omit"
+  },
+  {
+    "id": "valid-interest",
+    "transcript": "We went to the sea and it was very interesting for me.",
+    "expect": "omit"
+  },
+  {
+    "id": "look-like",
+    "transcript": "I want to know what it looks like now.",
+    "expect": "omit"
+  },
+  {
+    "id": "ambiguous-name",
+    "transcript": "the Rodri",
+    "expect": "omit"
+  },
+  {
+    "id": "garbled-asr",
+    "transcript": "makes the bed makes makes Pedro not as bright",
+    "expect": "omit"
+  },
+  {
+    "id": "missing-context",
+    "transcript": "so I do not lose",
+    "expect": "omit"
+  },
+  {
+    "id": "agree",
+    "transcript": "I am agree with you.",
+    "expect": "correct",
+    "original": "I am agree with you.",
+    "correction": "I agree with you.",
+    "expected_context": "I am agree with you.",
+    "expected_edits": [
+      {
+        "before": "am",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "decision",
+    "transcript": "I did a decision to leave.",
+    "expect": "correct",
+    "original": "I did a decision to leave.",
+    "correction": "I made a decision to leave.",
+    "expected_context": "I did a decision to leave.",
+    "expected_edits": [
+      {
+        "before": "did",
+        "after": "made"
+      }
+    ]
+  },
+  {
+    "id": "embedded-question",
+    "transcript": "I want to know how does it look like.",
+    "expect": "correct",
+    "original": "I want to know how does it look like.",
+    "correction": "I want to know what it looks like.",
+    "expected_context": "I want to know how does it look like.",
+    "expected_edits": [
+      {
+        "before": "how does it look",
+        "after": "what it looks"
+      }
+    ]
+  },
+  {
+    "id": "repeat-is-also",
+    "transcript": "The price is also is high for students",
+    "expect": "omit"
+  },
+  {
+    "id": "repeat-think",
+    "transcript": "I think think we should start earlier",
+    "expect": "omit"
+  },
+  {
+    "id": "repeat-the",
+    "transcript": "We discussed the the budget on Monday",
+    "expect": "omit"
+  },
+  {
+    "id": "filler-like-tired",
+    "transcript": "I was like really tired after the meeting",
+    "expect": "omit"
+  },
+  {
+    "id": "filler-like-okay",
+    "transcript": "And then I was like okay let's go home",
+    "expect": "omit"
+  },
+  {
+    "id": "gonna",
+    "transcript": "I'm gonna finish this tonight",
+    "expect": "omit"
+  },
+  {
+    "id": "wanna",
+    "transcript": "I wanna practice speaking every day",
+    "expect": "omit"
+  },
+  {
+    "id": "self-repair-berlin",
+    "transcript": "I go I went to Berlin last year",
+    "expect": "omit"
+  },
+  {
+    "id": "abandoned-project",
+    "transcript": "So the project was anyway we changed the plan",
+    "expect": "omit"
+  },
+  {
+    "id": "british-hospital",
+    "transcript": "My brother went to hospital yesterday",
+    "expect": "omit"
+  },
+  {
+    "id": "conditional-would-ok",
+    "transcript": "If I had more time I would travel more",
+    "expect": "omit"
+  },
+  {
+    "id": "conditional-would-tell",
+    "transcript": "If she knew the answer she would tell us",
+    "expect": "omit"
+  },
+  {
+    "id": "conditional-third-ok",
+    "transcript": "If I had studied I would have passed the exam",
+    "expect": "omit"
+  },
+  {
+    "id": "discourse-well",
+    "transcript": "Well I guess it depends on the weather",
+    "expect": "omit"
+  },
+  {
+    "id": "discourse-you-know",
+    "transcript": "You know it's not that simple for me",
+    "expect": "omit"
+  },
+  {
+    "id": "incomplete-thought",
+    "transcript": "I was trying to say that because",
+    "expect": "omit"
+  },
+  {
+    "id": "style-very-interesting",
+    "transcript": "The film was very interesting for us",
+    "expect": "omit"
+  },
+  {
+    "id": "optional-that",
+    "transcript": "I think that we can start tomorrow",
+    "expect": "omit"
+  },
+  {
+    "id": "ambiguous-messi",
+    "transcript": "I watched the Messi last night",
+    "expect": "omit"
+  },
+  {
+    "id": "ive-got",
+    "transcript": "I've got a new job this month",
+    "expect": "omit"
+  },
+  {
+    "id": "itll-be-works",
+    "transcript": "I hope it'll be works next week.",
+    "expect": "correct",
+    "original": "I hope it'll be works next week.",
+    "correction": "I hope it'll work next week.",
+    "expected_context": "I hope it'll be works next week.",
+    "expected_edits": [
+      {
+        "before": "be works",
+        "after": "work"
+      }
+    ]
+  },
+  {
+    "id": "if-will-rain",
+    "transcript": "If it will rain tomorrow we will stay home.",
+    "expect": "correct",
+    "original": "If it will rain tomorrow we will stay home.",
+    "correction": "If it rains tomorrow we will stay home.",
+    "expected_context": "If it will rain tomorrow we will stay home.",
+    "expected_edits": [
+      {
+        "before": "will rain",
+        "after": "rains"
+      }
+    ]
+  },
+  {
+    "id": "if-would-be-you",
+    "transcript": "If I would be you I would wait.",
+    "expect": "correct",
+    "original": "If I would be you I would wait.",
+    "correction": "If I were you I would wait.",
+    "expected_context": "If I would be you I would wait.",
+    "expected_edits": [
+      {
+        "before": "would be",
+        "after": "were"
+      }
+    ]
+  },
+  {
+    "id": "she-dont",
+    "transcript": "She don't like coffee in the morning.",
+    "expect": "correct",
+    "original": "She don't like coffee in the morning.",
+    "correction": "She doesn't like coffee in the morning.",
+    "expected_context": "She don't like coffee in the morning.",
+    "expected_edits": [
+      {
+        "before": "don't",
+        "after": "doesn't"
+      }
+    ]
+  },
+  {
+    "id": "yesterday-go",
+    "transcript": "Yesterday I go to the office early.",
+    "expect": "correct",
+    "original": "Yesterday I go to the office early.",
+    "correction": "Yesterday I went to the office early.",
+    "expected_context": "Yesterday I go to the office early.",
+    "expected_edits": [
+      {
+        "before": "go",
+        "after": "went"
+      }
+    ]
+  },
+  {
+    "id": "an-advice",
+    "transcript": "She gave me an advice about the job.",
+    "expect": "correct",
+    "original": "She gave me an advice about the job.",
+    "correction": "She gave me advice about the job.",
+    "expected_context": "She gave me an advice about the job.",
+    "expected_edits": [
+      {
+        "before": "an",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "depends-of",
+    "transcript": "It depends of the price for me.",
+    "expect": "correct",
+    "original": "It depends of the price for me.",
+    "correction": "It depends on the price for me.",
+    "expected_context": "It depends of the price for me.",
+    "expected_edits": [
+      {
+        "before": "of",
+        "after": "on"
+      }
+    ]
+  },
+  {
+    "id": "am-interesting",
+    "transcript": "I am interesting in this music.",
+    "expect": "correct",
+    "original": "I am interesting in this music.",
+    "correction": "I am interested in this music.",
+    "expected_context": "I am interesting in this music.",
+    "expected_edits": [
+      {
+        "before": "interesting",
+        "after": "interested"
+      }
+    ]
+  },
+  {
+    "id": "we-was",
+    "transcript": "We was late for the class today.",
+    "expect": "correct",
+    "original": "We was late for the class today.",
+    "correction": "We were late for the class today.",
+    "expected_context": "We was late for the class today.",
+    "expected_edits": [
+      {
+        "before": "was",
+        "after": "were"
+      }
+    ]
+  },
+  {
+    "id": "there-is-many",
+    "transcript": "There is many people in the room.",
+    "expect": "correct",
+    "original": "There is many people in the room.",
+    "correction": "There are many people in the room.",
+    "expected_context": "There is many people in the room.",
+    "expected_edits": [
+      {
+        "before": "is",
+        "after": "are"
+      }
+    ]
+  },
+  {
+    "id": "look-forward",
+    "transcript": "I look forward to see you tomorrow.",
+    "expect": "correct",
+    "original": "I look forward to see you tomorrow.",
+    "correction": "I look forward to seeing you tomorrow.",
+    "expected_context": "I look forward to see you tomorrow.",
+    "expected_edits": [
+      {
+        "before": "see",
+        "after": "seeing"
+      }
+    ]
+  },
+  {
+    "id": "have-years",
+    "transcript": "I have 25 years old now.",
+    "expect": "correct",
+    "original": "I have 25 years old now.",
+    "correction": "I am 25 years old now.",
+    "expected_context": "I have 25 years old now.",
+    "expected_edits": [
+      {
+        "before": "have",
+        "after": "am"
+      }
+    ]
+  },
+  {
+    "id": "didnt-went",
+    "transcript": "I didn't went to the gym yesterday.",
+    "expect": "correct",
+    "original": "I didn't went to the gym yesterday.",
+    "correction": "I didn't go to the gym yesterday.",
+    "expected_context": "I didn't went to the gym yesterday.",
+    "expected_edits": [
+      {
+        "before": "went",
+        "after": "go"
+      }
+    ]
+  },
+  {
+    "id": "more-easier",
+    "transcript": "This way is more easier for me.",
+    "expect": "correct",
+    "original": "This way is more easier for me.",
+    "correction": "This way is easier for me.",
+    "expected_context": "This way is more easier for me.",
+    "expected_edits": [
+      {
+        "before": "more",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "explain-me",
+    "transcript": "Can you explain me this rule?",
+    "expect": "correct",
+    "original": "Can you explain me this rule?",
+    "correction": "Can you explain this rule to me?",
+    "expected_context": "Can you explain me this rule?",
+    "expected_edits": [
+      {
+        "before": "me this rule?",
+        "after": "this rule to me?"
+      }
+    ]
+  },
+  {
+    "id": "pause-yesterday",
+    "transcript": "I really like football. Yesterday I go to the office early.",
+    "expect": "correct",
+    "original": "Yesterday I go to the office early.",
+    "correction": "Yesterday I went to the office early.",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.1
+      },
+      {
+        "w": "really",
+        "s": 0.1,
+        "e": 0.3
+      },
+      {
+        "w": "like",
+        "s": 0.3,
+        "e": 0.5
+      },
+      {
+        "w": "football",
+        "s": 0.5,
+        "e": 1.0
+      },
+      {
+        "w": "Yesterday",
+        "s": 1.6,
+        "e": 2.0
+      },
+      {
+        "w": "I",
+        "s": 2.0,
+        "e": 2.1
+      },
+      {
+        "w": "go",
+        "s": 2.1,
+        "e": 2.3
+      },
+      {
+        "w": "to",
+        "s": 2.3,
+        "e": 2.4
+      },
+      {
+        "w": "the",
+        "s": 2.4,
+        "e": 2.5
+      },
+      {
+        "w": "office",
+        "s": 2.5,
+        "e": 2.8
+      },
+      {
+        "w": "early",
+        "s": 2.8,
+        "e": 3.2
+      }
+    ],
+    "expected_context": "Yesterday I go to the office early.",
+    "expected_edits": [
+      {
+        "before": "go",
+        "after": "went"
+      }
+    ]
+  },
+  {
+    "id": "pause-cuts-yesterday",
+    "transcript": "Yesterday I go to the office early.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "Yesterday",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I",
+        "s": 0.95,
+        "e": 1.15
+      },
+      {
+        "w": "go",
+        "s": 1.2,
+        "e": 1.4
+      },
+      {
+        "w": "to",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "the",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "office",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "early",
+        "s": 2.2,
+        "e": 2.4
+      }
+    ],
+    "original": "I go to the office early.",
+    "correction": "I went to the office early.",
+    "worry": "pause cuts Yesterday off the tense",
+    "expected_context": "Yesterday I go to the office early.",
+    "expected_edits": [
+      {
+        "before": "go",
+        "after": "went"
+      }
+    ]
+  },
+  {
+    "id": "pause-cuts-if",
+    "transcript": "If it will rain tomorrow we will stay home.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "it",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "will",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "rain",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "tomorrow",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "we",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "will",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "stay",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "home",
+        "s": 2.7,
+        "e": 2.9
+      }
+    ],
+    "original": "If it will rain tomorrow",
+    "correction": "If it rains tomorrow",
+    "worry": "the result clause is a separate phrase",
+    "expected_context": "If it will rain tomorrow we will stay home.",
+    "expected_edits": [
+      {
+        "before": "will rain",
+        "after": "rains"
+      }
+    ]
+  },
+  {
+    "id": "pause-isolated-would",
+    "transcript": "If I had the money I would buy a car.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "had",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "the",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "money",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "I",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "would",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "buy",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "a",
+        "s": 2.7,
+        "e": 2.9
+      },
+      {
+        "w": "car",
+        "s": 2.95,
+        "e": 3.15
+      }
+    ],
+    "worry": "I would buy a car has no If beside it"
+  },
+  {
+    "id": "tiny-paused-would",
+    "transcript": "If I would be rich someday.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I",
+        "s": 0.95,
+        "e": 1.15
+      },
+      {
+        "w": "would",
+        "s": 1.2,
+        "e": 1.4
+      },
+      {
+        "w": "be",
+        "s": 2.15,
+        "e": 2.35
+      },
+      {
+        "w": "rich",
+        "s": 2.4,
+        "e": 2.6
+      },
+      {
+        "w": "someday",
+        "s": 2.65,
+        "e": 2.85
+      }
+    ],
+    "worry": "pauses reduce the quote to I would"
+  },
+  {
+    "id": "no-pause-two-sentences",
+    "transcript": "I really like football. Yesterday I go to the office early.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "really",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "like",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "football",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "Yesterday",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "I",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "go",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "to",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "the",
+        "s": 2.0,
+        "e": 2.2
+      },
+      {
+        "w": "office",
+        "s": 2.25,
+        "e": 2.45
+      },
+      {
+        "w": "early",
+        "s": 2.5,
+        "e": 2.7
+      }
+    ],
+    "original": "I really like football. Yesterday I go to the office early.",
+    "correction": "I really like football. Yesterday I went to the office early.",
+    "worry": "no pause glues two sentences into one card",
+    "expected_context": "Yesterday I go to the office early.",
+    "expected_edits": [
+      {
+        "before": "go",
+        "after": "went"
+      }
+    ]
+  },
+  {
+    "id": "long-breath",
+    "transcript": "So last weekend my friends and I went to the sea and the weather was warm and we stayed until dinner and my sister don't like the water but everyone else swam and then we took the train home.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "So",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "last",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "weekend",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "my",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "friends",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "and",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "I",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "went",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "to",
+        "s": 2.0,
+        "e": 2.2
+      },
+      {
+        "w": "the",
+        "s": 2.25,
+        "e": 2.45
+      },
+      {
+        "w": "sea",
+        "s": 2.5,
+        "e": 2.7
+      },
+      {
+        "w": "and",
+        "s": 2.75,
+        "e": 2.95
+      },
+      {
+        "w": "the",
+        "s": 3.0,
+        "e": 3.2
+      },
+      {
+        "w": "weather",
+        "s": 3.25,
+        "e": 3.45
+      },
+      {
+        "w": "was",
+        "s": 3.5,
+        "e": 3.7
+      },
+      {
+        "w": "warm",
+        "s": 3.75,
+        "e": 3.95
+      },
+      {
+        "w": "and",
+        "s": 4.0,
+        "e": 4.2
+      },
+      {
+        "w": "we",
+        "s": 4.25,
+        "e": 4.45
+      },
+      {
+        "w": "stayed",
+        "s": 4.5,
+        "e": 4.7
+      },
+      {
+        "w": "until",
+        "s": 4.75,
+        "e": 4.95
+      },
+      {
+        "w": "dinner",
+        "s": 5.0,
+        "e": 5.2
+      },
+      {
+        "w": "and",
+        "s": 5.25,
+        "e": 5.45
+      },
+      {
+        "w": "my",
+        "s": 5.5,
+        "e": 5.7
+      },
+      {
+        "w": "sister",
+        "s": 5.75,
+        "e": 5.95
+      },
+      {
+        "w": "don't",
+        "s": 6.0,
+        "e": 6.2
+      },
+      {
+        "w": "like",
+        "s": 6.25,
+        "e": 6.45
+      },
+      {
+        "w": "the",
+        "s": 6.5,
+        "e": 6.7
+      },
+      {
+        "w": "water",
+        "s": 6.75,
+        "e": 6.95
+      },
+      {
+        "w": "but",
+        "s": 7.0,
+        "e": 7.2
+      },
+      {
+        "w": "everyone",
+        "s": 7.25,
+        "e": 7.45
+      },
+      {
+        "w": "else",
+        "s": 7.5,
+        "e": 7.7
+      },
+      {
+        "w": "swam",
+        "s": 7.75,
+        "e": 7.95
+      },
+      {
+        "w": "and",
+        "s": 8.0,
+        "e": 8.2
+      },
+      {
+        "w": "then",
+        "s": 8.25,
+        "e": 8.45
+      },
+      {
+        "w": "we",
+        "s": 8.5,
+        "e": 8.7
+      },
+      {
+        "w": "took",
+        "s": 8.75,
+        "e": 8.95
+      },
+      {
+        "w": "the",
+        "s": 9.0,
+        "e": 9.2
+      },
+      {
+        "w": "train",
+        "s": 9.25,
+        "e": 9.45
+      },
+      {
+        "w": "home",
+        "s": 9.5,
+        "e": 9.7
+      }
+    ],
+    "original": "So last weekend my friends and I went to the sea and the weather was warm and we stayed until dinner and my sister don't like the water but everyone else swam and then we took the train home.",
+    "correction": "So last weekend my friends and I went to the sea and the weather was warm and we stayed until dinner and my sister doesn't like the water but everyone else swam and then we took the train home.",
+    "worry": "one breath makes the whole story the card",
+    "expected_context": "my sister don't like the water but everyone else swam",
+    "expected_edits": [
+      {
+        "before": "don't",
+        "after": "doesn't"
+      }
+    ]
+  },
+  {
+    "id": "middle-phrase-only",
+    "transcript": "We had dinner. She don't like the soup. Then we went home.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "We",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "had",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "dinner",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "She",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "don't",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "like",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "the",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "soup",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "Then",
+        "s": 3.4,
+        "e": 3.6
+      },
+      {
+        "w": "we",
+        "s": 3.65,
+        "e": 3.85
+      },
+      {
+        "w": "went",
+        "s": 3.9,
+        "e": 4.1
+      },
+      {
+        "w": "home",
+        "s": 4.15,
+        "e": 4.35
+      }
+    ],
+    "original": "She don't like the soup.",
+    "correction": "She doesn't like the soup.",
+    "expected_context": "She don't like the soup.",
+    "expected_edits": [
+      {
+        "before": "don't",
+        "after": "doesn't"
+      }
+    ]
+  },
+  {
+    "id": "self-repair-pause",
+    "transcript": "I go I went to Berlin last year.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "go",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "I",
+        "s": 1.2,
+        "e": 1.4
+      },
+      {
+        "w": "went",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "to",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "Berlin",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "last",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "year",
+        "s": 2.45,
+        "e": 2.65
+      }
+    ],
+    "worry": "abandoned I go is its own phrase"
+  },
+  {
+    "id": "the-across-pause",
+    "transcript": "the the budget was too high for us.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "the",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "the",
+        "s": 0.95,
+        "e": 1.15
+      },
+      {
+        "w": "budget",
+        "s": 1.2,
+        "e": 1.4
+      },
+      {
+        "w": "was",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "too",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "high",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "for",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "us",
+        "s": 2.45,
+        "e": 2.65
+      }
+    ],
+    "worry": "a pause leaves the word the as a phrase"
+  },
+  {
+    "id": "repeat-inside-phrase",
+    "transcript": "We discussed the the budget on Monday morning.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "We",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "discussed",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "the",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "the",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "budget",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "on",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "Monday",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "morning",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "worry": "a repetition fills the whole card"
+  },
+  {
+    "id": "like-and-agree",
+    "transcript": "I was like I am agree with the plan.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "was",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "like",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "I",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "am",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "agree",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "with",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "the",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "plan",
+        "s": 2.0,
+        "e": 2.2
+      }
+    ],
+    "original": "I was like I am agree with the plan.",
+    "correction": "I was like I agree with the plan.",
+    "worry": "filler like should stay in the phrase",
+    "expected_context": "I was like I am agree with the plan.",
+    "expected_edits": [
+      {
+        "before": "am",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "like-verb-only",
+    "transcript": "I really like this plan for the team.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "really",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "like",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "this",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "plan",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "for",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "the",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "team",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ]
+  },
+  {
+    "id": "yesterday-gonna",
+    "transcript": "Yesterday I'm gonna call him.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "Yesterday",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I'm",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "gonna",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "call",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "him",
+        "s": 1.0,
+        "e": 1.2
+      }
+    ],
+    "worry": "gonna plus yesterday is ambiguous spoken English"
+  },
+  {
+    "id": "if-would-have",
+    "transcript": "If I would have studied I would have passed.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "would",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "have",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "studied",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "I",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "would",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "have",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "passed",
+        "s": 2.0,
+        "e": 2.2
+      }
+    ],
+    "original": "If I would have studied I would have passed.",
+    "correction": "If I had studied I would have passed.",
+    "expected_context": "If I would have studied I would have passed.",
+    "expected_edits": [
+      {
+        "before": "would have",
+        "after": "had"
+      }
+    ]
+  },
+  {
+    "id": "bare-would-tomorrow",
+    "transcript": "I would call you tomorrow morning.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "would",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "call",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "you",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "tomorrow",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "morning",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "worry": "would may be a plan or a missing if"
+  },
+  {
+    "id": "if-will-comma",
+    "transcript": "If it will rain, we will stay home.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "it",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "will",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "rain",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "we",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "will",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "stay",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "home",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "original": "If it will rain, we will stay home.",
+    "correction": "If it rains, we will stay home.",
+    "expected_context": "If it will rain, we will stay home.",
+    "expected_edits": [
+      {
+        "before": "will rain,",
+        "after": "rains,"
+      }
+    ]
+  },
+  {
+    "id": "hospital-phrase",
+    "transcript": "My brother went to hospital after lunch.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "My",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "brother",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "went",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "to",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "hospital",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "after",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "lunch",
+        "s": 1.5,
+        "e": 1.7
+      }
+    ]
+  },
+  {
+    "id": "messi-sentence",
+    "transcript": "I watched the Messi last night on TV.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "watched",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "the",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "Messi",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "last",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "night",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "on",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "TV",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ]
+  },
+  {
+    "id": "bought-car",
+    "transcript": "I bought car and drove home.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "bought",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "car",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "and",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "drove",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "home",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "I bought car and drove home.",
+    "correction": "I bought a car and drove home.",
+    "expected_context": "I bought car and drove home.",
+    "expected_edits": [
+      {
+        "before": "",
+        "after": "a"
+      }
+    ]
+  },
+  {
+    "id": "where-is-station",
+    "transcript": "I don't know where is the station.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "don't",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "know",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "where",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "is",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "the",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "station",
+        "s": 1.5,
+        "e": 1.7
+      }
+    ],
+    "original": "I don't know where is the station.",
+    "correction": "I don't know where the station is.",
+    "expected_context": "I don't know where is the station.",
+    "expected_edits": [
+      {
+        "before": "is the station.",
+        "after": "the station is."
+      }
+    ]
+  },
+  {
+    "id": "what-does-he-want",
+    "transcript": "Can you tell me what does he want?",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "Can",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "you",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "tell",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "me",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "what",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "does",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "he",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "want",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "original": "Can you tell me what does he want?",
+    "correction": "Can you tell me what he wants?",
+    "expected_context": "Can you tell me what does he want?",
+    "expected_edits": [
+      {
+        "before": "does he want?",
+        "after": "he wants?"
+      }
+    ]
+  },
+  {
+    "id": "dont-know-nothing",
+    "transcript": "I don't know nothing about it.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "don't",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "know",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "nothing",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "about",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "it",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "worry": "double negative can be dialect"
+  },
+  {
+    "id": "many-persons",
+    "transcript": "There were many persons at the party.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "There",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "were",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "many",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "persons",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "at",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "the",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "party",
+        "s": 1.5,
+        "e": 1.7
+      }
+    ]
+  },
+  {
+    "id": "age-self-repair",
+    "transcript": "I am 22 I am 23 years old.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "am",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "22",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "I",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "am",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "23",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "years",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "old",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ]
+  },
+  {
+    "id": "abandoned-pause",
+    "transcript": "So the project was anyway we changed the plan completely.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "So",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "the",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "project",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "was",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "anyway",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "we",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "changed",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "the",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "plan",
+        "s": 2.7,
+        "e": 2.9
+      },
+      {
+        "w": "completely",
+        "s": 2.95,
+        "e": 3.15
+      }
+    ],
+    "worry": "the abandoned start is its own phrase"
+  },
+  {
+    "id": "garble-middle",
+    "transcript": "We met at noon. makes the bed makes makes Pedro and then we left.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "We",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "met",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "at",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "noon",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "makes",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "the",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "bed",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "makes",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "makes",
+        "s": 2.7,
+        "e": 2.9
+      },
+      {
+        "w": "Pedro",
+        "s": 2.95,
+        "e": 3.15
+      },
+      {
+        "w": "and",
+        "s": 3.9,
+        "e": 4.1
+      },
+      {
+        "w": "then",
+        "s": 4.15,
+        "e": 4.35
+      },
+      {
+        "w": "we",
+        "s": 4.4,
+        "e": 4.6
+      },
+      {
+        "w": "left",
+        "s": 4.65,
+        "e": 4.85
+      }
+    ],
+    "worry": "garbled ASR sits between two fine phrases"
+  },
+  {
+    "id": "rodri-sentence",
+    "transcript": "I think the Rodri played well.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "think",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "the",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "Rodri",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "played",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "well",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ]
+  },
+  {
+    "id": "two-errors-two-phrases",
+    "transcript": "She don't like coffee. Yesterday I go to work.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "She",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "don't",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "like",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "coffee",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "Yesterday",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "I",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "go",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "to",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "work",
+        "s": 2.7,
+        "e": 2.9
+      }
+    ],
+    "original": "She don't like coffee.",
+    "correction": "She doesn't like coffee.",
+    "worry": "a second error sits in the next phrase",
+    "expected_context": "She don't like coffee.",
+    "expected_edits": [
+      {
+        "before": "don't",
+        "after": "doesn't"
+      },
+      {
+        "before": "go",
+        "after": "went"
+      }
+    ]
+  },
+  {
+    "id": "repeated-agree",
+    "transcript": "I am agree with you. I am agree with you.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "am",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "agree",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "with",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "you",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "I",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "am",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "agree",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "with",
+        "s": 2.7,
+        "e": 2.9
+      },
+      {
+        "w": "you",
+        "s": 2.95,
+        "e": 3.15
+      }
+    ],
+    "original": "I am agree with you.",
+    "correction": "I agree with you.",
+    "worry": "the same phrase occurs twice",
+    "expected_context": "I am agree with you.",
+    "expected_edits": [
+      {
+        "before": "am",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "can-to-swim",
+    "transcript": "I can't imagine he can to swim.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "can't",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "imagine",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "he",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "can",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "to",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "swim",
+        "s": 1.5,
+        "e": 1.7
+      }
+    ],
+    "original": "I can't imagine he can to swim.",
+    "correction": "I can't imagine he can swim.",
+    "expected_context": "I can't imagine he can to swim.",
+    "expected_edits": [
+      {
+        "before": "to",
+        "after": ""
+      }
+    ]
+  },
+  {
+    "id": "its-apostrophe",
+    "transcript": "The company lost it's biggest client.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "The",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "company",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "lost",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "it's",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "biggest",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "client",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "The company lost it's biggest client.",
+    "correction": "The company lost its biggest client.",
+    "expected_context": "The company lost it's biggest client.",
+    "expected_edits": [
+      {
+        "before": "it's",
+        "after": "its"
+      }
+    ]
+  },
+  {
+    "id": "your-youre",
+    "transcript": "Your going to like this song.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "Your",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "going",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "to",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "like",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "this",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "song",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "Your going to like this song.",
+    "correction": "You're going to like this song.",
+    "expected_context": "Your going to like this song.",
+    "expected_edits": [
+      {
+        "before": "Your",
+        "after": "You're"
+      }
+    ]
+  },
+  {
+    "id": "more-better-then",
+    "transcript": "This one is more better then that one.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "This",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "one",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "is",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "more",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "better",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "then",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "that",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "one",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "original": "This one is more better then that one.",
+    "correction": "This one is better than that one.",
+    "expected_context": "This one is more better then that one.",
+    "expected_edits": [
+      {
+        "before": "more better then",
+        "after": "better than"
+      }
+    ]
+  },
+  {
+    "id": "would-you-like",
+    "transcript": "Would you like some coffee?",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "Would",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "you",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "like",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "some",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "coffee",
+        "s": 1.0,
+        "e": 1.2
+      }
+    ]
+  },
+  {
+    "id": "question-tag",
+    "transcript": "You like coffee, don't you?",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "You",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "like",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "coffee",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "don't",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "you",
+        "s": 1.0,
+        "e": 1.2
+      }
+    ]
+  },
+  {
+    "id": "since-three-years",
+    "transcript": "I live here since three years.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "live",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "here",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "since",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "three",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "years",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "I live here since three years.",
+    "correction": "I have lived here for three years.",
+    "expected_context": "I live here since three years.",
+    "expected_edits": [
+      {
+        "before": "live here since",
+        "after": "have lived here for"
+      }
+    ]
+  },
+  {
+    "id": "friend-depend",
+    "transcript": "My friend depend of his parents.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "My",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "friend",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "depend",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "of",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "his",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "parents",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "My friend depend of his parents.",
+    "correction": "My friend depends on his parents.",
+    "expected_context": "My friend depend of his parents.",
+    "expected_edits": [
+      {
+        "before": "depend of",
+        "after": "depends on"
+      }
+    ]
+  },
+  {
+    "id": "news-are",
+    "transcript": "The news are good today.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "The",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "news",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "are",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "good",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "today",
+        "s": 1.0,
+        "e": 1.2
+      }
+    ],
+    "original": "The news are good today.",
+    "correction": "The news is good today.",
+    "expected_context": "The news are good today.",
+    "expected_edits": [
+      {
+        "before": "are",
+        "after": "is"
+      }
+    ]
+  },
+  {
+    "id": "some-advices",
+    "transcript": "She gave me some advices about the job.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "She",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "gave",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "me",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "some",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "advices",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "about",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "the",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "job",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "original": "She gave me some advices about the job.",
+    "correction": "She gave me some advice about the job.",
+    "expected_context": "She gave me some advices about the job.",
+    "expected_edits": [
+      {
+        "before": "advices",
+        "after": "advice"
+      }
+    ]
+  },
+  {
+    "id": "um-pause-error",
+    "transcript": "I think um she don't like coffee.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "think",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "um",
+        "s": 1.2,
+        "e": 1.4
+      },
+      {
+        "w": "she",
+        "s": 2.15,
+        "e": 2.35
+      },
+      {
+        "w": "don't",
+        "s": 2.4,
+        "e": 2.6
+      },
+      {
+        "w": "like",
+        "s": 2.65,
+        "e": 2.85
+      },
+      {
+        "w": "coffee",
+        "s": 2.9,
+        "e": 3.1
+      }
+    ],
+    "original": "she don't like coffee.",
+    "correction": "she doesn't like coffee.",
+    "worry": "um is its own phrase",
+    "expected_context": "she don't like coffee.",
+    "expected_edits": [
+      {
+        "before": "don't",
+        "after": "doesn't"
+      }
+    ]
+  },
+  {
+    "id": "spoke-to",
+    "transcript": "The man who I spoke yesterday was kind.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "The",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "man",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "who",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "I",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "spoke",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "yesterday",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "was",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "kind",
+        "s": 1.75,
+        "e": 1.95
+      }
+    ],
+    "original": "The man who I spoke yesterday was kind.",
+    "correction": "The man who I spoke to yesterday was kind.",
+    "expected_context": "The man who I spoke yesterday was kind.",
+    "expected_edits": [
+      {
+        "before": "",
+        "after": "to"
+      }
+    ]
+  },
+  {
+    "id": "suggested-me",
+    "transcript": "She suggested me to leave early.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "She",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "suggested",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "me",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "to",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "leave",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "early",
+        "s": 1.25,
+        "e": 1.45
+      }
+    ],
+    "original": "She suggested me to leave early.",
+    "correction": "She suggested I leave early.",
+    "expected_context": "She suggested me to leave early.",
+    "expected_edits": [
+      {
+        "before": "me to",
+        "after": "I"
+      }
+    ]
+  },
+  {
+    "id": "wanna-clean",
+    "transcript": "I really wanna practice every day because it helps.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "really",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "wanna",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "practice",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "every",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "day",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "because",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "it",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "helps",
+        "s": 2.0,
+        "e": 2.2
+      }
+    ]
+  },
+  {
+    "id": "pause-before-be-works",
+    "transcript": "I hope it'll be works next week.",
+    "expect": "correct",
+    "original": "I hope it'll be works next week.",
+    "correction": "I hope it'll work next week.",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "hope",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "it'll",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "be",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "works",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "next",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "week",
+        "s": 2.2,
+        "e": 2.4
+      }
+    ],
+    "worry": "be works is split from it'll",
+    "expected_context": "I hope it'll be works next week.",
+    "expected_edits": [
+      {
+        "before": "be works",
+        "after": "work"
+      }
+    ]
+  },
+  {
+    "id": "correct-would-after-if",
+    "transcript": "If I had more time I would travel more.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "If",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "I",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "had",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "more",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "time",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "I",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "would",
+        "s": 2.2,
+        "e": 2.4
+      },
+      {
+        "w": "travel",
+        "s": 2.45,
+        "e": 2.65
+      },
+      {
+        "w": "more",
+        "s": 2.7,
+        "e": 2.9
+      }
+    ],
+    "worry": "I would travel more is correct only next to If"
+  },
+  {
+    "id": "people-which",
+    "transcript": "The people which lives here are kind.",
+    "expect": "correct",
+    "words": [
+      {
+        "w": "The",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "people",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "which",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "lives",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "here",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "are",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "kind",
+        "s": 1.5,
+        "e": 1.7
+      }
+    ],
+    "original": "The people which lives here are kind.",
+    "correction": "The people who live here are kind.",
+    "expected_context": "The people which lives here are kind.",
+    "expected_edits": [
+      {
+        "before": "which lives",
+        "after": "who live"
+      }
+    ]
+  },
+  {
+    "id": "look-forward-pause",
+    "transcript": "I look forward to see you tomorrow.",
+    "expect": "correct",
+    "original": "I look forward to see you tomorrow.",
+    "correction": "I look forward to seeing you tomorrow.",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "look",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "forward",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "to",
+        "s": 1.45,
+        "e": 1.65
+      },
+      {
+        "w": "see",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "you",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "tomorrow",
+        "s": 2.2,
+        "e": 2.4
+      }
+    ],
+    "worry": "to see you tomorrow hides look forward",
+    "expected_context": "I look forward to see you tomorrow.",
+    "expected_edits": [
+      {
+        "before": "see",
+        "after": "seeing"
+      }
+    ]
+  },
+  {
+    "id": "explain-pause",
+    "transcript": "Can you explain me this rule today?",
+    "expect": "correct",
+    "original": "Can you explain me this rule today?",
+    "correction": "Can you explain this rule to me today?",
+    "words": [
+      {
+        "w": "Can",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "you",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "explain",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "me",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "this",
+        "s": 1.7,
+        "e": 1.9
+      },
+      {
+        "w": "rule",
+        "s": 1.95,
+        "e": 2.15
+      },
+      {
+        "w": "today",
+        "s": 2.2,
+        "e": 2.4
+      }
+    ],
+    "worry": "this rule is across the pause from explain me",
+    "expected_context": "Can you explain me this rule today?",
+    "expected_edits": [
+      {
+        "before": "me this rule",
+        "after": "this rule to me"
+      }
+    ]
+  },
+  {
+    "id": "think-think-phrase",
+    "transcript": "I think think we should start earlier today with the team.",
+    "expect": "omit",
+    "words": [
+      {
+        "w": "I",
+        "s": 0.0,
+        "e": 0.2
+      },
+      {
+        "w": "think",
+        "s": 0.25,
+        "e": 0.45
+      },
+      {
+        "w": "think",
+        "s": 0.5,
+        "e": 0.7
+      },
+      {
+        "w": "we",
+        "s": 0.75,
+        "e": 0.95
+      },
+      {
+        "w": "should",
+        "s": 1.0,
+        "e": 1.2
+      },
+      {
+        "w": "start",
+        "s": 1.25,
+        "e": 1.45
+      },
+      {
+        "w": "earlier",
+        "s": 1.5,
+        "e": 1.7
+      },
+      {
+        "w": "today",
+        "s": 1.75,
+        "e": 1.95
+      },
+      {
+        "w": "with",
+        "s": 2.0,
+        "e": 2.2
+      },
+      {
+        "w": "the",
+        "s": 2.25,
+        "e": 2.45
+      },
+      {
+        "w": "team",
+        "s": 2.5,
+        "e": 2.7
+      }
+    ]
+  }
 ]

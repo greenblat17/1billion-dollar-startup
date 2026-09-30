@@ -28,9 +28,7 @@ internal fun onboardingCorrection(correction: Correction): TextSourcesList {
     val label = onboardingCorrectionLabel(correction.kind)
     return buildEntities {
         regularln(label)
-        strikethrough(correction.wrong)
-        regular("\n")
-        bold(correction.better)
+        addAll(inlineCorrection(correction))
     }
 }
 
@@ -52,9 +50,7 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
                     italic(correctionKindLabel(kind))
                     regular("\n")
                 }
-                strikethrough(span.correction.wrong)
-                regular("\n")
-                bold(span.correction.better)
+                addAll(inlineCorrection(span.correction))
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
                     regular("\n\n")
@@ -68,6 +64,39 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
             }
         }
     }
+}
+
+private fun inlineCorrection(correction: Correction): TextSourcesList = buildEntities {
+    if (correction.wrong == correction.better) {
+        regular(correction.wrong)
+        return@buildEntities
+    }
+    val original = correction.wrong.split(' ')
+    val improved = correction.better.split(' ')
+    var prefix = 0
+    while (prefix < minOf(original.size, improved.size) && original[prefix] == improved[prefix]) {
+        prefix++
+    }
+    var suffix = 0
+    while (suffix < minOf(original.size, improved.size) - prefix &&
+        original[original.lastIndex - suffix] == improved[improved.lastIndex - suffix]
+    ) {
+        suffix++
+    }
+    // Include a neighboring word for an insertion or deletion so both sides stay visible.
+    if (prefix + suffix == improved.size) {
+        if (suffix > 0) suffix-- else if (prefix > 0) prefix--
+    }
+    if (prefix + suffix == original.size) {
+        if (suffix > 0) suffix-- else if (prefix > 0) prefix--
+    }
+    val oldEnd = original.size - suffix
+    val newEnd = improved.size - suffix
+    if (prefix > 0) regular(original.take(prefix).joinToString(" ") + " ")
+    strikethrough(original.subList(prefix, oldEnd).joinToString(" "))
+    regular(" ")
+    bold(improved.subList(prefix, newEnd).joinToString(" "))
+    if (suffix > 0) regular(" " + original.takeLast(suffix).joinToString(" "))
 }
 
 private fun correctionSpans(transcript: String, corrections: List<Correction>): List<CorrectionSpan> {

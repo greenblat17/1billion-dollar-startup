@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import json
 
 import pytest
@@ -111,6 +113,23 @@ def test_speech_words_keep_compact_timings():
         ]
     })
     assert words == [{"w": "Hello", "s": 0.0, "e": 0.4}, {"w": "there", "s": 0.5, "e": 0.9}]
+
+
+def test_spoken_correction_fixtures_record_edits_and_context():
+    path = Path(__file__).parents[1] / "evals" / "spoken_corrections.json"
+    cases = {case["id"]: case for case in json.loads(path.read_text())}
+    assert len(cases) == 100
+    positives = [case for case in cases.values() if case["expect"] == "correct"]
+    assert len(positives) == 47
+    assert all(case["expected_context"] in case["transcript"] for case in positives)
+    assert all(case["expected_edits"] and all(
+        edit["before"] != edit["after"] for edit in case["expected_edits"]
+    ) for case in positives)
+    assert len(cases["two-errors-two-phrases"]["expected_edits"]) == 2
+    assert cases["pause-cuts-yesterday"]["expected_context"].startswith("Yesterday I go")
+    assert cases["pause-cuts-if"]["expected_context"].startswith("If it will rain")
+    assert cases["no-pause-two-sentences"]["expected_context"].startswith("Yesterday")
+    assert len(cases["long-breath"]["expected_context"].split()) < 30
 
 
 def _skill_json(band="B1", position="high", flags=None):

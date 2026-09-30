@@ -4,10 +4,15 @@ SPOKEN_CORRECTION_POLICY = """
 The transcript represents spontaneous spoken language, not written English. ASR punctuation
 is unreliable. Do not treat missing punctuation, false starts, repetitions, self-corrections,
 or abandoned phrases as grammar errors. Never infer pronunciation from the transcript.
+If a whole utterance is repeated, the repetition itself is not an error; a clear grammatical
+mistake inside that utterance can still be corrected once.
 Do not correct natural spoken discourse markers such as "like", "you know", "I mean", or
 "well" merely because removing them would make written English cleaner.
 If the original phrase would sound normal when spoken by a fluent English speaker in casual
 conversation, do not correct it. Accept standard regional varieties of English.
+Do not standardize negative concord in a dialect or slang just to fit formal written English.
+Do not force a tense change from a past-time word when a future plan or quoted thought is
+plausible. An unfinished conditional without a main clause is not a reliable error example.
 Prefer missing a real error to falsely correcting acceptable speech. No corrections is valid.
 
 For every candidate check all four conditions:
@@ -18,9 +23,10 @@ For every candidate check all four conditions:
 4. Understandable alone: the displayed pair contains enough context to understand the error.
 If uncertain whether the user actually made the error, omit it.
 
-Choose the smallest understandable utterance fragment, NOT the fewest tokens. Include the
-subject, object or clause needed to show the contrast. Quote the original exactly, including
-its existing punctuation; do not reconstruct what the speaker might have intended.
-Change only the error, preserve meaning and register, and do not add facts or guess referents.
-If a self-contained pair cannot be formed from the transcript, skip the candidate.
+Use the full turn to judge each candidate. Select a short, contiguous clause or sentence
+containing the error and everything needed to understand it (including a conditional or time
+expression even when the speaker paused there). A pause is not a grammatical boundary.
+Do not include an unrelated sentence just because the speaker did not pause. Preserve the
+other words, meaning, and register. Do not add facts or guess referents. If the error cannot
+be shown in one short, understandable context, skip it.
 """

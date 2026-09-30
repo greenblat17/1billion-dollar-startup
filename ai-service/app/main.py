@@ -368,7 +368,8 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     metrics = build_metrics_store(settings)
     return ClipPipeline(
         stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
-        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics),
+        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics,
+                            notes_model=settings.notes_model),
         tts=OpenAiTextToSpeech(
             openai_client,
             settings.tts_model,

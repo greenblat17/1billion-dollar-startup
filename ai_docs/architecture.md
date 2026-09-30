@@ -14,7 +14,7 @@
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
 | CMP UI | `cmp/app/` | Releva Auth/Home/Call(WebRTC)/Review против Ktor; карточка «Последний разговор» мок. **Не** clip API |
 
-Внешние API: Groq Whisper (STT), OpenRouter `gpt-4o-mini` (LLM), Kokoro TTS, Telegram Bot API.
+Внешние API: Groq Whisper (STT), OpenRouter `gpt-5.6-luna` (LLM по умолчанию), Kokoro TTS, Telegram Bot API.
 
 ## Прод: компоненты
 
@@ -109,8 +109,8 @@ flowchart TD
 ```
 
 - Clarify: *I didn't catch that. Could you say it again?* Notes пустые, LLM не зовётся.
-- Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; notes JSON с парами `wrong/better/kind` и внутренними проверочными полями **без** истории, `temperature` 0. `kind`: `grammar` / `word` / `natural` (явно неидиоматичная фраза). Общий фильтр оставляет только уверенные полезные ошибки разговорной речи; фрагмент должен быть понятен самостоятельно. См. `integrations/2026-09-30-spoken-corrections.md`. Пайплайн ждёт оба, потом TTS. В Redis кладётся **spoken reply**, не notes.
-- В job: `result.corrections` `[{wrong, better, kind}]` и для совместимости `result.notes` строками `wrong|||better` (макс. 3, приоритет grammar > word > natural). Цитата в Telegram: курсивом русская подпись типа на отдельной строке, под ней strike `wrong`, ещё ниже bold `better`; при пересечении спанов побеждает более приоритетный тип; `wrong` только как целое слово/фраза; висячая пунктуация после спана съедается. `natural` — эксперимент, см. `integrations/2026-09-18-telegram.md`.
+- Два параллельных LLM-вызова (по умолчанию Luna): reply JSON `{"reply"}` с историей, `temperature` 0.7, модель `LLM_MODEL`; notes JSON с коротким точным контекстом и локальной правкой **без** истории, `temperature` 0, модель `NOTES_MODEL`. `kind`: `grammar` / `word` / `natural` (явно неидиоматичная фраза). Общий фильтр оставляет только уверенные полезные ошибки разговорной речи; фрагмент должен быть понятен самостоятельно. См. `integrations/2026-09-30-spoken-corrections.md`. Пайплайн ждёт исправлений и ответа, потом TTS. В Redis кладётся **spoken reply**, не notes.
+- В job: `result.corrections` `[{wrong, better, kind}]` и для совместимости `result.notes` строками `wrong|||better` (макс. 3, приоритет grammar > word > natural). Карточка Telegram показывает короткую фразу целиком: ошибочные слова зачёркнуты, замена выделена жирным рядом, остальные слова остаются обычным текстом. При пересечении фрагментов побеждает более приоритетный тип. `natural` — эксперимент, см. `integrations/2026-09-18-telegram.md`.
 
 Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service убивает незавершённые jobs, **не** Redis-диалог.
 
