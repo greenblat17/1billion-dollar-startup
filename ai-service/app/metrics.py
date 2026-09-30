@@ -314,7 +314,9 @@ class MemoryMetricsStore:
                 self._reminder_pending[session] = decision["write_pending"]
             else:
                 self._reminder_pending.pop(session, None)
-        if decision.get("time"):
+        if decision.get("clear_time"):
+            self._reminder_times.pop(session, None)
+        elif decision.get("time"):
             self._reminder_times[session] = decision["time"]
 
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
@@ -507,7 +509,9 @@ class RedisMetricsStore:
                 await self._redis.set(_reminder_pending_key(session), decision["write_pending"])
             else:
                 await self._redis.delete(_reminder_pending_key(session))
-        if decision.get("time"):
+        if decision.get("clear_time"):
+            await self._redis.delete(_reminder_time_key(session))
+        elif decision.get("time"):
             await self._redis.set(_reminder_time_key(session), decision["time"])
         return public_schedule(decision)
 
@@ -737,6 +741,8 @@ def schedule_decision(action: str, pending: str | None, text: str | None, run_id
         return {"status": "asking", "write_pending": saved}
     if action == "decline":
         return {"status": "declined", "write_pending": ""}
+    if action == "clear":
+        return {"status": "cleared", "write_pending": "", "clear_time": "1"}
     if action == "submit":
         if not pending:
             return {"status": "ignored"}

@@ -44,6 +44,7 @@ class Scorer:
             raise RuntimeError("provider down")
         raw = {
             "levelText": "This conversation sits just above your current level.",
+            "recap": "That was a good talk about your startup.",
             "overallMove": self.move,
             "grammar": {"text": "Grammar is a little steadier.", "move": self.move},
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
@@ -164,6 +165,7 @@ def test_one_call_cannot_jump_the_level():
         baseline(),
         parse_call_moves(json.dumps({
             "levelText": "A small step.",
+            "recap": "We talked about your week. Then we got into the product launch. And the team.",
             "overallMove": 30,
             "grammar": {"text": "A bit clearer.", "move": 30},
             "vocabulary": {"text": "Same range.", "move": 0},
@@ -176,6 +178,7 @@ def test_one_call_cannot_jump_the_level():
     assert moved["assessment"]["cefr"] == "B1"
     assert moved["assessment"]["grammar"] <= 54
     assert moved["public"]["previousScore"] == 52
+    assert moved["public"]["recap"] == "We talked about your week. Then we got into the product launch."
     assert moved["public"]["fluency"]["score"] >= 50
 
 

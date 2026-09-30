@@ -395,6 +395,7 @@ data class CallReviewResponse(
     val callId: String = "",
     val retry: Boolean = false,
     val levelText: String = "",
+    val recap: String = "",
     val cefr: String? = null,
     val overallScore: Int? = null,
     val previousScore: Int? = null,

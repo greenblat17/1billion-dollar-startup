@@ -22,7 +22,7 @@ class CallMessagesTest {
         val top = rows[0].map { (it as CallbackDataInlineKeyboardButton).callbackData }
         val end = rows[1].single() as CallbackDataInlineKeyboardButton
         assertEquals(listOf(CALL_CLOCK_CALLBACK, SPOKEN_TEXT_CALLBACK), top)
-        assertEquals("End conversation 📞", end.text)
+        assertEquals("☎️ End conversation", end.text)
         assertEquals(CallCallback("end", ""), parseCallCallback(end.callbackData))
         assertTrue(end.callbackData.encodeToByteArray().size <= 64)
     }
@@ -48,45 +48,23 @@ class CallMessagesTest {
     }
 
     @Test
-    fun progressLineShowsTheSmallStepFromTheStoredLevel() {
+    fun progressCardRecapsTheConversation() {
         val up = callProgressMessage(
             CallReviewResponse(
-                overallScore = 53,
-                previousScore = 52,
+                recap = "That was fun. We talked about your startup and the launch.",
                 cefr = "B1",
+                overallScore = 54,
+                previousScore = 52,
                 todaySeconds = 51.0,
                 goalSeconds = 300.0,
                 streak = 2,
             ),
         ).plain()
-        assertTrue(up.contains("🎯 0:51 / 5:00 today"))
-        assertTrue(up.contains("52 → 53 ↑"))
-        assertTrue(up.contains("Nice — your speaking score went up."))
-        assertTrue(up.contains("B1 · Intermediate"))
-        assertTrue(up.contains("🔥 2 day streak"))
-        assertTrue(!up.contains("80"))
-
-        val down = callProgressMessage(
-            CallReviewResponse(
-                overallScore = 50,
-                previousScore = 52,
-                levelText = "The pauses got longer than usual.",
-                cefr = "B1",
-                streak = 2,
-            ),
-        ).plain()
-        assertTrue(down.contains("52 → 50 ↓"))
-        assertTrue(down.contains("This one came out a little lower."))
-        assertTrue(down.contains("The pauses got longer than usual."))
-
-        val same = callProgressMessage(
-            CallReviewResponse(overallScore = 52, previousScore = 52, cefr = "B1"),
-        ).plain()
-        assertTrue(same.contains("Speaking score: 52"))
-        assertTrue(same.contains("B1 · Intermediate"))
-        assertTrue(!same.contains("→"))
-        assertTrue(!same.contains("Nice"))
-        assertTrue(!same.contains("/remind"))
+        assertTrue(up.contains("🎯 0:51 / 5:00 today\n\nThat was fun. We talked about your startup and the launch.\n\n🔥 2 day streak"))
+        assertTrue(!up.contains("→"))
+        assertTrue(!up.contains("B1"))
+        assertTrue(!up.contains("Nice"))
+        assertTrue(!up.contains("54"))
 
         val offer = callProgressMessage(
             CallReviewResponse(overallScore = 52, previousScore = 52, cefr = "B1", streak = 2),

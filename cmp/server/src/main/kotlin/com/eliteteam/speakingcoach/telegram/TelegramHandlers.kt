@@ -151,10 +151,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             null
         }
         ai.scheduleReminder(sessionId, "remind:${message.messageId}", "ask", REMIND_COMMAND_RUN)
+        val saved = current?.takeIf { it.isNotBlank() }
         reply(
             message,
-            if (current.isNullOrBlank()) REMINDER_TIME_PROMPT else reminderChangePrompt(current),
+            if (saved == null) REMINDER_TIME_PROMPT else reminderChangePrompt(saved),
             allowSendingWithoutReply = true,
+            replyMarkup = saved?.let { reminderStopKeyboard() },
         )
     }
     suspend fun reminderMissing(message: ChatMessage): Boolean = try {
@@ -436,6 +438,22 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
+        }
+        if (query.data == REMINDER_STOP_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            try {
+                actions.run(message.chat.id.toString(), "remind:${query.id}") {
+                    ai.scheduleReminder(telegramSessionId(message.chat.id), "stop:${query.id}", "clear")
+                    clearOnboardingMarkup(message)
+                    reply(message, REMINDER_STOPPED, allowSendingWithoutReply = true)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Reminder stop failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@onDataCallbackQuery
         }
         val callCallback = parseCallCallback(query.data)
         if (callCallback != null) {

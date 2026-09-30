@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any
 
 from app.calls import CallStore
@@ -17,11 +18,12 @@ CALL_REVIEW_SYSTEM = """You compare one finished English conversation with the l
 The current scores are the baseline. Judge only whether this conversation is a little weaker,
 about the same, or a little stronger than that baseline.
 Always reply with a JSON object only:
-{"levelText": string, "overallMove": int, "grammar": {"text": string, "move": int},
+{"levelText": string, "recap": string, "overallMove": int, "grammar": {"text": string, "move": int},
  "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int}}
 Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
 Do not return a CEFR label or a 0-100 score. Do not invent a new level.
 levelText is two short sentences about this conversation, relative to the current level.
+recap is one or two sentences Speaky says to close the call. Say you enjoyed talking and name the specific things you discussed, using only the transcripts. No score, no CEFR level, no mistakes, and no advice.
 Each skill text is one short sentence. Do not include a number or a CEFR letter in any sentence.
 Use only the supplied examples for claims about mistakes. An empty list is not error-free speech.
 Fluency text may mention pace, pauses, and fillers in words, not with a new number.
@@ -37,6 +39,7 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
         raise ValueError("call review missing levelText")
     return {
         "levelText": " ".join(level.split()),
+        "recap": _recap(payload.get("recap")),
         "overallMove": _move(payload.get("overallMove")),
         "grammar": _skill_move(payload.get("grammar")),
         "vocabulary": _skill_move(payload.get("vocabulary")),
@@ -88,6 +91,7 @@ def apply_call_level(
         "assessment": updated,
         "public": {
             "levelText": moves["levelText"],
+            "recap": moves["recap"],
             "cefr": placed["cefr"],
             "overallScore": placed["overallScore"],
             "previousScore": previous,
@@ -199,6 +203,17 @@ def _with_clock(review: dict, call: dict) -> dict:
         "todaySeconds": float(call.get("todaySeconds") or 0),
         "goalSeconds": float(call.get("goalSeconds") or 0),
     }
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def _recap(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("call review missing recap")
+    text = " ".join(value.split())
+    sentences = [part.strip() for part in _SENTENCE_END.split(text) if part.strip()]
+    return " ".join(sentences[:2])
 
 
 def _skill_move(value: Any) -> dict[str, Any]:

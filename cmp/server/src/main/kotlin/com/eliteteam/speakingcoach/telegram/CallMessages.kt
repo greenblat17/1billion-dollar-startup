@@ -48,7 +48,7 @@ internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boo
         dataButton(callClockLabel(todaySeconds, goalSeconds), CALL_CLOCK_CALLBACK)
         if (spoken) dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
     }
-    row { dataButton("End conversation 📞", CALL_END_CALLBACK) }
+    row { dataButton("☎️ End conversation", CALL_END_CALLBACK) }
 }
 
 internal fun parseCallCallback(data: String): CallCallback? = when (data) {
@@ -97,41 +97,19 @@ internal fun callReturnKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 
 internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
     bold("${callClockLabel(review.todaySeconds, review.goalSeconds)} today")
-    val current = review.overallScore
-    val previous = review.previousScore
-    when {
-        current != null && previous != null && current > previous -> {
-            regularln("")
-            bold("$previous → $current ↑")
-            regularln("")
-            regular("Nice — your speaking score went up.")
-        }
-        current != null && previous != null && current < previous -> {
-            regularln("")
-            bold("$previous → $current ↓")
-            regularln("")
-            regular("This one came out a little lower.")
-            val reason = review.levelText.trim()
-            if (reason.isNotEmpty()) {
-                regularln("")
-                regular(reason)
-            }
-        }
-        current != null -> {
-            regularln("")
-            regular("Speaking score: $current")
-        }
-    }
-    val band = cefrBandName(review.cefr)
-    if (review.cefr != null && band != null) {
+    val recap = review.recap.trim()
+    if (recap.isNotEmpty()) {
         regularln("")
-        regular("${review.cefr} · $band")
+        regularln("")
+        regular(recap)
     }
     if (review.streak > 0) {
+        regularln("")
         regularln("")
         regular("🔥 ${review.streak} day streak")
     }
     if (offerReminder) {
+        regularln("")
         regularln("")
         regular(REMINDER_OFFER)
     }

@@ -517,3 +517,5 @@ async def test_reminder_time_can_be_replaced() -> None:
     await store.schedule_reminder("tg-1", "ask", run_id="cmd")
     assert (await store.schedule_reminder("tg-1", "submit", text="19:30"))["time"] == "19:30"
     assert await store.reminder_time("tg-1") == "19:30"
+    assert (await store.schedule_reminder("tg-1", "clear"))["status"] == "cleared"
+    assert await store.reminder_time("tg-1") is None
