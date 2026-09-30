@@ -5,6 +5,8 @@ import logging
 import time
 from dataclasses import dataclass
 
+from typing import Any
+
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
@@ -26,6 +28,7 @@ class PipelineResult:
     corrections: list[Correction]
     streak: StreakUpdate | None = None
     onboarding: dict | None = None
+    call: dict | None = None
 
     @property
     def notes(self) -> list[str]:
@@ -41,6 +44,7 @@ class ClipPipeline:
         dialogue: DialogueStore,
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
+        calls: Any | None = None,
     ) -> None:
         self.personalization = None
         self._stt = stt
@@ -49,6 +53,7 @@ class ClipPipeline:
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
+        self.calls = calls
 
     @property
     def stt(self) -> SpeechToText:
@@ -107,6 +112,7 @@ class ClipPipeline:
                 timings_ms=timings,
                 corrections=[],
                 streak=await self._record_streak(session_id),
+                call=await self._call_summary(session_id),
             )
 
         llm_started = time.perf_counter()
@@ -140,12 +146,38 @@ class ClipPipeline:
             timings_ms=timings,
             corrections=list(corrections),
             streak=await self._record_streak(session_id),
+            call=await self._record_call(session_id, stt_result, reply_text, corrections),
         )
 
     async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:
         await self._metrics.record_turn(session_id, seconds, tts_chars)
         await self._metrics.record_exchange(session_id)
         return await self._record_streak(session_id)
+
+    async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:
+        if self.calls is None:
+            return None
+        try:
+            return await self.calls.append_turn(
+                session_id,
+                stt_result.text,
+                reply_text,
+                [item.to_json() for item in corrections],
+                stt_result.duration_seconds,
+                stt_result.words,
+            )
+        except Exception:
+            logger.exception("call turn failed session=%s", session_id)
+            return None
+
+    async def _call_summary(self, session_id: str) -> dict | None:
+        if self.calls is None:
+            return None
+        try:
+            return await self.calls.summary(session_id)
+        except Exception:
+            logger.exception("call summary failed session=%s", session_id)
+            return None
 
     async def _record_streak(self, session_id: str) -> StreakUpdate | None:
         try:

@@ -182,6 +182,8 @@ class MetricsStore(Protocol):
         run_id: str = "",
     ) -> dict[str, str]: ...
 
+    async def reminder_time(self, session_id: str) -> str | None: ...
+
     async def is_known(self, session_id: str) -> bool: ...
 
     async def is_activated(self, session_id: str) -> bool: ...
@@ -299,13 +301,22 @@ class MemoryMetricsStore:
             self._apply_schedule(session, decision)
             return public_schedule(decision)
 
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        async with self._lock:
+            return self._reminder_times.get(session)
+
     def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
         if "write_pending" in decision:
             if decision["write_pending"]:
                 self._reminder_pending[session] = decision["write_pending"]
             else:
                 self._reminder_pending.pop(session, None)
-        if decision.get("time"):
+        if decision.get("clear_time"):
+            self._reminder_times.pop(session, None)
+        elif decision.get("time"):
             self._reminder_times[session] = decision["time"]
 
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
@@ -498,9 +509,18 @@ class RedisMetricsStore:
                 await self._redis.set(_reminder_pending_key(session), decision["write_pending"])
             else:
                 await self._redis.delete(_reminder_pending_key(session))
-        if decision.get("time"):
+        if decision.get("clear_time"):
+            await self._redis.delete(_reminder_time_key(session))
+        elif decision.get("time"):
             await self._redis.set(_reminder_time_key(session), decision["time"])
         return public_schedule(decision)
+
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        value = await self._redis.get(_reminder_time_key(session))
+        return str(value) if value else None
 
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
         moment = _moment(now)
@@ -721,6 +741,8 @@ def schedule_decision(action: str, pending: str | None, text: str | None, run_id
         return {"status": "asking", "write_pending": saved}
     if action == "decline":
         return {"status": "declined", "write_pending": ""}
+    if action == "clear":
+        return {"status": "cleared", "write_pending": "", "clear_time": "1"}
     if action == "submit":
         if not pending:
             return {"status": "ignored"}

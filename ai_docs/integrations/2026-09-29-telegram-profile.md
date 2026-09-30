@@ -48,7 +48,7 @@ Come back tomorrow for your 10-minute practice.
 
 The first line is bold, with a blank line between the parts. It does not mention `/profile`. Buttons are `🔔 Set reminder` and `Not now`. The streak is loaded at that moment, never hardcoded to day one. Zero or unavailable streak omits the streak line; a streak read failure does not undo the saved goal or block the question.
 
-`Set reminder` asks for a Moscow time as text, `8:05` or `08:05`. Hours are 0–23 and minutes 00–59. The saved and confirmed value is zero-padded `HH:MM`. Anything else asks again. A saved time is `Perfect. I'll remind you every day at 13:00 🔔`, then the profile line. `Not now` sends only `You can check your progress anytime with /profile.` Both end with `Keep talking 🎙` and `See you tomorrow`. A voice message while the time is still open stays an ordinary conversation; a later time is still accepted until the step is closed. No extra profile screen is sent.
+`Set reminder` asks for a Moscow time as text, `8:05` or `08:05`. Hours are 0–23 and minutes 00–59. The saved and confirmed value is zero-padded `HH:MM`. Anything else asks again. `/remind` asks the same way later, and a new time replaces the saved one. A saved time is `Perfect. I'll remind you every day at 13:00 🔔`, then the profile line. `Not now` sends only `You can check your progress anytime with /profile.` Both end with `Keep talking 🎙` and `See you tomorrow`. A voice message while the time is still open stays an ordinary conversation; a later time is still accepted until the step is closed. No extra profile screen is sent.
 
 ## Verification and release
 

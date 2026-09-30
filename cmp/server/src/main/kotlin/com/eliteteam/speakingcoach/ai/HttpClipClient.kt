@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.speaking.CallProgress
 import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
@@ -114,6 +115,12 @@ class HttpClipClient(
         return response.body<ReminderClaimResponse>().targets
     }
 
+    suspend fun reminderTime(sessionId: SessionId): String? {
+        val response = http.get("$root/internal/reminders/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder time returned ${response.status}" }
+        return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun scheduleReminder(
         sessionId: SessionId,
         requestId: String,
@@ -162,6 +169,36 @@ class HttpClipClient(
             setBody(PracticeGoalRequest(sessionId.value, requestId, minutes))
         }
         check(response.status.isSuccess()) { "ai-service practice goal returned ${response.status}" }
+    }
+
+    suspend fun openCall(sessionId: SessionId): OpenCallResponse {
+        val response = http.post("$root/internal/calls/open") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service open call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun endCall(sessionId: SessionId): EndCallResponse {
+        val response = http.post("$root/internal/calls/end") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service end call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun reviewCall(callId: String): CallReviewResponse {
+        val response = http.post("$root/internal/calls/review") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallReviewRequest(callId))
+        }
+        check(response.status.isSuccess()) { "ai-service call review returned ${response.status}" }
+        return response.body()
     }
 
     suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
@@ -219,6 +256,9 @@ class HttpClipClient(
                     },
                     transcript = status.transcript,
                     streak = status.streak,
+                    call = status.call?.let {
+                        CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
+                    },
                 )
                 is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
             }
@@ -272,6 +312,7 @@ class HttpClipClient(
                 text = body.replyText,
                 audioAvailable = body.result?.audioAvailable ?: true,
                 onboarding = body.result?.onboarding,
+                call = body.result?.call,
             )
             "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
             else -> ClipJobStatus.Failed("unexpected status ${body.status}")
@@ -320,6 +361,7 @@ private sealed interface ClipJobStatus {
         val text: String,
         val audioAvailable: Boolean,
         val onboarding: OnboardingStateResponse?,
+        val call: CallClipResponse?,
     ) : ClipJobStatus
     data class Failed(val message: String) : ClipJobStatus
 }

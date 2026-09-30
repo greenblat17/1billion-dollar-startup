@@ -18,6 +18,13 @@ data class TurnStreak(
     val newRecord: Boolean,
 )
 
+data class CallProgress(
+    val callId: String,
+    val todaySeconds: Double,
+    val goalSeconds: Double,
+    val goalJustCrossed: Boolean,
+)
+
 data class ClipReply(
     val corrections: List<Correction>,
     val audio: AudioClip?,
@@ -25,6 +32,7 @@ data class ClipReply(
     val onboarding: OnboardingStatus? = null,
     val transcript: String = "",
     val streak: TurnStreak? = null,
+    val call: CallProgress? = null,
 )
 
 enum class CorrectionKind(val wire: String) {

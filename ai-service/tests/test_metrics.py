@@ -491,6 +491,8 @@ async def test_reminders_claim_route_requires_token() -> None:
         )
         first = client.post("/internal/reminders/claim", headers=AUTH, json={"mode": "manual"})
         second = client.post("/internal/reminders/claim", headers=AUTH, json={"mode": "manual"})
+        missing = client.get("/internal/reminders/tg-9", headers=AUTH)
+        saved = client.get("/internal/reminders/tg-7", headers=AUTH)
     assert asking.status_code == 200
     assert invalid.json() == {"status": "invalid"}
     assert first.status_code == 200
@@ -501,3 +503,19 @@ async def test_reminders_claim_route_requires_token() -> None:
         ],
     }
     assert second.json() == {"targets": []}
+    assert missing.status_code == 200
+    assert missing.json() == {"time": None}
+    assert saved.json() == {"time": "08:05"}
+
+
+@pytest.mark.asyncio
+async def test_reminder_time_can_be_replaced() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    assert await store.reminder_time("tg-1") is None
+    await store.schedule_reminder("tg-1", "ask", run_id="cmd")
+    assert (await store.schedule_reminder("tg-1", "submit", text="8:05"))["time"] == "08:05"
+    await store.schedule_reminder("tg-1", "ask", run_id="cmd")
+    assert (await store.schedule_reminder("tg-1", "submit", text="19:30"))["time"] == "19:30"
+    assert await store.reminder_time("tg-1") == "19:30"
+    assert (await store.schedule_reminder("tg-1", "clear"))["status"] == "cleared"
+    assert await store.reminder_time("tg-1") is None

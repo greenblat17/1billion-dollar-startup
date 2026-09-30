@@ -4,7 +4,7 @@ Status: implemented (2026-09-26), including the admin controls and stats on `/ad
 
 ## Decisions
 
-- A reminder goes only to someone who typed a time during onboarding. `Not now` and everyone without a saved time get nothing. There is no 19:00 broadcast.
+- A reminder goes only to someone who saved a time, during onboarding or later with `/remind`. `Not now` and everyone without a saved time get nothing. There is no 19:00 broadcast. `/remind` can replace a saved time, and `Stop reminders` deletes it.
 - The only other skip is a user who already finished a turn today (Moscow day, `metrics:dau:{day}`).
 - No `/stop`. A user who does not want it blocks the bot; the send returns 403, is counted as `blocked`, and is not retried.
 - Time: the saved `HH:MM` in `Europe/Moscow`, stored at `reminder-time:{sessionId}` with no TTL. Auto sends once that clock time has arrived and for two hours after it, without crossing midnight. A restart after that window does not send the missed reminder. The scheduler still ticks every minute.

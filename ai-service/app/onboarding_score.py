@@ -67,6 +67,41 @@ def _bounds(index: int) -> tuple[int, int]:
     return lower, upper
 
 
+def owning_cell(score: int) -> tuple[str, str, int, int, int]:
+    """The band, position, anchor, and inclusive bounds that already contain this score."""
+    contained = []
+    for index, (band, position, anchor) in enumerate(_CELLS):
+        lower, upper = _bounds(index)
+        if lower <= score <= upper:
+            contained.append((band, position, anchor, lower, upper))
+    if not contained:
+        index = min(range(len(_CELLS)), key=lambda item: abs(_CELLS[item][2] - score))
+        band, position, anchor = _CELLS[index]
+        lower, upper = _bounds(index)
+        return band, position, anchor, lower, upper
+    return min(contained, key=lambda item: abs(item[2] - score))
+
+
+def step_score(previous: int | None, move: int) -> int | None:
+    """Move a stored score by at most two points and keep it inside its current cell."""
+    if previous is None:
+        return None
+    try:
+        current = int(previous)
+    except (TypeError, ValueError):
+        return None
+    step = max(-2, min(2, int(move)))
+    _band, _position, _anchor, lower, upper = owning_cell(current)
+    return min(max(current + step, lower), upper)
+
+
+def placed_level(score: int) -> dict:
+    """Band and shade implied by a score that already sits inside one cell."""
+    band, position, anchor, _lower, _upper = owning_cell(score)
+    shade = next(name for name, value in SHADES.items() if value == max(-2, min(2, score - anchor)))
+    return {"cefr": band, "position": position, "shade": shade, **overall_progress(band, position, shade)}
+
+
 def skill_score(band: str | None, position: str | None, shade: str = "0") -> int | None:
     if band is None:
         return None
