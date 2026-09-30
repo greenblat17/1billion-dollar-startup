@@ -33,6 +33,8 @@ def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
         assert "the phrase still cannot pass by" in prompt
         assert "answer before your own question" in prompt
         assert "love teaching people to speak English" in prompt
+    assert "simple words and simple grammar" in ONBOARDING_SYSTEM
+    assert "simple words and simple grammar" not in REPLY_SYSTEM
 
 
 class Stt:
@@ -366,7 +368,7 @@ async def test_close_remembers_profile_and_restart_wipes_it():
         "Old topic",
         "Old reply",
         "I build software. I need English to work with clients.",
-        "You know what, I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I’ve got a pretty good sense of your English too. Let me show you what I noticed.",
+        "You know what, I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I can already hear your English a little. Let me show you what I noticed.",
     ]
     saved = await s.store.get("tg-test")
     assert saved["profile"]["work"] == "software developer"

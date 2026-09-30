@@ -202,8 +202,7 @@ class OnboardingMessagesTest {
         assertTrue(onboardingInvitation("Alex").contains("see what your English level is."))
         assertEquals(
             "🎙 Reply with a voice message in English\n" +
-                "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going.\n" +
-                "Work, studies, hobbies — anything you like.",
+                "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going.",
             ONBOARDING_VOICE_HINT,
         )
         val begin = onboardingKeyboard("begin", "a".repeat(32)).keyboard.single().single() as CallbackDataInlineKeyboardButton

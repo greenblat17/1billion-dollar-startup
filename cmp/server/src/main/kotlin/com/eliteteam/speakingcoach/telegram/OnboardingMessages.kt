@@ -16,8 +16,7 @@ import dev.inmo.tgbotapi.utils.strikethrough
 
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n" +
-        "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going.\n" +
-        "Work, studies, hobbies — anything you like."
+        "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going."
 internal const val LEVEL_TITLE = "Your English level"
 internal const val LEVEL_ESTIMATE = "I'll make this more accurate as we talk more."
 internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."
