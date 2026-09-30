@@ -20,6 +20,7 @@ class ClipJob:
     timings_ms: dict[str, int] | None = None
     streak: dict[str, Any] | None = None
     onboarding: dict[str, Any] | None = None
+    call: dict[str, Any] | None = None
     error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.monotonic)
 
@@ -39,6 +40,8 @@ class ClipJob:
             if self.onboarding is not None:
                 payload["result"]["onboarding"] = self.onboarding
                 payload["result"]["audioAvailable"] = self.reply_audio is not None
+            if self.call is not None:
+                payload["result"]["call"] = self.call
             if self.streak is not None:
                 payload["result"]["streak"] = self.streak
         if self.transcript is not None:

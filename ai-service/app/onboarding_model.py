@@ -248,6 +248,17 @@ class OnboardingModel:
             raise ValueError("invalid correction selection")
         return set(accepted)
 
+    async def compose_call_review(self, payload: dict) -> dict:
+        from app.call_review import CALL_REVIEW_SYSTEM, parse_call_moves
+
+        raw = await self.llm.complete_json(
+            CALL_REVIEW_SYSTEM,
+            json.dumps(payload, ensure_ascii=False),
+            temperature=0.0,
+            max_tokens=700,
+        )
+        return parse_call_moves(raw)
+
     async def compose_review(self, payload: dict) -> dict:
         raw = await self.llm.complete_json(
             REVIEW_SYSTEM,

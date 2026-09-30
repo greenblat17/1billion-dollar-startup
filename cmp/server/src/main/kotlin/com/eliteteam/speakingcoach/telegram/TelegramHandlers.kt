@@ -142,13 +142,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (result.onboarding?.status == "ignored") return
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
         val finished = onboarding?.takeIf { it.status == "completed" && it.review != null }
+        val practice = result.call?.takeIf { onboarding == null }
         val progress = when {
             finished != null -> onboardingKeyboard("level", finished.runId)
             onboarding != null -> onboardingProgressKeyboard(onboarding.seconds)
             else -> null
         }
-        if (progress != null) clearProgress(message.chat)
+        if (progress != null || practice != null) clearProgress(message.chat)
+        if (practice?.goalJustCrossed == true) {
+            reply(message, callGoalReached(practice.goalSeconds), allowSendingWithoutReply = true)
+        }
         if (onboarding != null) {
+            result.corrections.minByOrNull { it.priority }?.let { correction ->
+                reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+            }
+        } else if (practice != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
                 reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
             }
@@ -162,10 +170,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 message.chat.id,
                 audio.bytes.asMultipartFile(audio.fileName),
                 text = if (firstQuestion) ONBOARDING_VOICE_HINT else null,
-                replyMarkup = withSpokenText(progress, spoken),
+                replyMarkup = practice?.let { callKeyboard(it.todaySeconds, it.goalSeconds, spoken) }
+                    ?: withSpokenText(progress, spoken),
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
-            if (progress != null) progressMessages[message.chat.id.toString()] = voice.messageId
+            if (progress != null || practice != null) progressMessages[message.chat.id.toString()] = voice.messageId
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
             val action = state?.let {
@@ -186,6 +195,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false) {
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = "message:${message.messageId}"
+        if (force) {
+            try {
+                ai.endCall(sessionId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Failed to seal a call before onboarding for {}", sessionId.value, error)
+            }
+        }
         // Resolve eligibility before today's funnel event makes a new user look existing.
         val state = ai.onboardingState(sessionId, requestId, if (force) "force" else "start")
         try {
@@ -220,6 +238,36 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (state.status == "pending") {
             reply(message, "I couldn't prepare your result. Please try again.", replyMarkup = onboardingKeyboard("retry", state.runId))
             return
+        }
+        if (state.status != "active") {
+            val profile = ai.progressProfile(sessionId)
+            when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes)) {
+                "need-onboarding" -> {
+                    greet(message, "/onboarding", force = true)
+                    return
+                }
+                "need-goal" -> {
+                    val assessment = profile.assessment
+                    reply(
+                        message,
+                        practiceAsk(assessment?.cefr, assessment?.overallScore, assessment?.nextBand, assessment?.pointsToNext),
+                        allowSendingWithoutReply = true,
+                        replyMarkup = practiceMinutesKeyboard(state.runId),
+                    )
+                    return
+                }
+                else -> {
+                    val opened = ai.openCall(sessionId)
+                    opened.unseenCallId?.let { callId ->
+                        reply(
+                            message,
+                            CALL_YESTERDAY_TEXT,
+                            allowSendingWithoutReply = true,
+                            replyMarkup = callYesterdayKeyboard(callId),
+                        )
+                    }
+                }
+            }
         }
         if (state.react) {
             try {
@@ -290,6 +338,70 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
         }
     }
+    suspend fun showCallLevel(message: ChatMessage, callId: String) {
+        val review = ai.reviewCall(callId)
+        if (review.retry) {
+            reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
+            return
+        }
+        reply(
+            message,
+            levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext),
+            allowSendingWithoutReply = true,
+            replyMarkup = callSlideKeyboard("grammar", callId),
+        )
+    }
+    suspend fun showCallSlide(message: ChatMessage, callback: CallCallback) {
+        val review = ai.reviewCall(callback.callId)
+        if (review.retry) {
+            reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callback.callId))
+            return
+        }
+        val wrapped = review.asOnboardingReview()
+        val slide = when (callback.action) {
+            "grammar" -> grammarSlide(wrapped) to "vocab"
+            "vocab" -> vocabularySlide(wrapped) to "fluency"
+            else -> fluencySlide(wrapped) to "progress"
+        }
+        val markup = callSlideKeyboard(slide.second, callback.callId)
+        try {
+            editMessageText(message.chat.id, message.messageId, slide.first, replyMarkup = markup)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to edit call slide for {}", message.chat.id, error)
+            reply(message, slide.first, allowSendingWithoutReply = true, replyMarkup = markup)
+        }
+    }
+    suspend fun showCallProgress(message: ChatMessage, callId: String) {
+        val review = ai.reviewCall(callId)
+        if (review.retry) {
+            reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
+            return
+        }
+        try {
+            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+        }
+        val goalMet = review.goalSeconds > 0.0 && review.todaySeconds >= review.goalSeconds
+        reply(
+            message,
+            callProgressMessage(review),
+            allowSendingWithoutReply = true,
+            replyMarkup = callReturnKeyboard(goalMet),
+        )
+    }
+    suspend fun endPracticeCall(message: ChatMessage) {
+        val callId = ai.endCall(telegramSessionId(message.chat.id)).callId
+        if (callId.isNullOrBlank()) {
+            reply(message, SEND_VOICE_HINT, allowSendingWithoutReply = true)
+            return
+        }
+        clearProgress(message.chat)
+        showCallLevel(message, callId)
+    }
     onDataCallbackQuery { query ->
         // Stop Telegram's spinner before waiting for synthesis or the per-chat queue.
         try {
@@ -298,6 +410,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
+        }
+        val callCallback = parseCallCallback(query.data)
+        if (callCallback != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            try {
+                actions.run(message.chat.id.toString(), "call:${query.id}") {
+                    when (callCallback.action) {
+                        "clock" -> reply(message, CALL_CLOCK_HINT, allowSendingWithoutReply = true)
+                        "talk" -> reply(message, CALL_KEEP_TALKING, allowSendingWithoutReply = true)
+                        "bye" -> reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
+                        "end" -> endPracticeCall(message)
+                        "progress" -> showCallProgress(message, callCallback.callId)
+                        "grammar", "vocab", "fluency" -> showCallSlide(message, callCallback)
+                        else -> showCallLevel(message, callCallback.callId)
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Call callback failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@onDataCallbackQuery
         }
         if (query.data == ONBOARDING_PROGRESS_CALLBACK) {
             val voiceMessage = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery

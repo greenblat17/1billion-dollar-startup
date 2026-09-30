@@ -41,6 +41,7 @@ data class ClipResultResponse(
     val streak: ClipStreakResponse? = null,
     val audioAvailable: Boolean = true,
     val onboarding: OnboardingStateResponse? = null,
+    val call: CallClipResponse? = null,
 )
 
 @Serializable
@@ -350,6 +351,56 @@ data class OnboardingStateResponse(
     val retryAvailable: Boolean = false,
     val react: Boolean = false,
     val review: OnboardingReview? = null,
+)
+
+@Serializable
+data class CallClipResponse(
+    val callId: String = "",
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+)
+
+@Serializable
+data class CallSessionRequest(
+    val sessionId: String,
+)
+
+@Serializable
+data class OpenCallResponse(
+    val callId: String = "",
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+    val unseenCallId: String? = null,
+)
+
+@Serializable
+data class EndCallResponse(
+    val callId: String? = null,
+)
+
+@Serializable
+data class CallReviewRequest(
+    val callId: String,
+)
+
+@Serializable
+data class CallReviewResponse(
+    val callId: String = "",
+    val retry: Boolean = false,
+    val levelText: String = "",
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val previousScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val streak: Int = 0,
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
 )
 
 

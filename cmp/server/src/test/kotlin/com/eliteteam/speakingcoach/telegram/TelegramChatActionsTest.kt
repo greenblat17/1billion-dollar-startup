@@ -40,6 +40,27 @@ class TelegramChatActionsTest {
     }
 
     @Test
+    fun endConversationWaitsForTheVoiceAlreadyInFlight() = runTest {
+        val actions = TelegramChatActions()
+        val release = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        val voice = async {
+            actions.run("chat", "voice", voice = true) {
+                events += "voice"
+                release.await()
+                events += "voice-done"
+            }
+        }
+        yield()
+        val end = async { actions.run("chat", "end") { events += "end" } }
+        yield()
+        release.complete(Unit)
+        voice.await()
+        end.await()
+        assertEquals(listOf("voice", "voice-done", "end"), events)
+    }
+
+    @Test
     fun duplicateDeliveryDoesNotRunTwiceAndFailureAllowsRetry() = runTest {
         val actions = TelegramChatActions()
         var calls = 0

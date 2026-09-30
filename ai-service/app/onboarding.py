@@ -53,17 +53,31 @@ class OnboardingStore:
         return deepcopy(self._memory.get(session_id))
 
     async def save(self, session_id: str, state: dict) -> None:
-        assessment = assessment_summary(state)
+        fresh = assessment_summary(state)
         if self._redis is not None:
+            stored = _kept_assessment(await self._read_assessment(session_id), fresh)
             async with self._redis.pipeline(transaction=True) as pipe:
                 pipe.set(f"onboarding:{session_id}", json.dumps(state))
-                if assessment is not None:
-                    pipe.set(f"assessment:{session_id}", json.dumps(assessment))
+                if stored is not None:
+                    pipe.set(f"assessment:{session_id}", json.dumps(stored))
                 await pipe.execute()
         else:
             self._memory[session_id] = deepcopy(state)
-            if assessment is not None:
-                self._assessments[session_id] = deepcopy(assessment)
+            stored = _kept_assessment(self._assessments.get(session_id), fresh)
+            if stored is not None:
+                self._assessments[session_id] = deepcopy(stored)
+
+    async def save_assessment(self, session_id: str, assessment: dict) -> None:
+        if self._redis is not None:
+            await self._redis.set(f"assessment:{session_id}", json.dumps(assessment))
+        else:
+            self._assessments[session_id] = deepcopy(assessment)
+
+    async def _read_assessment(self, session_id: str) -> dict | None:
+        if self._redis is None:
+            return deepcopy(self._assessments.get(session_id))
+        raw = await self._redis.get(f"assessment:{session_id}")
+        return json.loads(raw) if raw else None
 
     async def get_assessment(self, session_id: str) -> dict | None:
         if self._redis is not None:
@@ -120,11 +134,41 @@ def assessment_summary(state: dict | None) -> dict | None:
     if not state or state.get("status") != "completed" or not isinstance(state.get("review"), dict):
         return None
     return {
+        "runId": state.get("runId"),
         "cefr": state.get("cefr"),
+        "position": state.get("position"),
+        "shade": _stored_shade(state),
         **overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state)),
         **{skill: (state["review"].get(skill) or {}).get("score")
            for skill in ("grammar", "vocabulary", "fluency")},
     }
+
+
+def public_assessment(assessment: dict | None) -> dict | None:
+    if not isinstance(assessment, dict):
+        return None
+    return {
+        key: assessment.get(key)
+        for key in ("cefr", "overallScore", "nextBand", "pointsToNext", "grammar", "vocabulary", "fluency")
+    }
+
+
+def _kept_assessment(existing: dict | None, fresh: dict | None) -> dict | None:
+    """A later save of the same attempt must not wipe a call that already moved the snapshot."""
+    if fresh is None:
+        return None
+    if existing is None:
+        return fresh
+    existing_run = existing.get("runId")
+    if not existing_run:
+        if existing.get("overallScore") is None:
+            return fresh
+        patched = dict(existing)
+        patched["runId"] = fresh.get("runId")
+        return patched
+    if existing_run != fresh.get("runId"):
+        return fresh
+    return None
 
 
 def public_state(state: dict) -> dict:
@@ -437,7 +481,7 @@ class OnboardingService:
     async def progress_profile(self, session_id: str) -> dict:
         async with self.store.lock(session_id):
             return {
-                "assessment": await self.store.get_assessment(session_id),
+                "assessment": public_assessment(await self.store.get_assessment(session_id)),
                 "dailyMinutes": await self.store.get_goal(session_id),
                 "currentStreak": await self.pipeline.streaks.shown(session_id),
             }

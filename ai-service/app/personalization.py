@@ -59,6 +59,16 @@ class Personalization:
         if state and state.get("status") == "completed":
             memory["person"] = dict(state.get("profile") or {})
             memory["proficiency"] = proficiency(state)
+            snapshot = await self.store.get_assessment(session)
+            if isinstance(snapshot, dict) and snapshot.get("overallScore") is not None:
+                memory["proficiency"]["overall_cefr"] = snapshot.get("cefr")
+                memory["proficiency"]["position"] = snapshot.get("position")
+                memory["proficiency"]["overall_shade"] = snapshot.get("shade") or memory["proficiency"].get("overall_shade")
+                memory["proficiency"]["overall_score"] = snapshot.get("overallScore")
+                for skill in ("grammar", "vocabulary", "fluency"):
+                    current = dict(memory["proficiency"].get(skill) or {})
+                    current["score"] = snapshot.get(skill)
+                    memory["proficiency"][skill] = current
             memory["person"] = await self._update_person(memory["person"], [
                 t["transcript"] for t in state.get("turns", []) if t.get("transcript")
             ])

@@ -10,6 +10,8 @@ from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
 
+from app.call_review import CallReviews
+from app.calls import CallStore
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -38,6 +40,7 @@ def create_app(
     reviewer: SessionReviewer | None = None,
     onboarding_model: Any = None,
     onboarding_store: OnboardingStore | None = None,
+    call_store: CallStore | None = None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     if not settings.ai_internal_token:
@@ -49,6 +52,13 @@ def create_app(
         onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
         clip_pipeline, onboarding_model or OnboardingModel(clip_pipeline.llm),
     )
+    owns_calls = call_store is None
+    calls = call_store or CallStore(
+        redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        goal_of=onboarding.store.get_goal,
+    )
+    clip_pipeline.calls = calls
+    reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
     streaks = clip_pipeline.streaks
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -68,6 +78,8 @@ def create_app(
             intro_warmup.cancel()
             await asyncio.gather(intro_warmup, return_exceptions=True)
         await onboarding.store.aclose()
+        if owns_calls:
+            await calls.aclose()
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()
 
@@ -194,6 +206,29 @@ def create_app(
         if reset not in {"", "start", "force"}:
             raise HTTPException(status_code=400, detail="invalid reset")
         return await onboarding.resolve(session_id, request_id, reset)
+
+    @app.post("/internal/calls/open")
+    async def calls_open(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        return await calls.open(_call_session_id(payload))
+
+    @app.post("/internal/calls/end")
+    async def calls_end(request: Request) -> dict[str, str | None]:
+        payload = await _json_object(request)
+        return {"callId": await calls.seal(_call_session_id(payload))}
+
+    @app.post("/internal/calls/review")
+    async def calls_review(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        call_id = str(payload.get("callId") or "").strip()
+        if not call_id:
+            raise HTTPException(status_code=400, detail="callId required")
+        try:
+            return await reviews.review(call_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown call") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail="numeric baseline required") from error
 
     @app.post("/internal/onboarding/goal")
     async def onboarding_goal(request: Request) -> dict:
@@ -442,6 +477,13 @@ def _public_error(error: BaseException) -> str:
     return text
 
 
+def _call_session_id(payload: dict[str, Any]) -> str:
+    session_id = str(payload.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="sessionId required")
+    return session_id
+
+
 def _onboarding_identity(payload: dict) -> tuple[str, str]:
     session_id = str(payload.get("sessionId") or "").strip()
     request_id = str(payload.get("requestId") or "").strip()
@@ -471,3 +513,4 @@ def _complete_job(job: ClipJob, result: PipelineResult) -> None:
     job.reply_content_type = CONTENT_TYPE_OGG
     job.status = "ok"
     job.onboarding = result.onboarding
+    job.call = result.call

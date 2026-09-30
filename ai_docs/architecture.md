@@ -81,6 +81,8 @@ sequenceDiagram
 
 Идентификатор сессии Telegram: `tg-$chatId` (`TelegramHandlers.telegramSessionId`). В Redis ключ `session:{sessionId}`. `/start` — get-or-create, историю не стирает.
 
+После онбординга обычный голос — это звонок, не бесконечная лента. Снимок `assessment:{sessionId}` и выбранные минуты обязательны. Открытый звонок — `call:open:{sessionId}`, ходы — `call:{id}`, минуты дня — `call:day:{sessionId}:{moscowDay}`. Конец сдвигает уровень не больше чем на 2 балла внутри текущей клетки. Диалог `session:{id}` и память `learner:{id}` между звонками остаются. Контракт: `integrations/2026-09-30-telegram-calls.md`.
+
 ## Пайплайн ai-service
 
 ```mermaid
