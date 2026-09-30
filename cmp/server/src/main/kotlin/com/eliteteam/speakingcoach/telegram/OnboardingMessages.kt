@@ -35,10 +35,10 @@ internal const val ONBOARDING_PROGRESS_HINT =
 
 internal fun onboardingProgressLabel(seconds: Double): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
-    if (elapsed >= ONBOARDING_PROGRESS_SECONDS) return "2:00+"
+    if (elapsed >= ONBOARDING_PROGRESS_SECONDS) return "🎯 2:00+"
     val whole = elapsed.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
-    return "$clock / 2:00"
+    return "🎯 $clock / 2:00"
 }
 
 internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup = inlineKeyboard {
@@ -91,7 +91,7 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
         val label = when (action) {
             "begin" -> "Let’s chat 👋"
             "retry" -> "Retry"
-            "level" -> "See my results"
+            "level" -> "🔥 See my results"
             "results" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"

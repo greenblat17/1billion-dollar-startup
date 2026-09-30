@@ -33,11 +33,11 @@ class OnboardingMessagesTest {
 
     @Test
     fun progressButtonsCountSpeechUpToTwoMinutes() {
-        assertEquals("0:00 / 2:00", progressLabels(0.0).single())
-        assertEquals("0:38 / 2:00", progressLabels(38.0).single())
-        assertEquals("1:17 / 2:00", progressLabels(77.0).single())
-        assertEquals("2:00+", progressLabels(120.0).single())
-        assertEquals("2:00+", progressLabels(150.0).single())
+        assertEquals("🎯 0:00 / 2:00", progressLabels(0.0).single())
+        assertEquals("🎯 0:38 / 2:00", progressLabels(38.0).single())
+        assertEquals("🎯 1:17 / 2:00", progressLabels(77.0).single())
+        assertEquals("🎯 2:00+", progressLabels(120.0).single())
+        assertEquals("🎯 2:00+", progressLabels(150.0).single())
         assertEquals(
             "🎙 This tracks how much English you've spoken. Around 2 minutes is usually enough for me to get to know you a little.",
             ONBOARDING_PROGRESS_HINT,
@@ -50,7 +50,7 @@ class OnboardingMessagesTest {
         assertEquals("Retry", labels.last())
         val sideBySide = withSpokenText(onboardingProgressKeyboard(0.0), spoken = true)!!.keyboard.single()
         val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
+        assertEquals(listOf("🎯 0:00 / 2:00", SPOKEN_TEXT_BUTTON), texts)
     }
 
     @Test
@@ -124,7 +124,7 @@ class OnboardingMessagesTest {
         assertEquals("talk", parseOnboardingCallback(deal[0].callbackData)?.action)
         val closing = withSpokenText(onboardingKeyboard("level", run), spoken = true)!!.keyboard.single()
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("See my results", SPOKEN_TEXT_BUTTON), closingLabels)
+        assertEquals(listOf("🔥 See my results", SPOKEN_TEXT_BUTTON), closingLabels)
         val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("See what I noticed →", report.text)
         assertEquals(
