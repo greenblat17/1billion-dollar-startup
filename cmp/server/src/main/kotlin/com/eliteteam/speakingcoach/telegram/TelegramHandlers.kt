@@ -468,7 +468,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         when (result) {
             ClipSubmitResult.QueueFull -> reply(message, QUEUE_FULL_TEXT)
             is ClipSubmitResult.Completed -> {
-                if (hideCallKeyboard && result.reply.call != null) hideStartCallKeyboard(message.chat)
+                if (result.reply.call != null &&
+                    (hideCallKeyboard || progressMessages[message.chat.id.toString()] == null)
+                ) {
+                    hideStartCallKeyboard(message.chat)
+                }
                 deliver(message, result.reply)
                 if (result.reply.onboarding?.status == "completed") {
                     try {
