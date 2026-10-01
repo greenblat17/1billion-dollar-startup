@@ -136,6 +136,41 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
         while (rows.next()) values.getOrPut(rows.getString("stage")) { linkedMapOf() }[rows.getString("outcome")] = rows.getInt("count")
         values
     }
+    val turns = selector.query(this, """
+        SELECT turn_index, COUNT(*) AS voices,
+               COUNT(*) FILTER (WHERE outcome = 'recognized') AS recognized,
+               COUNT(*) FILTER (WHERE outcome = 'no_speech') AS no_speech,
+               COUNT(*) FILTER (WHERE outcome IN ('stt_failure', 'processing_failure', 'delivery_failure', 'queue_full')) AS technical,
+               COUNT(*) FILTER (WHERE next_at IS NOT NULL) AS next_voice,
+               COUNT(*) FILTER (WHERE result_delivered_at >= received_at) AS result_after
+        FROM (
+            SELECT LEAST(GREATEST(v.voice_index, 1), 10) AS turn_index,
+                   v.outcome, v.received_at, a.result_delivered_at,
+                   LEAD(v.received_at) OVER (PARTITION BY v.attempt_id ORDER BY v.received_at, v.created_at) AS next_at
+            FROM onboarding_voices v JOIN selected a ON a.run_id = v.attempt_id
+        ) ordered GROUP BY turn_index ORDER BY turn_index
+    """.trimIndent()) { rows ->
+        buildList { while (rows.next()) add(VoiceTurnDiagnostic(
+            rows.getInt("turn_index"), rows.getInt("voices"), rows.getInt("recognized"),
+            rows.getInt("no_speech"), rows.getInt("technical"), rows.getInt("next_voice"), rows.getInt("result_after"))) }
+    }
+    val lastOutcomes = selector.query(this, """
+        SELECT outcome, COUNT(*) AS attempts FROM (
+            SELECT v.outcome, ROW_NUMBER() OVER
+                (PARTITION BY v.attempt_id ORDER BY v.received_at DESC, v.created_at DESC) AS position
+            FROM onboarding_voices v JOIN selected a ON a.run_id = v.attempt_id
+        ) ordered WHERE position = 1 GROUP BY outcome
+    """.trimIndent()) { rows ->
+        buildMap { while (rows.next()) put(rows.getString("outcome"), rows.getInt("attempts")) }
+    }
+    val consecutiveFailures = selector.query(this, """
+        SELECT COUNT(DISTINCT attempt_id) AS attempts FROM (
+            SELECT v.attempt_id, v.outcome,
+                   LAG(v.outcome) OVER (PARTITION BY v.attempt_id ORDER BY v.received_at, v.created_at) AS previous
+            FROM onboarding_voices v JOIN selected a ON a.run_id = v.attempt_id
+        ) ordered WHERE outcome IN ('no_speech', 'stt_failure')
+                    AND previous IN ('no_speech', 'stt_failure')
+    """.trimIndent()) { rows -> rows.next(); rows.getInt("attempts") }
     val timings = selector.query(this, """
         SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY v.processing_ms)
                    FILTER (WHERE v.outcome = 'recognized') AS p50,
@@ -217,7 +252,7 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
         assessment = assessment,
         filter = filter,
         diagnostics = VoiceDiagnostics(outcomeCounts, timings.first, timings.second, gaps.first, gaps.second,
-            voicesPerCompleted, voiceCountDistribution, stageOutcomes),
+            voicesPerCompleted, voiceCountDistribution, stageOutcomes, turns, lastOutcomes, consecutiveFailures),
         decisions = decisions.copy(
             retryRequested = eventCounts["retry_requested"] ?: 0,
             retryRecovered = eventCounts["retry_recovered"] ?: 0,
@@ -227,6 +262,7 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
         versions = choices.first,
         sources = choices.second,
         triggers = choices.third,
+        activation = activationCohorts(now, filter),
     )
 }
 

@@ -231,7 +231,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             if (progress != null) progressMessages[message.chat.id.toString()] = sent.messageId
         }
     }
-    suspend fun greet(message: ChatMessage, text: String, force: Boolean = false, trigger: String = "start") {
+    suspend fun greet(message: ChatMessage, text: String, force: Boolean = false, trigger: String = "start",
+                      receivedAt: Instant = Instant.now()) {
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = "message:${message.messageId}"
         if (force) {
@@ -245,32 +246,43 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         // Resolve eligibility before today's funnel event makes a new user look existing.
         val state = ai.onboardingState(sessionId, requestId, if (force) "force" else "start")
+        val source = startSource(text)
+        if (trigger == "start" && state.status != "waiting") analytics.safely {
+            recordEntry(sessionId.value, requestId, receivedAt, false, trigger, "existing_user", source, null)
+        }
         try {
-            ai.recordFunnelStart(sessionId, startSource(text), telegramProfile(message.chat))
+            ai.recordFunnelStart(sessionId, source, telegramProfile(message.chat))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to record start for {}", sessionId.value, error)
         }
         if (state.status == "waiting") {
-            clearProgress(message.chat)
-            reply(
-                message,
-                onboardingInvitation((message.chat as? PrivateChat)?.firstName),
-                allowSendingWithoutReply = true,
-                replyMarkup = onboardingKeyboard("begin", state.runId),
-            )
-            analytics.safely { startAttempt(sessionId.value, state.runId, trigger, Instant.now(), startSource(text)) }
+            var invitedAt: Instant? = null
+            try {
+                clearProgress(message.chat)
+                reply(
+                    message,
+                    onboardingInvitation((message.chat as? PrivateChat)?.firstName),
+                    allowSendingWithoutReply = true,
+                    replyMarkup = onboardingKeyboard("begin", state.runId),
+                )
+                invitedAt = Instant.now()
+            } finally {
+                if (trigger == "start") analytics.safely {
+                    recordEntry(sessionId.value, requestId, receivedAt, true, trigger, null, source, state.runId, invitedAt)
+                }
+            }
+            analytics.safely { startAttempt(sessionId.value, state.runId, trigger, Instant.now(), source) }
         } else {
             val greeting = ai.startSession(sessionId)
             reply(message, startTextMessage((message.chat as? PrivateChat)?.firstName), allowSendingWithoutReply = true)
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
         }
     }
-    suspend fun voice(message: ChatMessage, content: VoiceContent) {
+    suspend fun voice(message: ChatMessage, content: VoiceContent, receivedAt: Instant) {
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = "message:${message.messageId}"
-        val receivedAt = Instant.now()
         val state = ai.onboardingState(sessionId, requestId)
         if (state.status == "waiting") {
             reply(message, ONBOARDING_BEGIN_HINT, replyMarkup = onboardingKeyboard("begin", state.runId))
@@ -405,8 +417,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         }
     }
-    suspend fun handle(message: ChatMessage, isVoice: Boolean = false, block: suspend () -> Unit) {
-        val receivedAt = Instant.now()
+    suspend fun handle(message: ChatMessage, isVoice: Boolean = false, receivedAt: Instant = Instant.now(), block: suspend () -> Unit) {
         try {
             actions.run(
                 chatId = message.chat.id.toString(),
@@ -697,7 +708,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             callback.runId,
                             if (callback.action == "talk") "continue" else callback.action,
                         )
+                        if (callback.action == "begin" && result.onboarding?.status == "active") {
+                            analytics.safely { mark(callback.runId, AttemptMark.BEGIN_PRESSED, Instant.now()) }
+                        }
                         deliver(message, result, firstQuestion = callback.action == "begin")
+                        if (callback.action == "begin" && result.onboarding?.status == "active" &&
+                            (result.audio != null || result.text.isNotBlank())) {
+                            analytics.safely { mark(callback.runId, AttemptMark.FIRST_QUESTION_DELIVERED, Instant.now()) }
+                        }
                         val completed = result.onboarding?.status == "completed"
                         val facts = result.onboarding?.analytics?.withReview(result.onboarding.review)
                         if (facts != null) {
@@ -738,7 +756,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
     }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->
-        if (isStartCommand(message.content.text)) handle(message) { greet(message, message.content.text) }
+        if (isStartCommand(message.content.text)) {
+            val receivedAt = Instant.now()
+            handle(message, receivedAt = receivedAt) { greet(message, message.content.text, receivedAt = receivedAt) }
+        }
     }
     onCommand("onboarding", requireOnlyCommandInMessage = false) { message ->
         if (isOnboardingCommand(message.content.text)) handle(message) { greet(message, message.content.text, force = true, trigger = "onboarding_command") }
@@ -753,11 +774,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
     }
     onContentMessage { message ->
-        handle(message, isVoice = message.content is VoiceContent) {
+        val receivedAt = Instant.now()
+        handle(message, isVoice = message.content is VoiceContent, receivedAt = receivedAt) {
             when (val content = message.content) {
-                is VoiceContent -> voice(message, content)
+                is VoiceContent -> voice(message, content, receivedAt)
                 is TextContent -> when {
-                    isStartCommand(content.text) -> greet(message, content.text)
+                    isStartCommand(content.text) -> greet(message, content.text, receivedAt = receivedAt)
                     isOnboardingCommand(content.text) -> greet(message, content.text, force = true, trigger = "onboarding_command")
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)

@@ -17,6 +17,8 @@ internal data class OnboardingAttemptRow(
     val isPrimary: Boolean,
     val startedAt: Instant,
     val letsChatAt: Instant? = null,
+    val beginPressedAt: Instant? = null,
+    val firstQuestionDeliveredAt: Instant? = null,
     val firstVoiceAt: Instant? = null,
     val speech30At: Instant? = null,
     val speech60At: Instant? = null,
@@ -116,6 +118,19 @@ internal data class VoiceDiagnostics(
     val voicesPerCompletedP50: Int? = null,
     val voicesPerCompleted: Map<String, Int> = emptyMap(),
     val outcomesByStage: Map<String, Map<String, Int>> = emptyMap(),
+    val turns: List<VoiceTurnDiagnostic> = emptyList(),
+    val lastOutcomes: Map<String, Int> = emptyMap(),
+    val attemptsWithConsecutiveRecognitionFailures: Int = 0,
+)
+
+internal data class VoiceTurnDiagnostic(
+    val index: Int,
+    val voices: Int,
+    val recognized: Int,
+    val noSpeech: Int,
+    val technicalFailures: Int,
+    val nextVoice: Int,
+    val resultAfter: Int,
 )
 
 internal data class DecisionMetrics(
@@ -182,6 +197,7 @@ internal data class OnboardingReport(
     val versions: List<String> = emptyList(),
     val sources: List<String> = emptyList(),
     val triggers: List<String> = emptyList(),
+    val activation: List<ActivationCohort> = emptyList(),
 )
 
 internal fun onboardingReport(
@@ -190,6 +206,8 @@ internal fun onboardingReport(
     now: Instant,
     filter: OnboardingFilter = OnboardingFilter(),
     events: List<OnboardingEventRow> = emptyList(),
+    entries: List<OnboardingEntryRow> = emptyList(),
+    practiceDays: List<PracticeDayRow> = emptyList(),
 ): OnboardingReport {
     val startDay = now.atZone(ONBOARDING_ZONE).toLocalDate().minusDays(filter.days.toLong() - 1)
     val selected = attempts.filter { attempt ->
@@ -217,6 +235,7 @@ internal fun onboardingReport(
         versions = attempts.map { it.version }.distinct().sorted(),
         sources = attempts.map { it.source ?: "direct" }.distinct().sorted(),
         triggers = attempts.map { it.trigger }.distinct().sorted(),
+        activation = activationCohorts(entries, attempts, voices, practiceDays, now, filter),
     )
 }
 
@@ -294,6 +313,23 @@ private fun voiceDiagnostics(attempts: List<OnboardingAttemptRow>, voices: List<
         .groupingBy { it.attemptId }.eachCount().values.toList()
     val outcomesByStage = voices.groupBy { stageLabel(it.speechBeforeSec) }
         .mapValues { (_, rows) -> rows.groupingBy { it.outcome }.eachCount() }
+    val attemptsById = attempts.associateBy { it.runId }
+    val orderedByAttempt = voices.groupBy { it.attemptId }.mapValues { (_, rows) ->
+        rows.sortedWith(compareBy<OnboardingVoiceRow> { it.receivedAt }.thenBy { it.createdAt })
+    }
+    val turns = orderedByAttempt.values.flatMap { rows ->
+        rows.mapIndexed { index, voice -> voice to (index < rows.size - 1) }
+    }.groupBy { (voice, _) -> voice.voiceIndex.coerceIn(1, 10) }
+        .toSortedMap().map { (index, rows) ->
+            VoiceTurnDiagnostic(index, rows.size,
+                rows.count { it.first.outcome == "recognized" },
+                rows.count { it.first.outcome == "no_speech" },
+                rows.count { it.first.outcome in TECHNICAL_OUTCOMES },
+                rows.count { it.second },
+                rows.count { (voice, _) -> attemptsById[voice.attemptId]?.resultDeliveredAt
+                    ?.let { !it.isBefore(voice.receivedAt) } == true },
+            )
+        }
     return VoiceDiagnostics(
         outcomes = voices.groupingBy { it.outcome }.eachCount(),
         processingP50Ms = percentile(recognized.map { it.processingMs }, 50),
@@ -303,8 +339,16 @@ private fun voiceDiagnostics(attempts: List<OnboardingAttemptRow>, voices: List<
         voicesPerCompletedP50 = percentile(voicesPerCompleted, 50),
         voicesPerCompleted = voicesPerCompleted.groupingBy(::voiceCountBucket).eachCount(),
         outcomesByStage = outcomesByStage,
+        turns = turns,
+        lastOutcomes = orderedByAttempt.values.mapNotNull { it.lastOrNull()?.outcome }.groupingBy { it }.eachCount(),
+        attemptsWithConsecutiveRecognitionFailures = orderedByAttempt.values.count { rows ->
+            rows.zipWithNext().any { (a, b) -> a.outcome in RECOGNITION_FAILURES && b.outcome in RECOGNITION_FAILURES }
+        },
     )
 }
+
+internal val TECHNICAL_OUTCOMES = setOf("stt_failure", "processing_failure", "delivery_failure", "queue_full")
+private val RECOGNITION_FAILURES = setOf("no_speech", "stt_failure")
 
 internal fun stageLabel(seconds: Double?): String = when {
     seconds == null -> "неизвестно"

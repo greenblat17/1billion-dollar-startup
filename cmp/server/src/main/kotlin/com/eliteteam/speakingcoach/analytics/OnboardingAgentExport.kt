@@ -10,7 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private const val EXPORT_SCHEMA = "onboarding-analytics.v1"
+private const val EXPORT_SCHEMA = "onboarding-analytics.v2"
 private val exportJson = Json { prettyPrint = true }
 
 /** Aggregated, content-free snapshot that an analyst agent can consume without parsing HTML. */
@@ -43,6 +43,9 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant)
         put("reply_gap_seconds", "From a delivered voice reply to the next received voice; negative gaps are excluded")
         put("result_examples", "Availability in a delivered result, not proof that a user opened the Grammar or Vocabulary card")
         put("percentiles", "Discrete percentiles; null when there are no observations")
+        put("activation_a7", "First eligible /start with delivered result followed by a recognized ordinary voice and delivered bot reply within 7*24 hours; denominator is eligible entries whose full window has elapsed")
+        put("practice_two_days", "Successful ordinary replies on two distinct Moscow dates within the same 7*24 hour window")
+        put("entry_completeness", "Entries are written after chat action; process crash can lose an entry, so total Telegram traffic is not fully observed")
     })
     put("analysis_guidance", strings(listOf(
         "Report observations and counts before making recommendations; these aggregates do not identify causes.",
@@ -58,6 +61,22 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant)
         put("closed_repeats", JsonArray(report.closedRepeats.map { cohort(it, closed = true, primary = false) }))
         put("open_repeat_attempts", report.openRepeatCount)
     })
+    put("activation_cohorts", JsonArray(report.activation.map { c -> buildJsonObject {
+        put("start_day", c.day.toString())
+        put("eligible_entries", c.eligible)
+        put("invitations_delivered", ratio(c.invitations, c.eligible))
+        put("begin_pressed", ratio(c.beginPressed, c.invitations))
+        put("first_question_delivered", ratio(c.firstQuestions, c.beginPressed))
+        put("first_voice_received", ratio(c.firstVoices, c.firstQuestions))
+        put("first_voice_recognized", ratio(c.recognizedVoices, c.firstQuestions))
+        put("result_delivered_within_7_days", ratio(c.results, c.eligible))
+        put("mature_entries", c.mature)
+        put("a7", ratio(c.activated, c.mature))
+        put("practice_two_days", ratio(c.practiceTwoDays, c.mature))
+        put("missing_attempt_links", c.missingAttempt)
+        put("seconds_to_result_p50", nullableNumber(c.resultP50Sec))
+        put("seconds_to_practice_p50", nullableNumber(c.practiceP50Sec))
+    } }))
     put("voice_diagnostics", buildJsonObject {
         val diagnostics = report.diagnostics
         put("outcome_counts", countMap(safeOutcomes(diagnostics.outcomes)))
@@ -69,6 +88,17 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant)
         put("reply_to_next_voice_gap_seconds", percentiles(diagnostics.replyGapP50Sec, diagnostics.replyGapP95Sec))
         put("recognized_voices_per_built_result_p50", nullableNumber(diagnostics.voicesPerCompletedP50))
         put("recognized_voices_per_built_result_distribution", countMap(diagnostics.voicesPerCompleted))
+        put("by_voice_index", JsonArray(diagnostics.turns.map { t -> buildJsonObject {
+            put("index", t.index)
+            put("voices", t.voices)
+            put("recognized", t.recognized)
+            put("no_speech", t.noSpeech)
+            put("technical_failures", t.technicalFailures)
+            put("next_voice", ratio(t.nextVoice, t.voices))
+            put("result_after", ratio(t.resultAfter, t.voices))
+        } }))
+        put("last_voice_outcome_by_attempt", countMap(safeOutcomes(diagnostics.lastOutcomes)))
+        put("attempts_with_consecutive_recognition_failures", diagnostics.attemptsWithConsecutiveRecognitionFailures)
     })
     put("errors_last_7_days", buildJsonObject {
         put("recognition", errorStat(report.recognition))

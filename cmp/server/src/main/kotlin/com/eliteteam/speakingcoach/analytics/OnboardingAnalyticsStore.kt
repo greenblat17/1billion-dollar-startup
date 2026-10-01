@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import org.flywaydb.core.Flyway
 import java.sql.Timestamp
 import java.time.Instant
+import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
@@ -17,6 +18,8 @@ import javax.sql.DataSource
 
 internal enum class AttemptMark(val column: String) {
     LETS_CHAT("lets_chat_at"),
+    BEGIN_PRESSED("begin_pressed_at"),
+    FIRST_QUESTION_DELIVERED("first_question_delivered_at"),
     FIRST_VOICE("first_voice_at"),
     SPEECH_30("speech_30_at"),
     SPEECH_60("speech_60_at"),
@@ -61,6 +64,8 @@ data class OnboardingVoiceFacts(
 )
 
 internal interface OnboardingAnalytics {
+    suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
+                            trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant? = null)
     suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String? = null)
     suspend fun mark(runId: String, step: AttemptMark, at: Instant)
     suspend fun markGoal(runId: String, minutes: Int, at: Instant)
@@ -91,6 +96,16 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
     private val attempts = linkedMapOf<String, MutableAttempt>()
     private val voices = linkedMapOf<Pair<String, String>, OnboardingVoiceRow>()
     private val events = linkedMapOf<Pair<String, String>, OnboardingEventRow>()
+    private val entries = linkedMapOf<Pair<String, String>, OnboardingEntryRow>()
+    private val practiceDays = linkedMapOf<Pair<String, LocalDate>, PracticeDayRow>()
+
+    override suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
+                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?) {
+        lock.withLock {
+            entries.putIfAbsent(sessionId to entryKey,
+                OnboardingEntryRow(sessionId, entryKey, at, eligible, trigger, reason, source, runId, invitationAt))
+        }
+    }
 
     override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?) {
         lock.withLock {
@@ -194,9 +209,11 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
     override suspend fun recordReturn(sessionId: String, at: Instant) {
         lock.withLock {
             val attempt = attempts.values.firstOrNull { it.sessionId == sessionId && it.isPrimary } ?: return
-            if (attempt.times[AttemptMark.COMPLETED] == null) return
+            val resultAt = attempt.times[AttemptMark.RESULT_DELIVERED] ?: return
+            if (at.isBefore(resultAt)) return
             val startDay = attempt.startedAt.atZone(ONBOARDING_ZONE).toLocalDate()
             val voiceDay = at.atZone(ONBOARDING_ZONE).toLocalDate()
+            practiceDays.putIfAbsent(attempt.runId to voiceDay, PracticeDayRow(attempt.runId, voiceDay, at))
             if (attempt.firstPracticeAt == null) attempt.firstPracticeAt = at
             if (voiceDay == startDay.plusDays(1) && attempt.d1VoiceAt == null) attempt.d1VoiceAt = at
             if (voiceDay == startDay.plusDays(7) && attempt.d7VoiceAt == null) attempt.d7VoiceAt = at
@@ -204,7 +221,8 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
     }
 
     override suspend fun report(now: Instant, filter: OnboardingFilter): OnboardingReport = lock.withLock {
-        onboardingReport(attempts.values.map { it.toRow() }, voices.values.toList(), now, filter, events.values.toList())
+        onboardingReport(attempts.values.map { it.toRow() }, voices.values.toList(), now, filter, events.values.toList(),
+            entries.values.toList(), practiceDays.values.toList())
     }
 
     private class MutableAttempt(
@@ -234,6 +252,8 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             isPrimary = isPrimary,
             startedAt = startedAt,
             letsChatAt = times[AttemptMark.LETS_CHAT],
+            beginPressedAt = times[AttemptMark.BEGIN_PRESSED],
+            firstQuestionDeliveredAt = times[AttemptMark.FIRST_QUESTION_DELIVERED],
             firstVoiceAt = times[AttemptMark.FIRST_VOICE],
             speech30At = times[AttemptMark.SPEECH_30],
             speech60At = times[AttemptMark.SPEECH_60],
@@ -292,6 +312,32 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
 
     init {
         Flyway.configure().dataSource(dataSource).load().migrate()
+    }
+
+    override suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
+                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?) {
+        withContext(Dispatchers.IO) {
+            dataSource.connection.use { connection ->
+                connection.prepareStatement("""
+                    INSERT INTO onboarding_entries
+                        (session_id, entry_key, received_at, eligible, trigger, exclusion_reason, start_source, run_id,
+                         invitation_delivered_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (session_id, entry_key) DO NOTHING
+                """.trimIndent()).use { statement ->
+                    statement.setString(1, sessionId)
+                    statement.setString(2, entryKey)
+                    statement.setTimestamp(3, Timestamp.from(at))
+                    statement.setBoolean(4, eligible)
+                    statement.setString(5, trigger)
+                    statement.setString(6, reason)
+                    statement.setString(7, source)
+                    statement.setString(8, runId)
+                    statement.setTimestamp(9, invitationAt?.let(Timestamp::from))
+                    statement.executeUpdate()
+                }
+            }
+        }
     }
 
     override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?) {
@@ -487,6 +533,8 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
     override suspend fun recordReturn(sessionId: String, at: Instant) {
         withContext(Dispatchers.IO) {
             dataSource.connection.use { connection ->
+                connection.autoCommit = false
+                try {
                 connection.prepareStatement(
                     """
                     UPDATE onboarding_attempts
@@ -497,7 +545,8 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                             = (? AT TIME ZONE 'Europe/Moscow')::date THEN COALESCE(d7_voice_at, ?) ELSE d7_voice_at END
                     WHERE session_id = ?
                       AND is_primary = TRUE
-                      AND completed_at IS NOT NULL
+                      AND result_delivered_at IS NOT NULL
+                      AND result_delivered_at <= ?
                     """.trimIndent(),
                 ).use { statement ->
                     statement.setTimestamp(1, Timestamp.from(at))
@@ -506,7 +555,30 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setTimestamp(4, Timestamp.from(at))
                     statement.setTimestamp(5, Timestamp.from(at))
                     statement.setString(6, sessionId)
+                    statement.setTimestamp(7, Timestamp.from(at))
                     statement.executeUpdate()
+                }
+                connection.prepareStatement("""
+                    INSERT INTO onboarding_practice_days (primary_run_id, practice_day, first_reply_at)
+                    SELECT run_id, (? AT TIME ZONE 'Europe/Moscow')::date, ?
+                    FROM onboarding_attempts
+                    WHERE session_id = ? AND is_primary = TRUE
+                      AND result_delivered_at IS NOT NULL AND result_delivered_at <= ?
+                    ON CONFLICT (primary_run_id, practice_day) DO UPDATE
+                    SET first_reply_at = LEAST(onboarding_practice_days.first_reply_at, EXCLUDED.first_reply_at)
+                """.trimIndent()).use { statement ->
+                    statement.setTimestamp(1, Timestamp.from(at))
+                    statement.setTimestamp(2, Timestamp.from(at))
+                    statement.setString(3, sessionId)
+                    statement.setTimestamp(4, Timestamp.from(at))
+                    statement.executeUpdate()
+                }
+                connection.commit()
+                } catch (error: Throwable) {
+                    connection.rollback()
+                    throw error
+                } finally {
+                    connection.autoCommit = true
                 }
             }
         }

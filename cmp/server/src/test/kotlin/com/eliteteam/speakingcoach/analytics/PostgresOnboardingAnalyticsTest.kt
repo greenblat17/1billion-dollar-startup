@@ -66,7 +66,11 @@ class PostgresOnboardingAnalyticsTest {
         val at = Instant.parse("2026-09-28T07:00:00Z")
         val analytics = PostgresOnboardingAnalytics(url)
         try {
+            analytics.recordEntry(sessionId, "message:start", at, true, "start", null, source, runId, at.plusSeconds(2))
+            analytics.recordEntry(sessionId, "message:start", at.plusSeconds(1), true, "start", null, source, runId)
             analytics.startAttempt(sessionId, runId, "start", at, source)
+            analytics.mark(runId, AttemptMark.BEGIN_PRESSED, at.plusSeconds(5))
+            analytics.mark(runId, AttemptMark.FIRST_QUESTION_DELIVERED, at.plusSeconds(6))
             analytics.mark(runId, AttemptMark.LETS_CHAT, at.plusSeconds(10))
             val facts = OnboardingVoiceFacts(
                 voiceIndex = 1,
@@ -90,6 +94,7 @@ class PostgresOnboardingAnalyticsTest {
             analytics.event(runId, "retry:1", "retry_requested", at.plusSeconds(32))
             analytics.event(runId, "retry:1", "retry_requested", at.plusSeconds(33))
             analytics.recordReturn(sessionId, Instant.parse("2026-09-29T10:00:00Z"))
+            analytics.recordReturn(sessionId, Instant.parse("2026-09-30T10:00:00Z"))
             val report = analytics.report(Instant.parse("2026-10-01T00:00:00Z"), OnboardingFilter(version = "v2", source = source))
             val cohort = report.closedPrimary.single { it.day.toString() == "2026-09-28" }
             assertEquals(1, cohort.size)
@@ -98,6 +103,15 @@ class PostgresOnboardingAnalyticsTest {
             assertEquals(1, report.decisions.resultDelivered)
             assertEquals(1, report.decisions.grammarExamplesShown)
             assertEquals(1, report.decisions.retryRequested)
+            assertEquals(1, report.diagnostics.turns.single().voices)
+            assertEquals(1, report.diagnostics.lastOutcomes["recognized"])
+            val activation = analytics.report(Instant.parse("2026-10-06T00:00:00Z"),
+                OnboardingFilter(version = "v2", source = source)).activation.single()
+            assertEquals(1, activation.eligible)
+            assertEquals(1, activation.invitations)
+            assertEquals(1, activation.firstQuestions)
+            assertEquals(1, activation.activated)
+            assertEquals(1, activation.practiceTwoDays)
             DriverManager.getConnection(if (url.startsWith("jdbc:")) url else "jdbc:$url").use { connection ->
                 connection.prepareStatement("SELECT COUNT(*), MIN(processing_ms) FROM onboarding_voices WHERE attempt_id = ?").use { statement ->
                     statement.setString(1, runId)

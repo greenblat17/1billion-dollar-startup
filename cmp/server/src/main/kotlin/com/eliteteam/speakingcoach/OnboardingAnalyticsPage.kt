@@ -35,6 +35,8 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
           ${card("Вернулись D1", "$returned / $started · ${percentage(returned, started)}")}
           ${card("Нераспознанные · 7 дней", "${report.recognition.errors} / ${report.recognition.denominator} · ${percentage(report.recognition.errors, report.recognition.denominator)}")}
         </dl>
+        <h2>Активация за 7 дней · первый подходящий /start</h2>
+        ${activationTable(report)}
         <h2>Воронка · первая попытка, закрытые дни</h2>
         ${funnelChart(closed)}
         <h2>Когорты по дням</h2>
@@ -51,6 +53,8 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
           <section><h3>Ошибки за 7 дней</h3>${errorTable(report.recognition, report.assessment)}</section>
         </div>
         <div class="onb-scroll">${voiceStages(report.diagnostics.outcomesByStage)}</div>
+        ${voiceTurnTable(report)}
+        ${lastOutcomeTable(report)}
         ${timingTable(report)}
         <h2>Результат и действия</h2>
         ${decisionTable(report)}
@@ -61,7 +65,8 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
         </tbody></table>
         <details class="onb-notes"><summary>Как читать данные</summary>
           <ul><li>Закрытый день: прошли 24 часа после его окончания по Москве. Шаг воронки учитывается в первые 24 часа после старта.</li>
-          <li>Открытые дни ещё не завершены. D1 — обычный голос на следующий календарный день; D7 — на седьмой.</li>
+          <li>A7 созревает через 7 × 24 часа от подходящего входа. Знаменатель A7 — только созревшие входы. D1 и D7 — отдельные календарные дни.</li>
+          <li>Запись входа происходит после действия бота: при падении процесса часть входов может отсутствовать. Старые попытки без события входа не включены в A7.</li>
           <li>Нажатие карточки не означает прочтение. Пауза между голосовыми и время обработки показаны отдельно.</li></ul>
         </details>
         """.trimIndent()
@@ -99,6 +104,46 @@ private fun agentExportLink(filter: OnboardingFilter): String {
 }
 
 private fun percentage(part: Int, whole: Int): String = if (whole == 0) "—" else "${rate(part, whole)}%"
+
+private fun activationTable(report: OnboardingReport): String {
+    if (report.activation.isEmpty()) return "<p class=\"meta\">Пока нет входов с новой аналитикой.</p>"
+    val rows = report.activation.joinToString("") { c ->
+        "<tr><th scope=\"row\">${c.day}</th><td>${c.eligible}</td><td>${c.invitations}</td>" +
+            "<td>${c.beginPressed}</td><td>${c.firstQuestions}</td><td>${c.firstVoices}</td>" +
+            "<td>${c.recognizedVoices}</td><td>${c.results}</td>" +
+            "<td>${c.activated}/${c.mature} · ${percentage(c.activated, c.mature)}</td>" +
+            "<td>${c.practiceTwoDays}/${c.mature}</td><td>${metric(c.resultP50Sec, "с")}</td>" +
+            "<td>${metric(c.practiceP50Sec, "с")}</td><td>${c.missingAttempt}</td></tr>"
+    }
+    return "<div class=\"onb-scroll\"><table><thead><tr><th>Когорта</th><th>Подходящих</th>" +
+        "<th>Приглашение</th><th>Нажали</th><th>Первый вопрос</th><th>Голос получен</th>" +
+        "<th>Распознан</th><th>Результат</th><th>A7 / созрели</th><th>2 дня / созрели</th>" +
+        "<th>До результата p50</th><th>До практики p50</th><th>Без попытки</th></tr></thead><tbody>$rows</tbody></table></div>"
+}
+
+private fun voiceTurnTable(report: OnboardingReport): String {
+    val turns = report.diagnostics.turns
+    if (turns.isEmpty()) return ""
+    val rows = turns.joinToString("") { t ->
+        "<tr><td>${if (t.index == 10) "10+" else t.index}</td><td>${t.voices}</td>" +
+            "<td>${t.recognized}</td><td>${t.noSpeech}</td><td>${t.technicalFailures}</td>" +
+            "<td>${t.nextVoice}/${t.voices}</td><td>${t.resultAfter}/${t.voices}</td></tr>"
+    }
+    return "<h3>Переход после голосового ответа</h3><div class=\"onb-scroll\"><table><thead><tr>" +
+        "<th>Номер</th><th>Голосовых</th><th>Распознано</th><th>Нет речи</th><th>Техсбой</th>" +
+        "<th>Следующий голос</th><th>Результат позже</th></tr></thead><tbody>$rows</tbody></table></div>"
+}
+
+private fun lastOutcomeTable(report: OnboardingReport): String {
+    val d = report.diagnostics
+    if (d.lastOutcomes.isEmpty()) return ""
+    val rows = d.lastOutcomes.entries.sortedByDescending { it.value }
+        .joinToString("") { (outcome, count) -> "<tr><td>${escapeHtml(outcome)}</td><td>$count</td></tr>" }
+    return "<h3>Последний исход перед паузой</h3><table><thead><tr><th>Исход</th><th>Попыток</th>" +
+        "</tr></thead><tbody>$rows</tbody></table>" +
+        "<p class=\"meta\">Два подряд сбоя распознавания: ${d.attemptsWithConsecutiveRecognitionFailures} попыток. " +
+        "Последний исход не доказывает причину остановки.</p>"
+}
 
 private fun bar(label: String, count: Int, total: Int): String {
     val width = rate(count, total).coerceIn(0, 100)

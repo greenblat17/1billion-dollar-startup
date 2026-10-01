@@ -86,6 +86,7 @@ class OnboardingAnalyticsTest {
         analytics.recordVoice("run-1", "tg-1", "message:1", facts, 400, start.plusSeconds(40))
         analytics.recordVoice("run-1", "tg-1", "message:1", facts, 900, start.plusSeconds(50))
         analytics.mark("run-1", AttemptMark.COMPLETED, start.plusSeconds(40))
+        analytics.mark("run-1", AttemptMark.RESULT_DELIVERED, start.plusSeconds(41))
         analytics.startAttempt("tg-1", "run-2", "onboarding_command", start.plusSeconds(5))
         analytics.recordReturn("tg-1", start.plus(Duration.ofHours(3)))
         analytics.recordReturn("tg-1", Instant.parse("2026-09-29T10:00:00Z"))
@@ -170,6 +171,67 @@ class OnboardingAnalyticsTest {
         assertEquals(2, mature.d7Eligible)
         assertEquals(1, mature.returnedDay7)
         assertEquals(1, mature.completedByD7)
+    }
+
+    @Test
+    fun activationUsesFirstEligibleEntryAndTwoDistinctPracticeDaysOnlyAfterMaturity() = runTest {
+        val analytics = MemoryOnboardingAnalytics()
+        analytics.recordEntry("tg-1", "message:1", start, true, "start", null, "campaign", "run-1", start.plusSeconds(4))
+        analytics.recordEntry("tg-1", "message:1", start.plusSeconds(5), true, "start", null, "campaign", "run-1")
+        analytics.recordEntry("tg-1", "message:2", start.plusSeconds(20), true, "start", null, null, "run-2")
+        analytics.recordEntry("tg-existing", "message:3", start, false, "start", "existing_user", null, null)
+        analytics.startAttempt("tg-1", "run-1", "start", start.plusSeconds(4), "campaign")
+        analytics.mark("run-1", AttemptMark.BEGIN_PRESSED, start.plusSeconds(10))
+        analytics.mark("run-1", AttemptMark.FIRST_QUESTION_DELIVERED, start.plusSeconds(12))
+        analytics.recordVoice("run-1", "tg-1", "voice:1", OnboardingVoiceFacts(voiceIndex = 1, recognized = true),
+            100, start.plusSeconds(30), start.plusSeconds(20))
+        analytics.mark("run-1", AttemptMark.RESULT_DELIVERED, start.plusSeconds(40))
+        val practice1 = Instant.parse("2026-09-29T08:00:00Z")
+        val practice2 = Instant.parse("2026-09-30T08:00:00Z")
+        analytics.recordReturn("tg-1", practice1)
+        analytics.recordReturn("tg-1", practice1.plusSeconds(10))
+        analytics.recordReturn("tg-1", practice2)
+        val beforeMaturity = analytics.report(start.plus(Duration.ofDays(7)).minusSeconds(1)).activation.single()
+        assertEquals(0, beforeMaturity.mature)
+        assertEquals(0, beforeMaturity.activated)
+        val mature = analytics.report(start.plus(Duration.ofDays(7))).activation.single()
+        assertEquals(1, mature.eligible)
+        assertEquals(1, mature.invitations)
+        assertEquals(1, mature.beginPressed)
+        assertEquals(1, mature.firstQuestions)
+        assertEquals(1, mature.firstVoices)
+        assertEquals(1, mature.recognizedVoices)
+        assertEquals(1, mature.results)
+        assertEquals(1, mature.mature)
+        assertEquals(1, mature.activated)
+        assertEquals(1, mature.practiceTwoDays)
+        assertEquals(0, mature.missingAttempt)
+    }
+
+    @Test
+    fun activationKeepsFailedInvitationAndMissingAttemptInDenominator() = runTest {
+        val analytics = MemoryOnboardingAnalytics()
+        analytics.recordEntry("tg-1", "message:1", start, true, "start", null, null, "missing")
+        val cohort = analytics.report(start.plus(Duration.ofDays(8))).activation.single()
+        assertEquals(1, cohort.eligible)
+        assertEquals(0, cohort.invitations)
+        assertEquals(1, cohort.missingAttempt)
+        assertEquals(0, cohort.activated)
+    }
+
+    @Test
+    fun voiceTurnsSeparateRepeatedRecognitionFailuresFromMissingNextAction() {
+        val attempts = listOf(sample("run", "tg-1", true))
+        val voices = listOf(
+            voice("tg-1", "no_speech", start.plusSeconds(10), "run").copy(voiceIndex = 1),
+            voice("tg-1", "stt_failure", start.plusSeconds(20), "run").copy(voiceIndex = 2),
+            voice("tg-1", null, start.plusSeconds(30), "run").copy(voiceIndex = 3),
+        )
+        val diagnostics = onboardingReport(attempts, voices, closedNow).diagnostics
+        assertEquals(1, diagnostics.attemptsWithConsecutiveRecognitionFailures)
+        assertEquals(1, diagnostics.lastOutcomes["recognized"])
+        assertEquals(1, diagnostics.turns.first().nextVoice)
+        assertEquals(0, diagnostics.turns.last().nextVoice)
     }
 
     private fun count(cohort: CohortFunnel, name: String): Int = cohort.steps.first { it.name == name }.count
