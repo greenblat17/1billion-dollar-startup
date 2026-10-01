@@ -117,7 +117,10 @@ class OnboardingAnalyticsTest {
         assertTrue(html.contains("100%"))
         assertTrue(html.contains("нет уровня 1"))
         assertTrue(html.contains("10 мин 1"))
-        assertTrue(html.contains("Не распознано: 1 из 1 голосовых (100%), затронуто 1"))
+        assertTrue(html.contains("Воронка · первая попытка, закрытые дни"))
+        assertTrue(html.contains("Исходы голосовых"))
+        assertTrue(html.contains("Не распознано</td><td>1/1 голосовых</td><td>100%</td><td>1"))
+        assertTrue(html.contains("Все шаги и состав результата"))
         assertTrue(onboardingReportHtml(null).contains("История онбординга не пишется: нет базы."))
         assertNull(report.closedPrimary.single().levels["A1"])
     }

@@ -4,11 +4,16 @@ import com.eliteteam.speakingcoach.analytics.CohortFunnel
 import com.eliteteam.speakingcoach.analytics.ErrorStat
 import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
+import kotlin.math.roundToInt
 
 internal fun onboardingReportHtml(report: OnboardingReport?): String {
     val body = if (report == null) {
         "<p>История онбординга не пишется: нет базы.</p>"
     } else {
+        val closed = report.closedPrimary
+        val started = closed.sumOf { it.size }
+        val completed = closed.sumOf { cohort -> cohort.steps.first { it.name == "Результат собран" }.count }
+        val returned = closed.sumOf { it.returnedNextDay }
         """
         <form class="inline" method="get" action="$ONBOARDING_ANALYTICS_PATH">
         <label>Дней <select name="days">${listOf(7, 30, 90).joinToString("") { option ->
@@ -19,33 +24,41 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
         <label>Причина <select name="trigger">${filterOptions(report.triggers, report.filter.trigger)}</select></label>
         <button type="submit">Показать</button>
         </form>
-        <h2>Первая попытка, закрытые дни</h2>
-        <p class="meta">День закрывается через 24 часа после его конца. Шаг считается, только если он случился в течение 24 часов после старта. Возврат — обычное голосовое на следующий календарный день.</p>
-        ${cohortSections(report.closedPrimary, withReturn = true)}
-        <h2>Ещё идёт</h2>
-        <p class="meta">Эти первые попытки ещё не закрыты. Проценты здесь не отвал.</p>
-        ${cohortSections(report.openPrimary, withReturn = false)}
-        <h2>Повторные попытки</h2>
-        <p class="meta">Повторный /onboarding и автоматический перезапуск. В главную воронку не входят. Ещё идёт: ${report.openRepeatCount}.</p>
-        ${cohortSections(report.closedRepeats, withReturn = false)}
-        <h2>Ошибки за 7 дней</h2>
-        ${errorLine("Не распознано", report.recognition, "голосовых")}
-        ${errorLine("Сборка результата", report.assessment, "попыток, дошедших до 120 секунд")}
-        <h2>Голосовые за выбранный период</h2>
-        <p>${report.diagnostics.outcomes.entries.sortedBy { it.key }.joinToString(" · ") { "${escapeHtml(it.key)} ${it.value}" }.ifEmpty { "Пока нет данных" }}</p>
-        ${voiceStages(report.diagnostics.outcomesByStage)}
-        <p>Обработка и доставка ответа на распознанное голосовое: p50 ${metric(report.diagnostics.processingP50Ms, "мс")} · p95 ${metric(report.diagnostics.processingP95Ms, "мс")}</p>
-        <p>Пауза между ответом бота и следующим голосовым: p50 ${metric(report.diagnostics.replyGapP50Sec, "с")} · p95 ${metric(report.diagnostics.replyGapP95Sec, "с")}</p>
-        <p>Распознанных голосовых до результата: p50 ${metric(report.diagnostics.voicesPerCompletedP50, "")} · ${report.diagnostics.voicesPerCompleted.entries.sortedBy { it.key }.joinToString(" · ") { "${it.key} записи: ${it.value}" }.ifEmpty { "пока нет данных" }}</p>
-        <h2>Результат и следующий шаг</h2>
-        <p>Результат собран: ${report.decisions.resultBuilt} из ${report.decisions.attempts} попыток · доставлен: ${report.decisions.resultDelivered} из ${report.decisions.resultBuilt} собранных · с баллом: ${report.decisions.scored} из ${report.decisions.resultDelivered} доставленных</p>
-        <p>Доставлены примеры: Grammar ${report.decisions.grammarExamplesShown} из ${report.decisions.resultDelivered} · Vocabulary ${report.decisions.vocabularyExamplesShown} из ${report.decisions.resultDelivered}; измерения Fluency: ${report.decisions.fluencyMeasurementsShown} из ${report.decisions.resultDelivered}</p>
-        <p>Показан выбор минут: ${report.decisions.goalShown} из ${report.decisions.resultDelivered} доставленных результатов · минуты выбраны: ${report.decisions.goalSelected} из ${report.decisions.goalShown} · предложено напоминание: ${report.decisions.reminderOffered} из ${report.decisions.goalSelected}</p>
-        <p>Напоминание выбрали: ${report.decisions.reminderAccepted} из ${report.decisions.reminderOffered} · отказались: ${report.decisions.reminderDeclined} из ${report.decisions.reminderOffered} · время сохранено: ${report.decisions.reminderSet} из ${report.decisions.reminderAccepted}</p>
-        <p>Открыли Profile: ${report.decisions.profileOpened} из ${report.decisions.goalSelected} выбравших минуты · See you tomorrow: ${report.decisions.bye} из ${report.decisions.goalSelected} · первый обычный голос: ${report.decisions.firstPractice} из ${report.decisions.attempts} начавших</p>
-        <p>Повтор сборки результата: ${report.decisions.retryRequested} · успешный повтор: ${report.decisions.retryRecovered} · подсказка для текста: ${report.decisions.textHint} · голосовое до старта: ${report.decisions.preBeginVoiceHint}</p>
-        <h2>Качество сбора, с запуска сервера</h2>
-        <p>Ошибки записи: ${OnboardingAnalyticsHealth.failedWrites()} из ${OnboardingAnalyticsHealth.attemptedWrites()} · события без попытки: ${OnboardingAnalyticsHealth.missingAttempts()} из ${OnboardingAnalyticsHealth.attemptedWrites()} записей</p>
+        <dl class="onb-kpis">
+          ${card("Начали · закрытые дни", started.toString())}
+          ${card("Результат за 24 ч", "$completed / $started · ${percentage(completed, started)}")}
+          ${card("Вернулись D1", "$returned / $started · ${percentage(returned, started)}")}
+          ${card("Нераспознанные · 7 дней", "${report.recognition.errors} / ${report.recognition.denominator} · ${percentage(report.recognition.errors, report.recognition.denominator)}")}
+        </dl>
+        <h2>Воронка · первая попытка, закрытые дни</h2>
+        ${funnelChart(closed)}
+        <h2>Когорты по дням</h2>
+        ${cohortTable(closed, withReturn = true)}
+        <details><summary>Открытые дни · ${report.openPrimary.sumOf { it.size }} попыток</summary>
+          ${cohortTable(report.openPrimary, withReturn = false)}
+        </details>
+        <details><summary>Повторные попытки · ${report.closedRepeats.sumOf { it.size }} закрытых, ${report.openRepeatCount} открытых</summary>
+          ${cohortTable(report.closedRepeats, withReturn = false)}
+        </details>
+        <h2>Голосовые и ошибки</h2>
+        <div class="onb-two">
+          <section><h3>Исходы голосовых</h3>${outcomeChart(report.diagnostics.outcomes)}</section>
+          <section><h3>Ошибки за 7 дней</h3>${errorTable(report.recognition, report.assessment)}</section>
+        </div>
+        <div class="onb-scroll">${voiceStages(report.diagnostics.outcomesByStage)}</div>
+        ${timingTable(report)}
+        <h2>Результат и действия</h2>
+        ${decisionTable(report)}
+        <h2>Качество сбора · с запуска сервера</h2>
+        <table><thead><tr><th>Показатель</th><th>Число</th><th>Из записей</th></tr></thead><tbody>
+          <tr><td>Ошибки записи</td><td>${OnboardingAnalyticsHealth.failedWrites()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
+          <tr><td>Без связанной попытки</td><td>${OnboardingAnalyticsHealth.missingAttempts()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
+        </tbody></table>
+        <details class="onb-notes"><summary>Как читать данные</summary>
+          <ul><li>Закрытый день: прошли 24 часа после его окончания по Москве. Шаг воронки учитывается в первые 24 часа после старта.</li>
+          <li>Открытые дни ещё не завершены. D1 — обычный голос на следующий календарный день; D7 — на седьмой.</li>
+          <li>Нажатие карточки не означает прочтение. Пауза между голосовыми и время обработки показаны отдельно.</li></ul>
+        </details>
         """.trimIndent()
     }
     return """
@@ -56,6 +69,7 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
         <meta name="robots" content="noindex">
         <title>Speaky onboarding</title>
         ${pageStyle()}
+        ${onboardingStyle()}
         </head>
         <body>
         <h1>Speaky</h1>
@@ -66,34 +80,118 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
     """.trimIndent()
 }
 
-private fun cohortSections(cohorts: List<CohortFunnel>, withReturn: Boolean): String {
+private fun rate(part: Int, whole: Int): Int = if (whole == 0) 0 else ((part * 100.0) / whole).roundToInt()
+
+private fun percentage(part: Int, whole: Int): String = if (whole == 0) "—" else "${rate(part, whole)}%"
+
+private fun bar(label: String, count: Int, total: Int): String {
+    val width = rate(count, total).coerceIn(0, 100)
+    return "<div class=\"onb-bar-row\"><span>${escapeHtml(label)}</span>" +
+        "<span class=\"onb-track\"><span style=\"width:$width%\"></span></span>" +
+        "<strong>$count <small>/$total</small></strong></div>"
+}
+
+private fun funnelChart(cohorts: List<CohortFunnel>): String {
+    if (cohorts.isEmpty()) return "<p class=\"meta\">Пока нет закрытых когорт.</p>"
+    val total = cohorts.sumOf { it.size }
+    return "<div class=\"onb-chart\" aria-label=\"Воронка онбординга\">" +
+        cohorts.first().steps.indices.joinToString("") { index ->
+            val step = cohorts.first().steps[index]
+            bar(step.name, cohorts.sumOf { it.steps[index].count }, total)
+        } + "</div>"
+}
+
+private fun cohortTable(cohorts: List<CohortFunnel>, withReturn: Boolean): String {
     if (cohorts.isEmpty()) return "<p class=\"meta\">Пока нет данных.</p>"
-    return cohorts.joinToString("\n") { cohort ->
-        val levels = levelLine(cohort.levels)
-        val goals = goalLine(cohort.goals)
-        val returned = if (withReturn) {
-            "<p>D1: ${cohort.returnedNextDay} из ${cohort.size} начавших (${cohort.returnedNextDayPercent}%) · " +
-                "${cohort.returnedNextDay} из ${cohort.completedByD1} завершивших к концу D1</p>"
-        } else {
-            ""
-        }
+    val rows = cohorts.joinToString("") { cohort ->
+        fun step(name: String): Int = cohort.steps.first { it.name == name }.count
+        val day7 = if (withReturn && cohort.d7Eligible > 0) "${cohort.returnedDay7}/${cohort.d7Eligible}" else "—"
         """
-        <h3>${escapeHtml(cohort.day.toString())}</h3>
-        <p class="meta">Попыток: ${cohort.size}${if (cohort.skippedPrevious > 0) " · шагов без предыдущего: ${cohort.skippedPrevious}" else ""}</p>
-        <table>
-        <thead><tr><th>Шаг</th><th>Люди</th><th>От старта</th><th>От прошлого шага</th></tr></thead>
-        <tbody>
-        ${cohort.steps.joinToString("\n") { step ->
-            "<tr><td>${escapeHtml(step.name)}</td><td>${step.count}</td><td>${step.ofStartPercent}%</td><td>${step.ofPreviousPercent}%</td></tr>"
-        }}
-        </tbody>
-        </table>
-        <p>$levels</p>
-        <p>$goals</p>
-        <p>Первый обычный голос: ${cohort.firstPractice}${if (cohort.d7Eligible > 0) " · D7: ${cohort.returnedDay7} из ${cohort.d7Eligible} начавших · ${cohort.returnedDay7} из ${cohort.completedByD7} завершивших к концу D7" else ""}</p>
-        $returned
+        <tr><th scope="row">${escapeHtml(cohort.day.toString())}</th><td>${cohort.size}</td>
+          <td>${step("Let’s chat")}</td><td>${step("Первое голосовое")}</td>
+          <td>${step("120 сек")}</td><td>${step("Результат собран")}</td>
+          <td>${step("Минуты выбраны")}</td><td>${if (withReturn) "${cohort.returnedNextDay}/${cohort.size}" else "—"}</td>
+          <td>$day7</td></tr>
+        <tr class="onb-detail"><td colspan="9"><details><summary>Все шаги и состав результата · ${escapeHtml(cohort.day.toString())}</summary>
+          <div class="onb-scroll"><table><thead><tr><th>Шаг</th><th>Люди</th><th>От старта</th><th>От прошлого</th></tr></thead><tbody>
+          ${cohort.steps.joinToString("") { step ->
+              "<tr><td>${escapeHtml(step.name)}</td><td>${step.count}</td><td>${step.ofStartPercent}%</td><td>${step.ofPreviousPercent}%</td></tr>"
+          }}</tbody></table></div>
+          <div class="onb-detail-grid"><span>${levelLine(cohort.levels)}</span><span>${goalLine(cohort.goals)}</span>
+          <span>Первый обычный голос: ${cohort.firstPractice}/${cohort.size}</span>
+          <span>Шагов без предыдущего: ${cohort.skippedPrevious}</span>
+          ${if (withReturn) "<span>D1 среди завершивших: ${cohort.returnedNextDay}/${cohort.completedByD1}</span>" else ""}
+          ${if (withReturn && cohort.d7Eligible > 0) "<span>D7 среди завершивших: ${cohort.returnedDay7}/${cohort.completedByD7}</span>" else ""}</div>
+        </details></td></tr>
         """.trimIndent()
     }
+    return "<div class=\"onb-scroll\"><table class=\"onb-cohorts\"><thead><tr>" +
+        "<th>День</th><th>Начали</th><th>Кнопка</th><th>Голос</th><th>120 с</th><th>Результат</th>" +
+        "<th>Минуты</th><th>D1</th><th>D7</th></tr></thead><tbody>$rows</tbody></table></div>"
+}
+
+private fun outcomeChart(outcomes: Map<String, Int>): String {
+    if (outcomes.isEmpty()) return "<p class=\"meta\">Пока нет данных.</p>"
+    val names = mapOf(
+        "recognized" to "Распознано", "no_speech" to "Нет речи", "stt_failure" to "Сбой STT",
+        "processing_failure" to "Сбой обработки", "delivery_failure" to "Сбой доставки",
+        "queue_full" to "Очередь полна", "unknown" to "Неизвестно",
+    )
+    val total = outcomes.values.sum()
+    return "<div class=\"onb-chart\" aria-label=\"Исходы голосовых\">" +
+        outcomes.entries.sortedByDescending { it.value }.joinToString("") { (key, count) ->
+            bar(names[key] ?: key, count, total)
+        } + "</div>"
+}
+
+private fun errorTable(recognition: ErrorStat, assessment: ErrorStat): String = """
+    <table><thead><tr><th>Ошибка</th><th>Случаи</th><th>Доля</th><th>Люди</th></tr></thead><tbody>
+      <tr><td>Не распознано</td><td>${recognition.errors}/${recognition.denominator} голосовых</td><td>${percentage(recognition.errors, recognition.denominator)}</td><td>${recognition.people}</td></tr>
+      <tr><td>Сборка результата</td><td>${assessment.errors}/${assessment.denominator} попыток на 120 с</td><td>${percentage(assessment.errors, assessment.denominator)}</td><td>${assessment.people}</td></tr>
+    </tbody></table>
+""".trimIndent()
+
+private fun timingTable(report: OnboardingReport): String {
+    val data = report.diagnostics
+    val voiceCounts = data.voicesPerCompleted.entries.sortedBy { it.key }
+        .joinToString(" · ") { "${escapeHtml(it.key)}: ${it.value}" }.ifEmpty { "—" }
+    return """
+        <div class="onb-scroll"><table><thead><tr><th>Показатель</th><th>p50</th><th>p95</th><th>Распределение</th></tr></thead><tbody>
+          <tr><td>Обработка + доставка, распознанное голосовое</td><td>${metric(data.processingP50Ms, "мс")}</td><td>${metric(data.processingP95Ms, "мс")}</td><td>—</td></tr>
+          <tr><td>Пауза до следующего голосового</td><td>${metric(data.replyGapP50Sec, "с")}</td><td>${metric(data.replyGapP95Sec, "с")}</td><td>—</td></tr>
+          <tr><td>Голосовых до результата</td><td>${metric(data.voicesPerCompletedP50, "")}</td><td>—</td><td>$voiceCounts</td></tr>
+        </tbody></table></div>
+    """.trimIndent()
+}
+
+private fun decisionTable(report: OnboardingReport): String {
+    val d = report.decisions
+    val rows = listOf(
+        Triple("Результат собран", d.resultBuilt, d.attempts),
+        Triple("Результат доставлен", d.resultDelivered, d.resultBuilt),
+        Triple("Есть балл", d.scored, d.resultDelivered),
+        Triple("Примеры Grammar в результате", d.grammarExamplesShown, d.resultDelivered),
+        Triple("Примеры Vocabulary в результате", d.vocabularyExamplesShown, d.resultDelivered),
+        Triple("Измерения Fluency", d.fluencyMeasurementsShown, d.resultDelivered),
+        Triple("Показан выбор минут", d.goalShown, d.resultDelivered),
+        Triple("Минуты выбраны", d.goalSelected, d.goalShown),
+        Triple("Предложено напоминание", d.reminderOffered, d.goalSelected),
+        Triple("Напоминание выбрано", d.reminderAccepted, d.reminderOffered),
+        Triple("От напоминания отказались", d.reminderDeclined, d.reminderOffered),
+        Triple("Время сохранено", d.reminderSet, d.reminderAccepted),
+        Triple("Открыли Profile", d.profileOpened, d.goalSelected),
+        Triple("See you tomorrow", d.bye, d.goalSelected),
+        Triple("Первый обычный голос", d.firstPractice, d.attempts),
+    )
+    val rowsHtml = rows.joinToString("") { (label, count, denominator) ->
+        "<tr><td>${escapeHtml(label)}</td><td>$count</td><td>$denominator</td><td>${percentage(count, denominator)}</td></tr>"
+    }
+    val extras = listOf(
+        "Повтор сборки" to d.retryRequested, "Успешный повтор" to d.retryRecovered,
+        "Подсказка для текста" to d.textHint, "Голосовое до старта" to d.preBeginVoiceHint,
+    ).joinToString("") { (label, count) -> "<tr><td>${escapeHtml(label)}</td><td>$count</td><td>—</td><td>—</td></tr>" }
+    return "<div class=\"onb-scroll\"><table><thead><tr><th>Действие</th><th>Люди / события</th>" +
+        "<th>Из</th><th>Доля</th></tr></thead><tbody>$rowsHtml$extras</tbody></table></div>"
 }
 
 private fun voiceStages(stages: Map<String, Map<String, Int>>): String {
@@ -119,7 +217,7 @@ private fun levelLine(levels: Map<String, Int>): String {
     if (levels.isEmpty()) return "Уровни: пока нет"
     val order = listOf("A1", "A2", "B1", "B2", "C1", "C2", "нет уровня")
     val known = order.filter { levels.containsKey(it) }.map { "$it ${levels.getValue(it)}" }
-    val rest = levels.filterKeys { it !in order }.map { "${it.key} ${it.value}" }
+    val rest = levels.filterKeys { it !in order }.map { "${escapeHtml(it.key)} ${it.value}" }
     return "Уровни: " + (known + rest).joinToString(" · ")
 }
 
@@ -129,6 +227,33 @@ private fun goalLine(goals: Map<Int, Int>): String {
         .joinToString(" · ") { "$it мин ${goals.getValue(it)}" }
 }
 
-private fun errorLine(title: String, stat: ErrorStat, denominatorLabel: String): String {
-    return "<p>${escapeHtml(title)}: ${stat.errors} из ${stat.denominator} $denominatorLabel (${stat.percent}%), затронуто ${stat.people}</p>"
-}
+private fun onboardingStyle(): String = """
+    <style>
+      body { max-width: 1180px; padding: 0 20px 40px; }
+      h2 { margin: 28px 0 12px; }
+      h3 { font-size: 0.95rem; margin: 0 0 10px; }
+      .onb-kpis { grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); margin: 20px 0 28px; }
+      .onb-kpis dd { font-size: 1.35rem; font-variant-numeric: tabular-nums; }
+      .onb-chart { background: #fff; border: 1px solid #e7e5e4; border-radius: 12px; padding: 14px; }
+      .onb-bar-row { display: grid; grid-template-columns: minmax(130px, 190px) 1fr 88px; align-items: center; gap: 12px; margin: 7px 0; font-size: 0.88rem; }
+      .onb-bar-row strong { text-align: right; font-variant-numeric: tabular-nums; }
+      .onb-bar-row small { color: #78716c; font-weight: 400; }
+      .onb-track { height: 12px; border-radius: 8px; background: #f5f5f4; overflow: hidden; }
+      .onb-track > span { display: block; height: 100%; background: #0f766e; border-radius: 8px; }
+      .onb-two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0; }
+      .onb-two section { min-width: 0; }
+      .onb-scroll { overflow-x: auto; margin: 12px 0; }
+      .onb-scroll table { min-width: 650px; }
+      .onb-cohorts th, .onb-cohorts td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .onb-detail td { padding: 0 10px 8px; background: #fafaf9; white-space: normal; }
+      .onb-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 0.88rem; padding: 8px 0; }
+      details { margin: 12px 0; }
+      summary { cursor: pointer; color: #0f766e; font-weight: 600; }
+      .onb-notes { margin-top: 24px; color: #57534e; }
+      td:nth-child(n+2) { font-variant-numeric: tabular-nums; }
+      @media (max-width: 760px) {
+        .onb-two { grid-template-columns: 1fr; }
+        .onb-bar-row { grid-template-columns: 110px 1fr 65px; gap: 6px; font-size: 0.78rem; }
+      }
+    </style>
+""".trimIndent()
