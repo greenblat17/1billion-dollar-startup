@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
@@ -125,6 +127,15 @@ def create_app(
             chat["lastReminderAt"] = mark.get("lastReminderAt")
             chat["reminderIgnored"] = mark.get("ignored", 0)
         return payload
+
+    @app.get("/internal/metrics/llm")
+    async def llm_metrics_range(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 366:
+            raise HTTPException(status_code=400, detail="LLM period must be 1-366 days ending no later than today")
+        return await clip_pipeline.metrics.llm_range(from_day, to_day)
 
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:

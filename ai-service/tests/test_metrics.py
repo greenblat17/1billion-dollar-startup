@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -132,6 +132,26 @@ async def test_llm_attempt_counts_include_failures_without_inflating_tokens() ->
             assert snap["promptTokens"] == 17
             assert snap["completionTokens"] == 5
             assert snap["tpm"] == 22
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_llm_range_aggregates_inclusive_moscow_days_in_both_stores() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        for store in opened.stores:
+            await store.record_llm(1, 1, 10, purpose="onboarding", now=_moscow(22))
+            await store.record_llm(0, 0, 10, purpose="onboarding", success=False, now=_moscow(23))
+            await store.record_llm(1, 1, 10, purpose="reply", now=_moscow(24))
+            await store.record_llm(1, 1, 10, purpose="notes", now=_moscow(25))
+            summary = await store.llm_range(date(2026, 9, 23), date(2026, 9, 24))
+            assert summary == {
+                "from": "2026-09-23", "to": "2026-09-24", "timezone": "Europe/Moscow",
+                "requests": 2, "failures": 1,
+                "byPurpose": {"reply": 1, "notes": 0, "onboarding": 1, "session_review": 0},
+            }
+            assert (await store.llm_range(date(2026, 9, 26), date(2026, 9, 26)))["requests"] == 0
     finally:
         await opened.aclose()
 
@@ -378,6 +398,26 @@ async def test_internal_metrics_requires_token() -> None:
     assert body["turns"] == 1
     assert body["chats"][0]["sessionId"] == "tg-9"
     assert "transcript" not in response.text
+
+
+def test_llm_range_endpoint_requires_auth_and_bounds_dates() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    pipeline = ClipPipeline(
+        stt=FakeStt(["hi"]), llm=FakeLlm(), tts=FakeTts(),
+        dialogue=MemoryDialogueStore(max_messages=40, ttl_seconds=86400), metrics=store,
+    )
+    app = create_app(settings=make_settings(), pipeline=pipeline, realtime=FakeRealtime(), reviewer=FakeReviewer())
+    today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+    yesterday = today - timedelta(days=1)
+    path = f"/internal/metrics/llm?from={yesterday}&to={today}"
+    with TestClient(app) as client:
+        assert client.get(path).status_code == 401
+        response = client.get(path, headers=AUTH)
+        assert response.status_code == 200
+        assert response.json()["from"] == str(yesterday)
+        assert client.get(f"/internal/metrics/llm?from={today}&to={yesterday}", headers=AUTH).status_code == 400
+        assert client.get(f"/internal/metrics/llm?from={today}&to={today + timedelta(days=1)}", headers=AUTH).status_code == 400
+        assert client.get(f"/internal/metrics/llm?from={today - timedelta(days=366)}&to={today}", headers=AUTH).status_code == 400
 
 
 def _moscow(day: int, hour: int = 12) -> float:

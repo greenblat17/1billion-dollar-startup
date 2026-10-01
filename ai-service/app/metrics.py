@@ -6,7 +6,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -175,6 +175,8 @@ class MetricsStore(Protocol):
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]: ...
+
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]: ...
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
@@ -300,6 +302,11 @@ class MemoryMetricsStore:
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
             return payload
+
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        async with self._lock:
+            days = [self._days.get(day.isoformat(), DayTotals()) for day in llm_days(from_day, to_day)]
+            return llm_range_snapshot(from_day, to_day, days)
 
     async def schedule_reminder(
         self,
@@ -519,6 +526,13 @@ class RedisMetricsStore:
         )
         payload.update(await self._funnel_snapshot(moment))
         return payload
+
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        pipe = self._redis.pipeline()
+        for day in llm_days(from_day, to_day):
+            pipe.hgetall(_day_key(day.isoformat()))
+        raw_days = await pipe.execute()
+        return llm_range_snapshot(from_day, to_day, [_day_totals(raw) for raw in raw_days])
 
     @property
     def redis(self) -> Redis:
@@ -1061,6 +1075,26 @@ def build_snapshot(
             }
             for row in ordered
         ],
+    }
+
+
+def llm_days(from_day: date, to_day: date) -> list[date]:
+    if to_day < from_day or (to_day - from_day).days >= 366:
+        raise ValueError("LLM range must be between 1 and 366 days")
+    return [from_day + timedelta(days=offset) for offset in range((to_day - from_day).days + 1)]
+
+
+def llm_range_snapshot(from_day: date, to_day: date, days: list[DayTotals]) -> dict[str, Any]:
+    return {
+        "from": from_day.isoformat(),
+        "to": to_day.isoformat(),
+        "timezone": METRICS_TIMEZONE,
+        "requests": sum(day.llm_requests for day in days),
+        "failures": sum(day.llm_failures for day in days),
+        "byPurpose": {
+            purpose: sum(day.llm_by_purpose.get(purpose, 0) for day in days)
+            for purpose in LLM_PURPOSES
+        },
     }
 
 

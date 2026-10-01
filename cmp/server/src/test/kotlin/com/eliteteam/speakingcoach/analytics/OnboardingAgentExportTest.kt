@@ -33,8 +33,9 @@ class OnboardingAgentExportTest {
         val voice = cohort.getValue("steps").jsonArray.first {
             it.jsonObject.getValue("id").jsonPrimitive.content == "first_voice"
         }.jsonObject
-        assertEquals("onboarding-analytics.v4", root.getValue("schema_version").jsonPrimitive.content)
+        assertEquals("onboarding-analytics.v5", root.getValue("schema_version").jsonPrimitive.content)
         assertEquals(JsonNull, root.getValue("llm_requests_today"))
+        assertEquals(JsonNull, root.getValue("llm_requests_period"))
         val reminders = root.getValue("current_reminders").jsonObject
         assertEquals("all_users_current", reminders.getValue("scope").jsonPrimitive.content)
         assertEquals("2", reminders.getValue("active").jsonPrimitive.content)

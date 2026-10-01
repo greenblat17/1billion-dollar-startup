@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.LlmRange
 import com.eliteteam.speakingcoach.speaking.CallProgress
 import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
@@ -228,6 +229,16 @@ class HttpClipClient(
         return response.body()
     }
 
+    internal suspend fun loadLlmRange(range: LlmRange): LlmRequestPeriod {
+        val response = http.get("$root/internal/metrics/llm?from=${range.from}&to=${range.to}") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service GET /internal/metrics/llm returned ${response.status}")
+        }
+        return response.body()
+    }
+
     private suspend fun createSession(sessionId: SessionId?): SessionCreatedResponse {
         val response = http.post("$root/v1/sessions") {
             applyInternalToken()
@@ -357,6 +368,7 @@ internal class HttpMetricsSource(
     private val clips: HttpClipClient,
 ) : MetricsSource {
     override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
+    override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = clips.loadLlmRange(range)
     override suspend fun reminderSummary(): ReminderClockSummary = clips.reminderSummary()
 }
 

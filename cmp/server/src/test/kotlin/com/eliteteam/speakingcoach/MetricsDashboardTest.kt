@@ -5,6 +5,7 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.ReminderSegment
@@ -19,6 +20,7 @@ import com.eliteteam.speakingcoach.ai.StreakBucket
 import com.eliteteam.speakingcoach.ai.StreakReminderBucket
 import com.eliteteam.speakingcoach.ai.StreaksSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import java.time.LocalDate
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -40,7 +42,7 @@ import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
     @Test
-    fun onboardingPageAndAgentExportShowDailyLlmRequests() = testApplication {
+    fun onboardingPageAndAgentExportPreserveSelectedLlmPeriod() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
                 password = PASSWORD,
@@ -49,27 +51,67 @@ class MetricsDashboardTest {
                 onboarding = MemoryOnboardingAnalytics(),
             ))
         }
-        val page = client.get(ONBOARDING_ANALYTICS_PATH) {
+        val selected = "llmFrom=2026-09-23&llmTo=2026-09-24"
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&$selected") {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
-        assertTrue(page.contains("Запросы к LLM сегодня · все пользователи"))
+        assertTrue(page.contains("Запросы к LLM · все пользователи"))
+        assertTrue(page.contains("name=\"llmFrom\" value=\"2026-09-23\""))
+        assertTrue(page.contains("name=\"llmTo\" value=\"2026-09-24\""))
+        assertTrue(page.contains("llmFrom=2026-09-23&amp;llmTo=2026-09-24"))
         assertTrue(page.contains("<tr><td>8</td><td>1</td><td>3</td>"))
 
-        val exported = client.get(ONBOARDING_AGENT_PATH) {
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&$selected") {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }
         val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
-        val llm = root.getValue("llm_requests_today").jsonObject
+        val llm = root.getValue("llm_requests_period").jsonObject
+        assertEquals("2026-09-23", llm.getValue("from").jsonPrimitive.content)
+        assertEquals("2026-09-24", llm.getValue("to").jsonPrimitive.content)
+        assertEquals(JsonNull, root.getValue("llm_requests_today"))
         assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
         assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
+
+        val mainPage = client.get("$METRICS_PATH?$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(mainPage.contains("2026-09-23 — 2026-09-24 включительно"))
+        assertTrue(mainPage.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(mainPage.contains("<dt>Токены prompt</dt><dd>100</dd>"))
+
+        val current = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals("all_users_today", Json.parseToJsonElement(current.bodyAsText()).jsonObject
+            .getValue("llm_requests_today").jsonObject.getValue("scope").jsonPrimitive.content)
     }
 
     @Test
     fun llmRequestCountsAppearOnMetricsPage() {
-        val html = metricsReportHtml(sampleSnapshot())
+        val range = LlmRange(LocalDate.parse("2026-09-23"), LocalDate.parse("2026-09-24"))
+        val html = metricsReportHtml(sampleSnapshot(), sampleLlmPeriod(range), range)
+        assertTrue(html.contains("2026-09-23 — 2026-09-24 включительно"))
         assertTrue(html.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
         assertTrue(html.contains("<dt>Ошибки LLM</dt><dd>1</dd>"))
         assertTrue(html.contains("<dt>LLM · онбординг</dt><dd>3</dd>"))
+    }
+
+    @Test
+    fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD, source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false, onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        for (path in listOf(
+            "$METRICS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
+            "$ONBOARDING_ANALYTICS_PATH?llmFrom=2026-09-23",
+            "$ONBOARDING_AGENT_PATH?llmFrom=2020-01-01&llmTo=2026-10-01",
+        )) {
+            val response = client.get(path) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
     }
 
     @Test
@@ -98,6 +140,7 @@ class MetricsDashboardTest {
         assertTrue(exported.headers[HttpHeaders.ContentDisposition].orEmpty().contains("attachment"))
         val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
         assertEquals(JsonNull, root["llm_requests_today"])
+        assertEquals(JsonNull, root["llm_requests_period"])
         assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
         assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
         assertEquals("2", root.getValue("current_reminders").jsonObject.getValue("active").jsonPrimitive.content)
@@ -454,6 +497,7 @@ class MetricsDashboardTest {
 
     private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {
         override suspend fun load(): MetricsSnapshot = snapshot
+        override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = sampleLlmPeriod(range)
     }
 
     private class FailingMetricsSource : MetricsSource {
@@ -464,5 +508,11 @@ class MetricsDashboardTest {
 
     private companion object {
         const val PASSWORD = "secret-pass"
+
+        fun sampleLlmPeriod(range: LlmRange) = LlmRequestPeriod(
+            from = range.from.toString(), to = range.to.toString(), timezone = "Europe/Moscow",
+            requests = 8, failures = 1,
+            byPurpose = mapOf("onboarding" to 3, "reply" to 3, "notes" to 1, "session_review" to 1),
+        )
     }
 }

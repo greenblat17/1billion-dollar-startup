@@ -93,6 +93,16 @@ data class MetricsSnapshot(
 )
 
 @Serializable
+data class LlmRequestPeriod(
+    val from: String,
+    val to: String,
+    val timezone: String,
+    val requests: Long,
+    val failures: Long,
+    val byPurpose: Map<String, Long> = emptyMap(),
+)
+
+@Serializable
 data class RemindersSnapshot(
     val today: ReminderTotals = ReminderTotals(),
     val week: ReminderTotals = ReminderTotals(),

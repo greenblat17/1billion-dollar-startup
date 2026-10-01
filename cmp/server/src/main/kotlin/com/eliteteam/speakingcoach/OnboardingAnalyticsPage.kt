@@ -7,13 +7,16 @@ import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
 import com.eliteteam.speakingcoach.analytics.decisionCounts
 import com.eliteteam.speakingcoach.ai.ReminderClockSummary
-import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import kotlin.math.roundToInt
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import java.time.LocalDate
+import java.time.ZoneId
 
 internal fun onboardingReportHtml(
-    report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null, llm: MetricsSnapshot? = null,
+    report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null, llm: LlmRequestPeriod? = null,
+    llmRange: LlmRange = LlmRange(LocalDate.now(ZoneId.of("Europe/Moscow")), LocalDate.now(ZoneId.of("Europe/Moscow"))),
 ): String {
     val body = if (report == null) {
         "<p>История онбординга не пишется: нет базы.</p>"
@@ -24,6 +27,7 @@ internal fun onboardingReportHtml(
         val returned = closed.sumOf { it.returnedNextDay }
         """
         <form class="inline" method="get" action="$ONBOARDING_ANALYTICS_PATH">
+        <input type="hidden" name="llmFrom" value="${llmRange.from}"><input type="hidden" name="llmTo" value="${llmRange.to}">
         <label>Дней <select name="days">${listOf(7, 30, 90).joinToString("") { option ->
             "<option value=\"$option\"${if (option == report.filter.days) " selected" else ""}>$option</option>"
         }}</select></label>
@@ -32,7 +36,7 @@ internal fun onboardingReportHtml(
         <label>Причина <select name="trigger">${filterOptions(report.triggers, report.filter.trigger)}</select></label>
         <button type="submit">Показать</button>
         </form>
-        <a class="onb-export" href="${agentExportLink(report.filter)}">Скачать JSON для анализа агентом</a>
+        <a class="onb-export" href="${agentExportLink(report.filter, llmRange)}">Скачать JSON для анализа агентом</a>
         <dl class="onb-kpis">
           ${card("Начали · закрытые дни", started.toString())}
           ${card("Результат за 24 ч", "$completed / $started · ${percentage(completed, started)}")}
@@ -64,7 +68,8 @@ internal fun onboardingReportHtml(
         ${decisionTable(report)}
         <h2>Напоминания сейчас · все пользователи</h2>
         ${reminderClockChart(reminderSummary)}
-        <h2>Запросы к LLM сегодня · все пользователи</h2>
+        <h2>Запросы к LLM · все пользователи</h2>
+        ${llmRangeForm(ONBOARDING_ANALYTICS_PATH, llmRange, hiddenOnboardingFilter(report.filter))}
         ${llmRequestTable(llm)}
         <h2>Качество сбора · с запуска сервера</h2>
         <table><thead><tr><th>Показатель</th><th>Число</th><th>Из записей</th></tr></thead><tbody>
@@ -98,26 +103,33 @@ internal fun onboardingReportHtml(
     """.trimIndent()
 }
 
-private fun llmRequestTable(snapshot: MetricsSnapshot?): String {
-    if (snapshot?.llmRequests == null) return "<p>Счётчик LLM сейчас недоступен.</p>"
-    val byPurpose = snapshot.llmRequestsByPurpose
+private fun llmRequestTable(summary: LlmRequestPeriod?): String {
+    if (summary == null) return "<p>Счётчик LLM сейчас недоступен.</p>"
+    val byPurpose = summary.byPurpose
     return """
-        <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Попытки вызова модели, включая ошибки и повторы приложения. Данные не относятся к выбранной когорте.</p>
+        <p class="meta">${escapeHtml(summary.from)} — ${escapeHtml(summary.to)} включительно · ${escapeHtml(summary.timezone)}. Попытки вызова модели, включая ошибки и повторы приложения. Данные не относятся к выбранной когорте; вызовы до внедрения счётчика не восстановлены.</p>
         <table><thead><tr><th>Всего</th><th>Ошибки</th><th>Онбординг</th><th>Ответы</th><th>Исправления</th><th>Review</th></tr></thead><tbody>
-        <tr><td>${snapshot.llmRequests}</td><td>${snapshot.llmFailures}</td><td>${byPurpose["onboarding"] ?: 0}</td><td>${byPurpose["reply"] ?: 0}</td><td>${byPurpose["notes"] ?: 0}</td><td>${byPurpose["session_review"] ?: 0}</td></tr>
+        <tr><td>${summary.requests}</td><td>${summary.failures}</td><td>${byPurpose["onboarding"] ?: 0}</td><td>${byPurpose["reply"] ?: 0}</td><td>${byPurpose["notes"] ?: 0}</td><td>${byPurpose["session_review"] ?: 0}</td></tr>
         </tbody></table>
     """.trimIndent()
 }
 
+private fun hiddenOnboardingFilter(filter: OnboardingFilter): String = buildString {
+    append("<input type=\"hidden\" name=\"days\" value=\"${filter.days}\">")
+    for ((name, value) in listOf("version" to filter.version, "source" to filter.source, "trigger" to filter.trigger)) {
+        if (value != null) append("<input type=\"hidden\" name=\"$name\" value=\"${escapeHtml(value)}\">")
+    }
+}
+
 private fun rate(part: Int, whole: Int): Int = if (whole == 0) 0 else ((part * 100.0) / whole).roundToInt()
 
-private fun agentExportLink(filter: OnboardingFilter): String {
+private fun agentExportLink(filter: OnboardingFilter, range: LlmRange): String {
     fun parameter(name: String, value: String?): String? = value?.let {
         "$name=${URLEncoder.encode(it, StandardCharsets.UTF_8)}"
     }
     val query = listOfNotNull(
         "days=${filter.days}", parameter("version", filter.version), parameter("source", filter.source),
-        parameter("trigger", filter.trigger),
+        parameter("trigger", filter.trigger), "llmFrom=${range.from}", "llmTo=${range.to}",
     ).joinToString("&amp;")
     return "$ONBOARDING_AGENT_PATH?$query"
 }
