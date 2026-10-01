@@ -12,15 +12,20 @@ import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.ReminderRunner
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignRunner
 import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
 import com.eliteteam.speakingcoach.telegram.launchDailyReminder
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
+import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.types.ChatId
 import dev.inmo.tgbotapi.types.RawChatId
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerBotCommands
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.telegram.telegramSessionId
+import com.eliteteam.speakingcoach.telegram.legacyCampaignMessage
+import com.eliteteam.speakingcoach.telegram.legacyCampaignKeyboard
 import kotlinx.coroutines.CancellationException
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
@@ -90,6 +95,11 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     )
+    val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
+        behaviourContext.sendMessage(
+            ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
+        )
+    }
     val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
@@ -120,6 +130,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 HttpMetricsSource(ai),
                 secureCookie = true,
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+                campaign = campaignRunner,
             ),
         ) {
             route("/telegram/webhook") {
@@ -162,6 +173,7 @@ internal fun Application.module(
     appApi: AppApi? = createAppApi(config),
     metricsSource: MetricsSource? = null,
     reminderAdmin: ReminderAdmin? = null,
+    campaignAdmin: LegacyCampaignAdmin? = null,
 ) {
     if (appApi != null) {
         installAppPlugins(appApi)
@@ -172,6 +184,7 @@ internal fun Application.module(
             metricsSource ?: ownedMetricsSource(config),
             secureCookie = false,
             reminders = reminderAdmin,
+            campaign = campaignAdmin,
         ),
     ) {
         if (config.usesWebhook) {
@@ -196,12 +209,13 @@ private fun Application.metricsDashboard(
     source: MetricsSource?,
     secureCookie: Boolean,
     reminders: ReminderAdmin? = null,
+    campaign: LegacyCampaignAdmin? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

@@ -1,29 +1,17 @@
-import json
-
 import fakeredis.aioredis
-import httpx
 import pytest
 
 from app.legacy_onboarding_campaign import (
     AUDIENCE_KEY,
-    CALLBACK_DATA,
-    MARKUP,
-    MESSAGE,
     READY_KEY,
     STATUS_KEY,
     chat_id,
+    campaign_status,
+    claim_batch,
     known_chat_ids,
+    report_delivery,
     snapshot,
-    send_campaign,
-    telegram_send,
 )
-
-
-def test_telegram_message_preserves_copy_and_formatting():
-    assert MESSAGE.startswith("Привет! Это Саша, создатель Speaky 👋\n\n")
-    assert "<b>именно для тебя, очень важно пройти новый onboarding и ещё раз познакомиться со Speaky</b>" in MESSAGE
-    assert MESSAGE.endswith("Я читаю каждое сообщение и отвечаю сам.")
-    assert MARKUP == {"inline_keyboard": [[{"text": "🎙 Пройти onboarding", "callback_data": CALLBACK_DATA}]]}
 
 
 def test_only_private_telegram_session_ids_are_accepted():
@@ -51,36 +39,25 @@ async def test_snapshot_freezes_all_known_chats_and_does_not_add_later_users():
 
 
 @pytest.mark.asyncio
-async def test_telegram_request_uses_html_and_callback_button():
-    requests = []
-
-    def handle(request):
-        requests.append(request)
-        return httpx.Response(200, json={"ok": True, "result": {"message_id": 1}})
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
-        assert await telegram_send(client, "test-token", 123) == "sent"
-    payload = json.loads(requests[0].content)
-    assert payload["parse_mode"] == "HTML"
-    assert payload["text"] == MESSAGE
-    assert payload["reply_markup"] == MARKUP
-    assert payload["chat_id"] == 123
-
-
-@pytest.mark.asyncio
-async def test_send_resumes_without_repeating_attempted_recipients(monkeypatch):
+async def test_admin_claim_and_report_use_only_frozen_audience():
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
-    await redis.set(READY_KEY, "1")
     await redis.sadd(AUDIENCE_KEY, "101", "202")
-    sent = []
-
-    async def fake_send(client, token, recipient):
-        sent.append(recipient)
-        return "sent"
-
-    monkeypatch.setattr("app.legacy_onboarding_campaign.telegram_send", fake_send)
-    await send_campaign(redis, "test-token", limit=1)
-    await send_campaign(redis, "test-token")
-    await send_campaign(redis, "test-token")
-    assert sent == [101, 202]
-    assert await redis.hgetall(STATUS_KEY) == {"101": "sent", "202": "sent"}
+    assert await claim_batch(redis, limit=1) == []
+    await redis.set(READY_KEY, "1")
+    assert await claim_batch(redis, limit=1) == [101]
+    assert await claim_batch(redis, limit=1) == [202]
+    assert await claim_batch(redis, limit=1) == []
+    assert not await report_delivery(redis, 303, "sent")
+    assert not await report_delivery(redis, 101, "unexpected")
+    assert await report_delivery(redis, 101, "sent")
+    assert not await report_delivery(redis, 101, "sent")
+    assert await report_delivery(redis, 202, "failed")
+    assert await campaign_status(redis) == {
+        "ready": True,
+        "audience": 2,
+        "remaining": 0,
+        "sent": 1,
+        "blocked": 0,
+        "failed": 1,
+        "uncertain": 0,
+    }

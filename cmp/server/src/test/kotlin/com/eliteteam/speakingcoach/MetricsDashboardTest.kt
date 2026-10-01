@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.ReminderSegment
@@ -17,6 +18,7 @@ import com.eliteteam.speakingcoach.ai.StreakBucket
 import com.eliteteam.speakingcoach.ai.StreakReminderBucket
 import com.eliteteam.speakingcoach.ai.StreaksSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -33,6 +35,38 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun campaignPageRequiresLoginAndSendsOnlyOnExplicitPost() = testApplication {
+        val admin = FakeCampaignAdmin()
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), campaignAdmin = admin)
+        }
+        val browser = createClient { followRedirects = false }
+        assertEquals(HttpStatusCode.Forbidden, browser.post("$LEGACY_CAMPAIGN_PATH/send").status)
+        assertEquals(0, admin.started)
+        val page = browser.get(LEGACY_CAMPAIGN_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Отправить выбранным пользователям"))
+        assertTrue(page.contains("<b>именно для тебя, очень важно пройти новый onboarding"))
+        assertTrue(page.contains("🎙 Пройти onboarding"))
+        assertEquals(0, admin.started)
+
+        suspend fun post(path: String, body: String = "") = browser.post(path) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+            contentType(ContentType.Application.FormUrlEncoded)
+            setBody(body)
+        }.headers[HttpHeaders.Location]
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-invalid", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=abc"))
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-sent", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=42"))
+        assertEquals(listOf(42L), admin.tests)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=started", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+        admin.current = admin.current.copy(ready = false)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=not-ready", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+    }
+
     @Test
     fun metricsRoutesStayHiddenWithoutPassword() = testApplication {
         application {
@@ -273,6 +307,24 @@ class MetricsDashboardTest {
         override suspend fun sendTest(chatId: Long, templateId: String?): Boolean {
             tests += chatId to templateId
             return testResult
+        }
+    }
+
+    private class FakeCampaignAdmin : LegacyCampaignAdmin {
+        var current = LegacyCampaignStatus(ready = true, audience = 3, remaining = 3)
+        var started = 0
+        val tests = mutableListOf<Long>()
+
+        override suspend fun status(): LegacyCampaignStatus = current
+
+        override fun startAll(): Boolean {
+            started += 1
+            return true
+        }
+
+        override suspend fun sendTest(chatId: Long): Boolean {
+            tests += chatId
+            return true
         }
     }
 

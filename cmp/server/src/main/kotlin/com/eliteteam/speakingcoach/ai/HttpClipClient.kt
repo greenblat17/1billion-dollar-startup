@@ -134,6 +134,27 @@ class HttpClipClient(
         return response.body<ReminderClaimResponse>().targets
     }
 
+    suspend fun legacyCampaignStatus(): LegacyCampaignStatus {
+        val response = http.get("$root/internal/campaign/legacy-onboarding") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service campaign status returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun claimLegacyCampaign(): List<Long> {
+        val response = http.post("$root/internal/campaign/legacy-onboarding/claim") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service campaign claim returned ${response.status}" }
+        return response.body<LegacyCampaignClaim>().chatIds
+    }
+
+    suspend fun reportLegacyCampaign(chatId: Long, status: String) {
+        val response = http.post("$root/internal/campaign/legacy-onboarding/report") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LegacyCampaignReport(chatId, status))
+        }
+        check(response.status.isSuccess()) { "ai-service campaign report returned ${response.status}" }
+    }
+
     suspend fun reminderTime(sessionId: SessionId): String? {
         val response = http.get("$root/internal/reminders/${sessionId.value}") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service reminder time returned ${response.status}" }

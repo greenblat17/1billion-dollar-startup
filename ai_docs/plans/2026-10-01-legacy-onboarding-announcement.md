@@ -1,17 +1,16 @@
 # One-time announcement to existing Telegram users
 
-Status: implemented locally; live rollout and delivery pending.
+Status: admin-triggered delivery implemented locally; rollout and delivery pending.
 
-The audience is every private Telegram chat already known to AI-service when the operator runs `snapshot`. It is the union of all `metrics:funnel:user:tg-*` records and all members of `metrics:chats`, matching the two sources used by onboarding's `is_known` check. The snapshot is stored in Redis and is never enlarged on a repeat run. New users who arrive later receive the normal onboarding flow, not this announcement. Users who already completed onboarding are included, per the chosen audience rule.
+The audience is every private Telegram chat already known to AI-service when the new AI image is first deployed. The AI deployment script takes a snapshot from all `metrics:funnel:user:tg-*` records and all members of `metrics:chats`, matching the two sources used by onboarding's `is_known` check. Redis stores chat IDs, not usernames: usernames may change and Telegram delivery requires chat IDs. The snapshot is never enlarged on repeat deploys. New users who arrive later receive the normal onboarding flow, not this announcement. Users who already completed onboarding are included, per the chosen audience rule.
 
-The announcement uses Telegram HTML formatting. Only the requested emphasis is bold; the final CTA is an inline button. Its `campaign:onboarding` callback enters the existing forced `/onboarding` flow and the button is removed after a successful start. No onboarding state is reset by delivering the announcement itself.
+The Telegram bot builds message entities directly: paragraph breaks stay in the message, the requested emphasis is bold, and the final CTA is an inline button. Its `campaign:onboarding` callback enters the existing forced `/onboarding` flow and the button is removed after a successful start. No onboarding state is reset by delivering the announcement itself.
 
 Run order for the target environment:
 
-1. Deploy the CMP server with the new callback handler, and the AI-service image containing `app.legacy_onboarding_campaign`.
-2. On the AI host, freeze the audience **before** sending: `docker exec ai-service python -m app.legacy_onboarding_campaign snapshot`. Keep a record of the printed count.
-3. Preview copy and count: `docker exec ai-service python -m app.legacy_onboarding_campaign preview`.
-4. Make the **matching environment's** bot token available in the AI host shell as `TELEGRAM_BOT_TOKEN` without printing it. Run `docker exec -e TELEGRAM_BOT_TOKEN ai-service python -m app.legacy_onboarding_campaign test --chat-id <private-chat-id>`. Check the rendered bold text and button in Telegram.
-5. Run `docker exec -e TELEGRAM_BOT_TOKEN ai-service python -m app.legacy_onboarding_campaign send`. `--limit N` permits a small first batch. Each recipient is recorded in `campaign:2026-10-01-legacy-onboarding:status` before the API call; reruns skip any recorded recipient. Inspect `sent`, `blocked`, `failed:*`, `rate_limited`, `uncertain`, or `pending` statuses before considering manual retries. `uncertain` and `pending` may have been delivered; do not automatically retry them.
+1. Deploy the AI-service and CMP server. The AI deployment automatically freezes the audience in Redis. It does not send a message.
+2. Open `/admin/metrics/onboarding-campaign` with the existing metrics password. Review the audience count and rendered message.
+3. Use `Отправить тест себе` with your private chat ID. Check the bold text, spacing, and Telegram button.
+4. Press `Отправить выбранным пользователям` and confirm the count in the browser. The CMP bot claims one frozen recipient at a time from the authenticated AI API, sends the Telegram message, and reports `sent`, `blocked`, or `failed`. The page shows counts on refresh.
 
-The script sends at roughly eight messages per second, below Telegram's normal broadcast limit. A 429 response waits for Telegram's `retry_after`. The snapshot and delivery statuses survive process restart. An interrupted snapshot must finish before `send` can run. This is a one-time operational campaign; it is not launched automatically on deploy.
+Claimed recipients are marked `pending` before a Telegram API call. A restart or ambiguous network failure leaves them out of automatic retries, because Telegram may have delivered the message. They appear under `Неясный результат` for manual review. The bot sends at roughly eight messages per second, below Telegram's normal broadcast limit; a 429 response waits once for Telegram's `retry_after`. Snapshot and delivery statuses survive restarts. A later click only processes still unclaimed members of the same frozen audience.

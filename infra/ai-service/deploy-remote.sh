@@ -27,6 +27,10 @@ docker run -d --name ai-service --restart unless-stopped \
   --env-file "$APP/.env" \
   ai-service:local
 
+# Freeze this one-time campaign cohort on its first deployment. Later deploys
+# leave the Redis snapshot unchanged, so new users are never added to it.
+docker exec ai-service python -m app.legacy_onboarding_campaign snapshot
+
 chmod 755 "$APP/restrict-8090.sh"
 install -m 644 "$APP/restrict-8090.service" /etc/systemd/system/restrict-8090.service
 systemctl daemon-reload

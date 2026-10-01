@@ -16,6 +16,7 @@ from app.calls import CallStore
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
+from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.onboarding import OnboardingService, OnboardingStore
@@ -67,6 +68,7 @@ def create_app(
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
     greeting_audio: dict[float, TtsAudio] = {}
     greeting_lock = asyncio.Lock()
+    campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
     tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
@@ -84,6 +86,8 @@ def create_app(
         await sessions.aclose()
         await clip_pipeline.speech.speeds.aclose()
         await clip_pipeline.metrics.aclose()
+        if campaign_redis is not None:
+            await campaign_redis.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
             await close_tts()
@@ -220,6 +224,31 @@ def create_app(
                 },
             )
         return {"targets": claimed}
+
+    @app.get("/internal/campaign/legacy-onboarding")
+    async def legacy_campaign_status() -> dict:
+        if campaign_redis is None:
+            raise HTTPException(status_code=503, detail="campaign requires Redis")
+        return await campaign_status(campaign_redis)
+
+    @app.post("/internal/campaign/legacy-onboarding/claim")
+    async def legacy_campaign_claim() -> dict[str, list[int]]:
+        if campaign_redis is None:
+            raise HTTPException(status_code=503, detail="campaign requires Redis")
+        return {"chatIds": await claim_batch(campaign_redis, limit=1)}
+
+    @app.post("/internal/campaign/legacy-onboarding/report")
+    async def legacy_campaign_report(request: Request) -> dict[str, bool]:
+        if campaign_redis is None:
+            raise HTTPException(status_code=503, detail="campaign requires Redis")
+        payload = await _json_object(request)
+        chat_id = payload.get("chatId")
+        if isinstance(chat_id, bool) or not isinstance(chat_id, int) or chat_id <= 0:
+            raise HTTPException(status_code=400, detail="positive chatId required")
+        status = str(payload.get("status") or "")
+        if status not in {"sent", "blocked", "failed", "uncertain"}:
+            raise HTTPException(status_code=400, detail="invalid status")
+        return {"ok": await report_delivery(campaign_redis, chat_id, status)}
 
     @app.post("/internal/onboarding/state")
     async def onboarding_state(request: Request) -> dict:

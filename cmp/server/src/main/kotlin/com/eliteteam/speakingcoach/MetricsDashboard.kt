@@ -2,7 +2,9 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
@@ -46,6 +48,7 @@ internal class MetricsDashboard(
     val source: MetricsSource,
     val secureCookie: Boolean,
     val reminders: ReminderAdmin? = null,
+    val campaign: LegacyCampaignAdmin? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -94,6 +97,22 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         call.respondText(html, ContentType.Text.Html)
     }.hide()
+    get(LEGACY_CAMPAIGN_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            legacyCampaignPageHtml(
+                dashboard.campaign?.status() ?: LegacyCampaignStatus(),
+                call.request.queryParameters["notice"], controls = dashboard.campaign != null,
+            )
+        } catch (error: Throwable) {
+            log.warn("Campaign status failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
     post("/admin/metrics/login") {
         val provided = call.receiveParameters()["password"].orEmpty()
         if (!metricsPasswordMatches(dashboard.password, provided)) {
@@ -134,6 +153,35 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             false
         }
         call.respondRedirect("$REMINDERS_PATH?notice=${if (sent) NOTICE_TEST_SENT else NOTICE_TEST_FAILED}")
+    }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/send") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val status = admin.status()
+        val notice = when {
+            !status.ready -> "not-ready"
+            status.remaining == 0 -> "busy"
+            admin.startAll() -> "started"
+            else -> "busy"
+        }
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=$notice")
+    }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/test") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val chatId = call.receiveParameters()["chatId"]?.trim()?.toLongOrNull()
+        if (chatId == null || chatId <= 0) {
+            call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=test-invalid")
+            return@post
+        }
+        val sent = admin.sendTest(chatId)
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=${if (sent) "test-sent" else "test-failed"}")
     }.hide()
 }
 
@@ -304,7 +352,10 @@ internal fun card(label: String, value: String): String {
 }
 
 internal fun adminTabs(active: String): String {
-    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики")
+    val tabs = listOf(
+        METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики",
+        LEGACY_CAMPAIGN_PATH to "Onboarding рассылка",
+    )
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
         "<a href=\"$path\"$current>$label</a>"

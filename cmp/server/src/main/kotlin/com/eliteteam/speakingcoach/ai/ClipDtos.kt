@@ -30,6 +30,23 @@ data class SpeechSpeedRequest(
 )
 
 @Serializable
+data class LegacyCampaignStatus(
+    val ready: Boolean = false,
+    val audience: Int = 0,
+    val remaining: Int = 0,
+    val sent: Int = 0,
+    val blocked: Int = 0,
+    val failed: Int = 0,
+    val uncertain: Int = 0,
+)
+
+@Serializable
+data class LegacyCampaignClaim(val chatIds: List<Long> = emptyList())
+
+@Serializable
+data class LegacyCampaignReport(val chatId: Long, val status: String)
+
+@Serializable
 data class ClipAcceptedResponse(
     val jobId: String,
 )
