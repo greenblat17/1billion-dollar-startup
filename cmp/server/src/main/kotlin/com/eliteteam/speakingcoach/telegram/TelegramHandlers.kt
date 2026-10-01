@@ -15,6 +15,7 @@ import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendBotAction
 import dev.inmo.tgbotapi.extensions.api.send.withRecordVoiceAction
 import dev.inmo.tgbotapi.types.MessageId
+import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
@@ -40,6 +41,7 @@ import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.Base64
 import kotlin.time.TimeSource
 
 internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
@@ -280,6 +282,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         if (state.status == "waiting") {
             clearProgress(message.chat)
+            if (force) sendMessage(message.chat.id, "Let's start again.", replyMarkup = ReplyKeyboardRemove())
             reply(
                 message,
                 onboardingInvitation((message.chat as? PrivateChat)?.firstName),
@@ -288,8 +291,67 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
         } else {
             val greeting = ai.startSession(sessionId)
-            reply(message, startTextMessage((message.chat as? PrivateChat)?.firstName), allowSendingWithoutReply = true)
+            val profile = ai.progressProfile(sessionId)
+            val eligible = callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes) == "open"
+            reply(
+                message, startTextMessage((message.chat as? PrivateChat)?.firstName),
+                allowSendingWithoutReply = true,
+                replyMarkup = if (eligible) startCallKeyboard() else null,
+            )
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
+        }
+    }
+    suspend fun startCall(message: ChatMessage) {
+        val sessionId = telegramSessionId(message.chat.id)
+        val state = ai.onboardingState(sessionId, "message:${message.messageId}")
+        val profile = ai.progressProfile(sessionId)
+        when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes)) {
+            "onboarding" -> {
+                when (state.status) {
+                    "pending" -> reply(message, "I couldn't prepare your result. Please try again.",
+                        replyMarkup = onboardingKeyboard("retry", state.runId))
+                    "waiting" -> reply(message, ONBOARDING_BEGIN_HINT,
+                        replyMarkup = onboardingKeyboard("begin", state.runId))
+                    else -> reply(message, "Send a voice message to continue your introduction.")
+                }
+                return
+            }
+            "need-onboarding" -> {
+                greet(message, "/onboarding", force = true)
+                return
+            }
+            "need-goal" -> {
+                val assessment = profile.assessment
+                reply(message, practiceAsk(assessment?.cefr, assessment?.overallScore,
+                    assessment?.nextBand, assessment?.pointsToNext),
+                    allowSendingWithoutReply = true, replyMarkup = practiceMinutesKeyboard(state.runId))
+                return
+            }
+        }
+        showStatus(message.chat, RecordVoiceAction)
+        val opening = ai.startCall(sessionId)
+        opening.unseenCallId?.let { callId ->
+            reply(message, CALL_YESTERDAY_TEXT, allowSendingWithoutReply = true,
+                replyMarkup = callYesterdayKeyboard(callId))
+        }
+        if (opening.status == "active") {
+            reply(message, CALL_ALREADY_ACTIVE_TEXT)
+            return
+        }
+        check(opening.status == "ready") { "Unexpected call opening status: ${opening.status}" }
+        val question = requireNotNull(opening.question)
+        val audio = Base64.getDecoder().decode(requireNotNull(opening.audioBase64))
+        clearProgress(message.chat)
+        val voice = sendVoice(message.chat.id, audio.asMultipartFile("call-opening.ogg"),
+            replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true))
+        spokenLines[spokenKey(message.chat.id, voice.messageId)] = question
+        progressMessages[message.chat.id.toString()] = voice.messageId
+        try {
+            ai.markCallStarterDelivered(opening.callId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to confirm call starter delivery for {}", opening.callId, error)
         }
     }
     suspend fun voice(message: ChatMessage, content: VoiceContent) {
@@ -668,6 +730,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             allowSendingWithoutReply = true,
                             replyMarkup = reminderAskKeyboard(callback.runId),
                         )
+                        sendMessage(message.chat.id, START_CALL_PROMPT, replyMarkup = startCallKeyboard())
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -752,6 +815,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
+                    isStartCallButton(content.text) -> startCall(message)
                     content.text.startsWith("/") -> Unit
                     else -> {
                         val scheduled = ai.scheduleReminder(

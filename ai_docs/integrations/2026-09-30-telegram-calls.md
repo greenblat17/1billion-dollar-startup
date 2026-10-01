@@ -13,6 +13,8 @@ Ktor asks ai-service for the onboarding state, then `GET /internal/profile/{sess
 
 A daily reminder is still only an invitation. It does not open a call or start the clock. `/start` does not seal a call. `/onboarding` seals an open call and removes the keyboard.
 
+After the daily goal is chosen, Telegram shows a persistent lower reply keyboard with `🎙 Start call`. Returning eligible users receive it again on `/start`. The button sends its label as a text message, which Ktor handles before reminder-time input. It uses the same onboarding/level/goal gate as an incoming voice. An eligible tap calls `POST /internal/calls/start`: ai-service get-or-creates the call, generates one short spoken question with one LLM call and synthesizes it at the saved voice speed. Relevant personal memory and recent dialogue may guide the question; the model must not invent details. Telegram sends the voice with the existing clock, Subtitles, and End conversation inline keyboard, then confirms successful send through `POST /internal/calls/starter-delivered`. The question and delivery flag live in `call:{id}`. A repeat tap during an active call prompts the user to reply by voice. A direct voice still opens a call through `/internal/calls/open`; the starter adds no goal seconds. A new call after End or the next Moscow day may receive a new starter.
+
 ## During the call
 
 The latest Speaky voice carries one inline keyboard: today's recognized speech against the daily goal (`8:24 / 10:00`), `Subtitles`, and `☎️ End conversation` on the next row. The keyboard moves off the previous voice. Crossing the goal does not end the call. The clock shows overtime, such as `12:40 / 10:00`, and one text says the day's minutes are done.

@@ -105,6 +105,32 @@ class CallStore:
         call = await self._read_call(call_id)
         return deepcopy(call) if call is not None else None
 
+    async def save_opening(self, call_id: str, question: str) -> None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open":
+                raise ValueError("call is closed")
+            if not current.get("openingQuestion"):
+                current["openingQuestion"] = question
+                await self._write_call(current)
+
+    async def mark_opening_delivered(self, call_id: str) -> tuple[str, str] | None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or not current.get("openingQuestion"):
+                raise ValueError("call has no opening")
+            if current.get("openingDelivered"):
+                return None
+            current["openingDelivered"] = True
+            await self._write_call(current)
+            return str(current["sessionId"]), str(current["openingQuestion"])
+
     async def save_review(self, call_id: str, review: dict[str, Any]) -> bool:
         call = await self._read_call(call_id)
         if call is None or call.get("status") != "closed":
@@ -241,6 +267,8 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "endedUnix": None,
         "seconds": 0.0,
         "turns": [],
+        "openingQuestion": None,
+        "openingDelivered": False,
         "review": None,
         "reviewOffered": False,
         "todaySeconds": 0.0,

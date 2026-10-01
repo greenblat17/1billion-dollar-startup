@@ -409,6 +409,18 @@ data class OpenCallResponse(
 )
 
 @Serializable
+data class StartCallResponse(
+    val callId: String,
+    val status: String,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val unseenCallId: String? = null,
+    val question: String? = null,
+    val audioBase64: String? = null,
+    val audioContentType: String? = null,
+)
+
+@Serializable
 data class EndCallResponse(
     val callId: String? = null,
 )

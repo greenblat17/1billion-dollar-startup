@@ -34,6 +34,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import java.util.Base64
 
 internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 
@@ -219,6 +220,25 @@ class HttpClipClient(
         }
         check(response.status.isSuccess()) { "ai-service open call returned ${response.status}" }
         return response.body()
+    }
+
+    suspend fun startCall(sessionId: SessionId): StartCallResponse {
+        val response = http.post("$root/internal/calls/start") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service start call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun markCallStarterDelivered(callId: String) {
+        val response = http.post("$root/internal/calls/starter-delivered") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallReviewRequest(callId))
+        }
+        check(response.status.isSuccess()) { "ai-service call starter delivery returned ${response.status}" }
     }
 
     suspend fun endCall(sessionId: SessionId): EndCallResponse {
