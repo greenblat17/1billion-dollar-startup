@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.main import _build_pipeline
+from app.config import Settings
 from app import tts as tts_module
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TtsAudio
 from tests.conftest import test_settings as make_settings
@@ -24,7 +25,7 @@ async def test_deepgram_sends_text_and_returns_mp3() -> None:
 
     assert len(requests) == 1
     assert requests[0].method == "POST"
-    assert str(requests[0].url) == "https://api.deepgram.com/v1/speak?model=aura-2-thalia-en&encoding=mp3"
+    assert str(requests[0].url) == "https://api.deepgram.com/v1/speak?model=aura-2-thalia-en&encoding=mp3&speed=0.9"
     assert requests[0].headers["authorization"] == "Token test-key"
     assert requests[0].headers["content-type"] == "application/json"
     assert json.loads(requests[0].content) == {"text": "Hello"}
@@ -96,6 +97,14 @@ async def test_provider_selection_requires_key_and_supports_rollback() -> None:
         _build_pipeline(replace(settings, tts_provider="deepgram"))
     direct = _build_pipeline(replace(settings, tts_provider="deepgram", deepgram_api_key="test"))
     assert isinstance(direct.tts, DeepgramTextToSpeech)
+    assert direct.tts._speed == 0.9
     await direct.tts.aclose()
+    with pytest.raises(RuntimeError, match="TTS_SPEED"):
+        _build_pipeline(replace(settings, tts_provider="deepgram", deepgram_api_key="test", tts_speed=0.93))
     router = _build_pipeline(replace(settings, tts_provider="openrouter"))
     assert isinstance(router.tts, OpenAiTextToSpeech)
+
+
+def test_tts_speed_can_be_set_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("TTS_SPEED", "0.95")
+    assert Settings.from_env().tts_speed == 0.95

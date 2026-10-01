@@ -362,6 +362,11 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         raise RuntimeError("DEEPGRAM_API_KEY is required when TTS_PROVIDER=deepgram")
     if settings.tts_output_format not in {"ogg", "mp3"}:
         raise RuntimeError("TTS_OUTPUT_FORMAT must be ogg or mp3")
+    if settings.tts_provider == "deepgram" and (
+        not 0.7 <= settings.tts_speed <= 1.5
+        or abs(settings.tts_speed * 20 - round(settings.tts_speed * 20)) > 1e-9
+    ):
+        raise RuntimeError("TTS_SPEED must be between 0.7 and 1.5 in 0.05 increments for Deepgram")
     groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
     openai_headers = {}
     if "openrouter.ai" in settings.openai_base_url:
@@ -379,6 +384,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         tts = DeepgramTextToSpeech(
             settings.deepgram_api_key,
             output_format=settings.tts_output_format,
+            speed=settings.tts_speed,
             ffmpeg_bin=settings.ffmpeg_bin,
         )
     else:

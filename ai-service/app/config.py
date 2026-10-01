@@ -50,6 +50,7 @@ class Settings:
     tts_provider: str = "openrouter"
     deepgram_api_key: str | None = None
     tts_output_format: str = "ogg"
+    tts_speed: float = 0.9
 
     @staticmethod
     def from_env() -> Settings:
@@ -76,4 +77,5 @@ class Settings:
             tts_provider=_env("TTS_PROVIDER", "openrouter") or "openrouter",
             deepgram_api_key=_env("DEEPGRAM_API_KEY"),
             tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
+            tts_speed=_float_env("TTS_SPEED", 0.9),
         )

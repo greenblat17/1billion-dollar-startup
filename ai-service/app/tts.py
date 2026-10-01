@@ -66,6 +66,7 @@ class DeepgramTextToSpeech:
         model: str = "aura-2-thalia-en",
         client: httpx.AsyncClient | None = None,
         output_format: str = "mp3",
+        speed: float = 0.9,
         ffmpeg_bin: str = "ffmpeg",
     ) -> None:
         self._api_key = api_key
@@ -73,6 +74,7 @@ class DeepgramTextToSpeech:
         self._client = client or httpx.AsyncClient(timeout=10.0)
         self._owns_client = client is None
         self._output_format = output_format
+        self._speed = speed
         self._ffmpeg_bin = ffmpeg_bin
 
     async def synthesize(self, text: str) -> TtsAudio:
@@ -88,7 +90,7 @@ class DeepgramTextToSpeech:
     async def _request(self, text: str) -> httpx.Response:
         response = await self._client.post(
             "https://api.deepgram.com/v1/speak",
-            params={"model": self._model, "encoding": "mp3"},
+            params={"model": self._model, "encoding": "mp3", "speed": self._speed},
             headers={"Authorization": f"Token {self._api_key}"},
             json={"text": text},
         )
