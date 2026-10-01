@@ -33,6 +33,7 @@ import dev.inmo.tgbotapi.types.actions.BotAction
 import dev.inmo.tgbotapi.types.actions.RecordVoiceAction
 import dev.inmo.tgbotapi.types.actions.TypingAction
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
+import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
 import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
@@ -58,6 +59,8 @@ internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
 internal fun isRemindCommand(text: String): Boolean = isCommand(text, "/remind")
+
+internal fun isSpeedCommand(text: String): Boolean = isCommand(text, "/speed")
 
 private fun isCommand(text: String, name: String): Boolean {
     val command = text.trim().substringBefore(' ').substringBefore('@')
@@ -156,6 +159,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             message, profileMessage((message.chat as? PrivateChat)?.firstName, profile),
             allowSendingWithoutReply = true, replyMarkup = profileKeyboard(),
         )
+    }
+    suspend fun sendSpeed(message: ChatMessage) {
+        val speed = ai.speechSpeed(telegramSessionId(message.chat.id))
+        reply(message, speedMessage(speed), allowSendingWithoutReply = true, replyMarkup = speedKeyboard(speed))
     }
     suspend fun sendRemind(message: ChatMessage) {
         val sessionId = telegramSessionId(message.chat.id)
@@ -500,6 +507,34 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
         }
+        val selectedSpeed = parseSpeedCallback(query.data)
+        if (selectedSpeed != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            try {
+                actions.run(message.chat.id.toString(), "speed:${query.id}") {
+                    val speed = ai.setSpeechSpeed(telegramSessionId(message.chat.id), selectedSpeed)
+                    val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
+                    if (shownText != speedMessage(speed)) {
+                        try {
+                            editMessageText(
+                                message.chat.id, message.messageId, speedMessage(speed),
+                                replyMarkup = speedKeyboard(speed),
+                            )
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            reply(message, speedMessage(speed), allowSendingWithoutReply = true, replyMarkup = speedKeyboard(speed))
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Speech speed update failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@onDataCallbackQuery
+        }
         if (query.data == REMINDER_STOP_CALLBACK) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
             try {
@@ -688,6 +723,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("remind", requireOnlyCommandInMessage = false) { message ->
         if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
     }
+    onCommand("speed", requireOnlyCommandInMessage = false) { message ->
+        if (isSpeedCommand(message.content.text)) handle(message) { sendSpeed(message) }
+    }
     onContentMessage { message ->
         handle(message, isVoice = message.content is VoiceContent) {
             when (val content = message.content) {
@@ -698,6 +736,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
+                    isSpeedCommand(content.text) -> sendSpeed(message)
                     content.text.startsWith("/") -> Unit
                     else -> {
                         val scheduled = ai.scheduleReminder(

@@ -63,10 +63,12 @@ class FakeLlm(ChatModel):
 class FakeTts(TextToSpeech):
     def __init__(self, content_type: str = "audio/ogg") -> None:
         self.texts: list[str] = []
+        self.speeds: list[float | None] = []
         self.content_type = content_type
 
-    async def synthesize(self, text: str) -> TtsAudio:
+    async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
         self.texts.append(text)
+        self.speeds.append(speed)
         prefix = b"OggS" if self.content_type == "audio/ogg" else b"ID3"
         return TtsAudio(prefix + text.encode("utf-8"), self.content_type)
 

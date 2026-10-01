@@ -18,11 +18,15 @@ Telegram always sends the chat-scoped id so Redis history sticks to one chat.
 
 ## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
 
-Synthesizes `GREETING_VOICE_TEXT` once (cached in process).
+Synthesizes `GREETING_VOICE_TEXT` once per selected speed (cached in process).
 
 ## `POST /v1/clips` multipart → 202 `{ "jobId" }`
 
 Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio.
+
+## Speech speed (internal, token required)
+
+`GET /internal/speech-speed/{sessionId}` returns `{ "speed": 0.9 }` when no chat override exists. `POST /internal/speech-speed` accepts `{ "sessionId": "tg-123", "speed": 0.8 }` and returns the selected speed. Only `0.8`, `0.9`, and `1.0` are accepted. The override is stored without TTL in Redis as `speech-speed:{sessionId}` (in memory without Redis). It controls future synthesis by direct Deepgram for this session; OpenRouter ignores it. Cached greeting and onboarding intro audio are separated by speed. Deploy AI before Ktor so `/speed` can call these endpoints.
 
 ## `GET /v1/clips/{jobId}` → 200 or 404
 

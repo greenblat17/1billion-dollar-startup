@@ -25,6 +25,29 @@ import kotlin.time.Duration.Companion.milliseconds
 class HttpClipClientTest {
 
     @Test
+    fun readsAndUpdatesPerChatSpeechSpeed() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            when {
+                request.method == HttpMethod.Get && request.url.encodedPath == "/internal/speech-speed/tg-7" ->
+                    respond("""{"speed":0.9}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                request.method == HttpMethod.Post && request.url.encodedPath == "/internal/speech-speed" -> {
+                    val body = (request.body as TextContent).text
+                    assertContains(body, "\"sessionId\":\"tg-7\"")
+                    assertContains(body, "\"speed\":0.8")
+                    respond("""{"speed":0.8}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+                else -> error("Unexpected request ${request.method} ${request.url}")
+            }
+        }
+        val http = client(engine)
+        val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
+        assertEquals(0.9, ai.speechSpeed(SessionId("tg-7")))
+        assertEquals(0.8, ai.setSpeechSpeed(SessionId("tg-7"), 0.8))
+        http.close()
+    }
+
+    @Test
     fun startsSessionThenDownloadsGreetingAudio() = runTest {
         val engine = MockEngine { request ->
             when {

@@ -10,6 +10,7 @@ from typing import Any
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
+from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech, TtsAudio
@@ -45,11 +46,13 @@ class ClipPipeline:
         metrics: MetricsStore | None = None,
         streaks: StreakStore | None = None,
         calls: Any | None = None,
+        speech: SessionSpeech | None = None,
     ) -> None:
         self.personalization = None
         self._stt = stt
         self._llm = llm
         self._tts = tts
+        self.speech = speech or SessionSpeech(tts)
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
@@ -95,7 +98,7 @@ class ClipPipeline:
 
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
-            reply_audio = await self._tts.synthesize(CLARIFY_TEXT)
+            reply_audio = await self.speech.synthesize(session_id, CLARIFY_TEXT)
             timings = {"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)}
             finalize_started = time.perf_counter()
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
@@ -137,7 +140,7 @@ class ClipPipeline:
             )))
         try:
             reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
-            tts_task = asyncio.create_task(measured("tts", self._tts.synthesize(reply_text)))
+            tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             await self._dialogue.record_turn(session_id, stt_result.text, reply_text)

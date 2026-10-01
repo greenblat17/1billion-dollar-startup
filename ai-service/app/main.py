@@ -25,6 +25,7 @@ from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.reminders import build_reminder_ledger, parse_report
 from app.review import OpenAiSessionReviewer, SessionReviewer
 from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
+from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
 
@@ -64,7 +65,7 @@ def create_app(
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
-    greeting_audio: TtsAudio | None = None
+    greeting_audio: dict[float, TtsAudio] = {}
     greeting_lock = asyncio.Lock()
     tasks: set[asyncio.Task[None]] = set()
 
@@ -81,6 +82,7 @@ def create_app(
         if owns_calls:
             await calls.aclose()
         await sessions.aclose()
+        await clip_pipeline.speech.speeds.aclose()
         await clip_pipeline.metrics.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
@@ -159,6 +161,20 @@ def create_app(
     @app.get("/internal/profile/{session_id}")
     async def progress_profile(session_id: str) -> dict:
         return await onboarding.progress_profile(session_id)
+
+    @app.get("/internal/speech-speed/{session_id}")
+    async def speech_speed(session_id: str) -> dict[str, float]:
+        return {"speed": await clip_pipeline.speech.speed(session_id)}
+
+    @app.post("/internal/speech-speed")
+    async def set_speech_speed(request: Request) -> dict[str, float]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        speed = payload.get("speed")
+        if isinstance(speed, bool) or not isinstance(speed, (int, float)) or speed not in SPEED_CHOICES:
+            raise HTTPException(status_code=400, detail="speed must be 0.8, 0.9, or 1.0")
+        await clip_pipeline.speech.speeds.set(session_id, float(speed))
+        return {"speed": float(speed)}
 
     @app.get("/internal/streak/{session_id}")
     async def streak_profile(session_id: str) -> dict[str, Any]:
@@ -270,11 +286,14 @@ def create_app(
     async def greeting_audio_route(session_id: str) -> Response:
         if not await sessions.exists(session_id):
             raise HTTPException(status_code=404, detail="unknown session")
-        nonlocal greeting_audio
+        speed = await clip_pipeline.speech.speed(session_id)
         async with greeting_lock:
-            if greeting_audio is None:
-                greeting_audio = await clip_pipeline.tts.synthesize(GREETING_VOICE_TEXT)
-            return Response(content=greeting_audio.data, media_type=greeting_audio.content_type)
+            if speed not in greeting_audio:
+                greeting_audio[speed] = await clip_pipeline.speech.synthesize(
+                    session_id, GREETING_VOICE_TEXT, speed=speed,
+                )
+            audio = greeting_audio[speed]
+            return Response(content=audio.data, media_type=audio.content_type)
 
     @app.post("/v1/clips", status_code=202)
     async def create_clip(
@@ -396,11 +415,17 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
             settings.ffmpeg_bin,
         )
     metrics = build_metrics_store(settings)
+    speech = SessionSpeech(
+        tts,
+        SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
+        default_speed=settings.tts_speed,
+    )
     return ClipPipeline(
         stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
         llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics,
                             notes_model=settings.notes_model),
         tts=tts,
+        speech=speech,
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
     )

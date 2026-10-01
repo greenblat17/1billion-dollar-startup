@@ -264,17 +264,18 @@ class OnboardingService:
         self.model = model
         self.personalization = Personalization(store, model, pipeline.streaks)
         pipeline.personalization = self.personalization
-        self._intro_audio: TtsAudio | None = None
+        self._intro_audio: dict[float, TtsAudio] = {}
         self._intro_lock = asyncio.Lock()
 
-    async def intro_audio(self) -> TtsAudio:
+    async def intro_audio(self, session_id: str | None = None) -> TtsAudio:
+        speed = await self.pipeline.speech.speed(session_id) if session_id else self.pipeline.speech.default_speed
         async with self._intro_lock:
-            if self._intro_audio is None:
-                audio = await self.pipeline.tts.synthesize(FIRST_QUESTION)
+            if speed not in self._intro_audio:
+                audio = await self.pipeline.speech.synthesize(session_id or "", FIRST_QUESTION, speed=speed)
                 if not audio.data:
                     raise ValueError("empty onboarding intro audio")
-                self._intro_audio = audio
-            return self._intro_audio
+                self._intro_audio[speed] = audio
+            return self._intro_audio[speed]
 
     async def warm_intro(self, timeout: float) -> None:
         try:
@@ -315,7 +316,7 @@ class OnboardingService:
 
     async def _action(self, session_id: str, state: dict, action: str) -> PipelineResult:
         if action == "begin" and (state["status"] == "waiting" or (state["status"] == "active" and not state["turns"])):
-            audio = await self.intro_audio()
+            audio = await self.intro_audio(session_id)
             state["status"] = "active"
             await self.store.save(session_id, state)
             return self._result(state, FIRST_QUESTION, audio)
@@ -325,7 +326,7 @@ class OnboardingService:
                 spoken = review.get("spokenText") or state.get("question") or ""
                 subtitle = review.get("closingText") or spoken
                 turn = state["turns"][-1] if state["turns"] else None
-                audio = await self.pipeline.tts.synthesize(spoken) if spoken else None
+                audio = await self.pipeline.speech.synthesize(session_id, spoken) if spoken else None
                 return self._result(state, subtitle, audio, turn)
             if state["status"] == "pending":
                 return await self._finish(session_id, state)
@@ -333,7 +334,7 @@ class OnboardingService:
                 turn = state["turns"][-1]
                 if turn["delivered"]:
                     question = turn["reply"]
-                    return self._result(state, question, await self.pipeline.tts.synthesize(question), turn)
+                    return self._result(state, question, await self.pipeline.speech.synthesize(session_id, question), turn)
                 return await self._advance_turn(session_id, state, turn)
         if action == "continue" and state["status"] == "completed":
             if not state.get("continueQuestion"):
@@ -346,7 +347,7 @@ class OnboardingService:
                 })
                 await self.store.save(session_id, state)
             question = state["continueQuestion"]
-            audio = await self.pipeline.tts.synthesize(question)
+            audio = await self.pipeline.speech.synthesize(session_id, question)
             # Old chats can still tap this button. New attempts never send it.
             if not state["continued"]:
                 await self.pipeline.dialogue.record_turn(session_id, "Let's continue our conversation.", question)
@@ -380,7 +381,7 @@ class OnboardingService:
                     await self.store.save(session_id, state)
                 stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
                 if stt.no_speech or not stt.text.strip():
-                    return self._result(state, CLARIFY_TEXT, await self.pipeline.tts.synthesize(CLARIFY_TEXT))
+                    return self._result(state, CLARIFY_TEXT, await self.pipeline.speech.synthesize(session_id, CLARIFY_TEXT))
                 seconds = stt.duration_seconds if stt.duration_seconds > 0 else duration
                 if not math.isfinite(seconds) or seconds <= 0:
                     raise ValueError("recording duration unavailable")
@@ -423,7 +424,7 @@ class OnboardingService:
             await self.store.save(session_id, state)
             return await self._finish(session_id, state, turn)
         question = assessment["question"]
-        reply_audio = await self.pipeline.tts.synthesize(question)
+        reply_audio = await self.pipeline.speech.synthesize(session_id, question)
         state["question"] = question
         turn["reply"] = question
         turn["delivered"] = True
@@ -444,7 +445,7 @@ class OnboardingService:
             _apply_level(state, assessment)
             if not should_close(state):
                 question = assessment["question"]
-                audio = await self.pipeline.tts.synthesize(question)
+                audio = await self.pipeline.speech.synthesize(session_id, question)
                 state["question"] = question
                 turn["reply"] = question
                 turn["delivered"] = True
@@ -460,7 +461,7 @@ class OnboardingService:
             review = state["review"]
             spoken = review["spokenText"]
             subtitle = review["closingText"]
-            audio = await self.pipeline.tts.synthesize(spoken)
+            audio = await self.pipeline.speech.synthesize(session_id, spoken)
             state["question"] = spoken
             turn["reply"] = spoken
             turn["delivered"] = True

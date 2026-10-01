@@ -32,6 +32,19 @@ async def test_deepgram_sends_text_and_returns_mp3() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deepgram_uses_selected_speech_speed() -> None:
+    requests = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, headers={"Content-Type": "audio/mpeg"}, content=b"ID3audio")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        await DeepgramTextToSpeech("test-key", client=client).synthesize("Hello", speed=0.8)
+    assert requests[0].url.params["speed"] == "0.8"
+
+
+@pytest.mark.asyncio
 async def test_deepgram_can_keep_ogg_contract_during_first_rollout(monkeypatch) -> None:
     async def convert(_ffmpeg: str, payload: bytes, suffix: str) -> bytes:
         assert payload == b"ID3audio"

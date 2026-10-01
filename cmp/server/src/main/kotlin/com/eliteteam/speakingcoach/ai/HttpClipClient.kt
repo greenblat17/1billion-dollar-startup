@@ -96,6 +96,22 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun speechSpeed(sessionId: SessionId): Double {
+        val response = http.get("$root/internal/speech-speed/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service speech speed returned ${response.status}" }
+        return response.body<SpeechSpeedResponse>().speed
+    }
+
+    suspend fun setSpeechSpeed(sessionId: SessionId, speed: Double): Double {
+        val response = http.post("$root/internal/speech-speed") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(SpeechSpeedRequest(sessionId.value, speed))
+        }
+        check(response.status.isSuccess()) { "ai-service speech speed update returned ${response.status}" }
+        return response.body<SpeechSpeedResponse>().speed
+    }
+
     suspend fun streakProfile(sessionId: SessionId): StreakProfileResponse {
         val response = http.get("$root/internal/streak/${sessionId.value}") {
             applyInternalToken()

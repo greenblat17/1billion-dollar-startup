@@ -21,7 +21,7 @@ class TtsAudio:
 
 
 class TextToSpeech(Protocol):
-    async def synthesize(self, text: str) -> TtsAudio:
+    async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
         ...
 
 
@@ -40,7 +40,7 @@ class OpenAiTextToSpeech:
         self._response_format = response_format
         self._ffmpeg_bin = ffmpeg_bin
 
-    async def synthesize(self, text: str) -> TtsAudio:
+    async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
         kwargs: dict[str, Any] = {
             "model": self._model,
             "voice": self._voice,
@@ -77,8 +77,8 @@ class DeepgramTextToSpeech:
         self._speed = speed
         self._ffmpeg_bin = ffmpeg_bin
 
-    async def synthesize(self, text: str) -> TtsAudio:
-        response = await once_on_retryable(lambda: self._request(text))
+    async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
+        response = await once_on_retryable(lambda: self._request(text, speed))
         if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/mpeg":
             raise RuntimeError("deepgram tts returned an unsupported audio type")
         if not response.content:
@@ -87,10 +87,10 @@ class DeepgramTextToSpeech:
             return TtsAudio(await to_ogg_opus(self._ffmpeg_bin, response.content, suffix=".mp3"), "audio/ogg")
         return TtsAudio(response.content, "audio/mpeg")
 
-    async def _request(self, text: str) -> httpx.Response:
+    async def _request(self, text: str, speed: float | None) -> httpx.Response:
         response = await self._client.post(
             "https://api.deepgram.com/v1/speak",
-            params={"model": self._model, "encoding": "mp3", "speed": self._speed},
+            params={"model": self._model, "encoding": "mp3", "speed": self._speed if speed is None else speed},
             headers={"Authorization": f"Token {self._api_key}"},
             json={"text": text},
         )

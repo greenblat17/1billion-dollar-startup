@@ -19,6 +19,17 @@ data class GreetingResponse(
 )
 
 @Serializable
+data class SpeechSpeedResponse(
+    val speed: Double,
+)
+
+@Serializable
+data class SpeechSpeedRequest(
+    val sessionId: String,
+    val speed: Double,
+)
+
+@Serializable
 data class ClipAcceptedResponse(
     val jobId: String,
 )
