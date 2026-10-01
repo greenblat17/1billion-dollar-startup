@@ -55,8 +55,15 @@ the text replacing just that substring. Copy context and error exactly, includin
 The edited context must preserve every other word and the speaker's meaning.
 Within "error", preserve every word that was already correct. For an extra word after a
 modal, remove only the extra word and keep the modal and its main verb.
-"reason" briefly identifies the actual error and why this correction helps a speaker;
-"sounds better" is not a reason. These decision fields are internal, not user-facing.
+"reason" is one short Russian sentence (up to 160 characters) explaining this exact
+error -> replacement to the learner. Name the relevant words or construction and why
+the change is needed. Write as a helpful tutor would: plain words, ideally under 18
+words. Prefer a concrete contrast ("здесь X, а не Y"); add a grammar rule only when
+you can state it simply and accurately. Do not invent a rule or explain an unchanged
+part of the phrase. Avoid terms such as "герундий", "инфинитив", "придаточное",
+"Present Simple", and "Past Perfect"; describe the needed word or form instead.
+Avoid generic praise and "sounds better". This reason is shown
+under the correction card; the other decision fields remain internal.
 Only return candidates passing all four checks with high confidence. Otherwise return []
 in "notes". Maximum three candidates; there is no minimum. Do not overlap fragments or
 return multiple stylistic versions of the same correction.
@@ -88,7 +95,7 @@ mark "is also is" in speech_artifacts and return no correction.
 Examples to KEEP, only with the supplied context:
 Transcript: "I am agree with you."
 {"notes":[{"context":"I am agree with you.","error":"am agree","replacement":"agree","kind":"grammar",
-"reason":"Agree is a verb here and does not take am.","confidence":"high","definitely_wrong":true,
+"reason":"Agree — глагол, поэтому am здесь не нужен.","confidence":"high","definitely_wrong":true,
 "is_spoken_language_artifact":false,"is_asr_uncertain":false,"worth_showing":true,"understandable_alone":true}]}
 Transcript: "I did a decision to leave."
 Use context "I did a decision to leave.", error "did a decision", replacement "made a decision": the collocation is make a decision.
@@ -113,13 +120,17 @@ class Correction:
     wrong: str
     better: str
     kind: str = DEFAULT_KIND
+    explanation: str | None = None
 
     @property
     def note(self) -> str:
         return f"{self.wrong}{NOTE_SEP}{self.better}"
 
     def to_json(self) -> dict[str, str]:
-        return {"wrong": self.wrong, "better": self.better, "kind": self.kind}
+        result = {"wrong": self.wrong, "better": self.better, "kind": self.kind}
+        if self.explanation:
+            result["explanation"] = self.explanation
+        return result
 
 
 class ChatModel(Protocol):
@@ -315,7 +326,21 @@ def _correction(item: Any, transcript: str) -> Correction | None:
     better = context.replace(error, replacement, 1)
     if better == context:
         return None
-    return Correction(context, better, kind)
+    return Correction(context, better, kind, _public_explanation(item["reason"]))
+
+
+def _public_explanation(reason: str) -> str | None:
+    explanation = reason.strip()
+    if (not explanation or len(explanation) > 160 or "\n" in explanation or "\r" in explanation
+            or not re.search(r"[А-Яа-яЁё]", explanation)):
+        return None
+    sentences = re.findall(r"[.!?]", explanation)
+    if len(sentences) > 1 or (sentences and explanation[-1] not in ".!?"):
+        return None
+    generic = {"так правильнее", "звучит лучше", "так звучит лучше", "это грамматически верно"}
+    if explanation.lower().rstrip(".!? ") in generic:
+        return None
+    return explanation
 
 
 def _unique_whole_match(needle: str, haystack: str) -> bool:

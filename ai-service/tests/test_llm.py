@@ -43,6 +43,24 @@ def test_correction_keeps_context_and_only_public_fields():
     assert correction.note == "I am agree with you.|||I agree with you."
 
 
+def test_short_russian_reason_is_public_but_legacy_note_stays_a_pair():
+    correction = parse([decision(reason="Agree — глагол, поэтому am здесь не нужен.")])[0]
+    assert correction.explanation == "Agree — глагол, поэтому am здесь не нужен."
+    assert correction.to_json()["explanation"] == correction.explanation
+    assert correction.note == "I am agree with you.|||I agree with you."
+
+
+@pytest.mark.parametrize("reason", [
+    "Agree is a verb.", "Так правильнее.", "Звучит лучше.",
+    "Сначала одно предложение. Затем другое.", "Первая строка.\nВторая строка.",
+    "А" * 161,
+])
+def test_bad_public_explanation_does_not_hide_reliable_correction(reason):
+    correction = parse([decision(reason=reason)])[0]
+    assert correction.explanation is None
+    assert "explanation" not in correction.to_json()
+
+
 @pytest.mark.parametrize("field,value", [
     ("confidence", "medium"), ("confidence", "low"), ("definitely_wrong", False),
     ("is_spoken_language_artifact", True), ("is_asr_uncertain", True),

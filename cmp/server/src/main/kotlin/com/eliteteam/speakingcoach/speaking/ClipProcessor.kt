@@ -53,6 +53,7 @@ data class Correction(
     val wrong: String,
     val better: String,
     val kind: CorrectionKind? = null,
+    val explanation: String? = null,
 ) {
     val priority: Int
         get() = kind?.ordinal ?: CorrectionKind.entries.size

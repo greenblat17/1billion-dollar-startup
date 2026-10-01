@@ -450,7 +450,7 @@ private fun corrections(result: ClipResultResponse): List<Correction> {
         if (wrong.isEmpty() || better.isEmpty()) {
             null
         } else {
-            Correction(wrong, better, CorrectionKind.fromWire(item.kind))
+            Correction(wrong, better, CorrectionKind.fromWire(item.kind), item.explanation?.trim()?.takeIf { it.isNotEmpty() })
         }
     }
 }

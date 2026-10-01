@@ -268,14 +268,14 @@ class HttpClipClientTest {
     fun readsTypedCorrectionsOverLegacyNotes() = runTest {
         val reply = processUntilOk(
             """{"jobId":"job-1","status":"ok","result":{"notes":["I go|||I went","a photo|||photos"],""" +
-                """"corrections":[{"wrong":"I go","better":"I went","kind":"grammar"},""" +
+                """"corrections":[{"wrong":"I go","better":"I went","kind":"grammar","explanation":"Прошедшее время требует went."},""" +
                 """{"wrong":"made a photo","better":"took a photo","kind":"word"},""" +
                 """{"wrong":"very fun","better":"really fun","kind":"style"}],"transcript":"I go"}}""",
         )
 
         assertEquals(
             listOf(
-                Correction("I go", "I went", CorrectionKind.GRAMMAR),
+                Correction("I go", "I went", CorrectionKind.GRAMMAR, "Прошедшее время требует went."),
                 Correction("made a photo", "took a photo", CorrectionKind.WORD),
                 Correction("very fun", "really fun", null),
             ),

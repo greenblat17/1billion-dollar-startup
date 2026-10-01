@@ -250,7 +250,7 @@ async def test_only_the_first_onboarding_voice_is_marked_for_a_reaction():
 async def test_onboarding_keeps_only_the_first_ranked_correction():
     s = service(stt=Stt(15, "I made a photo and you is kind"))
     s.pipeline.llm.notes = [
-        Correction("you is", "you are", "grammar"),
+        Correction("you is", "you are", "grammar", "После you здесь нужно are."),
         Correction("made a photo", "took a photo", "word"),
     ]
     run = await begin(s)
@@ -263,6 +263,7 @@ async def test_onboarding_keeps_only_the_first_ranked_correction():
         ("you is", "grammar"),
         ("made a photo", "word"),
     ]
+    assert result.corrections[0].explanation == stored[0]["explanation"]
 
 
 @pytest.mark.asyncio

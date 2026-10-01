@@ -2,6 +2,8 @@
 
 Status: implemented on `feature/telegram-onboarding`; automated verification below. Live DEV acceptance is still required before production deployment.
 
+Card copy in this historical plan was updated by [short correction explanations](2026-10-01-telegram-correction-explanations.md): current live cards omit the type heading and may show one short Russian explanation under the inline edit.
+
 ## Agreed experience
 
 Only new Telegram users automatically enter onboarding. Resolve eligibility before recording their first new funnel event: an existing funnel/chat record means the old greeting and ordinary conversation continue. `/onboarding` explicitly starts a fresh attempt for anyone.

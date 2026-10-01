@@ -204,7 +204,9 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    llm = FakeLlm(notes=[Correction("I was in Turkey", "I went to Turkey", "grammar")])
+    llm = FakeLlm(notes=[Correction(
+        "I was in Turkey", "I went to Turkey", "grammar", "Для поездки здесь нужен глагол went.",
+    )])
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with _client(app) as client:
         session_id = _start_session(client)
@@ -217,7 +219,8 @@ def test_clip_includes_coaching_notes() -> None:
         assert body["status"] == "ok"
         assert body["result"]["notes"] == ["I was in Turkey|||I went to Turkey"]
         assert body["result"]["corrections"] == [
-            {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar"},
+            {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar",
+             "explanation": "Для поездки здесь нужен глагол went."},
         ]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I was in Turkey last summer"]
