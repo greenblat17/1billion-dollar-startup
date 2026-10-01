@@ -32,6 +32,7 @@ internal const val FOUNDER_NOTE =
         "Если что-то понравилось, не понравилось или просто появилась идея — напиши мне напрямую: @alexgusev93\n" +
         "Я читаю каждое сообщение и всегда отвечаю сам. Буду рад любому фидбеку 😊"
 internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
+internal const val LEGACY_ONBOARDING_CALLBACK = "campaign:onboarding"
 internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"

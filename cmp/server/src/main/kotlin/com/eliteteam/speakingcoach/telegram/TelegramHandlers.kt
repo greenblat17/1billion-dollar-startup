@@ -507,6 +507,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
         }
+        if (query.data == LEGACY_ONBOARDING_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
+            try {
+                actions.run(message.chat.id.toString(), "legacy-onboarding:${message.messageId}") {
+                    greet(message, "/onboarding", force = true)
+                    clearOnboardingMarkup(message)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Legacy onboarding callback failed for {}", message.chat.id, error)
+                reply(message, "Please send /onboarding to try again.", allowSendingWithoutReply = true)
+            }
+            return@onDataCallbackQuery
+        }
         val selectedSpeed = parseSpeedCallback(query.data)
         if (selectedSpeed != null) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@onDataCallbackQuery
