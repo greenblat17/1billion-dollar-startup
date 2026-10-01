@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
@@ -103,7 +104,14 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             return@get
         }
         val html = try {
-            val report = dashboard.onboarding?.report()
+            val query = call.request.queryParameters
+            val filter = OnboardingFilter(
+                days = query["days"]?.toIntOrNull()?.takeIf { it in 1..90 } ?: 30,
+                version = query["version"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+                source = query["source"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) },
+                trigger = query["trigger"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+            )
+            val report = dashboard.onboarding?.report(filter = filter)
             onboardingReportHtml(report)
         } catch (error: Throwable) {
             log.warn("Onboarding analytics failed", error)

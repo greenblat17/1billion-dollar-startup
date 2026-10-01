@@ -261,7 +261,7 @@ class HttpClipClient(
                         CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
                     },
                 )
-                is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
+                is ClipJobStatus.Failed -> throw ClipJobFailure(status.code, "ai-service job $jobId failed: ${status.message}")
             }
         }
         error("ai-service job $jobId timed out after $timeout")
@@ -298,7 +298,7 @@ class HttpClipClient(
             applyInternalToken()
         }
         if (response.status == HttpStatusCode.NotFound) {
-            return ClipJobStatus.Failed("unknown job")
+            return ClipJobStatus.Failed("unknown_job", "unknown job")
         }
         if (!response.status.isSuccess()) {
             error("ai-service GET /v1/clips/$jobId returned ${response.status}")
@@ -315,8 +315,8 @@ class HttpClipClient(
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
             )
-            "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
-            else -> ClipJobStatus.Failed("unexpected status ${body.status}")
+            "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error")
+            else -> ClipJobStatus.Failed("unknown", "unexpected status ${body.status}")
         }
     }
 
@@ -364,8 +364,10 @@ private sealed interface ClipJobStatus {
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
     ) : ClipJobStatus
-    data class Failed(val message: String) : ClipJobStatus
+    data class Failed(val code: String, val message: String) : ClipJobStatus
 }
+
+internal class ClipJobFailure(val code: String, message: String) : IllegalStateException(message)
 
 private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
     voiceIndex = voiceIndex,
@@ -379,6 +381,8 @@ private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = O
     cefr = cefr,
     overallScore = overallScore,
     scoreAvailable = scoreAvailable,
+    speechBeforeSec = speechBeforeSec,
+    speechAfterSec = speechAfterSec,
 )
 
 private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(

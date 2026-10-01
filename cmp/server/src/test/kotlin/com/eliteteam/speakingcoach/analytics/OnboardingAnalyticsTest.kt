@@ -56,8 +56,8 @@ class OnboardingAnalyticsTest {
     fun errorsUseADenominatorAndCountPeople() {
         val now = closedNow
         val voices = listOf(
-            voice("tg-1", "no_speech", now.minus(Duration.ofDays(1))),
-            voice("tg-1", null, now.minus(Duration.ofDays(1))),
+            voice("tg-1", "no_speech", now.minus(Duration.ofDays(1)), "ok"),
+            voice("tg-1", null, now.minus(Duration.ofDays(1)), "ok"),
             voice("tg-2", "stt_error", now.minus(Duration.ofDays(20))),
         )
         val reached = sample(runId = "ok", sessionId = "tg-1", primary = true).copy(speech120At = now.minus(Duration.ofDays(1)))
@@ -109,7 +109,7 @@ class OnboardingAnalyticsTest {
                     cefr = null,
                 ),
             ),
-            listOf(voice("tg-1", "timeout", closedNow.minus(Duration.ofHours(1)))),
+            listOf(voice("tg-1", "no_speech", closedNow.minus(Duration.ofHours(1)), "primary")),
             closedNow,
         )
         val html = onboardingReportHtml(report)
@@ -120,6 +120,53 @@ class OnboardingAnalyticsTest {
         assertTrue(html.contains("Не распознано: 1 из 1 голосовых (100%), затронуто 1"))
         assertTrue(onboardingReportHtml(null).contains("История онбординга не пишется: нет базы."))
         assertNull(report.closedPrimary.single().levels["A1"])
+    }
+
+    @Test
+    fun filtersSeparateVersionsSourcesAndFailureStages() {
+        val old = sample("old", "tg-old", true).copy(source = null, version = "v1")
+        val current = sample("current", "tg-current", true).copy(source = "campaign", version = "v2")
+        val voices = listOf(
+            voice("tg-current", "no_speech", start.plusSeconds(10), "current")
+                .copy(speechBeforeSec = 20.0),
+            voice("tg-current", "processing_failure", start.plusSeconds(20), "current")
+                .copy(speechBeforeSec = 40.0),
+            voice("tg-current", null, start.plusSeconds(30), "current")
+                .copy(speechBeforeSec = 60.0, processingMs = 100),
+            voice("tg-current", null, start.plusSeconds(40), "current")
+                .copy(speechBeforeSec = 90.0, processingMs = 900),
+        )
+        val report = onboardingReport(listOf(old, current), voices, closedNow,
+            OnboardingFilter(version = "v2", source = "campaign"))
+        assertEquals(1, report.closedPrimary.single().size)
+        assertEquals(1, report.recognition.errors)
+        assertEquals(4, report.recognition.denominator)
+        assertEquals(1, report.diagnostics.outcomesByStage["30–60 сек"]?.get("processing_failure"))
+        assertEquals(100, report.diagnostics.processingP50Ms)
+        assertEquals(900, report.diagnostics.processingP95Ms)
+        assertEquals(listOf("direct", "campaign"), report.sources.sortedDescending())
+    }
+
+    @Test
+    fun daySevenReturnAppearsOnlyForTheCorrectMoscowDayAndMatureCohort() {
+        val returned = sample("returned", "tg-returned", true).copy(
+            completedAt = start.plusSeconds(100),
+            d1VoiceAt = Instant.parse("2026-09-29T08:00:00Z"),
+            d7VoiceAt = Instant.parse("2026-10-05T08:00:00Z"),
+        )
+        val wrongDay = sample("wrong", "tg-wrong", true).copy(
+            d1VoiceAt = Instant.parse("2026-09-30T08:00:00Z"),
+            d7VoiceAt = Instant.parse("2026-10-04T08:00:00Z"),
+        )
+        val immature = onboardingReport(listOf(returned, wrongDay), emptyList(),
+            Instant.parse("2026-10-05T10:00:00Z")).closedPrimary.single()
+        assertEquals(0, immature.d7Eligible)
+        assertEquals(1, immature.returnedNextDay)
+        val mature = onboardingReport(listOf(returned, wrongDay), emptyList(),
+            Instant.parse("2026-10-06T00:00:00Z")).closedPrimary.single()
+        assertEquals(2, mature.d7Eligible)
+        assertEquals(1, mature.returnedDay7)
+        assertEquals(1, mature.completedByD7)
     }
 
     private fun count(cohort: CohortFunnel, name: String): Int = cohort.steps.first { it.name == name }.count
@@ -137,8 +184,8 @@ class OnboardingAnalyticsTest {
         startedAt = start,
     )
 
-    private fun voice(sessionId: String, failure: String?, at: Instant) = OnboardingVoiceRow(
-        attemptId = "voice-$sessionId",
+    private fun voice(sessionId: String, failure: String?, at: Instant, attemptId: String = "voice-$sessionId") = OnboardingVoiceRow(
+        attemptId = attemptId,
         sessionId = sessionId,
         recognized = failure == null,
         failureReason = failure,

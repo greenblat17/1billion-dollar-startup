@@ -17,7 +17,7 @@ from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
-from app.onboarding import OnboardingService, OnboardingStore
+from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
@@ -469,6 +469,8 @@ async def _run_job(
 
 
 def _error_code(error: BaseException) -> str:
+    if isinstance(error, OnboardingSttError):
+        return "onboarding_stt_failed"
     if isinstance(error, TimeoutError) or isinstance(error, asyncio.TimeoutError):
         return "timeout"
     return "pipeline_failed"

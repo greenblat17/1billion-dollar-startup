@@ -356,6 +356,8 @@ data class OnboardingVoiceAnalyticsResponse(
     val cefr: String? = null,
     val overallScore: Int? = null,
     val scoreAvailable: Boolean = false,
+    val speechBeforeSec: Double? = null,
+    val speechAfterSec: Double? = null,
 )
 
 @Serializable

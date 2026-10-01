@@ -11,7 +11,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
-from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, RETRY_TEXT
+from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore, RETRY_TEXT
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
@@ -485,7 +485,7 @@ async def test_stt_failure_never_counts_the_recording():
 
     s = service(stt=BrokenStt())
     run = await begin(s)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(OnboardingSttError):
         await turn(s, run)
     state = await s.resolve("tg-test", "check")
     assert state["seconds"] == 0
@@ -761,6 +761,8 @@ async def test_voice_analytics_reports_milestones_without_the_transcript():
     assert facts["recognizedDurationSec"] == 40
     assert facts["telegramDurationSec"] == 37
     assert facts["milestones"] == [30]
+    assert facts["speechBeforeSec"] == 0
+    assert facts["speechAfterSec"] == 40
     assert facts["completedNow"] is False
     assert "transcript" not in facts
     assert "I build software" not in str(facts)
@@ -769,6 +771,7 @@ async def test_voice_analytics_reports_milestones_without_the_transcript():
     closing_run = await begin(closing, "tg-close")
     closed = await turn(closing, closing_run, session="tg-close", duration=130)
     assert closed.onboarding["analytics"]["milestones"] == [30, 60, 90, 120]
+    assert closed.onboarding["analytics"]["speechAfterSec"] == 120
     assert closed.onboarding["analytics"]["completedNow"] is True
     assert closed.onboarding["analytics"]["scoreAvailable"] is True
     assert isinstance(closed.onboarding["analytics"]["overallScore"], int)
@@ -781,6 +784,7 @@ async def test_voice_analytics_reports_milestones_without_the_transcript():
     assert missed.onboarding["analytics"]["recognized"] is False
     assert missed.onboarding["analytics"]["failureReason"] == "no_speech"
     assert missed.onboarding["analytics"]["milestones"] == []
+    assert missed.onboarding["analytics"]["speechBeforeSec"] == 0
 
     model = Model()
     model.fail = True

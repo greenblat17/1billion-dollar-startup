@@ -29,6 +29,10 @@ SPEECH_MILESTONES = (30, 60, 90, 120)
 PROFILE_FIELDS = ("work", "leisure", "goal")
 
 
+class OnboardingSttError(Exception):
+    """The onboarding transcription stage failed before any speech was accepted."""
+
+
 class OnboardingStore:
     """One current attempt per chat, independent of the expiring dialogue history.
 
@@ -378,7 +382,10 @@ class OnboardingService:
                 if not state.get("voiceArrived"):
                     state["voiceArrived"] = True
                     await self.store.save(session_id, state)
-                stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
+                try:
+                    stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
+                except Exception as error:
+                    raise OnboardingSttError() from error
                 if stt.no_speech or not stt.text.strip():
                     return self._result(
                         state, CLARIFY_TEXT, await self.pipeline.tts.synthesize(CLARIFY_TEXT),
@@ -388,6 +395,8 @@ class OnboardingService:
                             recognized_duration=0.0,
                             recognized=False,
                             failure_reason="no_speech",
+                            speech_before=float(state["seconds"]),
+                            speech_after=float(state["seconds"]),
                         ),
                     )
                 seconds = stt.duration_seconds if stt.duration_seconds > 0 else duration
@@ -404,6 +413,8 @@ class OnboardingService:
                         recognized_duration=seconds,
                         recognized=True,
                         milestones=[mark for mark in SPEECH_MILESTONES if before < mark <= before + seconds],
+                        speech_before=before,
+                        speech_after=before + seconds,
                     ),
                 }
                 state["turns"].append(turn)
@@ -604,6 +615,8 @@ def _voice_analytics(
     recognized: bool,
     failure_reason: str | None = None,
     milestones: list[int] | None = None,
+    speech_before: float | None = None,
+    speech_after: float | None = None,
 ) -> dict:
     telegram = telegram_duration if math.isfinite(telegram_duration) and telegram_duration > 0 else 0.0
     recognized_seconds = recognized_duration if math.isfinite(recognized_duration) and recognized_duration > 0 else 0.0
@@ -614,6 +627,8 @@ def _voice_analytics(
         "recognized": recognized,
         "failureReason": failure_reason,
         "milestones": list(milestones or []),
+        "speechBeforeSec": speech_before,
+        "speechAfterSec": speech_after,
     }
 
 
@@ -641,4 +656,6 @@ def _public_analytics(turn: dict | None, update: dict | None) -> dict | None:
         "cefr": facts.get("cefr") if isinstance(facts.get("cefr"), str) else None,
         "overallScore": score if isinstance(score, int) else None,
         "scoreAvailable": bool(facts.get("scoreAvailable")),
+        "speechBeforeSec": facts.get("speechBeforeSec"),
+        "speechAfterSec": facts.get("speechAfterSec"),
     }
