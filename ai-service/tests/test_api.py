@@ -67,6 +67,20 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
         assert client.post("/internal/calls/starter-delivered", json={"callId": body["callId"]}).status_code == 200
         assert client.post("/internal/calls/start", json=payload).json()["status"] == "active"
+        assert client.post("/internal/calls/status", json=payload).json() == {"active": True}
+
+
+def test_call_status_does_not_open_a_call() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        first = client.post("/internal/calls/open", json=payload).json()
+        assert first["alreadyActive"] is False
+        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
+        assert client.post("/internal/calls/end", json=payload).status_code == 200
+        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
 
 
 def test_create_app_requires_internal_token() -> None:

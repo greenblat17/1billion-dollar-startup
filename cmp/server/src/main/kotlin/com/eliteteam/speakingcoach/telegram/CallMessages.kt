@@ -23,6 +23,7 @@ internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
 internal const val START_CALL_BUTTON = "🎙 Start call"
 internal const val START_CALL_PROMPT = "Tap 🎙 Start call whenever you're ready. I'll go first."
 internal const val CALL_ALREADY_ACTIVE_TEXT = "We're already talking. Send me a voice message."
+internal const val CALL_STARTED_TEXT = "Let's talk."
 
 internal fun isStartCallButton(text: String): Boolean = text == START_CALL_BUTTON
 

@@ -117,6 +117,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to show Telegram action {} for {}", action.actionName, chat.id, error)
         }
     }
+    suspend fun hideStartCallKeyboard(chat: Chat) {
+        try {
+            sendMessage(chat.id, CALL_STARTED_TEXT, replyMarkup = ReplyKeyboardRemove())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to hide Start call keyboard for {}", chat.id, error)
+        }
+    }
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
         val existing = progressMessages.remove(key) ?: return
@@ -293,10 +302,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val greeting = ai.startSession(sessionId)
             val profile = ai.progressProfile(sessionId)
             val eligible = callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes) == "open"
+            val activeCall = eligible && ai.callStatus(sessionId).active
             reply(
                 message, startTextMessage((message.chat as? PrivateChat)?.firstName),
                 allowSendingWithoutReply = true,
-                replyMarkup = if (eligible) startCallKeyboard() else null,
+                replyMarkup = when {
+                    activeCall -> ReplyKeyboardRemove()
+                    eligible -> startCallKeyboard()
+                    else -> null
+                },
             )
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
         }
@@ -335,15 +349,25 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = callYesterdayKeyboard(callId))
         }
         if (opening.status == "active") {
-            reply(message, CALL_ALREADY_ACTIVE_TEXT)
+            reply(message, CALL_ALREADY_ACTIVE_TEXT, replyMarkup = ReplyKeyboardRemove())
             return
         }
         check(opening.status == "ready") { "Unexpected call opening status: ${opening.status}" }
         val question = requireNotNull(opening.question)
         val audio = Base64.getDecoder().decode(requireNotNull(opening.audioBase64))
         clearProgress(message.chat)
-        val voice = sendVoice(message.chat.id, audio.asMultipartFile("call-opening.ogg"),
-            replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true))
+        hideStartCallKeyboard(message.chat)
+        val voice = try {
+            sendVoice(message.chat.id, audio.asMultipartFile("call-opening.ogg"),
+                replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to send call opening for {}", sessionId.value, error)
+            reply(message, "I couldn't start the conversation. Tap 🎙 Start call to try again.",
+                allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
+            return
+        }
         spokenLines[spokenKey(message.chat.id, voice.messageId)] = question
         progressMessages[message.chat.id.toString()] = voice.messageId
         try {
@@ -359,6 +383,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = "message:${message.messageId}"
         val state = ai.onboardingState(sessionId, requestId)
+        var hideCallKeyboard = false
         if (state.status == "waiting") {
             reply(message, ONBOARDING_BEGIN_HINT, replyMarkup = onboardingKeyboard("begin", state.runId))
             return
@@ -386,6 +411,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
                 else -> {
                     val opened = ai.openCall(sessionId)
+                    hideCallKeyboard = !opened.alreadyActive
                     opened.unseenCallId?.let { callId ->
                         reply(
                             message,
@@ -442,6 +468,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         when (result) {
             ClipSubmitResult.QueueFull -> reply(message, QUEUE_FULL_TEXT)
             is ClipSubmitResult.Completed -> {
+                if (hideCallKeyboard && result.reply.call != null) hideStartCallKeyboard(message.chat)
                 deliver(message, result.reply)
                 if (result.reply.onboarding?.status == "completed") {
                     try {
@@ -554,10 +581,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun endPracticeCall(message: ChatMessage) {
         val callId = ai.endCall(telegramSessionId(message.chat.id)).callId
         if (callId.isNullOrBlank()) {
-            reply(message, SEND_VOICE_HINT, allowSendingWithoutReply = true)
+            reply(message, START_CALL_PROMPT, allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
             return
         }
         clearProgress(message.chat)
+        sendMessage(message.chat.id, START_CALL_PROMPT, replyMarkup = startCallKeyboard())
         showCallLevel(message, callId)
     }
     onDataCallbackQuery { query ->

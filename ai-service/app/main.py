@@ -266,6 +266,11 @@ def create_app(
         payload = await _json_object(request)
         return await calls.open(_call_session_id(payload))
 
+    @app.post("/internal/calls/status")
+    async def calls_status(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        return {"active": await calls.is_open_today(_call_session_id(payload))}
+
     @app.post("/internal/calls/start")
     async def calls_start(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)

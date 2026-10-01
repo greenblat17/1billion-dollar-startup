@@ -402,11 +402,15 @@ data class CallSessionRequest(
 @Serializable
 data class OpenCallResponse(
     val callId: String = "",
+    val alreadyActive: Boolean = false,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
     val goalJustCrossed: Boolean = false,
     val unseenCallId: String? = null,
 )
+
+@Serializable
+data class CallStatusResponse(val active: Boolean = false)
 
 @Serializable
 data class StartCallResponse(

@@ -92,6 +92,9 @@ async def test_open_call_records_speech_and_ignores_silence():
     clock = Clock(datetime(2026, 9, 30, 12, tzinfo=MOSCOW))
     store = CallStore(clock=clock, goal_of=_goal(10))
     opened = await store.open("tg-1")
+    assert opened["alreadyActive"] is False
+    assert await store.is_open_today("tg-1") is False
+    assert (await store.open("tg-1"))["alreadyActive"] is False
     assert opened["todaySeconds"] == 0
     assert opened["goalSeconds"] == 600
     silent = await store.append_turn("tg-1", "  ", "again", [], 3, [])
@@ -100,6 +103,8 @@ async def test_open_call_records_speech_and_ignores_silence():
         "tg-1", "I build software", "Nice.", [{"wrong": "build", "better": "am building", "kind": "grammar"}], 4.5, [{"word": "I"}],
     )
     assert heard["todaySeconds"] == 4.5
+    assert await store.is_open_today("tg-1") is True
+    assert (await store.open("tg-1"))["alreadyActive"] is True
     saved = await store.get(opened["callId"])
     assert saved["turns"][0]["transcript"] == "I build software"
     assert saved["turns"][0]["words"] == [{"word": "I"}]
@@ -118,13 +123,16 @@ async def test_goal_nudge_happens_once_and_a_new_day_seals_the_old_call():
     again = await store.append_turn("tg-1", "still talking", "Yes.", [], 30, [])
     assert again["goalJustCrossed"] is False
     clock.moment = datetime(2026, 10, 1, 9, tzinfo=MOSCOW)
+    assert await store.is_open_today("tg-1") is False
     nxt = await store.open("tg-1")
+    assert nxt["alreadyActive"] is False
     assert nxt["unseenCallId"] == first["callId"]
     assert nxt["callId"] != first["callId"]
     assert nxt["todaySeconds"] == 0
     sealed = await store.get(first["callId"])
     assert sealed["status"] == "closed"
     repeat = await store.open("tg-1")
+    assert repeat["alreadyActive"] is False
     assert repeat["unseenCallId"] is None
     assert repeat["callId"] == nxt["callId"]
 

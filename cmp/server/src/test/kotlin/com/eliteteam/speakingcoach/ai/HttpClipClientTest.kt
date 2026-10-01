@@ -25,6 +25,25 @@ import kotlin.time.Duration.Companion.milliseconds
 class HttpClipClientTest {
 
     @Test
+    fun readsCallActivityAndStatusWithoutOpeningOnStatus() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            when (request.url.encodedPath) {
+                "/internal/calls/status" -> respond("""{"active":true}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                "/internal/calls/open" -> respond("""{"callId":"c1","alreadyActive":false}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                else -> error("Unexpected call endpoint ${request.url}")
+            }
+        }
+        val http = client(engine)
+        val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
+        assertEquals(true, ai.callStatus(SessionId("tg-7")).active)
+        assertEquals(false, ai.openCall(SessionId("tg-7")).alreadyActive)
+        http.close()
+    }
+
+    @Test
     fun startsCallAndAcknowledgesTelegramDelivery() = runTest {
         val paths = mutableListOf<String>()
         val engine = MockEngine { request ->

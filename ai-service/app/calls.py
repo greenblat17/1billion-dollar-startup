@@ -41,12 +41,22 @@ class CallStore:
             day = moscow_day(self._clock())
             unseen = await self._seal_previous_day(session_id, day)
             call = await self._live(session_id)
+            already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
                 call = _new_call(session_id, day, self._clock())
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
                 await self._append_day(session_id, day, call["id"])
-            return await self._summary(session_id, call, unseen=unseen, crossed=False)
+            return {**await self._summary(session_id, call, unseen=unseen, crossed=False), "alreadyActive": already_active}
+
+    async def is_open_today(self, session_id: str) -> bool:
+        session_id = _session_id(session_id)
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            return bool(
+                call is not None and call["day"] == moscow_day(self._clock())
+                and (call["turns"] or call.get("openingDelivered"))
+            )
 
     async def summary(self, session_id: str) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
