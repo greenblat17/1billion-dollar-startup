@@ -89,6 +89,7 @@ class CallMessagesTest {
         assertEquals(true, keyboard.persistent)
         assertTrue(isStartCallButton(START_CALL_BUTTON))
         assertTrue(!isStartCallButton("Start call"))
+        assertEquals("Speaky is joining the chat… 💙", START_CALL_CONNECTING)
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }

@@ -135,6 +135,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to hide Start call keyboard for {}", chat.id, error)
         }
     }
+    suspend fun showStartCallKeyboard(chat: Chat) {
+        val restored = sendMessage(chat.id, "💙", replyMarkup = startCallKeyboard())
+        try {
+            deleteMessage(chat.id, restored.messageId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to delete keyboard restoration message for {}", chat.id, error)
+        }
+    }
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
         val existing = progressMessages.remove(key) ?: return
@@ -351,8 +361,22 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 return
             }
         }
+        if (ai.callStatus(sessionId).active) {
+            reply(message, CALL_ALREADY_ACTIVE_TEXT, replyMarkup = ReplyKeyboardRemove())
+            return
+        }
+        sendMessage(message.chat.id, START_CALL_CONNECTING, replyMarkup = ReplyKeyboardRemove())
         showStatus(message.chat, RecordVoiceAction)
-        val opening = ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName)
+        val opening = try {
+            ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to prepare call opening for {}", sessionId.value, error)
+            reply(message, "I couldn't start the conversation. Tap 🎙 Start call to try again.",
+                allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
+            return
+        }
         opening.unseenCallId?.let { callId ->
             reply(message, CALL_YESTERDAY_TEXT, allowSendingWithoutReply = true,
                 replyMarkup = callYesterdayKeyboard(callId))
@@ -365,7 +389,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val question = requireNotNull(opening.question)
         val audio = Base64.getDecoder().decode(requireNotNull(opening.audioBase64))
         clearProgress(message.chat)
-        hideStartCallKeyboard(message.chat)
         val voice = try {
             sendVoice(message.chat.id, audio.asMultipartFile("call-opening.${voiceExtension(requireNotNull(opening.audioContentType))}"),
                 replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true))
@@ -594,11 +617,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun endPracticeCall(message: ChatMessage) {
         val callId = ai.endCall(telegramSessionId(message.chat.id)).callId
         if (callId.isNullOrBlank()) {
-            reply(message, START_CALL_AGAIN, allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
+            showStartCallKeyboard(message.chat)
             return
         }
         clearProgress(message.chat)
-        sendMessage(message.chat.id, START_CALL_AGAIN, replyMarkup = startCallKeyboard())
+        showStartCallKeyboard(message.chat)
         showCallLevel(message, callId)
     }
     onDataCallbackQuery { query ->
