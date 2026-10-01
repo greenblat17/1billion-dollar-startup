@@ -7,11 +7,14 @@ import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
 import com.eliteteam.speakingcoach.analytics.decisionCounts
 import com.eliteteam.speakingcoach.ai.ReminderClockSummary
+import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import kotlin.math.roundToInt
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-internal fun onboardingReportHtml(report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null): String {
+internal fun onboardingReportHtml(
+    report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null, llm: MetricsSnapshot? = null,
+): String {
     val body = if (report == null) {
         "<p>История онбординга не пишется: нет базы.</p>"
     } else {
@@ -61,6 +64,8 @@ internal fun onboardingReportHtml(report: OnboardingReport?, reminderSummary: Re
         ${decisionTable(report)}
         <h2>Напоминания сейчас · все пользователи</h2>
         ${reminderClockChart(reminderSummary)}
+        <h2>Запросы к LLM сегодня · все пользователи</h2>
+        ${llmRequestTable(llm)}
         <h2>Качество сбора · с запуска сервера</h2>
         <table><thead><tr><th>Показатель</th><th>Число</th><th>Из записей</th></tr></thead><tbody>
           <tr><td>Ошибки записи</td><td>${OnboardingAnalyticsHealth.failedWrites()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
@@ -90,6 +95,17 @@ internal fun onboardingReportHtml(report: OnboardingReport?, reminderSummary: Re
         $body
         </body>
         </html>
+    """.trimIndent()
+}
+
+private fun llmRequestTable(snapshot: MetricsSnapshot?): String {
+    if (snapshot?.llmRequests == null) return "<p>Счётчик LLM сейчас недоступен.</p>"
+    val byPurpose = snapshot.llmRequestsByPurpose
+    return """
+        <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Попытки вызова модели, включая ошибки и повторы приложения. Данные не относятся к выбранной когорте.</p>
+        <table><thead><tr><th>Всего</th><th>Ошибки</th><th>Онбординг</th><th>Ответы</th><th>Исправления</th><th>Review</th></tr></thead><tbody>
+        <tr><td>${snapshot.llmRequests}</td><td>${snapshot.llmFailures}</td><td>${byPurpose["onboarding"] ?: 0}</td><td>${byPurpose["reply"] ?: 0}</td><td>${byPurpose["notes"] ?: 0}</td><td>${byPurpose["session_review"] ?: 0}</td></tr>
+        </tbody></table>
     """.trimIndent()
 }
 

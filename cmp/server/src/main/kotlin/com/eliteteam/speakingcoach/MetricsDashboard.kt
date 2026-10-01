@@ -121,7 +121,15 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
                 log.warn("Reminder summary unavailable", error)
                 null
             }
-            onboardingReportHtml(report, reminders)
+            val llm = if (report == null) null else try {
+                dashboard.source.load()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("LLM summary unavailable", error)
+                null
+            }
+            onboardingReportHtml(report, reminders, llm)
         } catch (error: Throwable) {
             log.warn("Onboarding analytics failed", error)
             metricsUnavailableHtml()
@@ -150,8 +158,16 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
                 log.warn("Reminder summary unavailable", error)
                 null
             }
+            val llm = try {
+                dashboard.source.load()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("LLM summary unavailable", error)
+                null
+            }
             call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=onboarding-analytics.json")
-            call.respondText(onboardingAgentJson(report, now, reminders), ContentType.Application.Json)
+            call.respondText(onboardingAgentJson(report, now, reminders, llm), ContentType.Application.Json)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -297,6 +313,12 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${adminTabs(METRICS_PATH)}
         <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Счёт с момента выкладки.</p>
         <dl>
+        ${card("Запросы к LLM", snapshot.llmRequests?.toString() ?: "—")}
+        ${card("Ошибки LLM", snapshot.llmFailures?.toString() ?: "—")}
+        ${card("LLM · онбординг", snapshot.llmRequests?.let { (snapshot.llmRequestsByPurpose["onboarding"] ?: 0).toString() } ?: "—")}
+        ${card("LLM · ответы", snapshot.llmRequests?.let { (snapshot.llmRequestsByPurpose["reply"] ?: 0).toString() } ?: "—")}
+        ${card("LLM · исправления", snapshot.llmRequests?.let { (snapshot.llmRequestsByPurpose["notes"] ?: 0).toString() } ?: "—")}
+        ${card("LLM · review", snapshot.llmRequests?.let { (snapshot.llmRequestsByPurpose["session_review"] ?: 0).toString() } ?: "—")}
         ${card("Токены prompt", snapshot.promptTokens.toString())}
         ${card("Токены completion", snapshot.completionTokens.toString())}
         ${card("TPM (60 с)", snapshot.tpm.toString())}
@@ -308,6 +330,7 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${card("₽ на ход", rubPerTurn)}
         ${card("₽ на DAU", rubPerDau)}
         </dl>
+        <p class="meta">Запросы — попытки вызова LLM за день по Москве, включая ошибки и повторные попытки приложения. Внутренние повторы SDK могут не учитываться.</p>
         <h2>Воронка</h2>
         <p class="meta">Activated за 7 дней: ${snapshot.activated7}</p>
         <table>

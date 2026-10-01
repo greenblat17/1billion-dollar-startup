@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -78,6 +80,7 @@ NOTE_SEP = "|||"
 MAX_CORRECTIONS = 3
 CORRECTION_KINDS = ("grammar", "word", "natural")
 DEFAULT_KIND = "grammar"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -123,7 +126,7 @@ class OpenAiChatModel:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
-        text = await self._complete(messages, self._reply_temperature)
+        text = await self._complete(messages, self._reply_temperature, purpose="reply")
         return parse_reply(text)
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
@@ -131,7 +134,7 @@ class OpenAiChatModel:
             {"role": "system", "content": NOTES_SYSTEM},
             {"role": "user", "content": user_text},
         ]
-        text = await self._complete(messages, self._notes_temperature, NOTES_MAX_TOKENS)
+        text = await self._complete(messages, self._notes_temperature, NOTES_MAX_TOKENS, purpose="notes")
         return parse_corrections(text, user_text)
 
     async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None) -> str:
@@ -139,9 +142,13 @@ class OpenAiChatModel:
             [{"role": "system", "content": system}, {"role": "user", "content": data}],
             temperature,
             max_tokens if max_tokens is not None else self._max_tokens,
+            purpose="onboarding",
         )
 
-    async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None) -> str:
+    async def _complete(
+        self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
+        *, purpose: str = "reply",
+    ) -> str:
         async def call() -> Any:
             return await self._client.chat.completions.create(
                 model=self._model,
@@ -151,19 +158,43 @@ class OpenAiChatModel:
                 response_format={"type": "json_object"},
             )
 
-        started = time.perf_counter()
-        response = await once_on_retryable(call)
-        if self._metrics is not None:
-            prompt_tokens, completion_tokens = read_usage(response)
-            await self._metrics.record_llm(
-                prompt_tokens,
-                completion_tokens,
-                int((time.perf_counter() - started) * 1000),
-            )
+        response = await metered_completion(call, self._metrics, purpose)
         text = (response.choices[0].message.content or "").strip()
         if not text:
             raise RuntimeError("llm returned empty reply")
         return text
+
+
+async def metered_completion(
+    call: Callable[[], Awaitable[Any]], metrics: MetricsStore | None, purpose: str,
+) -> Any:
+    async def attempt() -> Any:
+        started = time.perf_counter()
+        try:
+            response = await call()
+        except Exception:
+            await record_attempt(metrics, 0, 0, started, purpose, success=False)
+            raise
+        prompt_tokens, completion_tokens = read_usage(response)
+        await record_attempt(metrics, prompt_tokens, completion_tokens, started, purpose, success=True)
+        return response
+
+    return await once_on_retryable(attempt)
+
+
+async def record_attempt(
+    metrics: MetricsStore | None, prompt_tokens: int, completion_tokens: int,
+    started: float, purpose: str, *, success: bool,
+) -> None:
+    if metrics is None:
+        return
+    try:
+        await metrics.record_llm(
+            prompt_tokens, completion_tokens, int((time.perf_counter() - started) * 1000),
+            purpose=purpose, success=success,
+        )
+    except Exception:
+        logger.warning("failed to record LLM metrics", exc_info=True)
 
 
 def read_usage(response: Any) -> tuple[int, int]:

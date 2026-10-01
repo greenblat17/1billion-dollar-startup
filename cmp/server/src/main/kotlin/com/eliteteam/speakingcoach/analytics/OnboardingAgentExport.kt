@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.analytics
 
 import java.time.Instant
 import com.eliteteam.speakingcoach.ai.ReminderClockSummary
+import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -11,16 +12,18 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private const val EXPORT_SCHEMA = "onboarding-analytics.v3"
+private const val EXPORT_SCHEMA = "onboarding-analytics.v4"
 private val exportJson = Json { prettyPrint = true }
 
 /** Aggregated, content-free snapshot that an analyst agent can consume without parsing HTML. */
 internal fun onboardingAgentJson(report: OnboardingReport, generatedAt: Instant,
-                                 reminderSummary: ReminderClockSummary? = null): String =
-    exportJson.encodeToString(JsonObject.serializer(), onboardingAgentData(report, generatedAt, reminderSummary))
+                                 reminderSummary: ReminderClockSummary? = null,
+                                 llm: MetricsSnapshot? = null): String =
+    exportJson.encodeToString(JsonObject.serializer(), onboardingAgentData(report, generatedAt, reminderSummary, llm))
 
 internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
-                                 reminderSummary: ReminderClockSummary? = null): JsonObject = buildJsonObject {
+                                 reminderSummary: ReminderClockSummary? = null,
+                                 llm: MetricsSnapshot? = null): JsonObject = buildJsonObject {
     put("schema_version", EXPORT_SCHEMA)
     put("generated_at_utc", generatedAt.toString())
     put("timezone", ONBOARDING_ZONE.id)
@@ -50,6 +53,7 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("practice_two_days", "Successful ordinary replies on two distinct Moscow dates within the same 7*24 hour window")
         put("entry_completeness", "Entries are written after chat action; process crash can lose an entry, so total Telegram traffic is not fully observed")
         put("current_reminders", "Current saved reminder settings across all users, independent of onboarding date/version/source filters; hours are Moscow time")
+        put("llm_requests_today", "Application attempts to call the LLM on the current Moscow day, across all users and onboarding versions, including failed attempts and application retries; SDK retries are not counted")
     })
     put("analysis_guidance", strings(listOf(
         "Report observations and counts before making recommendations; these aggregates do not identify causes.",
@@ -59,12 +63,21 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         "Old v1 attempts can lack newer events. Process counters reset on server restart.",
         "No audio, transcripts, profile text, user IDs, or attempt IDs are present in this export.",
         "Do not use filtered onboarding cohorts as the denominator for current_reminders.",
+        "Do not use filtered onboarding cohorts as the denominator for llm_requests_today.",
     )))
     put("current_reminders", reminderSummary?.let { summary -> buildJsonObject {
         put("scope", "all_users_current")
         put("timezone", summary.timezone)
         put("active", summary.active)
         put("by_hour", countMap(summary.hours))
+    } } ?: JsonNull)
+    put("llm_requests_today", llm?.takeIf { it.llmRequests != null }?.let { snapshot -> buildJsonObject {
+        put("scope", "all_users_today")
+        put("day", snapshot.day)
+        put("timezone", snapshot.timezone)
+        put("requests", snapshot.llmRequests)
+        put("failures", snapshot.llmFailures)
+        put("by_purpose", countMap(snapshot.llmRequestsByPurpose))
     } } ?: JsonNull)
     put("cohorts", buildJsonObject {
         put("closed_primary", JsonArray(report.closedPrimary.map { cohort(it, closed = true, primary = true) }))
@@ -179,7 +192,7 @@ private fun errorStat(value: ErrorStat): JsonObject = buildJsonObject {
     put("affected_people", value.people)
 }
 
-private fun countMap(values: Map<String, Int>): JsonObject =
+private fun countMap(values: Map<String, Number>): JsonObject =
     JsonObject(values.toSortedMap().mapValues { JsonPrimitive(it.value) })
 
 private fun safeLevels(values: Map<String, Int>): Map<String, Int> {

@@ -4,13 +4,17 @@ import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import httpx
+from openai import APIStatusError
 import pytest
 from fakeredis import FakeAsyncRedis
 from fastapi.testclient import TestClient
 
 from app.dialogue import MemoryDialogueStore
 from app.llm import OpenAiChatModel, read_usage
+from app.review import OpenAiSessionReviewer
 from app.main import create_app
 from app.metrics import (
     DEFAULT_RATES,
@@ -101,11 +105,82 @@ async def test_day_counters_window_and_moscow_date() -> None:
             assert snap["timezone"] == "Europe/Moscow"
             assert snap["promptTokens"] == 1127
             assert snap["completionTokens"] == 80
+            assert snap["llmRequests"] == 4
+            assert snap["llmFailures"] == 0
+            assert snap["llmRequestsByPurpose"]["reply"] == 4
             assert snap["tpm"] == 200
             assert snap["tps"] == pytest.approx(80)
             assert metrics_day(moment) == "2026-09-25"
     finally:
         await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_llm_attempt_counts_include_failures_without_inflating_tokens() -> None:
+    opened = _Stores(MetricRates())
+    moment = 1_800_000_000.0
+    try:
+        for store in opened.stores:
+            await store.record_llm(999, 999, 100, purpose="onboarding", success=False, now=moment)
+            await store.record_llm(12, 3, 200, purpose="onboarding", now=moment)
+            await store.record_llm(5, 2, 100, purpose="session_review", now=moment)
+            snap = await store.snapshot(now=moment)
+            assert snap["llmRequests"] == 3
+            assert snap["llmFailures"] == 1
+            assert snap["llmRequestsByPurpose"]["onboarding"] == 2
+            assert snap["llmRequestsByPurpose"]["session_review"] == 1
+            assert snap["promptTokens"] == 17
+            assert snap["completionTokens"] == 5
+            assert snap["tpm"] == 22
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_provider_retries_and_session_review_are_counted() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"reply":"Hello"}'))],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2),
+    )
+    rate_limit = APIStatusError(
+        "rate limited", response=httpx.Response(429, request=httpx.Request("POST", "https://example.test/llm")), body=None,
+    )
+    create = AsyncMock(side_effect=[rate_limit, response])
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    model = OpenAiChatModel(client, "test", metrics=store)
+    assert await model.complete_reply([], "Hi") == "Hello"
+    snap = await store.snapshot()
+    assert create.await_count == 2
+    assert snap["llmRequests"] == 2
+    assert snap["llmFailures"] == 1
+    assert snap["llmRequestsByPurpose"]["reply"] == 2
+    assert snap["promptTokens"] == 10
+    assert snap["completionTokens"] == 2
+
+    create.side_effect = RuntimeError("provider down")
+    reviewer = OpenAiSessionReviewer(client, "test", metrics=store)
+    with pytest.raises(RuntimeError, match="provider down"):
+        await reviewer.review([{"role": "user", "text": "Hello"}])
+    snap = await store.snapshot()
+    assert snap["llmRequests"] == 3
+    assert snap["llmFailures"] == 2
+    assert snap["llmRequestsByPurpose"]["session_review"] == 1
+
+
+@pytest.mark.asyncio
+async def test_metrics_outage_does_not_fail_a_successful_llm_reply() -> None:
+    class BrokenMetrics(MemoryMetricsStore):
+        async def record_llm(self, *args, **kwargs) -> None:
+            raise RuntimeError("redis unavailable")
+
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"reply":"Hello"}'))],
+        usage=None,
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(return_value=response))))
+    model = OpenAiChatModel(client, "test", metrics=BrokenMetrics(MetricRates()))
+    assert await model.complete_reply([], "Hi") == "Hello"
 
 
 @pytest.mark.asyncio

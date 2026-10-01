@@ -40,6 +40,39 @@ import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
     @Test
+    fun onboardingPageAndAgentExportShowDailyLlmRequests() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val page = client.get(ONBOARDING_ANALYTICS_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Запросы к LLM сегодня · все пользователи"))
+        assertTrue(page.contains("<tr><td>8</td><td>1</td><td>3</td>"))
+
+        val exported = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        val llm = root.getValue("llm_requests_today").jsonObject
+        assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
+        assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
+    }
+
+    @Test
+    fun llmRequestCountsAppearOnMetricsPage() {
+        val html = metricsReportHtml(sampleSnapshot())
+        assertTrue(html.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(html.contains("<dt>Ошибки LLM</dt><dd>1</dd>"))
+        assertTrue(html.contains("<dt>LLM · онбординг</dt><dd>3</dd>"))
+    }
+
+    @Test
     fun agentExportUsesMetricsSessionAndKeepsFilters() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
@@ -64,6 +97,7 @@ class MetricsDashboardTest {
         assertTrue(exported.headers[HttpHeaders.ContentType].orEmpty().startsWith("application/json"))
         assertTrue(exported.headers[HttpHeaders.ContentDisposition].orEmpty().contains("attachment"))
         val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        assertEquals(JsonNull, root["llm_requests_today"])
         assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
         assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
         assertEquals("2", root.getValue("current_reminders").jsonObject.getValue("active").jsonPrimitive.content)
@@ -376,6 +410,9 @@ class MetricsDashboardTest {
         day = "2026-09-24",
         promptTokens = 100,
         completionTokens = 40,
+        llmRequests = 8,
+        llmFailures = 1,
+        llmRequestsByPurpose = mapOf("onboarding" to 3, "reply" to 3, "notes" to 1, "session_review" to 1),
         tpm = 12,
         tps = 8.0,
         turns = 2,

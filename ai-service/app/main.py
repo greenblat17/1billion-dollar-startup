@@ -63,7 +63,7 @@ def create_app(
     streaks = clip_pipeline.streaks
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
-    session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
+    session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings, clip_pipeline.metrics)
     greeting_audio: bytes | None = None
     greeting_lock = asyncio.Lock()
     tasks: set[asyncio.Task[None]] = set()
@@ -391,7 +391,7 @@ def _build_realtime(settings: Settings) -> RealtimeGateway | None:
     return OpenAiRealtimeGateway(settings.openai_realtime_api_key)
 
 
-def _build_reviewer(settings: Settings) -> SessionReviewer | None:
+def _build_reviewer(settings: Settings, metrics: MetricsStore) -> SessionReviewer | None:
     if not settings.openai_api_key:
         return None
     openai_headers = {}
@@ -405,7 +405,7 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         base_url=settings.openai_base_url,
         default_headers=openai_headers or None,
     )
-    return OpenAiSessionReviewer(client, settings.llm_model)
+    return OpenAiSessionReviewer(client, settings.llm_model, metrics=metrics)
 
 
 async def _json_object(request: Request) -> dict[str, Any]:

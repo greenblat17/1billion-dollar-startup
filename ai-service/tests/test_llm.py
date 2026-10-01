@@ -82,9 +82,10 @@ def test_limit_and_priority_apply_after_filtering():
 @pytest.mark.asyncio
 async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
     class Model(OpenAiChatModel):
-        async def _complete(self, messages, temperature, max_tokens=None):
+        async def _complete(self, messages, temperature, max_tokens=None, *, purpose="reply"):
             assert messages[0]["content"] == NOTES_SYSTEM
             assert max_tokens == NOTES_MAX_TOKENS
+            assert purpose == "notes"
             return json.dumps({"notes": [decision(), decision(wrong="absent", better="invented")]})
 
     model = Model(None, "test")
