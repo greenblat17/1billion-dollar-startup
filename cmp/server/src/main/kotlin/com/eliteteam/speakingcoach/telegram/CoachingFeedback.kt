@@ -25,6 +25,7 @@ internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
 
 internal fun onboardingCorrection(correction: Correction): TextSourcesList {
     return buildEntities {
+        regularln("Ранее ты сказал:")
         addAll(inlineCorrection(correction))
         addAll(explanationLine(correction))
     }
@@ -33,37 +34,24 @@ internal fun onboardingCorrection(correction: Correction): TextSourcesList {
 internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
     val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))
+    if (spans.isNotEmpty()) {
+        return buildEntities {
+            spans.distinctBy { it.correction }.forEachIndexed { index, span ->
+                if (index > 0) regular("\n\n")
+                addAll(onboardingCorrection(span.correction))
+            }
+        }
+    }
     return buildEntities {
         regularln("🗣️ You said:")
         regularln("")
-        blockquote {
-            var index = 0
-            for (span in spans) {
-                val before = text.substring(index, span.start).trim()
-                if (before.isNotEmpty()) {
-                    regular(before)
-                    regular("\n\n")
-                }
-                addAll(inlineCorrection(span.correction))
-                addAll(explanationLine(span.correction))
-                index = skipTrailingPunct(text, span.end)
-                if (text.substring(index).isNotBlank()) {
-                    regular("\n\n")
-                }
-            }
-            if (index < text.length) {
-                val tail = text.substring(index).trim()
-                if (tail.isNotEmpty()) {
-                    regular(tail)
-                }
-            }
-        }
+        blockquote { regular(text) }
     }
 }
 
 private fun explanationLine(correction: Correction): TextSourcesList = buildEntities {
     correction.explanation?.takeIf { it.isNotBlank() }?.let { explanation ->
-        regular("\n💡 ")
+        regular("\n\n💡 ")
         regular(explanation)
     }
 }
@@ -139,16 +127,3 @@ private fun isWholePhrase(text: String, start: Int, end: Int): Boolean {
 }
 
 private fun isWordChar(char: Char): Boolean = char.isLetter() || char == '\''
-
-private val TRAILING_PUNCT = setOf('.', '!', '?', ',', ';')
-
-private fun skipTrailingPunct(text: String, from: Int): Int {
-    var index = from
-    while (index < text.length && text[index].isWhitespace()) {
-        index++
-    }
-    if (index < text.length && text[index] in TRAILING_PUNCT) {
-        return index + 1
-    }
-    return from
-}
