@@ -69,6 +69,7 @@ data class ClipCorrectionResponse(
     val wrong: String = "",
     val better: String = "",
     val kind: String? = null,
+    val explanation: String? = null,
 )
 
 @Serializable

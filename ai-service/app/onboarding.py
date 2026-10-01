@@ -127,7 +127,10 @@ def _shown_corrections(turn: dict | None) -> list[Correction]:
     shown = []
     for note in notes[:1]:
         if isinstance(note, dict) and note.get("wrong") and note.get("better"):
-            shown.append(Correction(str(note["wrong"]), str(note["better"]), str(note.get("kind") or "grammar")))
+            shown.append(Correction(
+                str(note["wrong"]), str(note["better"]), str(note.get("kind") or "grammar"),
+                note.get("explanation") if isinstance(note.get("explanation"), str) else None,
+            ))
     return shown
 
 

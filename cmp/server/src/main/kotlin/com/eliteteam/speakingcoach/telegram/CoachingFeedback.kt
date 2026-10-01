@@ -5,7 +5,6 @@ import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.blockquote
 import dev.inmo.tgbotapi.utils.buildEntities
-import dev.inmo.tgbotapi.utils.italic
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.strikethrough
@@ -25,10 +24,9 @@ internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
 }
 
 internal fun onboardingCorrection(correction: Correction): TextSourcesList {
-    val label = onboardingCorrectionLabel(correction.kind)
     return buildEntities {
-        regularln(label)
         addAll(inlineCorrection(correction))
+        addAll(explanationLine(correction))
     }
 }
 
@@ -46,11 +44,8 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
                     regular(before)
                     regular("\n\n")
                 }
-                span.correction.kind?.let { kind ->
-                    italic(correctionKindLabel(kind))
-                    regular("\n")
-                }
                 addAll(inlineCorrection(span.correction))
+                addAll(explanationLine(span.correction))
                 index = skipTrailingPunct(text, span.end)
                 if (text.substring(index).isNotBlank()) {
                     regular("\n\n")
@@ -63,6 +58,13 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
                 }
             }
         }
+    }
+}
+
+private fun explanationLine(correction: Correction): TextSourcesList = buildEntities {
+    correction.explanation?.takeIf { it.isNotBlank() }?.let { explanation ->
+        regular("\n💡 ")
+        regular(explanation)
     }
 }
 
