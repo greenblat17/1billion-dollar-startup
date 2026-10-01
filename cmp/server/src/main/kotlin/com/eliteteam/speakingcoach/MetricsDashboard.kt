@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
+import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
@@ -9,9 +10,12 @@ import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
+import io.ktor.http.Parameters
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.server.response.header
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -22,6 +26,7 @@ import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
+import java.time.Instant
 import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -31,6 +36,7 @@ internal const val METRICS_PATH = "/admin/metrics"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
 internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
+internal const val ONBOARDING_AGENT_PATH = "$ONBOARDING_ANALYTICS_PATH/agent.json"
 internal const val NOTICE_STARTED = "started"
 internal const val NOTICE_BUSY = "busy"
 internal const val NOTICE_TEST_SENT = "test-sent"
@@ -104,20 +110,36 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             return@get
         }
         val html = try {
-            val query = call.request.queryParameters
-            val filter = OnboardingFilter(
-                days = query["days"]?.toIntOrNull()?.takeIf { it in 1..90 } ?: 30,
-                version = query["version"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
-                source = query["source"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) },
-                trigger = query["trigger"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
-            )
-            val report = dashboard.onboarding?.report(filter = filter)
+            val report = dashboard.onboarding?.report(filter = onboardingFilter(call.request.queryParameters))
             onboardingReportHtml(report)
         } catch (error: Throwable) {
             log.warn("Onboarding analytics failed", error)
             metricsUnavailableHtml()
         }
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ONBOARDING_AGENT_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respond(HttpStatusCode.Unauthorized)
+            return@get
+        }
+        val analytics = dashboard.onboarding
+        if (analytics == null) {
+            call.respondText("{\"error\":\"analytics_unavailable\"}", ContentType.Application.Json, HttpStatusCode.ServiceUnavailable)
+            return@get
+        }
+        try {
+            val now = Instant.now()
+            val report = analytics.report(now, onboardingFilter(call.request.queryParameters))
+            call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=onboarding-analytics.json")
+            call.respondText(onboardingAgentJson(report, now), ContentType.Application.Json)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Onboarding agent export failed", error)
+            call.respondText("{\"error\":\"analytics_unavailable\"}", ContentType.Application.Json, HttpStatusCode.ServiceUnavailable)
+        }
     }.hide()
     post("/admin/metrics/login") {
         val provided = call.receiveParameters()["password"].orEmpty()
@@ -161,6 +183,13 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         call.respondRedirect("$REMINDERS_PATH?notice=${if (sent) NOTICE_TEST_SENT else NOTICE_TEST_FAILED}")
     }.hide()
 }
+
+private fun onboardingFilter(query: Parameters): OnboardingFilter = OnboardingFilter(
+    days = query["days"]?.toIntOrNull()?.takeIf { it in 1..90 } ?: 30,
+    version = query["version"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+    source = query["source"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) },
+    trigger = query["trigger"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+)
 
 internal fun metricsSessionToken(password: String): String {
     val mac = Mac.getInstance("HmacSHA256")

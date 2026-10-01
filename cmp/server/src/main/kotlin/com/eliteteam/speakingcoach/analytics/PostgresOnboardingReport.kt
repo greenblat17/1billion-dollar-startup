@@ -21,8 +21,12 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
                 val pairs = listOf(count) + (1 until FUNNEL_COLUMNS.size).map { rows.getInt("pair_$it") }
                 val steps = FUNNEL_NAMES.indices.map { index ->
                     FunnelStep(
-                        FUNNEL_NAMES[index], stepCounts[index], percentOf(stepCounts[index], count),
-                        if (index == 0) 100 else percentOf(pairs[index], stepCounts[index - 1]),
+                        id = FUNNEL_STEP_IDS[index],
+                        name = FUNNEL_NAMES[index],
+                        count = stepCounts[index],
+                        ofStartPercent = percentOf(stepCounts[index], count),
+                        ofPreviousPercent = if (index == 0) 100 else percentOf(pairs[index], stepCounts[index - 1]),
+                        withPreviousCount = pairs[index],
                     )
                 }
                 add(

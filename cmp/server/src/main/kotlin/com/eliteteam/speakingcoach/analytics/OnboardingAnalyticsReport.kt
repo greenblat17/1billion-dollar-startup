@@ -83,10 +83,12 @@ internal data class OnboardingEventRow(
 )
 
 internal data class FunnelStep(
+    val id: String,
     val name: String,
     val count: Int,
     val ofStartPercent: Int,
     val ofPreviousPercent: Int,
+    val withPreviousCount: Int = count,
 )
 
 internal data class CohortFunnel(
@@ -137,6 +139,26 @@ internal data class DecisionMetrics(
     val retryRecovered: Int = 0,
     val textHint: Int = 0,
     val preBeginVoiceHint: Int = 0,
+)
+
+internal data class DecisionCount(val id: String, val label: String, val count: Int, val denominator: Int)
+
+internal fun decisionCounts(d: DecisionMetrics, primaryAttempts: Int): List<DecisionCount> = listOf(
+    DecisionCount("result_built", "Результат собран", d.resultBuilt, d.attempts),
+    DecisionCount("result_delivered", "Результат доставлен", d.resultDelivered, d.resultBuilt),
+    DecisionCount("scored", "Есть балл", d.scored, d.resultDelivered),
+    DecisionCount("grammar_examples", "Примеры Grammar в результате", d.grammarExamplesShown, d.resultDelivered),
+    DecisionCount("vocabulary_examples", "Примеры Vocabulary в результате", d.vocabularyExamplesShown, d.resultDelivered),
+    DecisionCount("fluency_metrics", "Измерения Fluency", d.fluencyMeasurementsShown, d.resultDelivered),
+    DecisionCount("goal_shown", "Показан выбор минут", d.goalShown, d.resultDelivered),
+    DecisionCount("goal_selected", "Минуты выбраны", d.goalSelected, d.goalShown),
+    DecisionCount("reminder_offered", "Предложено напоминание", d.reminderOffered, d.goalSelected),
+    DecisionCount("reminder_accepted", "Напоминание выбрано", d.reminderAccepted, d.reminderOffered),
+    DecisionCount("reminder_declined", "От напоминания отказались", d.reminderDeclined, d.reminderOffered),
+    DecisionCount("reminder_set", "Время сохранено", d.reminderSet, d.reminderAccepted),
+    DecisionCount("profile_opened", "Открыли Profile", d.profileOpened, d.goalSelected),
+    DecisionCount("bye", "See you tomorrow", d.bye, d.goalSelected),
+    DecisionCount("first_practice", "Первый обычный голос", d.firstPractice, primaryAttempts),
 )
 
 internal data class ErrorStat(
@@ -221,14 +243,17 @@ private fun cohort(day: LocalDate, rows: List<OnboardingAttemptRow>, withReturn:
     val reached = FUNNEL.map { (name, at) -> rows.count { withinWindow(at(it), it.startedAt) } }
     val steps = FUNNEL.indices.map { index ->
         val count = reached[index]
+        val withPrevious = if (index == 0) count else rows.count {
+            withinWindow(FUNNEL[index - 1].second(it), it.startedAt) &&
+                withinWindow(FUNNEL[index].second(it), it.startedAt)
+        }
         FunnelStep(
+            id = FUNNEL_STEP_IDS[index],
             name = FUNNEL[index].first,
             count = count,
             ofStartPercent = percentOf(count, reached.first()),
-            ofPreviousPercent = if (index == 0) 100 else percentOf(
-                rows.count { withinWindow(FUNNEL[index - 1].second(it), it.startedAt) && withinWindow(FUNNEL[index].second(it), it.startedAt) },
-                reached[index - 1],
-            ),
+            ofPreviousPercent = if (index == 0) 100 else percentOf(withPrevious, reached[index - 1]),
+            withPreviousCount = withPrevious,
         )
     }
     val returned = if (withReturn) rows.count { returnedNextDay(it) } else 0
@@ -339,6 +364,12 @@ private val FUNNEL: List<Pair<String, (OnboardingAttemptRow) -> Instant?>> = lis
     "Fluency" to { it.fluencyViewedAt },
     "Выбор минут" to { it.practiceSetupAt },
     "Минуты выбраны" to { it.goalSelectedAt },
+)
+
+internal val FUNNEL_STEP_IDS = listOf(
+    "started", "lets_chat", "first_voice", "speech_30", "speech_60", "speech_90", "speech_120",
+    "result_built", "result_opened", "grammar_viewed", "vocabulary_viewed", "fluency_viewed",
+    "goal_shown", "goal_selected",
 )
 
 private val GOAL_MINUTES = setOf(5, 10, 15)

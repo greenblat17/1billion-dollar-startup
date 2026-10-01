@@ -2,9 +2,13 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.CohortFunnel
 import com.eliteteam.speakingcoach.analytics.ErrorStat
+import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
+import com.eliteteam.speakingcoach.analytics.decisionCounts
 import kotlin.math.roundToInt
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
 internal fun onboardingReportHtml(report: OnboardingReport?): String {
     val body = if (report == null) {
@@ -24,6 +28,7 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
         <label>Причина <select name="trigger">${filterOptions(report.triggers, report.filter.trigger)}</select></label>
         <button type="submit">Показать</button>
         </form>
+        <a class="onb-export" href="${agentExportLink(report.filter)}">Скачать JSON для анализа агентом</a>
         <dl class="onb-kpis">
           ${card("Начали · закрытые дни", started.toString())}
           ${card("Результат за 24 ч", "$completed / $started · ${percentage(completed, started)}")}
@@ -81,6 +86,17 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
 }
 
 private fun rate(part: Int, whole: Int): Int = if (whole == 0) 0 else ((part * 100.0) / whole).roundToInt()
+
+private fun agentExportLink(filter: OnboardingFilter): String {
+    fun parameter(name: String, value: String?): String? = value?.let {
+        "$name=${URLEncoder.encode(it, StandardCharsets.UTF_8)}"
+    }
+    val query = listOfNotNull(
+        "days=${filter.days}", parameter("version", filter.version), parameter("source", filter.source),
+        parameter("trigger", filter.trigger),
+    ).joinToString("&amp;")
+    return "$ONBOARDING_AGENT_PATH?$query"
+}
 
 private fun percentage(part: Int, whole: Int): String = if (whole == 0) "—" else "${rate(part, whole)}%"
 
@@ -166,25 +182,10 @@ private fun timingTable(report: OnboardingReport): String {
 
 private fun decisionTable(report: OnboardingReport): String {
     val d = report.decisions
-    val rows = listOf(
-        Triple("Результат собран", d.resultBuilt, d.attempts),
-        Triple("Результат доставлен", d.resultDelivered, d.resultBuilt),
-        Triple("Есть балл", d.scored, d.resultDelivered),
-        Triple("Примеры Grammar в результате", d.grammarExamplesShown, d.resultDelivered),
-        Triple("Примеры Vocabulary в результате", d.vocabularyExamplesShown, d.resultDelivered),
-        Triple("Измерения Fluency", d.fluencyMeasurementsShown, d.resultDelivered),
-        Triple("Показан выбор минут", d.goalShown, d.resultDelivered),
-        Triple("Минуты выбраны", d.goalSelected, d.goalShown),
-        Triple("Предложено напоминание", d.reminderOffered, d.goalSelected),
-        Triple("Напоминание выбрано", d.reminderAccepted, d.reminderOffered),
-        Triple("От напоминания отказались", d.reminderDeclined, d.reminderOffered),
-        Triple("Время сохранено", d.reminderSet, d.reminderAccepted),
-        Triple("Открыли Profile", d.profileOpened, d.goalSelected),
-        Triple("See you tomorrow", d.bye, d.goalSelected),
-        Triple("Первый обычный голос", d.firstPractice, d.attempts),
-    )
-    val rowsHtml = rows.joinToString("") { (label, count, denominator) ->
-        "<tr><td>${escapeHtml(label)}</td><td>$count</td><td>$denominator</td><td>${percentage(count, denominator)}</td></tr>"
+    val primaryAttempts = report.closedPrimary.sumOf { it.size } + report.openPrimary.sumOf { it.size }
+    val rowsHtml = decisionCounts(d, primaryAttempts).joinToString("") { item ->
+        "<tr><td>${escapeHtml(item.label)}</td><td>${item.count}</td><td>${item.denominator}</td>" +
+            "<td>${percentage(item.count, item.denominator)}</td></tr>"
     }
     val extras = listOf(
         "Повтор сборки" to d.retryRequested, "Успешный повтор" to d.retryRecovered,
@@ -249,6 +250,7 @@ private fun onboardingStyle(): String = """
       .onb-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; font-size: 0.88rem; padding: 8px 0; }
       details { margin: 12px 0; }
       summary { cursor: pointer; color: #0f766e; font-weight: 600; }
+      .onb-export { display: inline-block; color: #0f766e; margin: 2px 0 12px; font-weight: 600; }
       .onb-notes { margin-top: 24px; color: #57534e; }
       td:nth-child(n+2) { font-variant-numeric: tabular-nums; }
       @media (max-width: 760px) {

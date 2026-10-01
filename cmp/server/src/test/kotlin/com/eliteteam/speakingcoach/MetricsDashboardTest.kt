@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
 import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
@@ -27,6 +28,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -34,12 +38,56 @@ import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
     @Test
+    fun agentExportUsesMetricsSessionAndKeepsFilters() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = MetricsSource { error("unused for onboarding") },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val anonymous = client.get("$ONBOARDING_AGENT_PATH?days=7")
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+        assertEquals("no-store", anonymous.headers[HttpHeaders.CacheControl])
+
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertTrue(exported.headers[HttpHeaders.ContentType].orEmpty().startsWith("application/json"))
+        assertTrue(exported.headers[HttpHeaders.ContentDisposition].orEmpty().contains("attachment"))
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
+        assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
+
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("$ONBOARDING_AGENT_PATH?days=7&amp;source=campaign"))
+    }
+
+    @Test
     fun metricsRoutesStayHiddenWithoutPassword() = testApplication {
         application {
             module(dashboardConfig(password = null))
         }
         assertEquals(HttpStatusCode.NotFound, client.get("/admin/metrics").status)
         assertEquals(HttpStatusCode.NotFound, client.post("/admin/metrics/login").status)
+        assertEquals(HttpStatusCode.NotFound, client.get(ONBOARDING_AGENT_PATH).status)
+    }
+
+    @Test
+    fun agentExportWithoutAnalyticsReturnsJsonUnavailable() = testApplication {
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()))
+        }
+        val response = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertTrue(response.headers[HttpHeaders.ContentType].orEmpty().startsWith("application/json"))
+        assertEquals("{\"error\":\"analytics_unavailable\"}", response.bodyAsText())
     }
 
     @Test
