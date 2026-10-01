@@ -6,7 +6,7 @@ from app.llm import ChatModel, Correction
 from app.main import create_app
 from app.pipeline import ClipPipeline
 from app.stt import SpeechToText, SttResult
-from app.tts import TextToSpeech
+from app.tts import TextToSpeech, TtsAudio
 
 
 def test_settings() -> Settings:
@@ -61,12 +61,14 @@ class FakeLlm(ChatModel):
 
 
 class FakeTts(TextToSpeech):
-    def __init__(self) -> None:
+    def __init__(self, content_type: str = "audio/ogg") -> None:
         self.texts: list[str] = []
+        self.content_type = content_type
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str) -> TtsAudio:
         self.texts.append(text)
-        return b"OggS" + text.encode("utf-8")
+        prefix = b"OggS" if self.content_type == "audio/ogg" else b"ID3"
+        return TtsAudio(prefix + text.encode("utf-8"), self.content_type)
 
 
 class FakeReviewer:

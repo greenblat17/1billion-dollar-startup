@@ -76,6 +76,8 @@ Runtime — непрозрачные блобы (оператор заполня
 - `DEV_CMP_SERVER_ENV` → `/opt/speaking-coach/.env` (для app API ещё `JWT_SECRET`, `DATABASE_URL`, `POSTGRES_PASSWORD`)
 - `DEV_AI_SERVER_ENV` → `/opt/ai-service/.env` (сюда же `REDIS_URL`, тот же `AI_INTERNAL_TOKEN`, что у Ktor, и `OPENAI_REALTIME_API_KEY` для mint)
 
+Для прямого Deepgram добавьте `TTS_PROVIDER=deepgram` и `DEEPGRAM_API_KEY` в AI env соответствующего окружения. Первый AI-деплой можно сделать с `TTS_OUTPUT_FORMAT=ogg`: контракт для старого Ktor сохранится. Чтобы убрать ffmpeg, сначала разверните новый `cmp-server`, принимающий `audio/mpeg`, затем установите `TTS_OUTPUT_FORMAT=mp3` и разверните `ai-server`. Откат: `TTS_PROVIDER=openrouter` и повторный деплой AI; Ktor продолжит принимать OGG. Не кладите значение ключа в документацию или репозиторий.
+
 Пустой блоб — fail на раннере до SSH. TLS на DEV кладёт человек.
 
 CMP Android / iOS / Desktop на сервер не едут. Jobs ai-service в памяти при рестарте пропадают; Redis-диалоги остаются.

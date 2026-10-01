@@ -5,6 +5,7 @@ import pytest
 from app.dialogue import MemoryDialogueStore
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
+from app.tts import TtsAudio
 
 
 class Stt:
@@ -40,7 +41,7 @@ class Tts:
         await self.release.wait()
         if self.fail:
             raise RuntimeError("tts failed")
-        return b"OggS"
+        return TtsAudio(b"OggS", "audio/ogg")
 
 
 class Personalization:
@@ -80,7 +81,7 @@ async def test_tts_starts_before_notes_and_memory_is_saved_only_after_success():
     tts.release.set()
     result = await asyncio.wait_for(turn, 1)
     assert memory.saved
-    assert result.audio == b"OggS"
+    assert result.audio == TtsAudio(b"OggS", "audio/ogg")
     assert {"stt", "context", "reply", "notes", "memoryExtract", "tts", "memorySave", "finalize", "total"} <= result.timings_ms.keys()
     assert result.timings_ms["total"] >= result.timings_ms["tts"]
 

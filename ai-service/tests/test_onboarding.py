@@ -419,8 +419,9 @@ def test_assessment_validation_rejects_invalid_cefr_and_missing_fields():
     assert placed["position"] == "high"
 
 
-def test_http_contract_returns_closing_audio_and_requires_auth():
-    s = service(stt=Stt(120))
+@pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])
+def test_http_contract_returns_closing_audio_and_requires_auth(media_type):
+    s = service(stt=Stt(120), tts=FakeTts(media_type))
     app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
     with TestClient(app) as client:
         assert client.post("/internal/onboarding/state", json={}).status_code == 401
@@ -434,6 +435,8 @@ def test_http_contract_returns_closing_audio_and_requires_auth():
         for _ in range(100):
             if client.get(f"/v1/clips/{action.json()['jobId']}", headers=AUTH).json()["status"] != "pending":
                 break
+        intro_audio = client.get(f"/v1/clips/{action.json()['jobId']}/audio", headers=AUTH)
+        assert intro_audio.headers["content-type"].startswith(media_type)
         created = client.post("/v1/clips", headers=AUTH,
             data={"sessionId": "tg-new", "onboardingRunId": state["runId"], "requestId": "v"},
             files={"audio": ("voice.ogg", b"voice", "audio/ogg")})
@@ -452,7 +455,9 @@ def test_http_contract_returns_closing_audio_and_requires_auth():
         assert profile["assessment"]["grammar"] == 57
         assert profile["currentStreak"] == 1
         assert body["result"]["onboarding"]["resultText"] is None
-        assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 200
+        closing_audio = client.get(f"/v1/clips/{job_id}/audio", headers=AUTH)
+        assert closing_audio.status_code == 200
+        assert closing_audio.headers["content-type"].startswith(media_type)
 
 
 @pytest.mark.asyncio
@@ -727,7 +732,7 @@ async def test_intro_is_prepared_once_for_concurrent_users_and_reused_after_rese
     assert s.pipeline.tts.texts == [FIRST_QUESTION]
     restarted = await s.resolve("tg-one", "again", "force")
     result = await s.action("tg-one", restarted["runId"], "begin")
-    assert result.audio == b"OggS" + FIRST_QUESTION.encode()
+    assert result.audio is not None and result.audio.data == b"OggS" + FIRST_QUESTION.encode()
     assert s.pipeline.tts.texts == [FIRST_QUESTION]
 
 

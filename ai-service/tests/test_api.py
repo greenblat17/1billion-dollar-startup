@@ -89,8 +89,9 @@ def test_unknown_session_clip_is_404() -> None:
         assert created.status_code == 404
 
 
-def test_session_greeting_audio() -> None:
-    tts = FakeTts()
+@pytest.mark.parametrize("media_type,prefix", [("audio/ogg", b"OggS"), ("audio/mpeg", b"ID3")])
+def test_session_greeting_audio(media_type: str, prefix: bytes) -> None:
+    tts = FakeTts(media_type)
     app, _, _, tts = build_app(tts=tts)
     with _client(app) as client:
         response = client.post("/v1/sessions")
@@ -100,13 +101,15 @@ def test_session_greeting_audio() -> None:
         assert "this is actually my voice" not in body["greeting"]["text"]
         audio = client.get(f"/v1/sessions/{session_id}/greeting/audio")
         assert audio.status_code == 200
-        assert audio.content.startswith(b"OggS")
+        assert audio.headers["content-type"].startswith(media_type)
+        assert audio.content.startswith(prefix)
         assert any("this is actually my voice" in text for text in tts.texts)
         assert client.get("/v1/sessions/missing/greeting/audio").status_code == 404
 
 
-def test_clip_contract_returns_audio() -> None:
-    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]))
+@pytest.mark.parametrize("media_type,prefix", [("audio/ogg", b"OggS"), ("audio/mpeg", b"ID3")])
+def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
+    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]), tts=FakeTts(media_type))
     with _client(app) as client:
         session_id = _start_session(client)
         created = client.post(
@@ -125,14 +128,15 @@ def test_clip_contract_returns_audio() -> None:
         assert "timingsMs" in body
         audio = client.get(f"/v1/clips/{job_id}/audio")
         assert audio.status_code == 200
-        assert audio.headers["content-type"].startswith("audio/ogg")
-        assert audio.content.startswith(b"OggS")
+        assert audio.headers["content-type"].startswith(media_type)
+        assert audio.content.startswith(prefix)
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
 
 
-def test_empty_transcript_clarifies_without_llm() -> None:
+@pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])
+def test_empty_transcript_clarifies_without_llm(media_type: str) -> None:
     llm = FakeLlm()
-    tts = FakeTts()
+    tts = FakeTts(media_type)
     app, _, llm, tts = build_app(stt=FakeStt([""]), llm=llm, tts=tts)
     with _client(app) as client:
         session_id = _start_session(client)
@@ -146,6 +150,8 @@ def test_empty_transcript_clarifies_without_llm() -> None:
         assert body["status"] == "ok"
         assert body["replyText"] == "I didn't catch that. Could you say it again?"
         assert body["result"]["notes"] == []
+        audio = client.get(f"/v1/clips/{job_id}/audio")
+        assert audio.headers["content-type"].startswith(media_type)
         assert llm.calls == []
         assert llm.notes_calls == []
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["I didn't catch that. Could you say it again?"]
@@ -259,5 +265,3 @@ def test_internal_realtime_rejects_bad_topic() -> None:
             json={"sdp": "v=0", "topic": "Random", "tutorVoice": "marin"},
         )
         assert response.status_code == 400
-
-

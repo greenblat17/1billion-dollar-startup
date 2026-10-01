@@ -16,7 +16,7 @@ Response:
 
 Telegram always sends the chat-scoped id so Redis history sticks to one chat.
 
-## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or 404
+## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
 
 Synthesizes `GREETING_VOICE_TEXT` once (cached in process).
 
@@ -53,9 +53,9 @@ On `error`: `{ "code": "timeout"|"pipeline_failed", "message": "..." }` (message
 
 `timingsMs` is diagnostic and backward compatible: existing `stt`, `llm`, `tts`, and `total` remain. The additional keys describe parallel stages and can be absent on clarify turns. Stage values overlap; they must not be summed. `total` now ends after memory, metrics, streak and call updates, immediately before the successful pipeline result. The AI-service completion log includes the job id. Ktor logs clip submission, polling, audio download, Telegram download, queue time, and reply delivery. These logs contain identifiers and timings, not transcripts or personal facts. Compare the Telegram handler's elapsed time for end-to-end user-facing latency.
 
-## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or 404
+## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
 
-Ktor saves as `reply.ogg` / `greeting.ogg`.
+Ktor uses `reply.ogg` / `greeting.ogg` for OGG and `reply.mp3` / `greeting.mp3` for MP3 when calling Telegram `sendVoice`. Unsupported media types fail instead of being sent with a misleading extension. Audio bytes and `Content-Type` must agree. The OpenRouter TTS path produces OGG; direct Deepgram can produce OGG for the first rollout phase or pass MP3 through without ffmpeg. Deploy Ktor MP3 support before enabling MP3 output on AI.
 
 ## Session ids
 

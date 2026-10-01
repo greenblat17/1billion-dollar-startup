@@ -56,6 +56,7 @@ class HttpClipClientTest {
         assertEquals("s-1", greeting.sessionId.value)
         assertEquals("Hi!", greeting.text)
         assertEquals(byteArrayOf(7, 8).toList(), greeting.audio.bytes.toList())
+        assertEquals("greeting.ogg", greeting.audio.fileName)
         assertEquals("secret-token", engine.requestHistory.first().headers[AI_INTERNAL_TOKEN_HEADER])
         http.close()
     }
@@ -88,6 +89,28 @@ class HttpClipClientTest {
         val greeting = HttpClipClient("http://ai.local", http).startSession(SessionId("tg-7"))
 
         assertEquals("tg-7", greeting.sessionId.value)
+        http.close()
+    }
+
+    @Test
+    fun namesMp3GreetingForTelegramVoice() = runTest {
+        val engine = MockEngine { request ->
+            when (request.url.encodedPath) {
+                "/v1/sessions" -> respond(
+                    """{"sessionId":"s-1","greeting":{"text":"Hi!"}}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+                "/v1/sessions/s-1/greeting/audio" -> respond(
+                    byteArrayOf(7, 8),
+                    headers = headersOf(HttpHeaders.ContentType, "audio/mpeg; charset=binary"),
+                )
+                else -> error("Unexpected request ${request.url}")
+            }
+        }
+        val http = client(engine)
+        val greeting = HttpClipClient("http://ai.local", http).startSession()
+        assertEquals("audio/mpeg", greeting.audio.contentType)
+        assertEquals("greeting.mp3", greeting.audio.fileName)
         http.close()
     }
 
@@ -205,6 +228,17 @@ class HttpClipClientTest {
         assertEquals("I go to shop", reply.transcript)
         assertEquals(byteArrayOf(1, 2, 3).toList(), checkNotNull(reply.audio).bytes.toList())
         assertEquals("audio/ogg", checkNotNull(reply.audio).contentType)
+        assertEquals("reply.ogg", checkNotNull(reply.audio).fileName)
+    }
+
+    @Test
+    fun namesMp3ReplyForTelegramVoice() = runTest {
+        val reply = processUntilOk(
+            """{"jobId":"job-1","status":"ok","result":{"notes":[],"transcript":"Hello"}}""",
+            audioType = "audio/mpeg",
+        )
+        assertEquals("audio/mpeg", checkNotNull(reply.audio).contentType)
+        assertEquals("reply.mp3", checkNotNull(reply.audio).fileName)
     }
 
     @Test
@@ -270,7 +304,7 @@ class HttpClipClientTest {
         http.close()
     }
 
-    private suspend fun processUntilOk(okBody: String): ClipReply {
+    private suspend fun processUntilOk(okBody: String, audioType: String = "audio/ogg"): ClipReply {
         var polls = 0
         val engine = MockEngine { request ->
             when {
@@ -298,7 +332,7 @@ class HttpClipClientTest {
                     respond(
                         content = byteArrayOf(1, 2, 3),
                         status = HttpStatusCode.OK,
-                        headers = headersOf(HttpHeaders.ContentType, "audio/ogg"),
+                        headers = headersOf(HttpHeaders.ContentType, audioType),
                     )
                 }
                 else -> error("Unexpected request ${request.method} ${request.url}")

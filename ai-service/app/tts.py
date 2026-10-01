@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol
 
+import httpx
 from openai import AsyncOpenAI
 
 from app.audio import to_ogg_opus
@@ -12,8 +14,14 @@ TTS_INSTRUCTIONS = (
 )
 
 
+@dataclass(frozen=True)
+class TtsAudio:
+    data: bytes
+    content_type: str
+
+
 class TextToSpeech(Protocol):
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str) -> TtsAudio:
         ...
 
 
@@ -32,7 +40,7 @@ class OpenAiTextToSpeech:
         self._response_format = response_format
         self._ffmpeg_bin = ffmpeg_bin
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str) -> TtsAudio:
         kwargs: dict[str, Any] = {
             "model": self._model,
             "voice": self._voice,
@@ -48,7 +56,48 @@ class OpenAiTextToSpeech:
         response = await once_on_retryable(call)
         payload = await _audio_bytes(response)
         suffix = ".opus" if self._response_format == "opus" else f".{self._response_format}"
-        return await to_ogg_opus(self._ffmpeg_bin, payload, suffix=suffix)
+        return TtsAudio(await to_ogg_opus(self._ffmpeg_bin, payload, suffix=suffix), "audio/ogg")
+
+
+class DeepgramTextToSpeech:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "aura-2-thalia-en",
+        client: httpx.AsyncClient | None = None,
+        output_format: str = "mp3",
+        ffmpeg_bin: str = "ffmpeg",
+    ) -> None:
+        self._api_key = api_key
+        self._model = model
+        self._client = client or httpx.AsyncClient(timeout=10.0)
+        self._owns_client = client is None
+        self._output_format = output_format
+        self._ffmpeg_bin = ffmpeg_bin
+
+    async def synthesize(self, text: str) -> TtsAudio:
+        response = await once_on_retryable(lambda: self._request(text))
+        if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/mpeg":
+            raise RuntimeError("deepgram tts returned an unsupported audio type")
+        if not response.content:
+            raise RuntimeError("deepgram tts returned empty audio")
+        if self._output_format == "ogg":
+            return TtsAudio(await to_ogg_opus(self._ffmpeg_bin, response.content, suffix=".mp3"), "audio/ogg")
+        return TtsAudio(response.content, "audio/mpeg")
+
+    async def _request(self, text: str) -> httpx.Response:
+        response = await self._client.post(
+            "https://api.deepgram.com/v1/speak",
+            params={"model": self._model, "encoding": "mp3"},
+            headers={"Authorization": f"Token {self._api_key}"},
+            json={"text": text},
+        )
+        response.raise_for_status()
+        return response
+
+    async def aclose(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
 
 
 async def _audio_bytes(response: Any) -> bytes:

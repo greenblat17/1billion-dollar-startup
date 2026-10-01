@@ -15,6 +15,7 @@ from app.onboarding_review import closing_lines, correction_candidates, fluency_
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
+from app.tts import TtsAudio
 
 logger = logging.getLogger(__name__)
 
@@ -263,14 +264,14 @@ class OnboardingService:
         self.model = model
         self.personalization = Personalization(store, model, pipeline.streaks)
         pipeline.personalization = self.personalization
-        self._intro_audio: bytes | None = None
+        self._intro_audio: TtsAudio | None = None
         self._intro_lock = asyncio.Lock()
 
-    async def intro_audio(self) -> bytes:
+    async def intro_audio(self) -> TtsAudio:
         async with self._intro_lock:
             if self._intro_audio is None:
                 audio = await self.pipeline.tts.synthesize(FIRST_QUESTION)
-                if not audio:
+                if not audio.data:
                     raise ValueError("empty onboarding intro audio")
                 self._intro_audio = audio
             return self._intro_audio
@@ -554,7 +555,7 @@ class OnboardingService:
         return state if state and state["runId"] == run_id else None
 
     @staticmethod
-    def _result(state: dict | None, text: str = "", audio: bytes | None = None, turn: dict | None = None) -> PipelineResult:
+    def _result(state: dict | None, text: str = "", audio: TtsAudio | None = None, turn: dict | None = None) -> PipelineResult:
         return PipelineResult(
             audio=audio, transcript=turn["transcript"] if turn else "", reply_text=text,
             timings_ms={}, corrections=_shown_corrections(turn),

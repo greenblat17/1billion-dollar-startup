@@ -26,11 +26,10 @@ from app.reminders import build_reminder_ledger, parse_report
 from app.review import OpenAiSessionReviewer, SessionReviewer
 from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.stt import GroqSpeechToText
-from app.tts import OpenAiTextToSpeech
+from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
 
 logger = logging.getLogger(__name__)
 
-CONTENT_TYPE_OGG = "audio/ogg"
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 
 
@@ -65,7 +64,7 @@ def create_app(
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
-    greeting_audio: bytes | None = None
+    greeting_audio: TtsAudio | None = None
     greeting_lock = asyncio.Lock()
     tasks: set[asyncio.Task[None]] = set()
 
@@ -83,6 +82,9 @@ def create_app(
             await calls.aclose()
         await sessions.aclose()
         await clip_pipeline.metrics.aclose()
+        close_tts = getattr(clip_pipeline.tts, "aclose", None)
+        if close_tts is not None:
+            await close_tts()
 
     app = FastAPI(
         lifespan=lifespan,
@@ -272,7 +274,7 @@ def create_app(
         async with greeting_lock:
             if greeting_audio is None:
                 greeting_audio = await clip_pipeline.tts.synthesize(GREETING_VOICE_TEXT)
-            return Response(content=greeting_audio, media_type=CONTENT_TYPE_OGG)
+            return Response(content=greeting_audio.data, media_type=greeting_audio.content_type)
 
     @app.post("/v1/clips", status_code=202)
     async def create_clip(
@@ -354,6 +356,12 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         raise RuntimeError("GROQ_API_KEY is required")
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is required")
+    if settings.tts_provider not in {"openrouter", "deepgram"}:
+        raise RuntimeError("TTS_PROVIDER must be openrouter or deepgram")
+    if settings.tts_provider == "deepgram" and not settings.deepgram_api_key:
+        raise RuntimeError("DEEPGRAM_API_KEY is required when TTS_PROVIDER=deepgram")
+    if settings.tts_output_format not in {"ogg", "mp3"}:
+        raise RuntimeError("TTS_OUTPUT_FORMAT must be ogg or mp3")
     groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
     openai_headers = {}
     if "openrouter.ai" in settings.openai_base_url:
@@ -366,18 +374,27 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         base_url=settings.openai_base_url,
         default_headers=openai_headers or None,
     )
-    metrics = build_metrics_store(settings)
-    return ClipPipeline(
-        stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
-        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics,
-                            notes_model=settings.notes_model),
-        tts=OpenAiTextToSpeech(
+    tts: TextToSpeech
+    if settings.tts_provider == "deepgram":
+        tts = DeepgramTextToSpeech(
+            settings.deepgram_api_key,
+            output_format=settings.tts_output_format,
+            ffmpeg_bin=settings.ffmpeg_bin,
+        )
+    else:
+        tts = OpenAiTextToSpeech(
             openai_client,
             settings.tts_model,
             settings.tts_voice,
             settings.tts_response_format,
             settings.ffmpeg_bin,
-        ),
+        )
+    metrics = build_metrics_store(settings)
+    return ClipPipeline(
+        stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
+        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics,
+                            notes_model=settings.notes_model),
+        tts=tts,
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
     )
@@ -520,8 +537,8 @@ def _complete_job(job: ClipJob, result: PipelineResult) -> None:
     job.corrections = [item.to_json() for item in result.corrections]
     job.timings_ms = result.timings_ms
     job.streak = result.streak.to_json() if result.streak is not None else None
-    job.reply_audio = result.audio
-    job.reply_content_type = CONTENT_TYPE_OGG
+    job.reply_audio = result.audio.data if result.audio is not None else None
+    job.reply_content_type = result.audio.content_type if result.audio is not None else "audio/ogg"
     job.status = "ok"
     job.onboarding = result.onboarding
     job.call = result.call

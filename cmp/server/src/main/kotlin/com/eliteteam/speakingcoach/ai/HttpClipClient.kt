@@ -56,13 +56,14 @@ class HttpClipClient(
             error("ai-service GET greeting audio returned ${audio.status}")
         }
         val contentType = audio.headers[HttpHeaders.ContentType] ?: "audio/ogg"
+        val mediaType = contentType.substringBefore(';').trim().lowercase()
         return SessionGreeting(
             sessionId = SessionId(created.sessionId),
             text = created.greeting.text,
             audio = AudioClip(
                 bytes = audio.bodyAsBytes(),
-                contentType = contentType.substringBefore(';'),
-                fileName = "greeting.ogg",
+                contentType = mediaType,
+                fileName = "greeting.${voiceExtension(mediaType)}",
             ),
         )
     }
@@ -348,11 +349,18 @@ class HttpClipClient(
             error("ai-service GET /v1/clips/$jobId/audio returned ${response.status}")
         }
         val contentType = response.headers[HttpHeaders.ContentType] ?: "audio/ogg"
+        val mediaType = contentType.substringBefore(';').trim().lowercase()
         return AudioClip(
             bytes = response.bodyAsBytes(),
-            contentType = contentType.substringBefore(';'),
-            fileName = "reply.ogg",
+            contentType = mediaType,
+            fileName = "reply.${voiceExtension(mediaType)}",
         )
+    }
+
+    private fun voiceExtension(contentType: String): String = when (contentType) {
+        "audio/ogg" -> "ogg"
+        "audio/mpeg" -> "mp3"
+        else -> error("unsupported reply audio type $contentType")
     }
 
     private fun HttpRequestBuilder.applyInternalToken() {

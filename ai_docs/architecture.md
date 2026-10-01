@@ -14,7 +14,7 @@
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
 | CMP UI | `cmp/app/` | Releva Auth/Home/Call(WebRTC)/Review против Ktor; карточка «Последний разговор» мок. **Не** clip API |
 
-Внешние API: Groq Whisper (STT), OpenRouter `gpt-5.6-luna` (LLM по умолчанию), Kokoro TTS, Telegram Bot API.
+Внешние API: Groq Whisper (STT), OpenRouter `gpt-5.6-luna` (LLM по умолчанию), OpenRouter (TTS по умолчанию) или прямой Deepgram Aura-2 Thalia (при `TTS_PROVIDER=deepgram`), Telegram Bot API.
 
 ## Прод: компоненты
 
@@ -27,7 +27,7 @@ flowchart LR
   redis[(Redis)]
   groq[Groq_STT]
   orouter[OpenRouter_LLM]
-  kokoro[Kokoro_TTS]
+  ttsProvider[OpenRouter_or_Deepgram_TTS]
 
   user -->|voice_and_start| tg
   tg -->|HTTPS_webhook| ktor
@@ -36,7 +36,7 @@ flowchart LR
   ai --> redis
   ai --> groq
   ai --> orouter
-  ai --> kokoro
+  ai --> ttsProvider
 ```
 
 Ktor на VPS слушает **443** с PEM, регистрирует webhook с сертификатом. Секрет заголовка `X-Telegram-Bot-Api-Secret-Token`. Ответ Telegram **200** сразу, обработка в отдельном scope.
@@ -76,7 +76,7 @@ sequenceDiagram
   end
   Queue->>Ai: GET audio
   Ktor->>Telegram: You said quote if transcript
-  Ktor->>Telegram: sendVoice OGG
+  Ktor->>Telegram: sendVoice OGG or MP3
 ```
 
 Идентификатор сессии Telegram: `tg-$chatId` (`TelegramHandlers.telegramSessionId`). В Redis ключ `session:{sessionId}`. `/start` — get-or-create, историю не стирает.
@@ -93,7 +93,7 @@ flowchart TD
   clarify{empty_or_no_speech}
   reply[OpenRouter_reply_JSON]
   notes[OpenRouter_notes_JSON]
-  tts[Kokoro_then_ffmpeg_OGG]
+  tts[TTS_OpenRouter_OGG_or_Deepgram_OGG_MP3]
   redis[(Redis_dialogue)]
   ok[job_status_ok]
 

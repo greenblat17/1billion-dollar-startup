@@ -47,6 +47,9 @@ class Settings:
     ai_internal_token: str | None
     openai_realtime_api_key: str | None
     notes_model: str = "openai/gpt-5.6-luna"
+    tts_provider: str = "openrouter"
+    deepgram_api_key: str | None = None
+    tts_output_format: str = "ogg"
 
     @staticmethod
     def from_env() -> Settings:
@@ -70,4 +73,7 @@ class Settings:
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
             notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
+            tts_provider=_env("TTS_PROVIDER", "openrouter") or "openrouter",
+            deepgram_api_key=_env("DEEPGRAM_API_KEY"),
+            tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
         )

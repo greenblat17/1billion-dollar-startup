@@ -12,7 +12,7 @@ from app.llm import ChatModel, Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
-from app.tts import TextToSpeech
+from app.tts import TextToSpeech, TtsAudio
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
 
 @dataclass
 class PipelineResult:
-    audio: bytes | None
+    audio: TtsAudio | None
     transcript: str
     reply_text: str
     timings_ms: dict[str, int]
