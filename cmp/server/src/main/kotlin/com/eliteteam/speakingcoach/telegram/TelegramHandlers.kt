@@ -12,6 +12,8 @@ import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
+import dev.inmo.tgbotapi.extensions.api.send.sendBotAction
+import dev.inmo.tgbotapi.extensions.api.send.withRecordVoiceAction
 import dev.inmo.tgbotapi.types.MessageId
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
@@ -27,6 +29,9 @@ import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onConten
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.chat.Chat
 import dev.inmo.tgbotapi.types.chat.PrivateChat
+import dev.inmo.tgbotapi.types.actions.BotAction
+import dev.inmo.tgbotapi.types.actions.RecordVoiceAction
+import dev.inmo.tgbotapi.types.actions.TypingAction
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
@@ -98,6 +103,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val founderNotes = ConcurrentHashMap.newKeySet<String>()
     val progressMessages = ConcurrentHashMap<String, MessageId>()
     val spokenLines = ConcurrentHashMap<String, String>()
+    suspend fun showStatus(chat: Chat, action: BotAction) {
+        try {
+            sendBotAction(chat, action)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to show Telegram action {} for {}", action.actionName, chat.id, error)
+        }
+    }
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
         val existing = progressMessages.remove(key) ?: return
@@ -187,18 +201,22 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         if (onboarding != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
+                showStatus(message.chat, TypingAction)
                 reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
             }
         } else if (practice != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
+                showStatus(message.chat, TypingAction)
                 reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
             }
         } else if (result.transcript.isNotBlank()) {
+            if (result.corrections.isNotEmpty()) showStatus(message.chat, TypingAction)
             reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
         }
         val beforeVoiceMs = deliveryStarted.elapsedNow().inWholeMilliseconds
         val audio = result.audio
         if (audio != null) {
+            showStatus(message.chat, RecordVoiceAction)
             val spoken = result.text.isNotBlank()
             val voice = sendVoice(
                 message.chat.id,
@@ -331,21 +349,23 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val queueStarted = System.nanoTime()
         val processingStarted = AtomicLong(0)
         val downloadMs = AtomicLong(0)
-        val result = sessionClipQueue.submit(
-            sessionId = sessionId,
-            onProcessingStart = { processingStarted.set(System.nanoTime()) },
-            source = {
-                val downloadStarted = TimeSource.Monotonic.markNow()
-                val bytes = downloadFile(content.media)
-                downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
-                AudioClip(
-                    bytes, "audio/ogg", "voice.ogg",
-                    onboardingRunId = state.runId.takeIf { state.status == "active" || state.status == "completed" },
-                    requestId = requestId,
-                    durationSeconds = (content.media.duration ?: 0L).toDouble(),
-                )
-            },
-        )
+        val result = withRecordVoiceAction(message.chat) {
+            sessionClipQueue.submit(
+                sessionId = sessionId,
+                onProcessingStart = { processingStarted.set(System.nanoTime()) },
+                source = {
+                    val downloadStarted = TimeSource.Monotonic.markNow()
+                    val bytes = downloadFile(content.media)
+                    downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
+                    AudioClip(
+                        bytes, "audio/ogg", "voice.ogg",
+                        onboardingRunId = state.runId.takeIf { state.status == "active" || state.status == "completed" },
+                        requestId = requestId,
+                        durationSeconds = (content.media.duration ?: 0L).toDouble(),
+                    )
+                },
+            )
+        }
         val processedAt = processingStarted.get()
         val queueMs = if (processedAt == 0L) 0L else (processedAt - queueStarted) / 1_000_000
         val processingMs = if (processedAt == 0L) 0L else (System.nanoTime() - processedAt) / 1_000_000
