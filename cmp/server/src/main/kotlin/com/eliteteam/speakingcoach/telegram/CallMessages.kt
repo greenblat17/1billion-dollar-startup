@@ -4,6 +4,8 @@ import com.eliteteam.speakingcoach.ai.CallReviewResponse
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.replyKeyboard
+import dev.inmo.tgbotapi.extensions.utils.types.buttons.simpleButton
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
@@ -18,6 +20,16 @@ internal const val CALL_CLOCK_HINT =
     "This tracks how much English you've spoken today, toward your daily goal."
 internal const val CALL_RETRY_TEXT = "Couldn't score this conversation. Try again."
 internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
+internal const val START_CALL_BUTTON = "🎙 Start call"
+internal const val START_CALL_INVITATION = "Want to talk with Speaky? Tap 🎙 Start call or send a voice message."
+internal const val START_CALL_CONNECTING = "Speaky is joining the chat… 💙"
+internal const val CALL_ALREADY_ACTIVE_TEXT = "We're already talking. Send me a voice message."
+
+internal fun isStartCallButton(text: String): Boolean = text == START_CALL_BUTTON
+
+internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persistent = true) {
+    row { simpleButton(START_CALL_BUTTON) }
+}
 
 internal data class CallCallback(val action: String, val callId: String)
 

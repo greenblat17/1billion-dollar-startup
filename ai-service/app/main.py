@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from redis.asyncio import Redis
 
 from app.call_review import CallReviews
+from app.call_start import CallStarter
 from app.calls import CallStore
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
@@ -62,6 +63,7 @@ def create_app(
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
+    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech)
     streaks = clip_pipeline.streaks
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
@@ -263,6 +265,30 @@ def create_app(
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
         return await calls.open(_call_session_id(payload))
+
+    @app.post("/internal/calls/status")
+    async def calls_status(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        return {"active": await calls.is_open_today(_call_session_id(payload))}
+
+    @app.post("/internal/calls/start")
+    async def calls_start(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        return await call_starter.start(_call_session_id(payload), payload.get("firstName"))
+
+    @app.post("/internal/calls/starter-delivered")
+    async def calls_starter_delivered(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        call_id = str(payload.get("callId") or "").strip()
+        if not call_id:
+            raise HTTPException(status_code=400, detail="callId required")
+        try:
+            await call_starter.delivered(call_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown call") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"ok": True}
 
     @app.post("/internal/calls/end")
     async def calls_end(request: Request) -> dict[str, str | None]:

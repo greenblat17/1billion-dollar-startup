@@ -41,12 +41,22 @@ class CallStore:
             day = moscow_day(self._clock())
             unseen = await self._seal_previous_day(session_id, day)
             call = await self._live(session_id)
+            already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
                 call = _new_call(session_id, day, self._clock())
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
                 await self._append_day(session_id, day, call["id"])
-            return await self._summary(session_id, call, unseen=unseen, crossed=False)
+            return {**await self._summary(session_id, call, unseen=unseen, crossed=False), "alreadyActive": already_active}
+
+    async def is_open_today(self, session_id: str) -> bool:
+        session_id = _session_id(session_id)
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            return bool(
+                call is not None and call["day"] == moscow_day(self._clock())
+                and (call["turns"] or call.get("openingDelivered"))
+            )
 
     async def summary(self, session_id: str) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
@@ -104,6 +114,32 @@ class CallStore:
     async def get(self, call_id: str) -> dict[str, Any] | None:
         call = await self._read_call(call_id)
         return deepcopy(call) if call is not None else None
+
+    async def save_opening(self, call_id: str, question: str) -> None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open":
+                raise ValueError("call is closed")
+            if not current.get("openingQuestion"):
+                current["openingQuestion"] = question
+                await self._write_call(current)
+
+    async def mark_opening_delivered(self, call_id: str) -> tuple[str, str] | None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or not current.get("openingQuestion"):
+                raise ValueError("call has no opening")
+            if current.get("openingDelivered"):
+                return None
+            current["openingDelivered"] = True
+            await self._write_call(current)
+            return str(current["sessionId"]), str(current["openingQuestion"])
 
     async def save_review(self, call_id: str, review: dict[str, Any]) -> bool:
         call = await self._read_call(call_id)
@@ -241,6 +277,8 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "endedUnix": None,
         "seconds": 0.0,
         "turns": [],
+        "openingQuestion": None,
+        "openingDelivered": False,
         "review": None,
         "reviewOffered": False,
         "todaySeconds": 0.0,

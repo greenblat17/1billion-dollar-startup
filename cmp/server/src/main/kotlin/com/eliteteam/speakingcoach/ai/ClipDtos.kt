@@ -401,12 +401,34 @@ data class CallSessionRequest(
 )
 
 @Serializable
+data class StartCallRequest(
+    val sessionId: String,
+    val firstName: String? = null,
+)
+
+@Serializable
 data class OpenCallResponse(
     val callId: String = "",
+    val alreadyActive: Boolean = false,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
     val goalJustCrossed: Boolean = false,
     val unseenCallId: String? = null,
+)
+
+@Serializable
+data class CallStatusResponse(val active: Boolean = false)
+
+@Serializable
+data class StartCallResponse(
+    val callId: String,
+    val status: String,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val unseenCallId: String? = null,
+    val question: String? = null,
+    val audioBase64: String? = null,
+    val audioContentType: String? = null,
 )
 
 @Serializable

@@ -233,6 +233,35 @@ class OnboardingModel:
             raise ValueError("missing continuation question")
         return question.strip()
 
+    async def start_call_question(self, profile: dict) -> str:
+        raw = await self.llm.complete_json(
+            CONVERSATION_POLICY +
+            'Return JSON {"question":string}. This will follow a spoken greeting using the '
+            'firstName field when available. Never repeat the greeting. '
+            'Write one short, concrete follow-up question without another greeting. '
+            'Prefer a specific unfinished topic that the learner mentioned in a previous user turn '
+            'of recentConversation. When supported, refer to it naturally, for example '
+            '"Last time you told me about ..." or "We talked about ...", and ask what happened next. '
+            'Vary the phrasing like a real conversation. Only attribute something to a previous conversation '
+            'when a user turn supports it. Otherwise use a relevant fact from personalContext '
+            'without saying "last time". If neither provides a natural topic, ask an easy '
+            'everyday question. Never invent an event or outcome. Do not mention the timer. '
+            'Keep the setup brief and use exactly one question mark in the follow-up.',
+            json.dumps(profile, ensure_ascii=False), temperature=0.7,
+        )
+        question = _load_json(raw).get("question")
+        if (not isinstance(question, str) or not question.strip()
+                or len(question.strip()) > 220 or question.count("?") != 1
+                or "\n" in question):
+            raise ValueError("missing call opening question")
+        first_name = profile.get("firstName")
+        name = first_name.strip() if isinstance(first_name, str) else ""
+        if not (1 <= len(name) <= 25 and len(name.split()) <= 3
+                and all(char.isalpha() or char in " '-" for char in name)):
+            name = ""
+        greeting = f"Hi, {name}! How are you? " if name else "Hi! How are you? "
+        return greeting + question.strip()
+
     async def verify_corrections(self, candidates: list[dict]) -> set[str]:
         data = [
             {key: item[key] for key in ("id", "transcript", "wrong", "better", "kind")}

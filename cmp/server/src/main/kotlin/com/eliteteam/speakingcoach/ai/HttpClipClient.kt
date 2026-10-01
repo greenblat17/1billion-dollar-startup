@@ -34,6 +34,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
+import java.util.Base64
 
 internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 
@@ -221,6 +222,35 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun callStatus(sessionId: SessionId): CallStatusResponse {
+        val response = http.post("$root/internal/calls/status") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallSessionRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service call status returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun startCall(sessionId: SessionId, firstName: String?): StartCallResponse {
+        val response = http.post("$root/internal/calls/start") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(StartCallRequest(sessionId.value, firstName))
+        }
+        check(response.status.isSuccess()) { "ai-service start call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun markCallStarterDelivered(callId: String) {
+        val response = http.post("$root/internal/calls/starter-delivered") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallReviewRequest(callId))
+        }
+        check(response.status.isSuccess()) { "ai-service call starter delivery returned ${response.status}" }
+    }
+
     suspend fun endCall(sessionId: SessionId): EndCallResponse {
         val response = http.post("$root/internal/calls/end") {
             applyInternalToken()
@@ -394,17 +424,17 @@ class HttpClipClient(
         )
     }
 
-    private fun voiceExtension(contentType: String): String = when (contentType) {
-        "audio/ogg" -> "ogg"
-        "audio/mpeg" -> "mp3"
-        else -> error("unsupported reply audio type $contentType")
-    }
-
     private fun HttpRequestBuilder.applyInternalToken() {
         if (internalToken.isNotBlank()) {
             header(AI_INTERNAL_TOKEN_HEADER, internalToken)
         }
     }
+}
+
+internal fun voiceExtension(contentType: String): String = when (contentType.substringBefore(';').trim().lowercase()) {
+    "audio/ogg" -> "ogg"
+    "audio/mpeg" -> "mp3"
+    else -> error("unsupported voice audio type $contentType")
 }
 
 data class ChatProfile(
