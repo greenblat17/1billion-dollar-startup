@@ -232,11 +232,11 @@ class HttpClipClient(
         return response.body()
     }
 
-    suspend fun startCall(sessionId: SessionId): StartCallResponse {
+    suspend fun startCall(sessionId: SessionId, firstName: String?): StartCallResponse {
         val response = http.post("$root/internal/calls/start") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(CallSessionRequest(sessionId.value))
+            setBody(StartCallRequest(sessionId.value, firstName))
         }
         check(response.status.isSuccess()) { "ai-service start call returned ${response.status}" }
         return response.body()
@@ -424,17 +424,17 @@ class HttpClipClient(
         )
     }
 
-    private fun voiceExtension(contentType: String): String = when (contentType) {
-        "audio/ogg" -> "ogg"
-        "audio/mpeg" -> "mp3"
-        else -> error("unsupported reply audio type $contentType")
-    }
-
     private fun HttpRequestBuilder.applyInternalToken() {
         if (internalToken.isNotBlank()) {
             header(AI_INTERNAL_TOKEN_HEADER, internalToken)
         }
     }
+}
+
+internal fun voiceExtension(contentType: String): String = when (contentType.substringBefore(';').trim().lowercase()) {
+    "audio/ogg" -> "ogg"
+    "audio/mpeg" -> "mp3"
+    else -> error("unsupported voice audio type $contentType")
 }
 
 data class ChatProfile(

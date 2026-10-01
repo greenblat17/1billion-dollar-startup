@@ -18,7 +18,7 @@ class CallStarter:
         self.speech = speech
         self._locks: dict[str, asyncio.Lock] = {}
 
-    async def start(self, session_id: str) -> dict:
+    async def start(self, session_id: str, first_name: str | None = None) -> dict:
         async with self._locks.setdefault(session_id, asyncio.Lock()):
             summary = await self.calls.open(session_id)
             call = await self.calls.get(summary["callId"])
@@ -27,10 +27,11 @@ class CallStarter:
                 return {**summary, "status": "active"}
             question = call.get("openingQuestion")
             if not question:
-                context = await self.personalization.prepare(session_id, continuation=True)
+                context = await self.personalization.prepare(session_id, continuation=False)
                 history = await self.dialogue.history(session_id)
                 question = await self.model.start_call_question({
                     "personalContext": context,
+                    "firstName": first_name,
                     "recentConversation": [
                         {"role": turn.role, "content": turn.content}
                         for turn in history[-8:]

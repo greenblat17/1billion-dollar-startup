@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.ChatProfile
 import com.eliteteam.speakingcoach.ai.HttpClipClient
+import com.eliteteam.speakingcoach.ai.voiceExtension
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipSubmitResult
@@ -9,6 +10,7 @@ import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
+import dev.inmo.tgbotapi.extensions.api.deleteMessage
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
@@ -119,7 +121,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun hideStartCallKeyboard(chat: Chat) {
         try {
-            sendMessage(chat.id, CALL_STARTED_TEXT, replyMarkup = ReplyKeyboardRemove())
+            val removal = sendMessage(chat.id, "Your turn—send a voice message.", replyMarkup = ReplyKeyboardRemove())
+            try {
+                deleteMessage(chat.id, removal.messageId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Failed to delete keyboard removal message for {}", chat.id, error)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -343,7 +352,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
         }
         showStatus(message.chat, RecordVoiceAction)
-        val opening = ai.startCall(sessionId)
+        val opening = ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName)
         opening.unseenCallId?.let { callId ->
             reply(message, CALL_YESTERDAY_TEXT, allowSendingWithoutReply = true,
                 replyMarkup = callYesterdayKeyboard(callId))
@@ -358,7 +367,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         clearProgress(message.chat)
         hideStartCallKeyboard(message.chat)
         val voice = try {
-            sendVoice(message.chat.id, audio.asMultipartFile("call-opening.ogg"),
+            sendVoice(message.chat.id, audio.asMultipartFile("call-opening.${voiceExtension(requireNotNull(opening.audioContentType))}"),
                 replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true))
         } catch (error: CancellationException) {
             throw error
@@ -585,11 +594,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun endPracticeCall(message: ChatMessage) {
         val callId = ai.endCall(telegramSessionId(message.chat.id)).callId
         if (callId.isNullOrBlank()) {
-            reply(message, START_CALL_PROMPT, allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
+            reply(message, START_CALL_AGAIN, allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
             return
         }
         clearProgress(message.chat)
-        sendMessage(message.chat.id, START_CALL_PROMPT, replyMarkup = startCallKeyboard())
+        sendMessage(message.chat.id, START_CALL_AGAIN, replyMarkup = startCallKeyboard())
         showCallLevel(message, callId)
     }
     onDataCallbackQuery { query ->
@@ -762,7 +771,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             allowSendingWithoutReply = true,
                             replyMarkup = reminderAskKeyboard(callback.runId),
                         )
-                        sendMessage(message.chat.id, START_CALL_PROMPT, replyMarkup = startCallKeyboard())
+                        sendMessage(message.chat.id, START_CALL_INVITATION, replyMarkup = startCallKeyboard())
                     }
                     "remind" -> {
                         ai.scheduleReminder(

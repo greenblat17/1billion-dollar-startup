@@ -400,6 +400,12 @@ data class CallSessionRequest(
 )
 
 @Serializable
+data class StartCallRequest(
+    val sessionId: String,
+    val firstName: String? = null,
+)
+
+@Serializable
 data class OpenCallResponse(
     val callId: String = "",
     val alreadyActive: Boolean = false,

@@ -17,6 +17,8 @@ After the daily goal is chosen, Telegram shows a persistent lower reply keyboard
 
 ## During the call
 
+The starter voice now opens with `Hi, <Telegram first name>! How are you?` when the name is usable, or `Hi! How are you?` otherwise, followed by a short question. The name is supplied by Ktor in the internal start request; the LLM does not invent it. The model prefers an unfinished topic from an actual prior user turn and varies natural phrasing such as `Last time you told me about ...` or `We talked about ...`. It may claim a previous discussion only when that turn supports it; otherwise it uses durable personal context without that claim, or an everyday topic. The reply-keyboard removal message is deleted immediately so it does not add a visible `Let's talk.` line; if deletion fails, a useful voice-reply instruction remains. The uploaded voice filename follows `audioContentType` (`.ogg` or `.mp3`). Telegram draws the waveform, so its shape and the effect of deleting the removal message require a live DEV check.
+
 The latest Speaky voice carries one inline keyboard: today's recognized speech against the daily goal (`8:24 / 10:00`), `Subtitles`, and `☎️ End conversation` on the next row. The keyboard moves off the previous voice. Crossing the goal does not end the call. The clock shows overtime, such as `12:40 / 10:00`, and one text says the day's minutes are done.
 
 A recognized turn stores transcript, reply, corrections, Whisper seconds, and word timings on `call:{id}`. Silence and the clarify line add no seconds. One live correction uses the onboarding card, not the `You said` quote.

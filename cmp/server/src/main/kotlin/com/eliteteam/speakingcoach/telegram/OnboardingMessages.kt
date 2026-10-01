@@ -186,7 +186,7 @@ internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): TextSources
         regularln("")
         regularln("")
     }
-    regular("Come back tomorrow for your $minutes-minute practice.")
+    regular("You can start your $minutes-minute practice now.")
 }
 
 internal fun cefrBandName(cefr: String?): String? = when (cefr) {

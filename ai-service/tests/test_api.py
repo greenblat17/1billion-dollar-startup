@@ -52,17 +52,18 @@ def test_start_call_internal_contract_and_delivery() -> None:
     llm = FakeLlm()
     class OpeningModel(OnboardingModel):
         async def start_call_question(self, context):
-            return "Hi! What made you smile today?"
+            assert context["firstName"] == "Alex"
+            return "Hi, Alex! How are you? What made you smile today?"
 
     pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
     app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
     with _client(app) as client:
-        payload = {"sessionId": "tg-1"}
+        payload = {"sessionId": "tg-1", "firstName": "Alex"}
         first = client.post("/internal/calls/start", json=payload)
         assert first.status_code == 200
         body = first.json()
         assert body["status"] == "ready"
-        assert body["question"] == "Hi! What made you smile today?"
+        assert body["question"] == "Hi, Alex! How are you? What made you smile today?"
         assert body["audioBase64"]
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
         assert client.post("/internal/calls/starter-delivered", json={"callId": body["callId"]}).status_code == 200

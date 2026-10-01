@@ -25,6 +25,13 @@ import kotlin.time.Duration.Companion.milliseconds
 class HttpClipClientTest {
 
     @Test
+    fun voiceUploadExtensionFollowsTheAudioContentType() {
+        assertEquals("ogg", voiceExtension("audio/ogg"))
+        assertEquals("mp3", voiceExtension("audio/mpeg"))
+        assertEquals("mp3", voiceExtension("audio/mpeg; charset=binary"))
+    }
+
+    @Test
     fun readsCallActivityAndStatusWithoutOpeningOnStatus() = runTest {
         val engine = MockEngine { request ->
             assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
@@ -52,6 +59,7 @@ class HttpClipClientTest {
             when (request.url.encodedPath) {
                 "/internal/calls/start" -> {
                     assertContains((request.body as TextContent).text, "\"sessionId\":\"tg-7\"")
+                    assertContains((request.body as TextContent).text, "\"firstName\":\"Alex\"")
                     respond("""{"callId":"c1","status":"ready","question":"Hello?","audioBase64":"T2dnUw==","audioContentType":"audio/ogg"}""",
                         headers = headersOf(HttpHeaders.ContentType, "application/json"))
                 }
@@ -64,7 +72,7 @@ class HttpClipClientTest {
         }
         val http = client(engine)
         val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
-        val opening = ai.startCall(SessionId("tg-7"))
+        val opening = ai.startCall(SessionId("tg-7"), "Alex")
         assertEquals("ready", opening.status)
         assertEquals("Hello?", opening.question)
         ai.markCallStarterDelivered(opening.callId)

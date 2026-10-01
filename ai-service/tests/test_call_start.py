@@ -21,12 +21,13 @@ class Model:
     async def start_call_question(self, context):
         self.calls += 1
         assert "recentConversation" in context
-        return "Hi! What made you smile today?"
+        assert context["firstName"] is None
+        return "Hi! How are you? What made you smile today?"
 
 
 class Personalization:
     async def prepare(self, session_id, continuation=False):
-        assert continuation
+        assert not continuation
         return "Use verified memory only."
 
 

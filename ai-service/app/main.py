@@ -274,7 +274,7 @@ def create_app(
     @app.post("/internal/calls/start")
     async def calls_start(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return await call_starter.start(_call_session_id(payload))
+        return await call_starter.start(_call_session_id(payload), payload.get("firstName"))
 
     @app.post("/internal/calls/starter-delivered")
     async def calls_starter_delivered(request: Request) -> dict[str, bool]:

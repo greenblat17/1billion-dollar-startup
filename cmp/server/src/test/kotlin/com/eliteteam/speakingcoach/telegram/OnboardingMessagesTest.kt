@@ -127,7 +127,7 @@ class OnboardingMessagesTest {
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL), minutes)
         val quietDeal = practiceDeal(10)
         assertTrue(quietDeal.plain().startsWith("10 minutes a day. Deal 🤝"))
-        assertTrue(quietDeal.plain().endsWith("Come back tomorrow for your 10-minute practice."))
+        assertTrue(quietDeal.plain().endsWith("You can start your 10-minute practice now."))
         assertTrue(!quietDeal.plain().contains("/profile"))
         assertTrue(quietDeal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
         val ask = reminderAskKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }

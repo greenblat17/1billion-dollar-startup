@@ -56,7 +56,7 @@ class ProfileMessagesTest {
         val deal = practiceDeal(10, 4)
         assertEquals(
             "10 minutes a day. Deal 🤝\n\n🔥 Day 4 of your streak\n\n" +
-                "Come back tomorrow for your 10-minute practice.",
+                "You can start your 10-minute practice now.",
             deal.plain(),
         )
         assertTrue(deal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
@@ -65,7 +65,7 @@ class ProfileMessagesTest {
         for (streak in listOf(null, 0)) {
             val text = practiceDeal(15, streak).plain()
             assertFalse(text.contains("Day 1"))
-            assertTrue(text.endsWith("Come back tomorrow for your 15-minute practice."))
+            assertTrue(text.endsWith("You can start your 15-minute practice now."))
         }
         assertTrue(isProfileCommand("/profile"))
         assertTrue(isProfileCommand("/profile@speaky"))
