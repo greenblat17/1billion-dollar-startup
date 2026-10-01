@@ -103,6 +103,13 @@ data class RemindersSnapshot(
 )
 
 @Serializable
+data class ReminderClockSummary(
+    val timezone: String,
+    val active: Int,
+    val hours: Map<String, Int>,
+)
+
+@Serializable
 data class ReminderTotals(
     val sent: Long = 0,
     val blocked: Long = 0,

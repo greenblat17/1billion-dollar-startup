@@ -5,6 +5,7 @@ import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
@@ -48,6 +49,7 @@ private const val METRICS_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60
 
 internal fun interface MetricsSource {
     suspend fun load(): MetricsSnapshot
+    suspend fun reminderSummary(): ReminderClockSummary? = null
 }
 
 internal class MetricsDashboard(
@@ -111,7 +113,15 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         val html = try {
             val report = dashboard.onboarding?.report(filter = onboardingFilter(call.request.queryParameters))
-            onboardingReportHtml(report)
+            val reminders = if (report == null) null else try {
+                dashboard.source.reminderSummary()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Reminder summary unavailable", error)
+                null
+            }
+            onboardingReportHtml(report, reminders)
         } catch (error: Throwable) {
             log.warn("Onboarding analytics failed", error)
             metricsUnavailableHtml()
@@ -132,8 +142,16 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         try {
             val now = Instant.now()
             val report = analytics.report(now, onboardingFilter(call.request.queryParameters))
+            val reminders = try {
+                dashboard.source.reminderSummary()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Reminder summary unavailable", error)
+                null
+            }
             call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=onboarding-analytics.json")
-            call.respondText(onboardingAgentJson(report, now), ContentType.Application.Json)
+            call.respondText(onboardingAgentJson(report, now, reminders), ContentType.Application.Json)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {

@@ -184,6 +184,8 @@ class MetricsStore(Protocol):
 
     async def reminder_time(self, session_id: str) -> str | None: ...
 
+    async def reminder_summary(self) -> dict[str, Any]: ...
+
     async def is_known(self, session_id: str) -> bool: ...
 
     async def is_activated(self, session_id: str) -> bool: ...
@@ -307,6 +309,13 @@ class MemoryMetricsStore:
             return None
         async with self._lock:
             return self._reminder_times.get(session)
+
+    async def reminder_summary(self) -> dict[str, Any]:
+        async with self._lock:
+            hours = empty_reminder_hours()
+            for session, clock in self._reminder_times.items():
+                add_reminder_hour(hours, session, clock)
+            return reminder_summary(hours)
 
     def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
         if "write_pending" in decision:
@@ -522,6 +531,32 @@ class RedisMetricsStore:
         value = await self._redis.get(_reminder_time_key(session))
         return str(value) if value else None
 
+    async def reminder_summary(self) -> dict[str, Any]:
+        hours = empty_reminder_hours()
+        prefix = _reminder_time_key("")
+        keys: list[str] = []
+        seen: set[str] = set()
+
+        async def count_batch() -> None:
+            if not keys:
+                return
+            values = await self._redis.mget(keys)
+            for key, value in zip(keys, values):
+                if value:
+                    add_reminder_hour(hours, key.removeprefix(prefix), str(value))
+            keys.clear()
+
+        async for key in self._redis.scan_iter(match=f"{prefix}*", count=200):
+            key = str(key)
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+            if len(keys) == 200:
+                await count_batch()
+        await count_batch()
+        return reminder_summary(hours)
+
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
         moment = _moment(now)
         day_name = metrics_day(moment)
@@ -703,6 +738,22 @@ def parse_reminder_clock(text: str) -> str | None:
     if hour > 23 or minute > 59:
         return None
     return f"{hour:02d}:{minute:02d}"
+
+
+def empty_reminder_hours() -> dict[str, int]:
+    return {f"{hour:02d}": 0 for hour in range(24)}
+
+
+def add_reminder_hour(hours: dict[str, int], session: str, clock: str) -> None:
+    if telegram_chat_id(session) is None:
+        return
+    normalized = parse_reminder_clock(clock)
+    if normalized is not None:
+        hours[normalized[:2]] += 1
+
+
+def reminder_summary(hours: dict[str, int]) -> dict[str, Any]:
+    return {"timezone": METRICS_TIMEZONE, "active": sum(hours.values()), "hours": hours}
 
 
 def reminder_is_due(moment: float, hhmm: str) -> bool:

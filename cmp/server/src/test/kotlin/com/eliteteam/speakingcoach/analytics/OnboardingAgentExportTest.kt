@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.analytics
 
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import java.time.Instant
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -25,13 +26,18 @@ class OnboardingAgentExportTest {
         val voiceRow = OnboardingVoiceRow("secret-run-1", "secret-user-1", false, "secret-outcome",
             start.plusSeconds(50), outcome = "secret-outcome")
         val report = onboardingReport(attempts, listOf(voiceRow), now)
-        val text = onboardingAgentJson(report, now)
+        val text = onboardingAgentJson(report, now,
+            ReminderClockSummary("Europe/Moscow", 2, mapOf("08" to 1, "13" to 1)))
         val root = Json.parseToJsonElement(text).jsonObject
         val cohort = root.getValue("cohorts").jsonObject.getValue("closed_primary").jsonArray.single().jsonObject
         val voice = cohort.getValue("steps").jsonArray.first {
             it.jsonObject.getValue("id").jsonPrimitive.content == "first_voice"
         }.jsonObject
-        assertEquals("onboarding-analytics.v2", root.getValue("schema_version").jsonPrimitive.content)
+        assertEquals("onboarding-analytics.v3", root.getValue("schema_version").jsonPrimitive.content)
+        val reminders = root.getValue("current_reminders").jsonObject
+        assertEquals("all_users_current", reminders.getValue("scope").jsonPrimitive.content)
+        assertEquals("2", reminders.getValue("active").jsonPrimitive.content)
+        assertEquals("1", reminders.getValue("by_hour").jsonObject.getValue("08").jsonPrimitive.content)
         assertEquals("2", voice.getValue("count").jsonPrimitive.content)
         assertEquals("1", voice.getValue("from_previous").jsonObject.getValue("numerator").jsonPrimitive.content)
         assertEquals("1", voice.getValue("from_previous").jsonObject.getValue("denominator").jsonPrimitive.content)

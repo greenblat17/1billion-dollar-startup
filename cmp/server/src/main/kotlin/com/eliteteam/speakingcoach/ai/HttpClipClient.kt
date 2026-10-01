@@ -122,6 +122,12 @@ class HttpClipClient(
         return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
     }
 
+    suspend fun reminderSummary(): ReminderClockSummary {
+        val response = http.get("$root/internal/reminders/summary") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder summary returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun scheduleReminder(
         sessionId: SessionId,
         requestId: String,
@@ -351,6 +357,7 @@ internal class HttpMetricsSource(
     private val clips: HttpClipClient,
 ) : MetricsSource {
     override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
+    override suspend fun reminderSummary(): ReminderClockSummary = clips.reminderSummary()
 }
 
 private sealed interface ClipJobStatus {

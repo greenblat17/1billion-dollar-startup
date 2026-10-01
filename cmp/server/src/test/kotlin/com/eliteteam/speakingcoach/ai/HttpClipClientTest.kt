@@ -137,6 +137,25 @@ class HttpClipClientTest {
     }
 
     @Test
+    fun loadsCurrentReminderHoursWithInternalToken() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals(HttpMethod.Get, request.method)
+            assertEquals("/internal/reminders/summary", request.url.encodedPath)
+            assertEquals("secret-token", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            respond(
+                content = """{"timezone":"Europe/Moscow","active":2,"hours":{"08":1,"13":1}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val http = client(engine)
+        val summary = HttpClipClient("http://ai.local", http, internalToken = "secret-token").reminderSummary()
+        assertEquals(2, summary.active)
+        assertEquals(1, summary.hours["13"])
+        http.close()
+    }
+
+    @Test
     fun reportsReminderRoundAsJson() = runTest {
         val engine = MockEngine { request ->
             when {

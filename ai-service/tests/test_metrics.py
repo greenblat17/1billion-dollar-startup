@@ -479,6 +479,7 @@ async def test_reminders_claim_route_requires_token() -> None:
     )
     with TestClient(app) as client:
         assert client.post("/internal/reminders/claim").status_code == 401
+        assert client.get("/internal/reminders/summary").status_code == 401
         asking = client.post(
             "/internal/reminders/schedule",
             headers=AUTH,
@@ -493,6 +494,7 @@ async def test_reminders_claim_route_requires_token() -> None:
         second = client.post("/internal/reminders/claim", headers=AUTH, json={"mode": "manual"})
         missing = client.get("/internal/reminders/tg-9", headers=AUTH)
         saved = client.get("/internal/reminders/tg-7", headers=AUTH)
+        summary = client.get("/internal/reminders/summary", headers=AUTH)
     assert asking.status_code == 200
     assert invalid.json() == {"status": "invalid"}
     assert first.status_code == 200
@@ -506,6 +508,39 @@ async def test_reminders_claim_route_requires_token() -> None:
     assert missing.status_code == 200
     assert missing.json() == {"time": None}
     assert saved.json() == {"time": "08:05"}
+    assert summary.status_code == 200
+    assert summary.json()["active"] == 2
+    assert summary.json()["hours"]["08"] == 1
+    assert summary.json()["hours"]["13"] == 1
+
+
+@pytest.mark.asyncio
+async def test_reminder_summary_tracks_current_time_changes_and_clear() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        for store in opened.stores:
+            for session, clock in (("tg-7", "08:05"), ("tg-8", "08:45"), ("tg-ChatId(chatId=-100)", "19:30")):
+                await store.schedule_reminder(session, "ask", run_id="run")
+                await store.schedule_reminder(session, "submit", text=clock)
+            await store.schedule_reminder("app-session", "ask", run_id="run")
+            await store.schedule_reminder("app-session", "submit", text="09:00")
+            first = await store.reminder_summary()
+            assert first["timezone"] == "Europe/Moscow"
+            assert first["active"] == 3
+            assert first["hours"]["08"] == 2
+            assert first["hours"]["19"] == 1
+            assert sum(first["hours"].values()) == 3
+
+            await store.schedule_reminder("tg-7", "ask", run_id="run")
+            await store.schedule_reminder("tg-7", "submit", text="13:15")
+            await store.schedule_reminder("tg-8", "clear")
+            current = await store.reminder_summary()
+            assert current["active"] == 2
+            assert current["hours"]["08"] == 0
+            assert current["hours"]["13"] == 1
+            assert current["hours"]["19"] == 1
+    finally:
+        await opened.aclose()
 
 
 @pytest.mark.asyncio

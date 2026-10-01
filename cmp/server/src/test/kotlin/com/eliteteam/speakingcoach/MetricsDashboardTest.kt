@@ -11,6 +11,7 @@ import com.eliteteam.speakingcoach.ai.ReminderSegment
 import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
 import com.eliteteam.speakingcoach.ai.ReminderTotals
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.RetentionCohort
 import com.eliteteam.speakingcoach.ai.RetentionSlice
 import com.eliteteam.speakingcoach.ai.RetentionSnapshot
@@ -31,6 +32,7 @@ import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -42,7 +44,11 @@ class MetricsDashboardTest {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
                 password = PASSWORD,
-                source = MetricsSource { error("unused for onboarding") },
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused for onboarding")
+                    override suspend fun reminderSummary() = ReminderClockSummary(
+                        "Europe/Moscow", 2, mapOf("08" to 1, "13" to 1))
+                },
                 secureCookie = false,
                 onboarding = MemoryOnboardingAnalytics(),
             ))
@@ -60,11 +66,38 @@ class MetricsDashboardTest {
         val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
         assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
         assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
+        assertEquals("2", root.getValue("current_reminders").jsonObject.getValue("active").jsonPrimitive.content)
 
         val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&source=campaign") {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(page.contains("$ONBOARDING_AGENT_PATH?days=7&amp;source=campaign"))
+        assertTrue(page.contains("Активных: 2"))
+        assertTrue(page.contains("08:00–08:59"))
+    }
+
+    @Test
+    fun reminderSourceFailureDoesNotHideOnboardingAnalytics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused")
+                    override suspend fun reminderSummary(): ReminderClockSummary = error("ai-service unavailable")
+                },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val exported = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertEquals(JsonNull, Json.parseToJsonElement(exported.bodyAsText()).jsonObject["current_reminders"])
+        val page = client.get(ONBOARDING_ANALYTICS_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Текущие настройки напоминаний недоступны"))
     }
 
     @Test

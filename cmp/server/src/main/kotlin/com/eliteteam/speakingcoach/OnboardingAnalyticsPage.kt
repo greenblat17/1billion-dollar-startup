@@ -6,11 +6,12 @@ import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
 import com.eliteteam.speakingcoach.analytics.decisionCounts
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import kotlin.math.roundToInt
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-internal fun onboardingReportHtml(report: OnboardingReport?): String {
+internal fun onboardingReportHtml(report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null): String {
     val body = if (report == null) {
         "<p>История онбординга не пишется: нет базы.</p>"
     } else {
@@ -58,6 +59,8 @@ internal fun onboardingReportHtml(report: OnboardingReport?): String {
         ${timingTable(report)}
         <h2>Результат и действия</h2>
         ${decisionTable(report)}
+        <h2>Напоминания сейчас · все пользователи</h2>
+        ${reminderClockChart(reminderSummary)}
         <h2>Качество сбора · с запуска сервера</h2>
         <table><thead><tr><th>Показатель</th><th>Число</th><th>Из записей</th></tr></thead><tbody>
           <tr><td>Ошибки записи</td><td>${OnboardingAnalyticsHealth.failedWrites()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
@@ -104,6 +107,18 @@ private fun agentExportLink(filter: OnboardingFilter): String {
 }
 
 private fun percentage(part: Int, whole: Int): String = if (whole == 0) "—" else "${rate(part, whole)}%"
+
+private fun reminderClockChart(summary: ReminderClockSummary?): String {
+    if (summary == null) return "<p class=\"meta\">Текущие настройки напоминаний недоступны.</p>"
+    val hours = (0..23).map { "%02d".format(it) to (summary.hours["%02d".format(it)] ?: 0) }
+    val bars = hours.filter { it.second > 0 }.joinToString("") { (hour, count) ->
+        bar("$hour:00–$hour:59", count, summary.active)
+    }
+    return "<p class=\"meta\">Активных: ${summary.active}. Время по Москве; текущие настройки всех пользователей, " +
+        "фильтры онбординга не применяются. Смена времени и отключение отражаются сразу.</p>" +
+        if (bars.isEmpty()) "<p class=\"meta\">Пока нет активных напоминаний.</p>" else
+            "<div class=\"onb-chart\" aria-label=\"Распределение времени напоминаний\">$bars</div>"
+}
 
 private fun activationTable(report: OnboardingReport): String {
     if (report.activation.isEmpty()) return "<p class=\"meta\">Пока нет входов с новой аналитикой.</p>"
