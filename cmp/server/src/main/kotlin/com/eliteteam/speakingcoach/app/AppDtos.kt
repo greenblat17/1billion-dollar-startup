@@ -37,6 +37,7 @@ internal data class HomeResponse(
 internal data class CreateSessionRequest(
     val topic: String,
     val tutorVoice: String,
+    val platform: String? = null,
 )
 
 @Serializable
@@ -88,6 +89,8 @@ internal data class InternalRealtimeRequest(
     val sdp: String,
     val topic: String,
     val tutorVoice: String,
+    val sessionId: String = "",
+    val platform: String? = null,
 )
 
 @Serializable

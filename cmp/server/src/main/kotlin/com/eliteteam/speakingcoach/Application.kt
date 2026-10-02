@@ -36,6 +36,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
@@ -58,7 +59,18 @@ suspend fun main() {
     if (config.usesWebhook) {
         startWebhookServer(config)
     } else {
-        embeddedServer(Netty, port = config.serverPort, host = "0.0.0.0") {
+        embeddedServer(Netty, configure = {
+            connector {
+                host = "0.0.0.0"
+                port = config.serverPort
+            }
+            if (config.monitoringPort > 0) {
+                connector {
+                    host = "127.0.0.1"
+                    port = config.monitoringPort
+                }
+            }
+        }) {
             module(config)
         }.start(wait = true)
     }
@@ -118,6 +130,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 host = "0.0.0.0"
                 port = config.serverPort
             }
+            if (config.monitoringPort > 0) {
+                connector {
+                    host = "127.0.0.1"
+                    port = config.monitoringPort
+                }
+            }
         },
     ) {
         val ktorApp = this
@@ -131,6 +149,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 secureCookie = true,
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
                 campaign = campaignRunner,
+            ),
+            monitoring = MonitoringDashboard(
+                source = HttpMetricsSource(ai),
+                reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+                campaign = campaignRunner,
+                monitoringPort = config.monitoringPort,
             ),
         ) {
             route("/telegram/webhook") {
@@ -178,14 +202,23 @@ internal fun Application.module(
     if (appApi != null) {
         installAppPlugins(appApi)
     }
+    val source = metricsSource ?: ownedMetricsSource(config)
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
             config,
-            metricsSource ?: ownedMetricsSource(config),
+            source,
             secureCookie = false,
             reminders = reminderAdmin,
             campaign = campaignAdmin,
         ),
+        monitoring = source?.let {
+            MonitoringDashboard(
+                source = it,
+                reminders = reminderAdmin,
+                campaign = campaignAdmin,
+                monitoringPort = config.monitoringPort,
+            )
+        },
     ) {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
@@ -219,7 +252,7 @@ private fun Application.metricsDashboard(
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
-    if (config.metricsPassword.isNullOrBlank()) {
+    if (config.metricsPassword.isNullOrBlank() && config.monitoringPort == 0) {
         return null
     }
     val http = speakingCoachAiHttpClient()

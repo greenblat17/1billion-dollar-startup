@@ -57,6 +57,21 @@ private fun spokenKey(chatId: Any, messageId: MessageId) = "$chatId:${messageId.
 
 private fun oneLine(text: String): String = text.replace(Regex("[\\r\\n]+"), " ")
 
+private suspend fun noteUserAction(
+    ai: HttpClipClient,
+    log: org.slf4j.Logger,
+    sessionId: SessionId,
+    action: String,
+) {
+    try {
+        ai.recordUserAction(sessionId, action)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.warn("Failed to record user action {} for {}", action, sessionId.value, error)
+    }
+}
+
 private fun userAction(text: String): String = when {
     isStartCommand(text) -> "start"
     isOnboardingCommand(text) -> "onboarding"
@@ -659,6 +674,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val text = (input as? TextContent)?.text.orEmpty()
         log.info("User action {} text={}", action, oneLine(text))
+        noteUserAction(ai, log, telegramSessionId(message.chat.id), action)
         try {
             actions.run(
                 chatId = message.chat.id.toString(),
@@ -793,6 +809,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             request = "callback:${query.id}",
         ) {
         log.info("User action {} text={}", callbackAction(query.data), oneLine(query.data))
+        callbackMessage?.let { message ->
+            noteUserAction(ai, log, telegramSessionId(message.chat.id), callbackAction(query.data))
+        }
         // Stop Telegram's spinner before waiting for synthesis or the per-chat queue.
         try {
             answerCallbackQuery(query)

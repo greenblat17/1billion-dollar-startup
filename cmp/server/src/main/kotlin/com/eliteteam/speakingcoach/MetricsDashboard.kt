@@ -241,7 +241,7 @@ private fun metricsLoginHtml(rejected: Boolean = false): String {
     """.trimIndent()
 }
 
-private fun metricsUnavailableHtml(): String = """
+internal fun metricsUnavailableHtml(): String = """
     <!doctype html>
     <html lang="ru">
     <head>
@@ -334,7 +334,7 @@ private val correctionLabels = linkedMapOf(
 
 private val nonfailureCorrectionOutcomes = setOf("shown", "empty", "filtered")
 
-private fun correctionReport(snapshot: MetricsSnapshot): String {
+internal fun correctionReport(snapshot: MetricsSnapshot): String {
     val rows = correctionLabels.mapNotNull { (key, label) ->
         snapshot.corrections[key]?.takeIf { it.count > 0 }?.let { Triple(key, label, it) }
     }
@@ -363,7 +363,7 @@ private fun correctionReport(snapshot: MetricsSnapshot): String {
 private fun averageCorrectionMs(metrics: CorrectionMetrics): String =
     String.format(Locale.US, "%.0f", metrics.elapsedMs.toDouble() / metrics.count)
 
-private fun funnelDayRows(snapshot: MetricsSnapshot): String {
+internal fun funnelDayRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelDays.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
@@ -372,7 +372,7 @@ private fun funnelDayRows(snapshot: MetricsSnapshot): String {
     }
 }
 
-private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
+internal fun funnelSourceRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelSources.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет источников.</td></tr>"
     }
@@ -403,10 +403,12 @@ internal fun card(label: String, value: String): String {
     return "<div class=\"card\"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>"
 }
 
-internal fun adminTabs(active: String): String {
+internal fun adminTabs(active: String, root: String = "/admin/metrics"): String {
     val tabs = listOf(
-        METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики",
-        LEGACY_CAMPAIGN_PATH to "Onboarding рассылка",
+        root to "Сводка",
+        "$root/reminders" to "Напоминания",
+        "$root/streaks" to "Стрики",
+        "$root/onboarding-campaign" to "Onboarding рассылка",
     )
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
@@ -451,9 +453,9 @@ internal fun escapeHtml(text: String): String = buildString {
     }
 }
 
-private fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
 
-private fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
 
 private fun formatRub(value: Double?): String {
     if (value == null) {

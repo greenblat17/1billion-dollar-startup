@@ -6,6 +6,7 @@ import base64
 
 from app.calls import CallStore
 from app.dialogue import DialogueStore
+from app.metrics_v2 import bind_metrics, reset_metrics
 from app.speech import SessionSpeech
 
 
@@ -19,6 +20,13 @@ class CallStarter:
         self._locks: dict[str, asyncio.Lock] = {}
 
     async def start(self, session_id: str, first_name: str | None = None) -> dict:
+        bound = bind_metrics(session_id)
+        try:
+            return await self._start_locked(session_id, first_name)
+        finally:
+            reset_metrics(bound)
+
+    async def _start_locked(self, session_id: str, first_name: str | None = None) -> dict:
         async with self._locks.setdefault(session_id, asyncio.Lock()):
             summary = await self.calls.open(session_id)
             call = await self.calls.get(summary["callId"])

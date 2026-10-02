@@ -49,3 +49,7 @@ docker run -d --name speaking-coach --restart unless-stopped \
   -v "$APP/tls.key:$APP/tls.key:ro" \
   -v "$APP/logs:/opt/speaking-coach/logs" \
   speaking-coach:local
+
+if [ -f "$APP/monitoring/deploy-remote.sh" ]; then
+  bash "$APP/monitoring/deploy-remote.sh" || echo "Monitoring stack was not updated" >&2
+fi

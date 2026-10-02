@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.data
 
 import co.touchlab.kermit.Logger
+import com.eliteteam.speakingcoach.metricsClient
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
@@ -72,7 +73,7 @@ class HttpSpeakingCoachClient(
             http.post("$root/v1/sessions") {
                 applyBearer()
                 contentType(ContentType.Application.Json)
-                setBody(CreateSessionRequestDto(topic = topic, tutorVoice = tutorVoice))
+                setBody(CreateSessionRequestDto(topic = topic, tutorVoice = tutorVoice, platform = metricsClient()))
             }
         }
         val sessionId = response.body<CreateSessionResponseDto>().sessionId

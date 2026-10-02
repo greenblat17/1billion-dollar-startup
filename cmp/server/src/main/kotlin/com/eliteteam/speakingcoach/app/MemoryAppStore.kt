@@ -33,13 +33,14 @@ internal class MemoryAppStore : AppStore {
     override suspend fun findUserById(id: String): AppUser? =
         mutex.withLock { usersById[id] }
 
-    override suspend fun createSession(userId: String, topic: String, tutorVoice: String): SpeakingSession =
+    override suspend fun createSession(userId: String, topic: String, tutorVoice: String, platform: String?): SpeakingSession =
         mutex.withLock {
             val session = SpeakingSession(
                 id = "app-$userId-${UUID.randomUUID()}",
                 userId = userId,
                 topic = topic,
                 tutorVoice = tutorVoice,
+                platform = platform,
             )
             sessions[session.id] = session
             session

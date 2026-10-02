@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
 from app.metrics import MetricsStore
+from app.metrics_v2 import read_provider_cost
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
 
@@ -183,6 +184,7 @@ class OpenAiChatModel:
         self._notes_temperature = notes_temperature
         self._max_tokens = max_tokens
         self._metrics = metrics
+        self._v2 = None
 
     async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str:
         messages = [{"role": "system", "content": REPLY_SYSTEM}]
@@ -190,6 +192,7 @@ class OpenAiChatModel:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
+        self._usage_kind = "reply"
         text = await self._complete(messages, self._reply_temperature)
         return parse_reply(text)
 
@@ -210,6 +213,7 @@ class OpenAiChatModel:
             if attempt_started is not None:
                 attempt_started()
             try:
+                self._usage_kind = "notes"
                 text = await self._complete(
                     messages, self._notes_temperature, NOTES_MAX_TOKENS, self._notes_model, retry=False,
                 )
@@ -239,6 +243,7 @@ class OpenAiChatModel:
 
     async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None,
                             response_format: dict | None = None, model: str | None = None) -> str:
+        self._usage_kind = "json"
         return await self._complete(
             [{"role": "system", "content": system}, {"role": "user", "content": data}],
             temperature,
@@ -250,6 +255,7 @@ class OpenAiChatModel:
     async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
                         model: str | None = None, response_format: dict | None = None,
                         retry: bool = True) -> str:
+        kind = getattr(self, "_usage_kind", "reply")
         async def call() -> Any:
             extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else None
             return await self._client.chat.completions.create(
@@ -268,17 +274,27 @@ class OpenAiChatModel:
                 raise EmptyCompletionError("llm returned no choices")
             return response
 
-        response = (
-            await once_on_retryable(
-                call_with_choices, retry_if=lambda error: is_retryable(error) or isinstance(error, EmptyCompletionError),
-            ) if retry else await call_with_choices()
-        )
+        try:
+            response = (
+                await once_on_retryable(
+                    call_with_choices, retry_if=lambda error: is_retryable(error) or isinstance(error, EmptyCompletionError),
+                ) if retry else await call_with_choices()
+            )
+        except Exception:
+            if self._v2 is not None and kind != "notes":
+                await self._v2.record_error("", "llm", "failed")
+            raise
         if self._metrics is not None:
             prompt_tokens, completion_tokens = read_usage(response)
             await self._metrics.record_llm(
                 prompt_tokens,
                 completion_tokens,
                 int((time.perf_counter() - started) * 1000),
+            )
+        if self._v2 is not None:
+            prompt_tokens, completion_tokens = read_usage(response)
+            await self._v2.record_llm(
+                "", kind, model or self._model, prompt_tokens, completion_tokens, read_provider_cost(response),
             )
         choices = getattr(response, "choices", None) or []
         if getattr(choices[0], "finish_reason", None) == "length":
