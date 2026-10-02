@@ -115,10 +115,11 @@ class Model:
         }
 
 
-def service(stt=None, model=None, store=None, tts=None, llm=None):
+def service(stt=None, model=None, store=None, tts=None, llm=None, notes_timeout_seconds=8.0):
     pipeline = ClipPipeline(
         stt=stt or Stt(), llm=llm or FakeLlm([Correction("I builds", "I build")]),
         tts=tts or FakeTts(), dialogue=MemoryDialogueStore(40, 3600),
+        notes_timeout_seconds=notes_timeout_seconds,
     )
     return OnboardingService(store or OnboardingStore(), pipeline, model or Model())
 
@@ -264,6 +265,63 @@ async def test_onboarding_keeps_only_the_first_ranked_correction():
         ("made a photo", "word"),
     ]
     assert result.corrections[0].explanation == stored[0]["explanation"]
+
+
+@pytest.mark.asyncio
+async def test_onboarding_voice_continues_after_live_correction_deadline():
+    class HangingNotes(FakeLlm):
+        cancelled = False
+
+        async def complete_notes_result(self, user_text, *, deadline_at=None, attempt_started=None):
+            if attempt_started is not None:
+                attempt_started()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    llm = HangingNotes()
+    s = service(llm=llm, notes_timeout_seconds=0.03)
+    run = await begin(s)
+    result = await turn(s, run)
+    assert result.audio is not None
+    assert result.corrections == []
+    assert llm.cancelled
+    assert (await s.pipeline.metrics.snapshot())["corrections"]["deadline"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_onboarding_assessment_and_voice_overlap_live_corrections():
+    notes_started = asyncio.Event()
+    voice_started = asyncio.Event()
+
+    class WaitingNotes(FakeLlm):
+        async def complete_notes_result(self, user_text, *, deadline_at=None, attempt_started=None):
+            notes_started.set()
+            await asyncio.wait_for(voice_started.wait(), 0.5)
+            return await super().complete_notes_result(
+                user_text, deadline_at=deadline_at, attempt_started=attempt_started,
+            )
+
+    class WaitingModel(Model):
+        async def assess(self, state):
+            await asyncio.wait_for(notes_started.wait(), 0.5)
+            return await super().assess(state)
+
+    class SignallingTts(FakeTts):
+        async def synthesize(self, text, speed=None):
+            if text == "What do you enjoy about your work?":
+                voice_started.set()
+            return await super().synthesize(text, speed)
+
+    s = service(model=WaitingModel(), llm=WaitingNotes([Correction("I builds", "I build")]),
+                tts=SignallingTts())
+    run = await begin(s)
+    result = await asyncio.wait_for(turn(s, run), 1)
+    assert result.audio is not None
+    assert result.corrections
+    assert notes_started.is_set() and voice_started.is_set()
 
 
 @pytest.mark.asyncio

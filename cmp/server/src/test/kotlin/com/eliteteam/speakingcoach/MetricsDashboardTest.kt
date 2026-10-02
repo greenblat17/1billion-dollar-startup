@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
@@ -29,12 +30,52 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun correctionsSectionShowsFailuresLatencyAndRetries() = testApplication {
+        val snapshot = sampleSnapshot().copy(corrections = mapOf(
+            "shown" to CorrectionMetrics(count = 2, elapsedMs = 500, secondAttempts = 1),
+            "empty" to CorrectionMetrics(count = 1, elapsedMs = 200),
+            "deadline" to CorrectionMetrics(count = 1, elapsedMs = 8000, secondAttempts = 1),
+            "invalid_json" to CorrectionMetrics(count = 1, elapsedMs = 1000),
+            "<script>alert(1)</script>" to CorrectionMetrics(count = 100),
+        ))
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
+        }
+        val html = client.get("/admin/metrics") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(html.contains("<h2>Исправления</h2>"))
+        assertTrue(html.contains("<dt>Запросы исправлений</dt><dd>5</dd>"))
+        assertTrue(html.contains("<dt>Сбои</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Доля сбоев</dt><dd>40.0%</dd>"))
+        assertTrue(html.contains("<dt>Повторная попытка</dt><dd>2</dd>"))
+        assertTrue(html.contains("<tr><td>Показано исправление</td><td>2</td><td>250</td></tr>"))
+        assertTrue(html.contains("<tr><td>Превышен лимит 8 с</td><td>1</td><td>8000</td></tr>"))
+        assertFalse(html.contains("<script>alert(1)</script>"))
+    }
+
+    @Test
+    fun correctionsSectionAcceptsOlderMetricsResponseWithoutCorrections() {
+        val oldResponse = """{
+            "timezone":"Europe/Moscow","day":"2026-09-24","promptTokens":0,
+            "completionTokens":0,"tpm":0,"tps":0.0,"turns":0,"dau":0,
+            "sttSeconds":0.0,"ttsChars":0
+        }"""
+        val snapshot = Json.decodeFromString<MetricsSnapshot>(oldResponse)
+        assertTrue(snapshot.corrections.isEmpty())
+        val section = metricsReportHtml(snapshot).substringAfter("<h2>Исправления</h2>").substringBefore("<h2>Воронка</h2>")
+        assertTrue(section.contains("Пока нет данных."))
+        assertFalse(section.contains("Доля сбоев"))
+    }
+
     @Test
     fun campaignPageRequiresLoginAndSendsOnlyOnExplicitPost() = testApplication {
         val admin = FakeCampaignAdmin()

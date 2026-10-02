@@ -109,6 +109,26 @@ async def test_day_counters_window_and_moscow_date() -> None:
 
 
 @pytest.mark.asyncio
+async def test_correction_outcome_counts_and_duration_match_memory_and_redis() -> None:
+    opened = _Stores(MetricRates())
+    moment = 1_800_000_000.0
+    try:
+        for store in opened.stores:
+            await store.record_correction("shown", 200, 1, now=moment)
+            await store.record_correction("shown", 300, 2, now=moment)
+            await store.record_correction("deadline", 6000, 1, now=moment)
+            snapshot = await store.snapshot(now=moment)
+            assert snapshot["corrections"] == {
+                "shown": {"count": 2, "elapsedMs": 500, "secondAttempts": 1},
+                "deadline": {"count": 1, "elapsedMs": 6000, "secondAttempts": 0},
+            }
+            with pytest.raises(ValueError, match="unknown correction outcome"):
+                await store.record_correction("unbounded-field", 1, now=moment)
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
 async def test_rubles_need_every_rate() -> None:
     moment = 1_800_000_000.0
     full = _Stores(FULL_RATES)

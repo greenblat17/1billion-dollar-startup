@@ -1,0 +1,11 @@
+# Onboarding review reliability
+
+Status: implemented locally on `feature/telegram-start-call`; not deployed.
+
+The final onboarding review requests an OpenRouter-compatible strict JSON Schema for the two verified compatible models, `google/gemini-3.5-flash-lite` and `openai/gpt-4o-mini`; provider routing requires support for the format. `openai/gpt-5.6-luna` has no compatible provider for this request on the tested OpenRouter route, so other configured models retain JSON-object mode. In every mode, the service rejects a response stopped by the completion-token limit, checks the exact required shape locally, and applies the existing band/position parser. The service does not save or show a partially valid report.
+
+The first request uses 1200 completion tokens. If it fails, one automatic request uses 2400 tokens. Set `ONBOARDING_REVIEW_MODEL` for the primary review model and `ONBOARDING_REVIEW_FALLBACK_MODEL` for the second request; when unset, the review uses `LLM_MODEL` and retries that same model. Ordinary dialogue and live correction models remain separately configured. A DEV comparison can set the review model to `google/gemini-3.5-flash-lite` and the fallback to `openai/gpt-4o-mini` without changing ordinary conversation.
+
+The second request happens only after an invalid or unavailable first response. It increases latency and provider cost only on that failure path. If both requests fail, the attempt remains `pending` with its accepted turns and explicit Retry. No fabricated CEFR or skill score is emitted. Provider calls can still fail twice, so the guarantee is that the service never publishes an invalid review, not that a review is always available immediately.
+
+The prompt also forbids treating an immediate self-correction as a learner error and forbids claims about speaking pace or hesitation without timing evidence. These rules reduce known mistakes but do not replace human review of assessment quality. See the [model comparison](../plans/2026-10-02-onboarding-review-model-comparison.md) for synthetic and two saved DEV-attempt probes. Before enabling a new primary model on DEV, inspect additional real outcomes and the complete Telegram retry flow. No raw DEV transcript belongs in the repository or CI logs.

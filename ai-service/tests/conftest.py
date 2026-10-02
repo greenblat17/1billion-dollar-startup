@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
-from app.llm import ChatModel, Correction
+from app.llm import ChatModel, Correction, CorrectionRun
 from app.main import create_app
 from app.pipeline import ClipPipeline
 from app.stt import SpeechToText, SttResult
@@ -58,6 +58,12 @@ class FakeLlm(ChatModel):
     async def complete_notes(self, user_text: str) -> list[Correction]:
         self.notes_calls.append(user_text)
         return list(self.notes)
+
+    async def complete_notes_result(self, user_text: str, *, deadline_at=None, attempt_started=None) -> CorrectionRun:
+        if attempt_started is not None:
+            attempt_started()
+        notes = await self.complete_notes(user_text)
+        return CorrectionRun(notes, "shown" if notes else "empty", 1)
 
 
 class FakeTts(TextToSpeech):

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.dialogue import DialogueStore
-from app.llm import ChatModel, Correction
+from app.llm import ChatModel, Correction, CorrectionRun
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
@@ -18,6 +18,8 @@ from app.tts import TextToSpeech, TtsAudio
 logger = logging.getLogger(__name__)
 
 CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
+NOTES_TIMEOUT_SECONDS = 8.0
+CORRECTION_METRICS_TIMEOUT_SECONDS = 0.2
 
 
 @dataclass
@@ -47,7 +49,10 @@ class ClipPipeline:
         streaks: StreakStore | None = None,
         calls: Any | None = None,
         speech: SessionSpeech | None = None,
+        notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
     ) -> None:
+        if notes_timeout_seconds <= 0:
+            raise ValueError("notes timeout must be positive")
         self.personalization = None
         self._stt = stt
         self._llm = llm
@@ -57,6 +62,7 @@ class ClipPipeline:
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
+        self._notes_timeout_seconds = notes_timeout_seconds
 
     @property
     def stt(self) -> SpeechToText:
@@ -77,6 +83,42 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
+
+    async def complete_live_notes(self, transcript: str) -> list[Correction]:
+        started = time.perf_counter()
+        deadline_at = time.monotonic() + self._notes_timeout_seconds
+        attempts = 0
+
+        def attempt_started() -> None:
+            nonlocal attempts
+            attempts += 1
+
+        try:
+            run = await asyncio.wait_for(
+                self._llm.complete_notes_result(
+                    transcript, deadline_at=deadline_at, attempt_started=attempt_started,
+                ),
+                self._notes_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            run = CorrectionRun([], "deadline", attempts)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live correction failed; outcome=other_error error=%s", type(exc).__name__)
+            run = CorrectionRun([], "other_error", attempts)
+
+        attempts = run.attempts
+        elapsed_ms = _elapsed_ms(started)
+        logger.info("live correction outcome=%s attempts=%s elapsed_ms=%s", run.outcome, attempts, elapsed_ms)
+        try:
+            await asyncio.wait_for(
+                self._metrics.record_correction(run.outcome, elapsed_ms, attempts),
+                CORRECTION_METRICS_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            logger.exception("failed to record correction outcome")
+        return run.corrections
 
     @property
     def streaks(self) -> StreakStore:
@@ -131,9 +173,7 @@ class ClipPipeline:
             finally:
                 timings[name] = _elapsed_ms(step_started)
 
-        tasks = [
-            asyncio.create_task(measured("notes", self._llm.complete_notes(stt_result.text))),
-        ]
+        tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         if self.personalization is not None:
             tasks.append(asyncio.create_task(measured(
                 "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),

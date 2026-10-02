@@ -4,8 +4,12 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import Settings
+from app.dialogue import MemoryDialogueStore
 from app.llm import Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply
+from app.metrics import MemoryMetricsStore, MetricRates
+from app.pipeline import ClipPipeline
 from app.review import parse_review
+from tests.conftest import FakeStt, FakeTts
 
 
 def decision(context="I am agree with you.", error="am agree", replacement="agree", kind="grammar", **overrides):
@@ -92,6 +96,14 @@ def test_exact_original_whole_words_and_contractions_are_required():
     assert parse([decision()], "I agree with you.") == []
 
 
+def test_modal_and_main_verb_are_preserved_when_removing_extra_to():
+    sentence = "I can't imagine he can to swim."
+    assert parse([decision(context=sentence, error="can to swim", replacement="swim")], sentence) == []
+    assert parse([decision(context=sentence, error="can to swim", replacement="can swim")], sentence) == [
+        Correction(sentence, "I can't imagine he can swim."),
+    ]
+
+
 def test_duplicates_and_overlapping_fragments_are_removed():
     notes = [decision(), decision(), decision(context="am agree", error="am agree", replacement="agree")]
     assert len(parse(notes)) == 1
@@ -146,7 +158,7 @@ async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
     class Model(OpenAiChatModel):
         calls = 0
 
-        async def _complete(self, messages, temperature, max_tokens=None, model=None):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
             self.calls += 1
             assert messages[0]["content"] == NOTES_SYSTEM
             assert max_tokens == NOTES_MAX_TOKENS
@@ -163,7 +175,7 @@ async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
 @pytest.mark.asyncio
 async def test_live_notes_artifact_markers_reject_an_overlapping_candidate():
     class Model(OpenAiChatModel):
-        async def _complete(self, messages, temperature, max_tokens=None, model=None):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
             return json.dumps({"speech_artifacts": ["is also is"], "notes": [decision(
                 context=transcript, error="is also is", replacement="is also",
             )]})
@@ -196,6 +208,96 @@ async def test_model_retries_one_empty_provider_envelope():
     client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     assert await OpenAiChatModel(client, "test")._complete([{"role": "user", "content": "Hi"}], 0) == '{"reply":"OK"}'
     assert completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_empty_provider_envelope_has_one_total_retry():
+    class Completions:
+        calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(choices=None, usage=None)
+
+    completions = Completions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    assert await OpenAiChatModel(client, "test").complete_notes("I am agree with you.") == []
+    assert completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_http_retry_followed_by_empty_envelope_stays_at_two_attempts():
+    import httpx
+
+    class Completions:
+        calls = 0
+
+        async def create(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                response = httpx.Response(503, request=httpx.Request("POST", "https://example.test/chat"))
+                raise httpx.HTTPStatusError("unavailable", request=response.request, response=response)
+            return SimpleNamespace(choices=None, usage=None)
+
+    completions = Completions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    assert await OpenAiChatModel(client, "test").complete_notes("I am agree with you.") == []
+    assert completions.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_notes_metrics_distinguish_empty_invalid_and_filtered_outputs():
+    class Model(OpenAiChatModel):
+        response = ""
+
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
+            return self.response
+
+    metrics = MemoryMetricsStore(MetricRates())
+    model = Model(None, "test", metrics=metrics)
+    pipeline = ClipPipeline(FakeStt([]), model, FakeTts(), MemoryDialogueStore(40, 86400), metrics)
+    for response in ('{"notes":[]}', 'not json', '{"notes":[{"context":"I am agree with you."}]}'):
+        model.response = response
+        assert await pipeline.complete_live_notes("I am agree with you.") == []
+    outcomes = (await metrics.snapshot())["corrections"]
+    assert {key: value["count"] for key, value in outcomes.items()} == {
+        "empty": 1, "invalid_json": 1, "filtered": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_model_rejects_truncated_json_before_parsing():
+    class Completions:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content='{"partial":'))],
+                usage=None,
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    with pytest.raises(ValueError, match="completion token limit"):
+        await OpenAiChatModel(client, "test")._complete([{"role": "user", "content": "Hi"}], 0)
+
+
+@pytest.mark.asyncio
+async def test_review_schema_requires_capable_openrouter_provider():
+    class Completions:
+        arguments = None
+
+        async def create(self, **kwargs):
+            self.arguments = kwargs
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"ok":true}'))],
+                usage=None,
+            )
+
+    completions = Completions()
+    client = SimpleNamespace(base_url="https://openrouter.ai/api/v1", chat=SimpleNamespace(completions=completions))
+    schema = {"type": "json_schema", "json_schema": {"name": "test", "strict": True, "schema": {"type": "object"}}}
+    await OpenAiChatModel(client, "default").complete_json("system", "data", response_format=schema, model="backup")
+    assert completions.arguments["model"] == "backup"
+    assert completions.arguments["response_format"] == schema
+    assert completions.arguments["extra_body"] == {"provider": {"require_parameters": True}}
 
 
 def test_parse_review_orders_grammar_then_vocabulary() -> None:

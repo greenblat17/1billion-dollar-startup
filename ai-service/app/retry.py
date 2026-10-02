@@ -20,11 +20,14 @@ def is_retryable(error: BaseException) -> bool:
     return False
 
 
-async def once_on_retryable(factory: Callable[[], Awaitable[T]], delay_seconds: float = 0.5) -> T:
+async def once_on_retryable(
+    factory: Callable[[], Awaitable[T]], delay_seconds: float = 0.5,
+    retry_if: Callable[[BaseException], bool] = is_retryable,
+) -> T:
     try:
         return await factory()
     except Exception as error:
-        if not is_retryable(error):
+        if not retry_if(error):
             raise
         await asyncio.sleep(delay_seconds)
         return await factory()
