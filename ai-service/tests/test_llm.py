@@ -158,11 +158,13 @@ async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
     class Model(OpenAiChatModel):
         calls = 0
 
-        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
+                            reasoning_effort=None):
             self.calls += 1
             assert messages[0]["content"] == NOTES_SYSTEM
             assert max_tokens == NOTES_MAX_TOKENS
             assert model == "openai/gpt-5.6-luna"
+            assert reasoning_effort == "none"
             return json.dumps({"notes": [decision(), decision(context="absent", error="absent", replacement="invented")]})
 
     model = Model(None, "test", notes_model="openai/gpt-5.6-luna")
@@ -173,9 +175,39 @@ async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
 
 
 @pytest.mark.asyncio
+async def test_none_reasoning_is_sent_only_for_live_corrections():
+    class Completions:
+        def __init__(self):
+            self.calls = []
+
+        async def create(self, **kwargs):
+            self.calls.append(kwargs)
+            content = '{"notes":[]}' if kwargs["messages"][0]["content"] == NOTES_SYSTEM else '{"reply":"OK"}'
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=content))],
+                usage=None,
+            )
+
+    completions = Completions()
+    client = SimpleNamespace(base_url="https://openrouter.ai/api/v1", chat=SimpleNamespace(completions=completions))
+    model = OpenAiChatModel(client, "openai/gpt-5.6-luna")
+
+    assert await model.complete_notes("I agree with you.") == []
+    assert await model.complete_reply([], "Hi") == "OK"
+    assert await model.complete_json("review", "data") == '{"reply":"OK"}'
+
+    notes, reply, review = completions.calls
+    assert notes["extra_body"] == {"reasoning": {"effort": "none"}}
+    assert notes["max_completion_tokens"] == NOTES_MAX_TOKENS
+    assert reply["extra_body"] is None
+    assert review["extra_body"] is None
+
+
+@pytest.mark.asyncio
 async def test_live_notes_artifact_markers_reject_an_overlapping_candidate():
     class Model(OpenAiChatModel):
-        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
+                            reasoning_effort=None):
             return json.dumps({"speech_artifacts": ["is also is"], "notes": [decision(
                 context=transcript, error="is also is", replacement="is also",
             )]})
@@ -187,7 +219,8 @@ async def test_live_notes_artifact_markers_reject_an_overlapping_candidate():
 @pytest.mark.asyncio
 async def test_notes_provider_failure_does_not_fail_the_voice_turn():
     class Model(OpenAiChatModel):
-        async def _complete(self, messages, temperature, max_tokens=None, model=None):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
+                            reasoning_effort=None):
             raise RuntimeError("missing provider choices")
 
     assert await Model(None, "test").complete_notes("I am agree with you.") == []
@@ -250,7 +283,8 @@ async def test_notes_metrics_distinguish_empty_invalid_and_filtered_outputs():
     class Model(OpenAiChatModel):
         response = ""
 
-        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True):
+        async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
+                            reasoning_effort=None):
             return self.response
 
     metrics = MemoryMetricsStore(MetricRates())

@@ -212,6 +212,7 @@ class OpenAiChatModel:
             try:
                 text = await self._complete(
                     messages, self._notes_temperature, NOTES_MAX_TOKENS, self._notes_model, retry=False,
+                    reasoning_effort="none" if self._notes_model == "openai/gpt-5.6-luna" else None,
                 )
                 payload = _load_json(text)
                 notes = payload.get("notes")
@@ -249,16 +250,18 @@ class OpenAiChatModel:
 
     async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
                         model: str | None = None, response_format: dict | None = None,
-                        retry: bool = True) -> str:
+                        retry: bool = True, reasoning_effort: str | None = None) -> str:
         async def call() -> Any:
-            extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else None
+            extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else {}
+            if reasoning_effort is not None:
+                extra_body["reasoning"] = {"effort": reasoning_effort}
             return await self._client.chat.completions.create(
                 model=model or self._model,
                 messages=messages,
                 temperature=temperature,
                 max_completion_tokens=self._max_tokens if max_tokens is None else max_tokens,
                 response_format=response_format or {"type": "json_object"},
-                extra_body=extra_body,
+                extra_body=extra_body or None,
             )
 
         started = time.perf_counter()
