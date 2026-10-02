@@ -58,7 +58,10 @@ class OpenAiTextToSpeech:
                 return await self._client.audio.speech.create(**kwargs), {}
             raw = await raw_create(**kwargs)
             headers = {str(key).lower(): value for key, value in dict(raw.headers).items()}
-            return await raw.parse(), headers
+            parsed = raw.parse()
+            if hasattr(parsed, "__await__"):
+                parsed = await parsed
+            return parsed, headers
 
         try:
             response, headers = await once_on_retryable(call)
