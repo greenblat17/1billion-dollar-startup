@@ -61,15 +61,17 @@ internal fun Route.installSpeakingCoachWebhook(
     )
     post {
         if (call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER) != secret) {
+            log.warn("Rejected Telegram webhook")
             call.respond(HttpStatusCode.Forbidden)
             return@post
         }
+        log.info("Accepted Telegram webhook")
         try {
             val update = telegramUpdateJson.decodeFromString(
                 UpdateDeserializationStrategy,
                 call.receiveText(),
             )
-            log.info("Telegram update {}", update.updateId)
+            log.info("Accepted Telegram update {}", update.updateId)
             transformer(update)
             call.respond(HttpStatusCode.OK)
         } catch (error: Throwable) {

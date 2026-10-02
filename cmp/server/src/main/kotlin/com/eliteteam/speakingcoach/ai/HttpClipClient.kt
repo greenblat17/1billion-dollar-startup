@@ -28,6 +28,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
@@ -327,7 +328,15 @@ class HttpClipClient(
 
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
         val started = TimeSource.Monotonic.markNow()
-        val jobId = submit(sessionId, clip)
+        log.info("Submitting clip")
+        val jobId = try {
+            submit(sessionId, clip)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Clip submit failed", error)
+            throw error
+        }
         val submitMs = started.elapsedNow().inWholeMilliseconds
         val reply = awaitJob(jobId)
         log.info(
@@ -339,10 +348,19 @@ class HttpClipClient(
     }
 
     private suspend fun awaitJob(jobId: String): ClipReply {
+        log.info("Polling clip job {}", jobId)
         val started = TimeSource.Monotonic.markNow()
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
-            when (val status = poll(jobId)) {
+            val status = try {
+                poll(jobId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Clip poll failed for job {}", jobId, error)
+                throw error
+            }
+            when (status) {
                 ClipJobStatus.Pending -> delay(pollInterval)
                 is ClipJobStatus.Ok -> {
                     val pollMs = started.elapsedNow().inWholeMilliseconds
@@ -369,9 +387,13 @@ class HttpClipClient(
                         },
                     )
                 }
-                is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
+                is ClipJobStatus.Failed -> {
+                    log.warn("Clip job {} failed", jobId)
+                    error("ai-service job $jobId failed: ${status.message}")
+                }
             }
         }
+        log.warn("Clip job {} timed out after {}", jobId, timeout)
         error("ai-service job $jobId timed out after $timeout")
     }
 
@@ -429,10 +451,12 @@ class HttpClipClient(
     }
 
     private suspend fun downloadAudio(jobId: String): AudioClip {
+        log.info("Downloading clip audio for job {}", jobId)
         val response = http.get("$root/v1/clips/$jobId/audio") {
             applyInternalToken()
         }
         if (!response.status.isSuccess()) {
+            log.warn("Clip audio download failed for job {} status {}", jobId, response.status)
             error("ai-service GET /v1/clips/$jobId/audio returned ${response.status}")
         }
         val contentType = response.headers[HttpHeaders.ContentType] ?: "audio/ogg"
