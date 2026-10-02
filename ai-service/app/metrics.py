@@ -27,6 +27,11 @@ REMINDER_GRACE = timedelta(hours=2)
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
+CORRECTION_OUTCOMES = frozenset({
+    "shown", "empty", "filtered", "deadline", "rate_limit", "provider_5xx",
+    "provider_4xx", "network", "no_choices", "empty_text", "provider_timeout",
+    "invalid_json", "invalid_schema", "token_limit", "other_error",
+})
 _CHATS_KEY = "metrics:chats"
 _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
 _SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -135,6 +140,8 @@ class FunnelDelta:
 
 
 class MetricsStore(Protocol):
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None: ...
+
     async def record_llm(
         self,
         prompt_tokens: int,
@@ -195,6 +202,7 @@ class MemoryMetricsStore:
     def __init__(self, rates: MetricRates) -> None:
         self._rates = rates
         self._days: dict[str, DayTotals] = {}
+        self._corrections: dict[str, dict[str, dict[str, int]]] = {}
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
         self._chats: dict[str, ChatRow] = {}
@@ -228,6 +236,16 @@ class MemoryMetricsStore:
             day.completion_tokens += sample.completion_tokens
             self._samples.append(sample)
             self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
+
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        _check_correction_outcome(outcome)
+        _check_correction_attempts(attempts)
+        async with self._lock:
+            counters = self._corrections.setdefault(metrics_day(_moment(now)), {})
+            item = counters.setdefault(outcome, {"count": 0, "elapsedMs": 0, "secondAttempts": 0})
+            item["count"] += 1
+            item["elapsedMs"] += nonneg_int(elapsed_ms)
+            item["secondAttempts"] += int(attempts == 2)
 
     async def record_turn(
         self,
@@ -283,6 +301,7 @@ class MemoryMetricsStore:
                 rates=self._rates,
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
+            payload["corrections"] = {key: value.copy() for key, value in self._corrections.get(day_name, {}).items()}
             return payload
 
     async def schedule_reminder(
@@ -418,6 +437,16 @@ class RedisMetricsStore:
             await pipe.execute()
             await self._prune_events(moment)
 
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        _check_correction_outcome(outcome)
+        _check_correction_attempts(attempts)
+        pipe = self._redis.pipeline()
+        key = _correction_key(metrics_day(_moment(now)))
+        pipe.hincrby(key, f"{outcome}:count", 1)
+        pipe.hincrby(key, f"{outcome}:elapsed_ms", nonneg_int(elapsed_ms))
+        pipe.hincrby(key, f"{outcome}:second_attempts", int(attempts == 2))
+        await pipe.execute()
+
     async def record_turn(
         self,
         session_id: str,
@@ -485,6 +514,7 @@ class RedisMetricsStore:
             rates=self._rates,
         )
         payload.update(await self._funnel_snapshot(moment))
+        payload["corrections"] = _correction_counts(await self._redis.hgetall(_correction_key(day_name)))
         return payload
 
     @property
@@ -1027,6 +1057,32 @@ def _total_rub(day: DayTotals, rates: MetricRates) -> float | None:
 
 def _day_key(day_name: str) -> str:
     return f"metrics:day:{day_name}"
+
+
+def _correction_key(day_name: str) -> str:
+    return f"metrics:corrections:{day_name}"
+
+
+def _check_correction_outcome(outcome: str) -> None:
+    if outcome not in CORRECTION_OUTCOMES:
+        raise ValueError("unknown correction outcome")
+
+
+def _check_correction_attempts(attempts: int) -> None:
+    if isinstance(attempts, bool) or attempts not in (0, 1, 2):
+        raise ValueError("correction attempts must be 0, 1, or 2")
+
+
+def _correction_counts(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
+    return {
+        outcome: {
+            "count": nonneg_int(raw.get(f"{outcome}:count")),
+            "elapsedMs": nonneg_int(raw.get(f"{outcome}:elapsed_ms")),
+            "secondAttempts": nonneg_int(raw.get(f"{outcome}:second_attempts")),
+        }
+        for outcome in sorted(CORRECTION_OUTCOMES)
+        if raw.get(f"{outcome}:count") is not None
+    }
 
 
 def _dau_key(day_name: str) -> str:

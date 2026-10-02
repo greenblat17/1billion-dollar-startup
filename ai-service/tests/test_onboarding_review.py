@@ -4,7 +4,11 @@ import json
 
 import pytest
 
-from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
+from app.onboarding_model import (
+    CLOSING_CALLBACK_MAX_TOKENS, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT,
+    REVIEW_RETRY_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM,
+    OnboardingModel, parse_review, validate_review_response,
+)
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, correction_candidates, select_examples
 from app.onboarding_score import (
     SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
@@ -138,7 +142,7 @@ def _skill_json(band="B1", position="high", flags=None):
     return (
         '{"band":' + ("null" if band is None else f'"{band}"')
         + ',"position":' + ("null" if position is None else f'"{position}"')
-        + ',"text":"A few patterns.","notes":"Linked clauses hold.",'
+        + ',"shade":"0","text":"A few patterns.","notes":"Linked clauses hold.",'
         + '"flags":[' + ",".join(f'"{flag}"' for flag in flags) + "]}"
     )
 
@@ -271,24 +275,111 @@ def test_parse_review_accepts_a_skill_without_flags_or_notes():
 
 
 @pytest.mark.asyncio
+async def test_closing_callback_uses_transcripts_without_review_data():
+    class Llm:
+        async def complete_json(self, system, data, **kwargs):
+            self.system, self.data, self.options = system, data, kwargs
+            return '{"callback":"I hope your startup goes well."}'
+
+    llm = Llm()
+    callback = await OnboardingModel(llm).closing_callback(["I am building a startup."])
+    assert callback == "I hope your startup goes well."
+    assert json.loads(llm.data) == {"transcripts": ["I am building a startup."]}
+    assert llm.options["max_tokens"] == CLOSING_CALLBACK_MAX_TOKENS
+
+
+@pytest.mark.asyncio
 async def test_compose_review_reserves_room_for_the_skill_json():
     class Llm:
         def __init__(self):
             self.max_tokens = None
 
-        async def complete_json(self, system, data, temperature=0.0, max_tokens=None):
+        async def complete_json(self, system, data, temperature=0.0, max_tokens=None,
+                                response_format=None, model=None):
             self.max_tokens = max_tokens
+            self.response_format = response_format
             return (
-                '{"callback":null,"levelText":"You keep going.",'
+                '{"callback":null,"levelText":"You keep going.","shade":"0",'
                 f'"grammar":{_skill_json()},'
                 f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
                 f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
             )
 
     llm = Llm()
-    parsed = await OnboardingModel(llm).compose_review({})
+    parsed = await OnboardingModel(llm, review_model="google/gemini-3.5-flash-lite").compose_review({})
     assert llm.max_tokens == REVIEW_MAX_TOKENS == 1200
+    assert llm.response_format == REVIEW_RESPONSE_FORMAT
     assert parsed["grammar"]["position"] == "high"
+
+
+@pytest.mark.asyncio
+async def test_review_uses_local_validation_when_model_lacks_schema_support():
+    class Llm:
+        def __init__(self):
+            self.formats = []
+
+        async def complete_json(self, system, data, **kwargs):
+            self.formats.append(kwargs["response_format"])
+            return '{"grammar":null}'
+
+    llm = Llm()
+    with pytest.raises(RuntimeError, match="after two attempts"):
+        await OnboardingModel(llm, review_model="openai/gpt-5.6-luna").compose_review({})
+    assert llm.formats == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_review_retries_invalid_shape_with_backup_and_larger_limit():
+    valid = (
+        '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
+        f'"grammar":{_skill_json()},'
+        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
+        f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
+    )
+
+    class Llm:
+        def __init__(self):
+            self.calls = []
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls.append(kwargs)
+            return '{"grammar":null}' if len(self.calls) == 1 else valid
+
+    llm = Llm()
+    review = await OnboardingModel(llm, "google/gemini-3.5-flash-lite", "openai/gpt-4o-mini").compose_review({})
+    assert review["grammar"]["band"] == "B1"
+    assert [(call["model"], call["max_tokens"]) for call in llm.calls] == [
+        ("google/gemini-3.5-flash-lite", REVIEW_MAX_TOKENS),
+        ("openai/gpt-4o-mini", REVIEW_RETRY_MAX_TOKENS),
+    ]
+    assert all(call["response_format"] == REVIEW_RESPONSE_FORMAT for call in llm.calls)
+
+
+@pytest.mark.asyncio
+async def test_review_fails_closed_after_two_invalid_shapes():
+    class Llm:
+        calls = 0
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls += 1
+            return '{"grammar":null}'
+
+    llm = Llm()
+    with pytest.raises(RuntimeError, match="after two attempts"):
+        await OnboardingModel(llm).compose_review({})
+    assert llm.calls == 2
+
+
+def test_review_response_validator_rejects_incomplete_skill():
+    valid = (
+        '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
+        f'"grammar":{_skill_json()},'
+        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
+        f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
+    )
+    validate_review_response(valid)
+    with pytest.raises(ValueError, match="invalid review skill"):
+        validate_review_response(valid.replace(f'"grammar":{_skill_json()}', '"grammar":null'))
 
 
 def test_candidates_require_exact_whole_phrase_and_changed_correction():

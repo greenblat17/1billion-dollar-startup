@@ -53,7 +53,10 @@ def create_app(
     clip_pipeline = pipeline or _build_pipeline(settings)
     onboarding = OnboardingService(
         onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
-        clip_pipeline, onboarding_model or OnboardingModel(clip_pipeline.llm),
+        clip_pipeline, onboarding_model or OnboardingModel(
+            clip_pipeline.llm, settings.onboarding_review_model or settings.llm_model,
+            settings.onboarding_review_fallback_model,
+        ),
     )
     owns_calls = call_store is None
     calls = call_store or CallStore(
@@ -441,7 +444,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         or abs(settings.tts_speed * 20 - round(settings.tts_speed * 20)) > 1e-9
     ):
         raise RuntimeError("TTS_SPEED must be between 0.7 and 1.5 in 0.05 increments for Deepgram")
-    groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url)
+    groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url, max_retries=0)
     openai_headers = {}
     if "openrouter.ai" in settings.openai_base_url:
         openai_headers = {
@@ -452,6 +455,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
         default_headers=openai_headers or None,
+        max_retries=0,
     )
     tts: TextToSpeech
     if settings.tts_provider == "deepgram":
@@ -505,6 +509,7 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
         default_headers=openai_headers or None,
+        max_retries=0,
     )
     return OpenAiSessionReviewer(client, settings.llm_model)
 
