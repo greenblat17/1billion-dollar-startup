@@ -348,10 +348,18 @@ data class OnboardingExample(
 )
 
 @Serializable
+data class VocabularySuggestion(
+    val original: String = "",
+    val alternative: String = "",
+    val explanation: String = "",
+)
+
+@Serializable
 data class OnboardingSkill(
     val score: Int? = null,
     val text: String = "",
     val examples: List<OnboardingExample> = emptyList(),
+    val suggestions: List<VocabularySuggestion> = emptyList(),
 )
 
 @Serializable

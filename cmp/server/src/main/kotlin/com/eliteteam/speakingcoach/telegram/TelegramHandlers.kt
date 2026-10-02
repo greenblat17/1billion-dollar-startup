@@ -39,6 +39,7 @@ import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
+import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
 import dev.inmo.tgbotapi.utils.buildEntities
 import dev.inmo.tgbotapi.utils.regular
@@ -156,9 +157,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     } catch (error: Throwable) {
         log.warn("Failed to check call availability for {}", chat.id, error)
         false
-    }
-    suspend fun sendStartCallInvitation(chat: Chat) {
-        if (canStartCall(chat)) sendMessage(chat.id, START_CALL_INVITATION, replyMarkup = startCallKeyboard())
     }
     suspend fun sendFounderNote(chat: Chat, runId: String) {
         if (runId in founderNotes) return
@@ -858,26 +856,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             practiceAsk(null, null, null)
                         }
                         val markup = practiceMinutesKeyboard(callback.runId)
-                        try {
-                            editMessageText(message.chat.id, message.messageId, ask, replyMarkup = markup)
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Throwable) {
-                            log.warn("Failed to edit onboarding goal choice for {}", message.chat.id, error)
-                            reply(message, ask, allowSendingWithoutReply = true, replyMarkup = markup)
-                        }
+                        editMessageText(message.chat.id, message.messageId, ask, replyMarkup = markup)
                     }
                     "skip" -> {
                         ai.savePracticeGoal(telegramSessionId(message.chat.id), "goal:${query.id}", 0)
                         val markup = reminderAskKeyboard(callback.runId)
-                        try {
-                            editMessageText(message.chat.id, message.messageId, PRACTICE_SKIPPED, replyMarkup = markup)
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Throwable) {
-                            log.warn("Failed to edit skipped-goal card for {}", message.chat.id, error)
-                            reply(message, PRACTICE_SKIPPED, allowSendingWithoutReply = true, replyMarkup = markup)
-                        }
+                        editMessageText(message.chat.id, message.messageId, PRACTICE_SKIPPED, replyMarkup = markup)
                     }
                     "m5", "m10", "m15" -> {
                         val minutes = when (callback.action) {
@@ -896,14 +880,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         }
                         val deal = practiceDeal(minutes, currentStreak)
                         val markup = reminderAskKeyboard(callback.runId)
-                        try {
-                            editMessageText(message.chat.id, message.messageId, deal, replyMarkup = markup)
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Throwable) {
-                            log.warn("Failed to edit daily-goal card for {}", message.chat.id, error)
-                            reply(message, deal, allowSendingWithoutReply = true, replyMarkup = markup)
-                        }
+                        editMessageText(message.chat.id, message.messageId, deal, replyMarkup = markup)
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -912,16 +889,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "ask",
                             callback.runId,
                         )
-                        val cardId = try {
-                            editMessageText(message.chat.id, message.messageId, REMINDER_TIME_PROMPT, replyMarkup = noInlineKeyboard)
-                            message.messageId
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (error: Throwable) {
-                            log.warn("Failed to edit reminder-time prompt for {}", message.chat.id, error)
-                            reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true).messageId
-                        }
-                        onboardingReminderCards[message.chat.id.toString()] = callback.runId to cardId
+                        editMessageText(message.chat.id, message.messageId, REMINDER_TIME_PROMPT, replyMarkup = noInlineKeyboard)
+                        onboardingReminderCards[message.chat.id.toString()] = callback.runId to message.messageId
                     }
                     "later" -> {
                         ai.scheduleReminder(
@@ -931,16 +900,25 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             callback.runId,
                         )
                         onboardingReminderCards.remove(message.chat.id.toString())
-                        val markup = practiceDealKeyboard(callback.runId)
+                        val closing: TextSourcesList = try {
+                            val profile = ai.progressProfile(telegramSessionId(message.chat.id))
+                            profile.dailyMinutes?.takeIf { it > 0 }
+                                ?.let { practiceDeal(it, profile.currentStreak, askReminder = false) }
+                                ?: buildEntities { regular(PRACTICE_SKIPPED_FINAL) }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to load final daily-goal card for {}", message.chat.id, error)
+                            buildEntities { regular(REMINDER_SKIPPED) }
+                        }
                         try {
-                            editMessageText(message.chat.id, message.messageId, reminderSkipped(), replyMarkup = markup)
+                            editMessageText(message.chat.id, message.messageId, closing, replyMarkup = noInlineKeyboard)
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Throwable) {
                             log.warn("Failed to edit reminder choice for {}", message.chat.id, error)
-                            reply(message, reminderSkipped(), allowSendingWithoutReply = true, replyMarkup = markup)
                         }
-                        sendStartCallInvitation(message.chat)
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     "profile" -> {
                         sendProfile(message)
@@ -1013,24 +991,27 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "saved" -> {
                                 val key = message.chat.id.toString()
                                 val card = onboardingReminderCards[key]?.takeIf { it.first == scheduled.runId }
-                                val confirmation = reminderSaved(scheduled.time.orEmpty())
-                                val markup = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
-                                    ?.let { practiceDealKeyboard(it) }
+                                val onboardingRun = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
+                                val confirmation = if (onboardingRun != null) {
+                                    onboardingReminderSaved(scheduled.time.orEmpty())
+                                } else {
+                                    reminderSaved(scheduled.time.orEmpty())
+                                }
                                 if (card == null) {
-                                    reply(message, confirmation, allowSendingWithoutReply = true, replyMarkup = markup)
+                                    reply(message, confirmation, allowSendingWithoutReply = true)
                                 } else {
                                     try {
-                                        editMessageText(message.chat.id, card.second, confirmation, replyMarkup = markup)
+                                        editMessageText(message.chat.id, card.second, confirmation, replyMarkup = noInlineKeyboard)
                                     } catch (error: CancellationException) {
                                         throw error
                                     } catch (error: Throwable) {
                                         log.warn("Failed to edit saved reminder card for {}", message.chat.id, error)
-                                        reply(message, confirmation, allowSendingWithoutReply = true, replyMarkup = markup)
+                                        reply(message, confirmation, allowSendingWithoutReply = true)
                                     } finally {
                                         onboardingReminderCards.remove(key, card)
                                     }
                                 }
-                                if (markup != null) sendStartCallInvitation(message.chat)
+                                if (onboardingRun != null) sendFounderNote(message.chat, onboardingRun)
                             }
                             "invalid" -> {
                                 val card = onboardingReminderCards[message.chat.id.toString()]

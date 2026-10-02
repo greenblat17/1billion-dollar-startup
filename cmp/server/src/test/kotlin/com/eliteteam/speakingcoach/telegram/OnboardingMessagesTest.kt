@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.OnboardingExample
 import com.eliteteam.speakingcoach.ai.OnboardingFluency
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 import com.eliteteam.speakingcoach.ai.OnboardingSkill
+import com.eliteteam.speakingcoach.ai.VocabularySuggestion
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
@@ -15,6 +16,27 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OnboardingMessagesTest {
+    @Test
+    fun vocabularyAlternativeIsClearlyOptionalAndNeverStruckThrough() {
+        val suggestion = VocabularySuggestion(
+            original = "I use the same words every single time",
+            alternative = "I tend to fall back on the same words",
+            explanation = "Fall back on describes relying on familiar words out of habit.",
+        )
+        val vocabulary = OnboardingSkill(score = 70, suggestions = listOf(suggestion))
+        val slide = vocabularySlide(OnboardingReview(vocabulary = vocabulary))
+        assertTrue(slide.plain().contains("Another way to say it\n\nI use the same words every single time\n→ I tend to fall back on the same words"))
+        assertTrue(slide.plain().contains("💡 Fall back on describes relying on familiar words out of habit."))
+        assertTrue(slide.none { it is StrikethroughTextSource })
+        assertTrue(!slide.plain().contains("What I noticed"))
+
+        val corrected = vocabularySlide(OnboardingReview(vocabulary = vocabulary.copy(
+            examples = listOf(OnboardingExample("I did a decision", "I made a decision", "Use make a decision.")),
+        )))
+        assertTrue(corrected.plain().contains("What I noticed"))
+        assertTrue(!corrected.plain().contains("Another way to say it"))
+    }
+
     @Test
     fun buttonsCarryTheAttemptAndFitTelegramLimit() {
         val run = "a".repeat(32)
@@ -130,10 +152,13 @@ class OnboardingMessagesTest {
             (row.single() as CallbackDataInlineKeyboardButton).text
         }
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL, PRACTICE_SKIP_LABEL), minutes)
-        assertEquals("No daily goal for now. You can still practice whenever you like.", PRACTICE_SKIPPED)
+        assertEquals(
+            "No daily goal for now. You can still practice whenever you like.\n\n$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION",
+            PRACTICE_SKIPPED,
+        )
         val quietDeal = practiceDeal(10)
         assertTrue(quietDeal.plain().startsWith("10 minutes a day. Deal 🤝"))
-        assertTrue(quietDeal.plain().endsWith("You can start your 10-minute practice now."))
+        assertTrue(quietDeal.plain().endsWith("$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION"))
         assertTrue(!quietDeal.plain().contains("/profile"))
         assertTrue(quietDeal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
         val ask = reminderAskKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
@@ -149,16 +174,13 @@ class OnboardingMessagesTest {
             "Perfect. I'll remind you every day at 13:00 🔔\n\nYou can check your progress anytime with /profile.",
             reminderSaved("13:00"),
         )
-        assertEquals("You can check your progress anytime with /profile.", reminderSkipped())
-        assertEquals(REMINDER_TIME_PROMPT, "When should I remind you?\nSend a time like 13:00")
+        assertEquals("Perfect. I'll remind you every day at 13:00 🔔\n\n$NEXT_CHAT_HINT", onboardingReminderSaved("13:00"))
+        assertEquals(REMINDER_TIME_PROMPT, "When should I remind you?\n\nSend a time like 13:00.")
         assertEquals("That time doesn't look right. Send a time like 13:00.", REMINDER_INVALID_TIME_PROMPT)
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
         assertTrue(FOUNDER_NOTE.contains("@alexgusev93"))
         assertTrue(FOUNDER_NOTE.startsWith("Кстати, я Саша, один из создателей Speaky 👋"))
-        val deal = practiceDealKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
-        assertEquals(listOf("Profile", "See you tomorrow 👋"), deal.map { it.text })
-        assertEquals("profile", parseOnboardingCallback(deal[0].callbackData)?.action)
-        assertEquals("bye", parseOnboardingCallback(deal[1].callbackData)?.action)
+        assertEquals(3, FOUNDER_NOTE.windowed(2).count { it == "\n\n" })
         val closing = withSpokenText(onboardingKeyboard("level", run), spoken = true)!!.keyboard.single()
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("🔥 See my results", SPOKEN_TEXT_BUTTON), closingLabels)

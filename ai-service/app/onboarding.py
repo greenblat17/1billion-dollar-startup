@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from app.llm import Correction
 from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
+from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
 from app.tts import TtsAudio
@@ -225,6 +226,7 @@ def _public_skill(skill: dict) -> dict:
         "score": skill.get("score"),
         "text": skill.get("text") or "",
         "examples": skill.get("examples") or [],
+        "suggestions": skill.get("suggestions") or [],
     }
 
 
@@ -559,6 +561,9 @@ class OnboardingService:
         fluency = apply_skill(raw["fluency"], seconds, "fluency", timings=timings)
         grammar["examples"] = explained_examples(examples["grammar"], raw["grammarExplanations"])
         vocabulary["examples"] = explained_examples(examples["vocabulary"], raw["vocabularyExplanations"])
+        vocabulary["suggestions"] = select_vocabulary_suggestions(
+            raw.get("vocabularySuggestions"), transcripts, candidates, examples["vocabulary"],
+        )
         fluency.update({
             "paceWpm": metrics["paceWpm"],
             "longPauses": metrics["longPauses"],

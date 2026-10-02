@@ -11,6 +11,7 @@ from app.calls import CallStore
 from app.onboarding import OnboardingStore
 from app.onboarding_review import correction_candidates, fluency_metrics, select_examples
 from app.onboarding_score import placed_level, step_score
+from app.vocabulary_suggestions import VOCABULARY_SUGGESTION_POLICY, select_vocabulary_suggestions
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,15 @@ The current scores are the baseline. Judge only whether this conversation is a l
 about the same, or a little stronger than that baseline.
 Always reply with a JSON object only:
 {"levelText": string, "recap": string, "overallMove": int, "grammar": {"text": string, "move": int},
- "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int}}
+ "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int},
+ "vocabularySuggestions":[{"original":string,"alternative":string,"explanation":string}]}
 Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
 Do not return a CEFR label or a 0-100 score. Do not invent a new level.
 levelText is two short sentences about this conversation, relative to the current level.
 recap is one or two sentences Speaky says to close the call. Say you enjoyed talking and name the specific things you discussed, using only the transcripts. No score, no CEFR level, no mistakes, and no advice.
 Each skill text is one short sentence. Do not include a number or a CEFR letter in any sentence.
 Use only the supplied examples for claims about mistakes. An empty list is not error-free speech.
+""" + VOCABULARY_SUGGESTION_POLICY + """
 Fluency text may mention pace, pauses, and fillers in words, not with a new number.
 """
 
@@ -44,6 +47,7 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
         "grammar": _skill_move(payload.get("grammar")),
         "vocabulary": _skill_move(payload.get("vocabulary")),
         "fluency": _skill_move(payload.get("fluency")),
+        "vocabularySuggestions": payload.get("vocabularySuggestions"),
     }
 
 
@@ -52,6 +56,7 @@ def apply_call_level(
     moves: dict[str, Any],
     examples: dict[str, list[dict[str, str]]],
     fluency: dict[str, Any],
+    vocabulary_suggestions: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Step every shown score from the stored baseline and keep the same cell."""
     previous = assessment.get("overallScore")
@@ -67,6 +72,7 @@ def apply_call_level(
             "score": stepped if stepped is not None else prior,
             "text": moves[name]["text"],
             "examples": examples.get(name) or [],
+            "suggestions": (vocabulary_suggestions or []) if name == "vocabulary" else [],
         }
         skills[name] = skill
     skills["fluency"].update({
@@ -98,7 +104,7 @@ def apply_call_level(
             "nextBand": placed["nextBand"],
             "pointsToNext": placed["pointsToNext"],
             "grammar": {"score": skills["grammar"]["score"], "text": skills["grammar"]["text"], "examples": skills["grammar"]["examples"]},
-            "vocabulary": {"score": skills["vocabulary"]["score"], "text": skills["vocabulary"]["text"], "examples": skills["vocabulary"]["examples"]},
+            "vocabulary": {"score": skills["vocabulary"]["score"], "text": skills["vocabulary"]["text"], "examples": skills["vocabulary"]["examples"], "suggestions": skills["vocabulary"]["suggestions"]},
             "fluency": {
                 "score": skills["fluency"]["score"],
                 "text": skills["fluency"]["text"],
@@ -163,7 +169,10 @@ class CallReviews:
             "vocabularyExamples": examples["vocabulary"],
             "fluency": {key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")},
         })
-        return apply_call_level(assessment, raw, examples, metrics)
+        suggestions = select_vocabulary_suggestions(
+            raw.get("vocabularySuggestions"), transcripts, candidates, examples["vocabulary"],
+        )
+        return apply_call_level(assessment, raw, examples, metrics, suggestions)
 
     async def _finish(self, review: dict, call: dict) -> dict:
         payload = _with_clock(review, call)

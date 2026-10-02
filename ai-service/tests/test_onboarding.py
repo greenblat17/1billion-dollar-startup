@@ -662,6 +662,31 @@ async def test_review_uses_only_verified_examples_and_survives_verification_fail
 
 
 @pytest.mark.asyncio
+async def test_onboarding_review_shows_optional_vocabulary_alternative_without_calling_it_a_correction():
+    class SuggestingModel(Model):
+        async def compose_review(self, payload):
+            review = await super().compose_review(payload)
+            review["vocabularySuggestions"] = [{
+                "original": "I use the same words every single time",
+                "alternative": "I tend to fall back on the same words",
+                "explanation": "Fall back on describes relying on familiar words out of habit.",
+            }]
+            return review
+
+    model = SuggestingModel()
+    s = service(stt=Stt(120, "I use the same words every single time."), model=model)
+    run = await begin(s)
+    result = await turn(s, run)
+    vocabulary = result.onboarding["review"]["vocabulary"]
+    assert vocabulary["examples"] == []
+    assert vocabulary["suggestions"] == [{
+        "original": "I use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("persistent", [False, True])
 async def test_profile_preserves_latest_assessment_goal_and_streak_during_reassessment(persistent):
     redis = FakeAsyncRedis(decode_responses=True) if persistent else None

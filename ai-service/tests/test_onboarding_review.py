@@ -6,6 +6,7 @@ import pytest
 
 from app.onboarding_model import REVIEW_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM, OnboardingModel, parse_review
 from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
+from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.onboarding_score import (
     SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
 )
@@ -300,7 +301,7 @@ async def test_compose_review_reserves_room_for_the_skill_json():
 
     llm = Llm()
     parsed = await OnboardingModel(llm).compose_review({})
-    assert llm.max_tokens == REVIEW_MAX_TOKENS == 2000
+    assert llm.max_tokens == REVIEW_MAX_TOKENS == 2400
     assert parsed["grammar"]["position"] == "high"
 
 
@@ -335,6 +336,25 @@ def test_only_verified_examples_with_explanations_are_shown():
     assert explained_examples(examples, ["Use the base verb with I.", ""]) == [
         {"wrong": "I builds", "better": "I build", "explanation": "Use the base verb with I."},
     ]
+
+
+def test_vocabulary_suggestions_require_grounded_useful_pairs_and_no_vocabulary_correction():
+    transcripts = ["I just use the same words every single time. I build software."]
+    useful = {
+        "original": "I just use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }
+    proposed = [
+        {"original": "I speak perfectly", "alternative": "I speak fluently", "explanation": "More precise."},
+        {"original": "I build software", "alternative": "I develop software", "explanation": "Another verb."},
+        useful, useful,
+    ]
+    grammar = [{"wrong": "I build software", "better": "I am building software"}]
+    assert select_vocabulary_suggestions(proposed, transcripts, grammar, []) == [useful]
+    assert select_vocabulary_suggestions([useful], transcripts, [{"wrong": useful["original"], "kind": "natural"}], []) == []
+    assert select_vocabulary_suggestions([useful], transcripts, [], [{"wrong": "bad", "better": "good"}]) == []
+    assert select_vocabulary_suggestions([useful], transcripts, [], []) == [useful]
 
 
 @pytest.mark.asyncio

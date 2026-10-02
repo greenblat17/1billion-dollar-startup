@@ -28,9 +28,9 @@ internal const val PRACTICE_ASK_PROGRESS = "Now let's make progress one conversa
 internal const val PRACTICE_ASK_QUESTION = "How much time do you want to practice each day?"
 internal const val SEE_YOU_TOMORROW = "See you tomorrow. I'll be here when you're ready."
 internal const val FOUNDER_NOTE =
-    "Кстати, я Саша, один из создателей Speaky 👋\n" +
-        "Сейчас мы активно развиваем нашего English Buddy, поэтому мне правда интересно, как тебе первый разговор\n" +
-        "Если что-то понравилось, не понравилось или просто появилась идея — напиши мне напрямую: @alexgusev93\n" +
+    "Кстати, я Саша, один из создателей Speaky 👋\n\n" +
+        "Сейчас мы активно развиваем нашего English Buddy, поэтому мне правда интересно, как тебе первый разговор.\n\n" +
+        "Если что-то понравилось, не понравилось или просто появилась идея — напиши мне напрямую: @alexgusev93\n\n" +
         "Я читаю каждое сообщение и всегда отвечаю сам. Буду рад любому фидбеку 😊"
 internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val LEGACY_ONBOARDING_CALLBACK = "campaign:onboarding"
@@ -134,14 +134,11 @@ internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inli
     row { dataButton(PRACTICE_SKIP_LABEL, "ob:skip:$runId") }
 }
 
-internal const val PRACTICE_SKIPPED = "No daily goal for now. You can still practice whenever you like."
-
-internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
-    row {
-        dataButton("Profile", "ob:profile:$runId")
-        dataButton("See you tomorrow 👋", "ob:bye:$runId")
-    }
-}
+internal const val NEXT_CHAT_HINT = "Whenever you're ready to chat again, tap 🎙 Start call or just send me a voice message."
+internal const val REMINDER_QUESTION = "Want a gentle reminder so we don't forget to talk?"
+internal const val PRACTICE_SKIPPED_FINAL =
+    "No daily goal for now. You can still practice whenever you like.\n\n$NEXT_CHAT_HINT"
+internal const val PRACTICE_SKIPPED = "$PRACTICE_SKIPPED_FINAL\n\n$REMINDER_QUESTION"
 
 internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
@@ -150,7 +147,7 @@ internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKe
     }
 }
 
-internal const val REMINDER_TIME_PROMPT = "When should I remind you?\nSend a time like 13:00"
+internal const val REMINDER_TIME_PROMPT = "When should I remind you?\n\nSend a time like 13:00."
 internal const val REMINDER_INVALID_TIME_PROMPT = "That time doesn't look right. Send a time like 13:00."
 internal const val REMINDER_OFFER = "Want me to remind you tomorrow? Tap /remind"
 internal const val REMIND_COMMAND_RUN = "cmd"
@@ -179,9 +176,12 @@ internal fun parseReminderClock(text: String): String? {
 internal fun reminderSaved(time: String): String =
     "Perfect. I'll remind you every day at $time 🔔\n\n$PROFILE_ANYTIME"
 
-internal fun reminderSkipped(): String = PROFILE_ANYTIME
+internal fun onboardingReminderSaved(time: String): String =
+    "Perfect. I'll remind you every day at $time 🔔\n\n$NEXT_CHAT_HINT"
 
-internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): TextSourcesList = buildEntities {
+internal const val REMINDER_SKIPPED = "Sounds good. You can set a reminder anytime with /remind."
+
+internal fun practiceDeal(minutes: Int, currentStreak: Int? = null, askReminder: Boolean = true): TextSourcesList = buildEntities {
     bold("$minutes minutes a day. Deal 🤝")
     if (currentStreak != null && currentStreak > 0) {
         regularln("")
@@ -192,7 +192,11 @@ internal fun practiceDeal(minutes: Int, currentStreak: Int? = null): TextSources
         regularln("")
         regularln("")
     }
-    regular("You can start your $minutes-minute practice now.")
+    regular(NEXT_CHAT_HINT)
+    if (askReminder) {
+        regular("\n\n")
+        regular(REMINDER_QUESTION)
+    }
 }
 
 internal fun cefrBandName(cefr: String?): String? = when (cefr) {
@@ -247,7 +251,7 @@ internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
     skillSlide("✍️ Grammar", review.grammar)
 
 internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("📚 Vocabulary", review.vocabulary)
+    skillSlide("📚 Vocabulary", review.vocabulary, showSuggestions = true)
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("🎙 Fluency")
@@ -284,7 +288,7 @@ internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?, pointsTo
     regular(PRACTICE_ASK_QUESTION)
 }
 
-private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList = buildEntities {
+private fun skillSlide(title: String, skill: OnboardingSkill, showSuggestions: Boolean = false): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
     regularln("")
@@ -304,6 +308,21 @@ private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList =
             if (index > 0) regular("\n\n")
             addAll(inlineCorrection(Correction(example.wrong, example.better)))
             example.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
+                regular("\n\n💡 ")
+                italic(explanation)
+            }
+        }
+    } else if (showSuggestions && skill.suggestions.isNotEmpty()) {
+        regularln("")
+        bold("Another way to say it")
+        regularln("")
+        regularln("")
+        skill.suggestions.take(3).forEachIndexed { index, suggestion ->
+            if (index > 0) regular("\n\n")
+            regularln(suggestion.original)
+            regular("→ ")
+            bold(suggestion.alternative)
+            suggestion.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
                 regular("\n\n💡 ")
                 italic(explanation)
             }

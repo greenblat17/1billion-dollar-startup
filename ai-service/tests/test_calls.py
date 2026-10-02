@@ -30,10 +30,11 @@ class Clock:
 
 
 class Scorer:
-    def __init__(self, move: int = 1, fail: bool = False) -> None:
+    def __init__(self, move: int = 1, fail: bool = False, suggestions: list[dict] | None = None) -> None:
         self.move = move
         self.fail = fail
         self.calls = 0
+        self.suggestions = suggestions
 
     async def verify_corrections(self, candidates):
         return {item["id"] for item in candidates}
@@ -49,6 +50,7 @@ class Scorer:
             "grammar": {"text": "Grammar is a little steadier.", "move": self.move},
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
             "fluency": {"text": "The turns are a little more connected.", "move": self.move},
+            "vocabularySuggestions": self.suggestions or [],
         }
         return parse_call_moves(json.dumps(raw))
 
@@ -243,6 +245,8 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert first["overallScore"] == second["overallScore"] == 53
     assert first["streak"] == 4
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
+
+
     state = {
         "status": "completed", "runId": "a" * 32, "cefr": "A1", "position": "low",
         "review": {"shade": "0", "grammar": {"score": 12}, "vocabulary": {"score": 12}, "fluency": {"score": 12}},
@@ -260,6 +264,24 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert (await store.get_assessment("tg-2"))["overallScore"] == 52
     healed = CallReviews(failing, store, Scorer(move=1), Streaks())
     assert (await healed.review(other["callId"]))["retry"] is False
+
+
+@pytest.mark.asyncio
+async def test_call_review_keeps_alternatives_only_when_vocabulary_has_no_corrections():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "I use the same words every single time.", "Tell me more.", [], 12, [])
+    await calls.seal("tg-1")
+    suggestion = {
+        "original": "I use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }
+    review = await CallReviews(calls, store, Scorer(suggestions=[suggestion]), Streaks()).review(opened["callId"])
+    assert review["vocabulary"]["examples"] == []
+    assert review["vocabulary"]["suggestions"] == [suggestion]
 
 
 @pytest.mark.asyncio
