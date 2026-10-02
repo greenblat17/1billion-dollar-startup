@@ -5,11 +5,12 @@ import json
 import pytest
 
 from app.onboarding_model import (
-    CLOSING_CALLBACK_MAX_TOKENS, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT,
+    CLOSING_CALLBACK_MAX_TOKENS, CLOSING_CALLBACK_SYSTEM, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT,
     REVIEW_RETRY_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM,
     OnboardingModel, parse_review, validate_review_response,
 )
-from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, correction_candidates, select_examples
+from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
+from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.onboarding_score import (
     SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
 )
@@ -38,26 +39,35 @@ def test_repeated_mistake_outranks_an_earlier_one_off():
 def test_callback_stays_inside_the_closing_frame():
     empty_subtitle, empty_spoken = closing_lines(None)
     assert empty_subtitle.startswith(
-        "You know what, I really enjoyed talking with you. I feel like I know you a little better now. 😊"
+        "Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now. 😊"
     )
     assert "😊" not in empty_spoken
     assert empty_spoken.endswith("Let me show you what I noticed.")
 
     callback = grounded_callback(
-        "And your startup sounds really interesting — I hope you’ll tell me more about it sometime.",
-        ["I am building a startup with two friends."],
+        "Building a startup with your friends sounds exciting.",
+        "I am building a startup with two friends.",
     )
     subtitle, spoken = closing_lines(callback)
-    assert spoken.index("enjoyed talking with you") < spoken.index("startup") < spoken.index("I feel like I know you")
-    assert spoken.startswith("You know what")
+    assert spoken.index("startup") < spoken.index("enjoyed talking with you") < spoken.index("I feel like I know you")
+    assert spoken.startswith("Building a startup")
     assert spoken.endswith("Let me show you what I noticed.")
     assert grounded_callback(
         "And your startup sounds really interesting.",
-        ["I work as a developer. I like movies. I need English for work."],
+        "I work as a developer. I like movies. I need English for work.",
     ) is None
-    assert "I like movies" in REVIEW_SYSTEM
-    assert "I work as a developer" in REVIEW_SYSTEM
-    assert "I need English for work" in REVIEW_SYSTEM
+    assert grounded_callback(
+        "Building a startup sounds exciting.",
+        "I need English for work.",
+    ) is None
+    assert grounded_callback(
+        "I can see why English matters for your work.",
+        "I need English for work.",
+    ) == "I can see why English matters for your work."
+    assert "last answer" in CLOSING_CALLBACK_SYSTEM
+    assert "even if it is ordinary" in CLOSING_CALLBACK_SYSTEM
+    assert 'Set "callback" to null.' in REVIEW_SYSTEM
+    assert "exactly two concise diagnostic sentences" in REVIEW_SYSTEM
     assert "Absence of evidence is not evidence of inability." in REVIEW_SYSTEM
     assert "Absence of evidence is not evidence of inability." in SYSTEM
     assert "illustrative, not a checklist" in REVIEW_SYSTEM
@@ -150,12 +160,16 @@ def _skill_json(band="B1", position="high", flags=None):
 def test_parse_review_maps_bands_and_rejects_a_raw_score():
     raw = (
         '{"callback":null,"levelText":"You keep going.",'
+        '"grammarExplanations":["Use the base verb with I."],'
+        '"vocabularyExplanations":[],'
         f'"grammar":{_skill_json()},'
         f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis", "invented"])},'
         f'"fluency":{_skill_json("B2", "low", ["completed_turns", "timings_present"])}}}'
     )
     parsed = parse_review(raw)
     assert parsed["callback"] is None
+    assert parsed["grammarExplanations"] == ["Use the base verb with I."]
+    assert parsed["vocabularyExplanations"] == []
     assert parsed["grammar"]["band"] == "B1"
     assert parsed["grammar"]["position"] == "high"
     assert parsed["vocabulary"]["flags"] == ["concrete_lexis"]
@@ -282,9 +296,11 @@ async def test_closing_callback_uses_transcripts_without_review_data():
             return '{"callback":"I hope your startup goes well."}'
 
     llm = Llm()
-    callback = await OnboardingModel(llm).closing_callback(["I am building a startup."])
+    callback = await OnboardingModel(llm).closing_callback([
+        "I like movies.", "I am building a startup.",
+    ])
     assert callback == "I hope your startup goes well."
-    assert json.loads(llm.data) == {"transcripts": ["I am building a startup."]}
+    assert json.loads(llm.data) == {"lastTranscript": "I am building a startup."}
     assert llm.options["max_tokens"] == CLOSING_CALLBACK_MAX_TOKENS
 
 
@@ -300,6 +316,7 @@ async def test_compose_review_reserves_room_for_the_skill_json():
             self.response_format = response_format
             return (
                 '{"callback":null,"levelText":"You keep going.","shade":"0",'
+                '"grammarExplanations":[],"vocabularyExplanations":[],"vocabularySuggestions":[],'
                 f'"grammar":{_skill_json()},'
                 f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
                 f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
@@ -307,7 +324,7 @@ async def test_compose_review_reserves_room_for_the_skill_json():
 
     llm = Llm()
     parsed = await OnboardingModel(llm, review_model="google/gemini-3.5-flash-lite").compose_review({})
-    assert llm.max_tokens == REVIEW_MAX_TOKENS == 1200
+    assert llm.max_tokens == REVIEW_MAX_TOKENS == 2400
     assert llm.response_format == REVIEW_RESPONSE_FORMAT
     assert parsed["grammar"]["position"] == "high"
 
@@ -332,6 +349,7 @@ async def test_review_uses_local_validation_when_model_lacks_schema_support():
 async def test_review_retries_invalid_shape_with_backup_and_larger_limit():
     valid = (
         '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
+        '"grammarExplanations":[],"vocabularyExplanations":[],"vocabularySuggestions":[],'
         f'"grammar":{_skill_json()},'
         f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
         f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
@@ -373,11 +391,19 @@ async def test_review_fails_closed_after_two_invalid_shapes():
 def test_review_response_validator_rejects_incomplete_skill():
     valid = (
         '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
+        '"grammarExplanations":[],"vocabularyExplanations":[],"vocabularySuggestions":[],'
         f'"grammar":{_skill_json()},'
         f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
         f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
     )
     validate_review_response(valid)
+    schema = REVIEW_RESPONSE_FORMAT["json_schema"]["schema"]
+    assert set(schema["required"]) == set(schema["properties"])
+    assert {"grammarExplanations", "vocabularyExplanations", "vocabularySuggestions"} <= set(schema["required"])
+    with pytest.raises(ValueError, match="invalid review fields"):
+        validate_review_response(valid.replace('"vocabularySuggestions":[],', ""))
+    with pytest.raises(ValueError, match="invalid vocabulary suggestions"):
+        validate_review_response(valid.replace('"vocabularySuggestions":[]', '"vocabularySuggestions":[{"original":42}]'))
     with pytest.raises(ValueError, match="invalid review skill"):
         validate_review_response(valid.replace(f'"grammar":{_skill_json()}', '"grammar":null'))
 
@@ -397,15 +423,41 @@ def test_candidates_require_exact_whole_phrase_and_changed_correction():
     assert select_examples(candidates, {"invented"}) == {"grammar": [], "vocabulary": []}
 
 
-def test_verification_precedes_ranking_and_caps_each_skill_at_two():
+def test_verification_precedes_ranking_and_caps_each_skill_at_five():
     turns = []
-    for phrase in ("the Rodri", "the Rodri", "I builds", "he work", "she go"):
+    for phrase in ("the Rodri", "the Rodri", "I builds", "he work", "she go", "they goes", "we is", "you was"):
         turns.append({"transcript": phrase, "corrections": [
             {"wrong": phrase, "better": phrase + " corrected", "kind": "grammar"},
         ]})
     candidates = correction_candidates(turns)
     picked = select_examples(candidates, {item["id"] for item in candidates if item["wrong"] != "the Rodri"})
-    assert [item["wrong"] for item in picked["grammar"]] == ["I builds", "he work"]
+    assert [item["wrong"] for item in picked["grammar"]] == ["I builds", "he work", "she go", "they goes", "we is"]
+
+
+def test_only_verified_examples_with_explanations_are_shown():
+    examples = [{"wrong": "I builds", "better": "I build"}, {"wrong": "he work", "better": "he works"}]
+    assert explained_examples(examples, ["Use the base verb with I.", ""]) == [
+        {"wrong": "I builds", "better": "I build", "explanation": "Use the base verb with I."},
+    ]
+
+
+def test_vocabulary_suggestions_require_grounded_useful_pairs_and_no_vocabulary_correction():
+    transcripts = ["I just use the same words every single time. I build software."]
+    useful = {
+        "original": "I just use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }
+    proposed = [
+        {"original": "I speak perfectly", "alternative": "I speak fluently", "explanation": "More precise."},
+        {"original": "I build software", "alternative": "I develop software", "explanation": "Another verb."},
+        useful, useful,
+    ]
+    grammar = [{"wrong": "I build software", "better": "I am building software"}]
+    assert select_vocabulary_suggestions(proposed, transcripts, grammar, []) == [useful]
+    assert select_vocabulary_suggestions([useful], transcripts, [{"wrong": useful["original"], "kind": "natural"}], []) == []
+    assert select_vocabulary_suggestions([useful], transcripts, [], [{"wrong": "bad", "better": "good"}]) == []
+    assert select_vocabulary_suggestions([useful], transcripts, [], []) == [useful]
 
 
 @pytest.mark.asyncio

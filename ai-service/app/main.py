@@ -264,6 +264,15 @@ def create_app(
             raise HTTPException(status_code=400, detail="invalid reset")
         return await onboarding.resolve(session_id, request_id, reset)
 
+    @app.post("/internal/onboarding/legacy-invitation")
+    async def legacy_onboarding_invitation(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = str(payload.get("action") or "claim")
+        if action not in {"claim", "release"}:
+            raise HTTPException(status_code=400, detail="invalid action")
+        return {"ok": await onboarding.legacy_invitation(session_id, action)}
+
     @app.post("/internal/calls/open")
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
@@ -294,9 +303,25 @@ def create_app(
         return {"ok": True}
 
     @app.post("/internal/calls/end")
-    async def calls_end(request: Request) -> dict[str, str | None]:
+    async def calls_end(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return {"callId": await calls.seal(_call_session_id(payload))}
+        call_id = await calls.seal(_call_session_id(payload))
+        call = await calls.get(call_id) if call_id else None
+        return {"callId": call_id, "lastVoiceMessageId": call.get("lastTelegramVoiceId") if call else None}
+
+    @app.post("/internal/calls/telegram-voice")
+    async def calls_telegram_voice(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        call_id = str(payload.get("callId") or "").strip()
+        message_id = payload.get("messageId")
+        if not call_id or type(message_id) is not int or message_id <= 0:
+            raise HTTPException(status_code=400, detail="valid callId and messageId required")
+        try:
+            first_reply = await calls.note_telegram_voice(session_id, call_id, message_id)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"firstReplyToStarter": first_reply}
 
     @app.post("/internal/calls/review")
     async def calls_review(request: Request) -> dict[str, Any]:
@@ -316,7 +341,7 @@ def create_app(
         payload = await _json_object(request)
         session_id, _request_id = _onboarding_identity(payload)
         minutes = payload.get("minutes")
-        if minutes not in {5, 10, 15}:
+        if type(minutes) is not int or minutes not in {0, 5, 10, 15}:
             raise HTTPException(status_code=400, detail="invalid practice goal")
         return await onboarding.set_goal(session_id, minutes)
 

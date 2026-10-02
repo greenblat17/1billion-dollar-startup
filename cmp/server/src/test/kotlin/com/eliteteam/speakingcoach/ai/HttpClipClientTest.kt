@@ -81,6 +81,30 @@ class HttpClipClientTest {
     }
 
     @Test
+    fun recordsUserVoiceAndReadsLastVoiceWhenCallEnds() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            when (request.url.encodedPath) {
+                "/internal/calls/telegram-voice" -> {
+                    val body = (request.body as TextContent).text
+                    assertContains(body, "\"sessionId\":\"tg-7\"")
+                    assertContains(body, "\"callId\":\"c1\"")
+                    assertContains(body, "\"messageId\":42")
+                    respond("""{"firstReplyToStarter":true}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+                "/internal/calls/end" -> respond("""{"callId":"c1","lastVoiceMessageId":42}""",
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                else -> error("Unexpected call endpoint ${request.url}")
+            }
+        }
+        val http = client(engine)
+        val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
+        assertEquals(true, ai.noteCallVoice(SessionId("tg-7"), "c1", 42).firstReplyToStarter)
+        assertEquals(42, ai.endCall(SessionId("tg-7")).lastVoiceMessageId)
+        http.close()
+    }
+
+    @Test
     fun readsAndUpdatesPerChatSpeechSpeed() = runTest {
         val engine = MockEngine { request ->
             assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])

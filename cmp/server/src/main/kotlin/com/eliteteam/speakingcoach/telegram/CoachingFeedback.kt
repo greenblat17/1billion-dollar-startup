@@ -5,11 +5,13 @@ import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.blockquote
 import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.code
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.strikethrough
 
 private const val MAX_CORRECTIONS = 3
+private val englishPhrase = Regex("""(?<![\p{L}\p{N}])[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*(?: +[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*)*(?![\p{L}\p{N}])""")
 
 private data class CorrectionSpan(
     val start: Int,
@@ -52,11 +54,17 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
 private fun explanationLine(correction: Correction): TextSourcesList = buildEntities {
     correction.explanation?.takeIf { it.isNotBlank() }?.let { explanation ->
         regular("\n\n💡 ")
-        regular(explanation)
+        var cursor = 0
+        for (match in englishPhrase.findAll(explanation)) {
+            if (match.range.first > cursor) regular(explanation.substring(cursor, match.range.first))
+            code(match.value)
+            cursor = match.range.last + 1
+        }
+        if (cursor < explanation.length) regular(explanation.substring(cursor))
     }
 }
 
-private fun inlineCorrection(correction: Correction): TextSourcesList = buildEntities {
+internal fun inlineCorrection(correction: Correction): TextSourcesList = buildEntities {
     if (correction.wrong == correction.better) {
         regular(correction.wrong)
         return@buildEntities

@@ -30,10 +30,11 @@ class Clock:
 
 
 class Scorer:
-    def __init__(self, move: int = 1, fail: bool = False) -> None:
+    def __init__(self, move: int = 1, fail: bool = False, suggestions: list[dict] | None = None) -> None:
         self.move = move
         self.fail = fail
         self.calls = 0
+        self.suggestions = suggestions
 
     async def verify_corrections(self, candidates):
         return {item["id"] for item in candidates}
@@ -49,6 +50,7 @@ class Scorer:
             "grammar": {"text": "Grammar is a little steadier.", "move": self.move},
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
             "fluency": {"text": "The turns are a little more connected.", "move": self.move},
+            "vocabularySuggestions": self.suggestions or [],
         }
         return parse_call_moves(json.dumps(raw))
 
@@ -111,6 +113,17 @@ async def test_open_call_records_speech_and_ignores_silence():
 
 
 @pytest.mark.asyncio
+async def test_call_without_a_goal_keeps_tracking_time_without_a_goal_nudge():
+    store = CallStore(goal_of=_goal(0))
+    opened = await store.open("tg-1")
+    assert opened["goalSeconds"] == 0
+    progress = await store.append_turn("tg-1", "I build software", "Tell me more.", [], 320, [])
+    assert progress["todaySeconds"] == 320
+    assert progress["goalSeconds"] == 0
+    assert progress["goalJustCrossed"] is False
+
+
+@pytest.mark.asyncio
 async def test_goal_nudge_happens_once_and_a_new_day_seals_the_old_call():
     clock = Clock(datetime(2026, 9, 30, 12, tzinfo=MOSCOW))
     store = CallStore(clock=clock, goal_of=_goal(5))
@@ -165,6 +178,29 @@ async def test_call_state_survives_redis():
     await redis.aclose()
 
 
+@pytest.mark.asyncio
+async def test_telegram_voice_reactions_follow_each_call_and_survive_restart():
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = CallStore(redis=redis)
+    first = await store.open("tg-1")
+    assert await store.note_telegram_voice("tg-1", first["callId"], 10) is False
+    assert await store.note_telegram_voice("tg-1", first["callId"], 11) is False
+    assert (await store.get(first["callId"]))["lastTelegramVoiceId"] == 11
+    await store.seal("tg-1")
+
+    second = await store.open("tg-1")
+    await store.save_opening(second["callId"], "Hi! How are you?")
+    await store.mark_opening_delivered(second["callId"])
+    restarted = CallStore(redis=redis)
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 20) is True
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 21) is False
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 20) is True
+    assert (await restarted.get(second["callId"]))["lastTelegramVoiceId"] == 21
+    with pytest.raises(ValueError, match="call is not open"):
+        await restarted.note_telegram_voice("tg-1", first["callId"], 22)
+    await redis.aclose()
+
+
 def test_one_call_cannot_jump_the_level():
     assert step_score(52, 30) == 54
     assert step_score(52, -30) == 50
@@ -209,6 +245,8 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert first["overallScore"] == second["overallScore"] == 53
     assert first["streak"] == 4
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
+
+
     state = {
         "status": "completed", "runId": "a" * 32, "cefr": "A1", "position": "low",
         "review": {"shade": "0", "grammar": {"score": 12}, "vocabulary": {"score": 12}, "fluency": {"score": 12}},
@@ -226,6 +264,24 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert (await store.get_assessment("tg-2"))["overallScore"] == 52
     healed = CallReviews(failing, store, Scorer(move=1), Streaks())
     assert (await healed.review(other["callId"]))["retry"] is False
+
+
+@pytest.mark.asyncio
+async def test_call_review_keeps_alternatives_only_when_vocabulary_has_no_corrections():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "I use the same words every single time.", "Tell me more.", [], 12, [])
+    await calls.seal("tg-1")
+    suggestion = {
+        "original": "I use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }
+    review = await CallReviews(calls, store, Scorer(suggestions=[suggestion]), Streaks()).review(opened["callId"])
+    assert review["vocabulary"]["examples"] == []
+    assert review["vocabulary"]["suggestions"] == [suggestion]
 
 
 @pytest.mark.asyncio

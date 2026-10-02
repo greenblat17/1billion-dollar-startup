@@ -19,4 +19,12 @@ class LegacyCampaignTest {
         assertEquals("🎙 Пройти onboarding", button.text)
         assertEquals(LEGACY_ONBOARDING_CALLBACK, button.callbackData)
     }
+
+    @Test
+    fun voiceInvitationKeepsAnnouncementAndAddsOptionalVoiceExplanation() {
+        val plain = legacyCampaignMessage(afterVoice = true).joinToString("") { it.source }
+        assertTrue(plain.startsWith(LEGACY_CAMPAIGN_BEFORE))
+        assertTrue(plain.endsWith(LEGACY_VOICE_INVITATION_NOTE))
+        assertTrue(plain.contains("просто продолжай отправлять голосовые"))
+    }
 }

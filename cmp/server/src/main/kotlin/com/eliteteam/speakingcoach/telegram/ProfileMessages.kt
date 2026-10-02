@@ -47,7 +47,7 @@ internal fun profileMessage(firstName: String?, profile: ProgressProfileResponse
     regularln("")
     bold("⏱ Daily goal")
     regularln("")
-    regularln(profile.dailyMinutes?.let { "$it min/day" } ?: "Not set yet")
+    regularln(profile.dailyMinutes?.takeIf { it > 0 }?.let { "$it min/day" } ?: "Not set yet")
     regularln("")
     bold("🔥 Current streak")
     regularln("")

@@ -37,6 +37,7 @@ class ProfileMessagesTest {
         assertTrue(text.contains("5 min/day"))
         assertTrue(text.endsWith("1 day"))
         assertFalse(text.contains("/100"))
+        assertTrue(profileMessage(null, ProgressProfileResponse(dailyMinutes = 0)).plain().contains("⏱ Daily goal\nNot set yet"))
         assertTrue(profileMessage("", ProgressProfileResponse()).plain().contains("Not set yet"))
     }
 
@@ -56,8 +57,12 @@ class ProfileMessagesTest {
         val deal = practiceDeal(10, 4)
         assertEquals(
             "10 minutes a day. Deal 🤝\n\n🔥 Day 4 of your streak\n\n" +
-                "You can start your 10-minute practice now.",
+                "$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION",
             deal.plain(),
+        )
+        assertEquals(
+            "10 minutes a day. Deal 🤝\n\n🔥 Day 4 of your streak\n\n$NEXT_CHAT_HINT",
+            practiceDeal(10, 4, askReminder = false).plain(),
         )
         assertTrue(deal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
         assertTrue(!deal.plain().contains("/profile"))
@@ -65,7 +70,7 @@ class ProfileMessagesTest {
         for (streak in listOf(null, 0)) {
             val text = practiceDeal(15, streak).plain()
             assertFalse(text.contains("Day 1"))
-            assertTrue(text.endsWith("You can start your 15-minute practice now."))
+            assertTrue(text.endsWith("$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION"))
         }
         assertTrue(isProfileCommand("/profile"))
         assertTrue(isProfileCommand("/profile@speaky"))

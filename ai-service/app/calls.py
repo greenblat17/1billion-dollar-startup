@@ -111,6 +111,23 @@ class CallStore:
             await self._close(session_id, call)
             return str(call["id"])
 
+    async def note_telegram_voice(self, session_id: str, call_id: str, message_id: int) -> bool:
+        """Remember delivered user voices and identify the first reply to a call starter."""
+        session_id = _session_id(session_id)
+        if message_id <= 0:
+            raise ValueError("messageId must be positive")
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            if call is None or call["id"] != call_id:
+                raise ValueError("call is not open")
+            first = call.get("firstTelegramVoiceId")
+            if first is None:
+                call["firstTelegramVoiceId"] = message_id
+            if (call.get("lastTelegramVoiceId") or 0) <= message_id:
+                call["lastTelegramVoiceId"] = message_id
+            await self._write_call(call)
+            return bool(call.get("openingDelivered") and call["firstTelegramVoiceId"] == message_id)
+
     async def get(self, call_id: str) -> dict[str, Any] | None:
         call = await self._read_call(call_id)
         return deepcopy(call) if call is not None else None

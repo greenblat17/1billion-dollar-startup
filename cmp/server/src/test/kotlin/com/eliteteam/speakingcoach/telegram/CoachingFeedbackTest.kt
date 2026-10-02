@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import com.eliteteam.speakingcoach.speaking.parseCorrections
 import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
+import dev.inmo.tgbotapi.types.message.textsources.CodeTextSource
 import dev.inmo.tgbotapi.types.message.textsources.StrikethroughTextSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -62,6 +63,16 @@ class CoachingFeedbackTest {
         )
         assertEquals(1, dialogue.joinToString("") { it.source }.split("💡").size - 1)
         assertEquals(true, dialogue.joinToString("") { it.source }.contains("$explanation\n\nРанее ты сказал:"))
+    }
+
+    @Test
+    fun englishPhrasesInRussianExplanationAreVisuallyDistinct() {
+        val explanation = "Перед исчисляемыми существительными AI и person нужны артикли: an AI и a person."
+        val sources = onboardingCorrection(Correction(
+            "between AI and a person", "between an AI and a person", CorrectionKind.GRAMMAR, explanation,
+        ))
+        assertEquals(listOf("AI", "person", "an AI", "a person"), sources.filterIsInstance<CodeTextSource>().map { it.source })
+        assertEquals(true, sources.joinToString("") { it.source }.endsWith("💡 $explanation"))
     }
 
     @Test

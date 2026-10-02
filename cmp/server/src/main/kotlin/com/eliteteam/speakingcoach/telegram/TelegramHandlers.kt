@@ -39,7 +39,10 @@ import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.types.message.abstracts.ContentMessage
 import dev.inmo.tgbotapi.types.message.content.TextContent
 import dev.inmo.tgbotapi.types.message.content.VoiceContent
+import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.DefaultKTgBotAPIKSLog
+import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.regular
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -109,6 +112,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val answeredStreaks = ConcurrentHashMap.newKeySet<String>()
     val founderNotes = ConcurrentHashMap.newKeySet<String>()
     val progressMessages = ConcurrentHashMap<String, MessageId>()
+    val onboardingReminderCards = ConcurrentHashMap<String, Pair<String, MessageId>>()
     val spokenLines = ConcurrentHashMap<String, String>()
     suspend fun showStatus(chat: Chat, action: BotAction) {
         try {
@@ -144,6 +148,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             log.warn("Failed to delete keyboard restoration message for {}", chat.id, error)
         }
+    }
+    suspend fun canStartCall(chat: Chat): Boolean = try {
+        val profile = ai.progressProfile(telegramSessionId(chat.id))
+        profile.assessment?.overallScore != null && profile.dailyMinutes != null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.warn("Failed to check call availability for {}", chat.id, error)
+        false
+    }
+    suspend fun sendFounderNote(chat: Chat, runId: String) {
+        if (runId in founderNotes) return
+        val keyboard = if (canStartCall(chat)) startCallKeyboard() else null
+        sendMessage(chat.id, FOUNDER_NOTE, replyMarkup = keyboard)
+        founderNotes.add(runId)
     }
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
@@ -293,7 +312,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false) {
         val sessionId = telegramSessionId(message.chat.id)
-        val requestId = "message:${message.messageId}"
+        val requestId = if (force) "force:${message.messageId}" else "message:${message.messageId}"
         if (force) {
             try {
                 ai.endCall(sessionId)
@@ -324,7 +343,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } else {
             val greeting = ai.startSession(sessionId)
             val profile = ai.progressProfile(sessionId)
-            val eligible = callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes) == "open"
+            val eligible = callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes, state.legacyUser) == "open"
             val activeCall = eligible && ai.callStatus(sessionId).active
             reply(
                 message, startTextMessage((message.chat as? PrivateChat)?.firstName),
@@ -342,7 +361,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val sessionId = telegramSessionId(message.chat.id)
         val state = ai.onboardingState(sessionId, "message:${message.messageId}")
         val profile = ai.progressProfile(sessionId)
-        when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes)) {
+        when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes, state.legacyUser)) {
+            "legacy" -> {
+                reply(message, legacyCampaignMessage(), allowSendingWithoutReply = true,
+                    replyMarkup = legacyCampaignKeyboard())
+                return
+            }
             "onboarding" -> {
                 when (state.status) {
                     "pending" -> reply(message, "I couldn't prepare your result. Please try again.",
@@ -420,6 +444,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val requestId = "message:${message.messageId}"
         val state = ai.onboardingState(sessionId, requestId)
         var hideCallKeyboard = false
+        var legacyConversation = false
         if (state.status == "waiting") {
             reply(message, ONBOARDING_BEGIN_HINT, replyMarkup = onboardingKeyboard("begin", state.runId))
             return
@@ -430,7 +455,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         if (state.status != "active") {
             val profile = ai.progressProfile(sessionId)
-            when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes)) {
+            when (callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes, state.legacyUser)) {
+                "legacy" -> legacyConversation = true
                 "need-onboarding" -> {
                     greet(message, "/onboarding", force = true)
                     return
@@ -509,7 +535,38 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 ) {
                     hideStartCallKeyboard(message.chat)
                 }
+                result.reply.call?.callId?.takeIf { it.isNotBlank() }?.let { callId ->
+                    try {
+                        val firstReply = ai.noteCallVoice(sessionId, callId, message.messageId.long).firstReplyToStarter
+                        if (firstReply) setMessageReaction(message.chat.id, message.messageId, "👍")
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        log.warn("Failed to record or react to call voice for {}", sessionId.value, error)
+                    }
+                }
                 deliver(message, result.reply)
+                if (legacyConversation && result.reply.transcript.isNotBlank() && result.reply.text.isNotBlank()) {
+                    try {
+                        if (ai.legacyInvitation(sessionId, "claim")) {
+                            try {
+                                sendMessage(message.chat.id, legacyCampaignMessage(afterVoice = true),
+                                    replyMarkup = legacyCampaignKeyboard())
+                            } catch (error: Throwable) {
+                                try {
+                                    ai.legacyInvitation(sessionId, "release")
+                                } catch (releaseError: Throwable) {
+                                    log.warn("Failed to release legacy invitation for {}", sessionId.value, releaseError)
+                                }
+                                throw error
+                            }
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        log.warn("Failed to send legacy invitation for {}", sessionId.value, error)
+                    }
+                }
                 if (result.reply.onboarding?.status == "completed") {
                     try {
                         setMessageReaction(message.chat.id, message.messageId, "🔥")
@@ -564,18 +621,32 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
         }
     }
-    suspend fun showCallLevel(message: ChatMessage, callId: String) {
-        val review = ai.reviewCall(callId)
-        if (review.retry) {
-            reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
+    suspend fun showCallLevel(message: ChatMessage, callId: String, asNewMessage: Boolean = false) {
+        val review = try {
+            ai.reviewCall(callId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to review call {}", callId, error)
+            null
+        }
+        val retry = review == null || review.retry
+        val card = if (retry) buildEntities { regular(CALL_RETRY_TEXT) } else {
+            levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext)
+        }
+        val markup = if (retry) callRetryKeyboard(callId) else callSlideKeyboard("grammar", callId)
+        if (asNewMessage) {
+            sendMessage(message.chat.id, card, replyMarkup = markup)
             return
         }
-        reply(
-            message,
-            levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext),
-            allowSendingWithoutReply = true,
-            replyMarkup = callSlideKeyboard("grammar", callId),
-        )
+        try {
+            editMessageText(message.chat.id, message.messageId, card, replyMarkup = markup)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to edit call level for {}", message.chat.id, error)
+            reply(message, card, allowSendingWithoutReply = true, replyMarkup = markup)
+        }
     }
     suspend fun showCallSlide(message: ChatMessage, callback: CallCallback) {
         val review = ai.reviewCall(callback.callId)
@@ -605,28 +676,43 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
             return
         }
+        val progress = callProgressMessage(review, offerReminder = reminderMissing(message))
+        val markup = callReturnKeyboard()
         try {
-            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+            editMessageText(message.chat.id, message.messageId, progress, replyMarkup = markup)
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            log.warn("Failed to edit call progress for {}", message.chat.id, error)
+            reply(message, progress, allowSendingWithoutReply = true, replyMarkup = markup)
         }
-        reply(
-            message,
-            callProgressMessage(review, offerReminder = reminderMissing(message)),
-            allowSendingWithoutReply = true,
-            replyMarkup = callReturnKeyboard(),
-        )
     }
     suspend fun endPracticeCall(message: ChatMessage) {
-        val callId = ai.endCall(telegramSessionId(message.chat.id)).callId
+        val ended = ai.endCall(telegramSessionId(message.chat.id))
+        val callId = ended.callId
         if (callId.isNullOrBlank()) {
             showStartCallKeyboard(message.chat)
             return
         }
+        reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true)
+        ended.lastVoiceMessageId?.let { lastVoiceId ->
+            try {
+                setMessageReaction(message.chat.id, MessageId(lastVoiceId), "❤")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Failed to react to the last call voice for {}", callId, error)
+            }
+        }
         clearProgress(message.chat)
-        showStartCallKeyboard(message.chat)
-        showCallLevel(message, callId)
+        try {
+            showStartCallKeyboard(message.chat)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to restore Start call keyboard for {}", message.chat.id, error)
+        }
+        showCallLevel(message, callId, asNewMessage = true)
     }
     onDataCallbackQuery { query ->
         // Stop Telegram's spinner before waiting for synthesis or the per-chat queue.
@@ -764,7 +850,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                     "results", "vocab", "fluency" -> showReviewSlide(ai, log, message, callback)
                     "finish" -> {
-                        clearOnboardingMarkup(message)
                         val state = ai.onboardingState(
                             telegramSessionId(message.chat.id),
                             "finish:${query.id}",
@@ -774,7 +859,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         } else {
                             practiceAsk(null, null, null)
                         }
-                        reply(message, ask, allowSendingWithoutReply = true, replyMarkup = practiceMinutesKeyboard(callback.runId))
+                        val markup = practiceMinutesKeyboard(callback.runId)
+                        editMessageText(message.chat.id, message.messageId, ask, replyMarkup = markup)
+                    }
+                    "skip" -> {
+                        ai.savePracticeGoal(telegramSessionId(message.chat.id), "goal:${query.id}", 0)
+                        val markup = reminderAskKeyboard(callback.runId)
+                        editMessageText(message.chat.id, message.messageId, practiceSkipped(), replyMarkup = markup)
+                        showStartCallKeyboard(message.chat)
                     }
                     "m5", "m10", "m15" -> {
                         val minutes = when (callback.action) {
@@ -791,14 +883,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.warn("Failed to load streak after saving daily goal", error)
                             null
                         }
-                        clearOnboardingMarkup(message)
-                        reply(
-                            message,
-                            practiceDeal(minutes, currentStreak),
-                            allowSendingWithoutReply = true,
-                            replyMarkup = reminderAskKeyboard(callback.runId),
-                        )
-                        sendMessage(message.chat.id, START_CALL_INVITATION, replyMarkup = startCallKeyboard())
+                        val deal = practiceDeal(minutes, currentStreak)
+                        val markup = reminderAskKeyboard(callback.runId)
+                        editMessageText(message.chat.id, message.messageId, deal, replyMarkup = markup)
+                        showStartCallKeyboard(message.chat)
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -807,8 +895,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "ask",
                             callback.runId,
                         )
-                        clearOnboardingMarkup(message)
-                        reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)
+                        editMessageText(message.chat.id, message.messageId, REMINDER_TIME_PROMPT, replyMarkup = noInlineKeyboard)
+                        onboardingReminderCards[message.chat.id.toString()] = callback.runId to message.messageId
                     }
                     "later" -> {
                         ai.scheduleReminder(
@@ -817,21 +905,34 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "decline",
                             callback.runId,
                         )
-                        clearOnboardingMarkup(message)
-                        reply(
-                            message,
-                            reminderSkipped(),
-                            allowSendingWithoutReply = true,
-                            replyMarkup = practiceDealKeyboard(callback.runId),
-                        )
+                        onboardingReminderCards.remove(message.chat.id.toString())
+                        val closing: TextSourcesList = try {
+                            val profile = ai.progressProfile(telegramSessionId(message.chat.id))
+                            profile.dailyMinutes?.takeIf { it > 0 }
+                                ?.let { practiceDeal(it, profile.currentStreak, askReminder = false) }
+                                ?: practiceSkipped(askReminder = false)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to load final daily-goal card for {}", message.chat.id, error)
+                            buildEntities { regular(REMINDER_SKIPPED) }
+                        }
+                        try {
+                            editMessageText(message.chat.id, message.messageId, closing, replyMarkup = noInlineKeyboard)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to edit reminder choice for {}", message.chat.id, error)
+                        }
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     "profile" -> {
                         sendProfile(message)
-                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     "bye" -> {
                         reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
-                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     else -> {
                         val result = ai.onboardingAction(
@@ -893,14 +994,45 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             text = content.text,
                         )
                         when (scheduled.status) {
-                            "saved" -> reply(
-                                message,
-                                reminderSaved(scheduled.time.orEmpty()),
-                                allowSendingWithoutReply = true,
-                                replyMarkup = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
-                                    ?.let { practiceDealKeyboard(it) },
-                            )
-                            "invalid" -> reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)
+                            "saved" -> {
+                                val key = message.chat.id.toString()
+                                val card = onboardingReminderCards[key]?.takeIf { it.first == scheduled.runId }
+                                val onboardingRun = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
+                                val confirmation: TextSourcesList = if (onboardingRun != null) {
+                                    onboardingReminderSaved(scheduled.time.orEmpty())
+                                } else {
+                                    buildEntities { regular(reminderSaved(scheduled.time.orEmpty())) }
+                                }
+                                if (card == null) {
+                                    reply(message, confirmation, allowSendingWithoutReply = true)
+                                } else {
+                                    try {
+                                        editMessageText(message.chat.id, card.second, confirmation, replyMarkup = noInlineKeyboard)
+                                    } catch (error: CancellationException) {
+                                        throw error
+                                    } catch (error: Throwable) {
+                                        log.warn("Failed to edit saved reminder card for {}", message.chat.id, error)
+                                        reply(message, confirmation, allowSendingWithoutReply = true)
+                                    } finally {
+                                        onboardingReminderCards.remove(key, card)
+                                    }
+                                }
+                                if (onboardingRun != null) sendFounderNote(message.chat, onboardingRun)
+                            }
+                            "invalid" -> {
+                                val card = onboardingReminderCards[message.chat.id.toString()]
+                                if (card == null) {
+                                    reply(message, REMINDER_TIME_PROMPT, allowSendingWithoutReply = true)
+                                } else {
+                                    try {
+                                        editMessageText(message.chat.id, card.second, REMINDER_INVALID_TIME_PROMPT, replyMarkup = noInlineKeyboard)
+                                    } catch (error: CancellationException) {
+                                        throw error
+                                    } catch (error: Throwable) {
+                                        log.warn("Failed to edit invalid reminder-time prompt for {}", message.chat.id, error)
+                                    }
+                                }
+                            }
                             else -> reply(message, SEND_VOICE_HINT)
                         }
                     }

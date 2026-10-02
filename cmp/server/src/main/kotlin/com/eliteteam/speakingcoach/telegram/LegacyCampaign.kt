@@ -36,11 +36,15 @@ internal const val LEGACY_CAMPAIGN_AFTER =
             "поэтому персонализация будет хуже\n\n" +
             "И если после него что-то покажется странным, неудобным или, наоборот, понравится — " +
             "напиши мне: @alexgusev93. Я читаю каждое сообщение и отвечаю сам 🙌"
+internal const val LEGACY_VOICE_INVITATION_NOTE =
+    "\n\nЕсли пока не хочешь проходить onboarding — просто продолжай отправлять голосовые. " +
+            "Speaky будет отвечать на них, как раньше 💙"
 
-internal fun legacyCampaignMessage(): TextSourcesList = buildEntities {
+internal fun legacyCampaignMessage(afterVoice: Boolean = false): TextSourcesList = buildEntities {
     regular(LEGACY_CAMPAIGN_BEFORE)
     bold(LEGACY_CAMPAIGN_BOLD)
     regular(LEGACY_CAMPAIGN_AFTER)
+    if (afterVoice) regular(LEGACY_VOICE_INVITATION_NOTE)
 }
 
 internal fun legacyCampaignKeyboard(): InlineKeyboardMarkup = inlineKeyboard {

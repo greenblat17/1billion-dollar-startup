@@ -99,24 +99,26 @@ class Model:
         return {
             "callback": callback,
             "levelText": "You can keep a conversation going about your own work.",
+            "grammarExplanations": ["Use the base verb with I."] * len(payload["grammarExamples"]),
+            "vocabularyExplanations": ["This word fits the meaning here."] * len(payload["vocabularyExamples"]),
             "grammar": {
                 "band": "B1",
                 "position": "high",
-                "text": "You handle basic sentences, and a few patterns still trip you up.",
+                "text": "You connect ideas in basic sentences. Some repeated grammar patterns still need attention.",
                 "notes": "Common linked clauses hold, with recurring article slips.",
                 "flags": ["simple_clauses", "tense_contrast", "linked_clauses"],
             },
             "vocabulary": {
                 "band": "B1",
                 "position": "mid",
-                "text": "You have enough words for everyday conversation.",
+                "text": "You use enough words for everyday conversation. Some choices are less precise when the topic changes.",
                 "notes": "Familiar topics use concrete words, without much precision.",
                 "flags": ["concrete_lexis", "topic_spread"],
             },
             "fluency": {
                 "band": "B2",
                 "position": "low",
-                "text": "You can keep your thoughts moving.",
+                "text": "You can keep your thoughts moving. You connect ideas across a full turn.",
                 "notes": "Turns finish, and ideas connect, with some search still visible.",
                 "flags": ["completed_turns", "linked_ideas"],
             },
@@ -155,6 +157,26 @@ async def test_new_user_requires_button_and_existing_user_is_exempt():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_existing_user_invitation_is_once_per_voice_path_and_independent_of_reset(redis_backed):
+    redis = FakeAsyncRedis(decode_responses=True) if redis_backed else None
+    store = OnboardingStore(redis)
+    s = service(store=store)
+    await s.pipeline.metrics.record_start("tg-old", None)
+    assert (await s.resolve("tg-old", "voice:1"))["status"] == "exempt"
+    assert await s.legacy_invitation("tg-old", "claim") is True
+    assert await s.legacy_invitation("tg-old", "claim") is False
+    if redis_backed:
+        assert await OnboardingStore(redis).claim_legacy_invitation("tg-old") is False
+    assert await s.legacy_invitation("tg-old", "release") is True
+    assert await s.legacy_invitation("tg-old", "claim") is True
+    restarted = await s.resolve("tg-old", "force:1", "force")
+    assert restarted["status"] == "waiting"
+    assert restarted["legacyUser"] is True
+    assert await s.legacy_invitation("tg-old", "claim") is False
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("seconds,status", [(119, "active"), (120, "completed"), (150, "completed")])
 async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
     s = service(stt=Stt(seconds))
@@ -166,7 +188,7 @@ async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
     assert result.corrections
     assert "Estimated English" not in result.reply_text
     if status == "completed":
-        assert result.reply_text.startswith("You know what, I really enjoyed talking with you. I feel like I know you a little better now. 😊")
+        assert result.reply_text.startswith("Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now. 😊")
         assert "Let me show you what I noticed." in result.reply_text
         assert "😊" not in s.pipeline.tts.texts[-1]
         assert result.onboarding["resultText"] is None
@@ -350,7 +372,7 @@ async def test_final_voice_overlaps_review_and_memory():
 
     class ParallelTts(FakeTts):
         async def synthesize(self, text, speed=None):
-            if text.startswith("You know what"):
+            if text.startswith("Thanks for sharing that with me"):
                 voice_started.set()
                 await asyncio.wait_for(memory_started.wait(), 0.5)
             return await super().synthesize(text, speed)
@@ -479,7 +501,7 @@ async def test_close_remembers_profile_and_restart_wipes_it():
         "Old topic",
         "Old reply",
         "I build software. I need English to work with clients.",
-        "You know what, I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I can already hear your English a little. Let me show you what I noticed.",
+        "Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I can already hear your English a little. Let me show you what I noticed.",
     ]
     saved = await s.store.get("tg-test")
     assert saved["profile"]["work"] == "software developer"
@@ -649,18 +671,20 @@ async def test_stt_failure_never_counts_the_recording():
 
 
 @pytest.mark.asyncio
-async def test_generic_answer_keeps_the_closing_frame_and_a_startup_gets_a_callback():
-    generic = service(stt=Stt(120, "I work as a developer. I like movies. I need English for work."))
+async def test_last_answer_reaction_opens_the_closing_voice():
+    ordinary_model = Model()
+    ordinary_model.review_callback = "I can see why English matters for your work."
+    generic = service(stt=Stt(120, "I work as a developer. I like movies. I need English for work."), model=ordinary_model)
     generic_run = await begin(generic)
     generic_result = await turn(generic, generic_run)
     assert generic_result.reply_text.startswith(
-        "You know what, I really enjoyed talking with you. I feel like I know you a little better now. 😊"
+        "I can see why English matters for your work. I really enjoyed talking with you. I feel like I know you a little better now. 😊"
     )
     assert "startup" not in generic_result.reply_text
     assert "Let me show you what I noticed." in generic_result.reply_text
 
     model = Model()
-    model.review_callback = "And your startup sounds really interesting — I hope you’ll tell me more about it sometime."
+    model.review_callback = "Building a startup with friends sounds exciting."
     ungrounded = service(stt=Stt(120, "I work as a developer."), model=model)
     ungrounded_run = await begin(ungrounded, "tg-plain")
     dropped = await turn(ungrounded, ungrounded_run, session="tg-plain")
@@ -670,7 +694,7 @@ async def test_generic_answer_keeps_the_closing_frame_and_a_startup_gets_a_callb
     specific_run = await begin(specific, "tg-startup")
     heard = await turn(specific, specific_run, session="tg-startup")
     text = heard.reply_text
-    assert text.index("enjoyed talking with you") < text.index("startup") < text.index("I feel like I know you")
+    assert text.index("startup") < text.index("enjoyed talking with you") < text.index("I feel like I know you")
     assert text.endswith("Let me show you what I noticed.")
     assert "😊" in text
     assert "😊" not in specific.pipeline.tts.texts[-1]
@@ -762,11 +786,20 @@ def test_http_goal_requires_auth_and_known_minutes():
         assert client.post(
             "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "g", "minutes": 20},
         ).status_code == 400
+        assert client.post(
+            "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "boolean", "minutes": False},
+        ).status_code == 400
         saved = client.post(
             "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "g", "minutes": 15},
         )
         assert saved.status_code == 200
         assert saved.json() == {"minutes": 15}
+        skipped = client.post(
+            "/internal/onboarding/goal", headers=AUTH, json={"sessionId": "tg-1", "requestId": "skip", "minutes": 0},
+        )
+        assert skipped.status_code == 200
+        assert skipped.json() == {"minutes": 0}
+        assert client.get("/internal/profile/tg-1", headers=AUTH).json()["dailyMinutes"] == 0
 
 
 @pytest.mark.asyncio
@@ -787,11 +820,37 @@ async def test_review_uses_only_verified_examples_and_survives_verification_fail
     s = service(stt=Stt(120, "I builds tools. I talked to the Rodri."), model=model, llm=llm)
     run = await begin(s)
     result = await turn(s, run)
-    expected = [] if fails else [{"wrong": "I builds", "better": "I build"}]
+    expected = [] if fails else [{"wrong": "I builds", "better": "I build", "explanation": "Use the base verb with I."}]
+    expected_input = [] if fails else [{"wrong": "I builds", "better": "I build"}]
     assert result.onboarding["status"] == "completed"
-    assert model.review_payloads[0]["grammarExamples"] == expected
+    assert model.review_payloads[0]["grammarExamples"] == expected_input
     assert result.onboarding["review"]["grammar"]["examples"] == expected
     assert model.review_payloads[0]["vocabularyExamples"] == []
+
+
+@pytest.mark.asyncio
+async def test_onboarding_review_shows_optional_vocabulary_alternative_without_calling_it_a_correction():
+    class SuggestingModel(Model):
+        async def compose_review(self, payload):
+            review = await super().compose_review(payload)
+            review["vocabularySuggestions"] = [{
+                "original": "I use the same words every single time",
+                "alternative": "I tend to fall back on the same words",
+                "explanation": "Fall back on describes relying on familiar words out of habit.",
+            }]
+            return review
+
+    model = SuggestingModel()
+    s = service(stt=Stt(120, "I use the same words every single time."), model=model)
+    run = await begin(s)
+    result = await turn(s, run)
+    vocabulary = result.onboarding["review"]["vocabulary"]
+    assert vocabulary["examples"] == []
+    assert vocabulary["suggestions"] == [{
+        "original": "I use the same words every single time",
+        "alternative": "I tend to fall back on the same words",
+        "explanation": "Fall back on describes relying on familiar words out of habit.",
+    }]
 
 
 @pytest.mark.asyncio

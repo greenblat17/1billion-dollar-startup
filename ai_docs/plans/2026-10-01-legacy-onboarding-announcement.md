@@ -6,6 +6,8 @@ The audience is every private Telegram chat already known to AI-service when the
 
 The Telegram bot builds message entities directly: paragraph breaks stay in the message, the requested emphasis is bold, and the final CTA is an inline button. Its `campaign:onboarding` callback enters the existing forced `/onboarding` flow and the button is removed after a successful start. No onboarding state is reset by delivering the announcement itself.
 
+An exempt existing user who sends a voice before completing onboarding keeps the ordinary dialogue. After the first successfully answered voice, the bot sends the same announcement once more with an extra line saying they can continue sending voice messages without onboarding. This in-chat follow-up has its own durable claim, independent of the admin campaign's delivery status, so a broadcast recipient can receive it once. Subsequent voice replies do not repeat it.
+
 Run order for the target environment:
 
 1. Deploy the AI-service and CMP server. The AI deployment automatically freezes the audience in Redis. It does not send a message.

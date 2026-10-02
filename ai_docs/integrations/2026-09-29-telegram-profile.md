@@ -32,23 +32,27 @@ AI-service composes this response without creating an onboarding attempt, callin
 
 Legacy completed attempts without a snapshot remain readable. Before `/onboarding` resets such an attempt, its summary is preserved. Already-reset attempts from before this release cannot be recovered. This score snapshot is separate from the durable conversational learner memory described in [personalized conversation](2026-09-30-personalized-conversation.md); both now survive a new attempt.
 
-No assessment gives `assessment: null` and an invitation to complete `/onboarding`; goal and streak are still shown. Missing CEFR or individual scores remain unknown, never invented zeros. No goal shows `Not set yet`. C2 has no numeric overall score or next-band target. No active streak is `0 days`.
+No assessment gives `assessment: null` and an invitation to complete `/onboarding`; goal and streak are still shown. Missing CEFR or individual scores remain unknown, never invented zeros. No goal, including an explicit `No goal for now` choice stored as zero minutes, shows `Not set yet`. C2 has no numeric overall score or next-band target. No active streak is `0 days`.
 
 ## End of onboarding
 
-After saving the daily goal, the message is only the commitment:
+After saving the daily goal, edit the existing goal-choice card into the commitment and reminder choice:
 
 ```text
 10 minutes a day. Deal 🤝
 
 🔥 Day 4 of your streak
 
-Come back tomorrow for your 10-minute practice.
+Whenever you're ready to chat again, tap 🎙 Start call or just send me a voice message.
+
+How about we set a reminder so we don't forget to chat?
 ```
 
-The first line is bold, with a blank line between the parts. It does not mention `/profile`. Buttons are `🔔 Set reminder` and `Not now`. The streak is loaded at that moment, never hardcoded to day one. Zero or unavailable streak omits the streak line; a streak read failure does not undo the saved goal or block the question.
+The first line and the exact reply-button label `🎙 Start call` are bold, with a blank line between paragraphs. It does not mention `/profile`. Choosing the goal edits the goal-choice card into this commitment; it does not leave another bot message. The persistent Start call reply keyboard appears immediately after the goal is saved, while the inline buttons on the card remain `🔔 Set reminder` and `Not now`. Telegram requires a send to change a reply keyboard, so the bot sends and deletes a short keyboard-setting message. The streak is loaded at that moment, never hardcoded to day one. Zero or unavailable streak omits the streak line; a streak read failure does not undo the saved goal or block the question. `No goal for now` uses the same next-chat invitation and reminder question without a commitment or streak.
 
-`Set reminder` asks for a Moscow time as text, `8:05` or `08:05`. Hours are 0–23 and minutes 00–59. The saved and confirmed value is zero-padded `HH:MM`. Anything else asks again. `/remind` asks the same way later, and a new time replaces the saved one. A saved time is `Perfect. I'll remind you every day at 13:00 🔔`, then the profile line. `Not now` sends only `You can check your progress anytime with /profile.` Both end with `Profile` and `See you tomorrow 👋`. `Profile` opens the same card as `/profile`. The note from Sasha asking for feedback at @alexgusev93 follows whichever of those two buttons is tapped first. A later tap of the other button does not send it again. `/profile` does not send that note. Old `Keep talking 🎙` buttons still continue the conversation. A voice message while the time is still open stays an ordinary conversation; a later time is still accepted until the step is closed. No extra profile screen is sent.
+`Set reminder` edits the same card to ask for a Moscow time as text, `8:05` or `08:05`. Hours are 0–23 and minutes 00–59. The saved and confirmed value is zero-padded `HH:MM`. Anything else asks again. `/remind` asks the same way later, and a new time replaces the saved one. A saved onboarding time edits that card to a confirmation and the next-chat invitation. `Not now` leaves the commitment and next-chat invitation in the same card and removes the reminder question and inline buttons. Both paths send Sasha's existing feedback note immediately afterward, with blank paragraphs between its blocks. They do not send a separate `/profile` hint or a `Profile` / `See you tomorrow 👋` button card. `/profile` remains available as a command and does not send the founder note. Old `Keep talking 🎙` buttons still continue the conversation. A voice message while the time is still open stays an ordinary conversation; a later time is still accepted until the step is closed.
+
+Choosing a daily goal, including `No goal for now`, continues to the reminder choice and shows the persistent `🎙 Start call` reply keyboard immediately. Sasha's note carries the same keyboard after the reminder step. The call handler still checks that the profile has a numeric assessment and a saved daily-goal choice before starting a call. Existing `Profile` / `See you tomorrow 👋` callbacks from old messages remain compatible, but the current onboarding flow does not show them.
 
 ## Verification and release
 
