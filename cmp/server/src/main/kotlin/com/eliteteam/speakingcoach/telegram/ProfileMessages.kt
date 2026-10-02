@@ -1,21 +1,13 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.ProgressProfileResponse
-import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
-import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
-import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.buildEntities
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
-import dev.inmo.tgbotapi.utils.row
 
 internal const val PROFILE_STREAK_CALLBACK = "profile:streak"
-
-internal fun profileKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
-    row { dataButton("🔥 View streak", PROFILE_STREAK_CALLBACK) }
-}
 
 internal fun profileMessage(firstName: String?, profile: ProgressProfileResponse): TextSourcesList = buildEntities {
     bold("👤 ${firstName?.trim()?.takeIf { it.isNotEmpty() } ?: "Your profile"}")

@@ -102,13 +102,6 @@ internal fun callYesterdayKeyboard(callId: String): InlineKeyboardMarkup = inlin
     row { dataButton("Yesterday's results", "call:review:$callId") }
 }
 
-internal fun callReturnKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
-    row {
-        dataButton("Profile", "call:profile")
-        dataButton("Finish for today", "call:bye")
-    }
-}
-
 internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
     val today = if (review.goalSeconds > 0.0) " today" else ""
     bold("${callClockLabel(review.todaySeconds, review.goalSeconds)}$today")

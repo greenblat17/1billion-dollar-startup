@@ -2,7 +2,6 @@ package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.ProgressAssessment
 import com.eliteteam.speakingcoach.ai.ProgressProfileResponse
-import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import kotlin.test.Test
@@ -24,9 +23,6 @@ class ProfileMessagesTest {
                 "⏱ Daily goal\n10 min/day\n\n🔥 Current streak\n4 days",
             profileMessage("Alex", profile).plain(),
         )
-        val button = profileKeyboard().keyboard.single().single() as CallbackDataInlineKeyboardButton
-        assertEquals("🔥 View streak", button.text)
-        assertEquals(PROFILE_STREAK_CALLBACK, button.callbackData)
     }
 
     @Test

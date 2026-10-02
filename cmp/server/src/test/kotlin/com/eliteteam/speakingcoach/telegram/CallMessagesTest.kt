@@ -44,13 +44,6 @@ class CallMessagesTest {
     }
 
     @Test
-    fun returnKeyboardOffersProfileAndFinish() {
-        val row = callReturnKeyboard().keyboard.single().map { it as CallbackDataInlineKeyboardButton }
-        assertEquals(listOf("Profile", "Finish for today"), row.map { it.text })
-        assertEquals(listOf("call:profile", "call:bye"), row.map { it.callbackData })
-    }
-
-    @Test
     fun progressCardRecapsTheConversation() {
         val up = callProgressMessage(
             CallReviewResponse(
