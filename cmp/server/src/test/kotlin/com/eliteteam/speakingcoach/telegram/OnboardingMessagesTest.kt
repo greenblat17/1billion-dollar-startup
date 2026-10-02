@@ -102,7 +102,7 @@ class OnboardingMessagesTest {
         val grammar = grammarSlide(review)
         assertTrue(grammar.plain().contains("✍️ Grammar"))
         assertTrue(grammar.plain().contains("62 / 100"))
-        assertTrue(grammar.plain().contains("I work in at a startup\nUse at a with startup here."))
+        assertTrue(grammar.plain().contains("I work in at a startup\n\n💡 Use at a with startup here."))
         assertTrue(grammar.any { it is StrikethroughTextSource && it.source == "in" })
         assertTrue(grammar.any { it is BoldTextSource && it.source == "at a" })
         assertTrue(grammar.any { it is ItalicTextSource && it.source == "Use at a with startup here." })
@@ -192,9 +192,11 @@ class OnboardingMessagesTest {
         ))
         assertEquals(
             "✍️ Grammar\n\n52 / 100\n\nYou connect ideas, with some agreement errors.\n\n" +
-                "What I noticed\n\nI builds build\nUse the base verb with I.\n\n" +
-                "he work works\nUse works with he.\n\nshe go goes\nUse goes with she.\n\n" +
-                "they goes go\nUse go with they.\n\nwe is are\nUse are with we.",
+                "What I noticed\n\nI builds build\n\n💡 Use the base verb with I.\n\n" +
+                "he work works\n\n💡 Use works with he.\n\n" +
+                "she go goes\n\n💡 Use goes with she.\n\n" +
+                "they goes go\n\n💡 Use go with they.\n\n" +
+                "we is are\n\n💡 Use are with we.",
             grammarSlide(review).plain(),
         )
         assertEquals(emptyList(), fluencyLines(OnboardingFluency(fillers = 0)))

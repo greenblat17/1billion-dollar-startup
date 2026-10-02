@@ -304,7 +304,7 @@ private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList =
             if (index > 0) regular("\n\n")
             addAll(inlineCorrection(Correction(example.wrong, example.better)))
             example.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
-                regular("\n")
+                regular("\n\n💡 ")
                 italic(explanation)
             }
         }

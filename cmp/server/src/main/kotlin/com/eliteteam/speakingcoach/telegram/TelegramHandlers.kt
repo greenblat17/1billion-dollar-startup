@@ -148,6 +148,24 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to delete keyboard restoration message for {}", chat.id, error)
         }
     }
+    suspend fun canStartCall(chat: Chat): Boolean = try {
+        val profile = ai.progressProfile(telegramSessionId(chat.id))
+        profile.assessment?.overallScore != null && profile.dailyMinutes != null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        log.warn("Failed to check call availability for {}", chat.id, error)
+        false
+    }
+    suspend fun sendStartCallInvitation(chat: Chat) {
+        if (canStartCall(chat)) sendMessage(chat.id, START_CALL_INVITATION, replyMarkup = startCallKeyboard())
+    }
+    suspend fun sendFounderNote(chat: Chat, runId: String) {
+        if (runId in founderNotes) return
+        val keyboard = if (canStartCall(chat)) startCallKeyboard() else null
+        sendMessage(chat.id, FOUNDER_NOTE, replyMarkup = keyboard)
+        founderNotes.add(runId)
+    }
     suspend fun clearProgress(chat: Chat) {
         val key = chat.id.toString()
         val existing = progressMessages.remove(key) ?: return
@@ -601,7 +619,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
         }
     }
-    suspend fun showCallLevel(message: ChatMessage, callId: String) {
+    suspend fun showCallLevel(message: ChatMessage, callId: String, asNewMessage: Boolean = false) {
         val review = try {
             ai.reviewCall(callId)
         } catch (error: CancellationException) {
@@ -615,6 +633,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext)
         }
         val markup = if (retry) callRetryKeyboard(callId) else callSlideKeyboard("grammar", callId)
+        if (asNewMessage) {
+            sendMessage(message.chat.id, card, replyMarkup = markup)
+            return
+        }
         try {
             editMessageText(message.chat.id, message.messageId, card, replyMarkup = markup)
         } catch (error: CancellationException) {
@@ -670,7 +692,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             showStartCallKeyboard(message.chat)
             return
         }
-        val waiting = reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true)
+        reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true)
         ended.lastVoiceMessageId?.let { lastVoiceId ->
             try {
                 setMessageReaction(message.chat.id, MessageId(lastVoiceId), "❤")
@@ -688,7 +710,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) {
             log.warn("Failed to restore Start call keyboard for {}", message.chat.id, error)
         }
-        showCallLevel(waiting, callId)
+        showCallLevel(message, callId, asNewMessage = true)
     }
     onDataCallbackQuery { query ->
         // Stop Telegram's spinner before waiting for synthesis or the per-chat queue.
@@ -882,7 +904,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.warn("Failed to edit daily-goal card for {}", message.chat.id, error)
                             reply(message, deal, allowSendingWithoutReply = true, replyMarkup = markup)
                         }
-                        sendMessage(message.chat.id, START_CALL_INVITATION, replyMarkup = startCallKeyboard())
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -919,14 +940,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.warn("Failed to edit reminder choice for {}", message.chat.id, error)
                             reply(message, reminderSkipped(), allowSendingWithoutReply = true, replyMarkup = markup)
                         }
+                        sendStartCallInvitation(message.chat)
                     }
                     "profile" -> {
                         sendProfile(message)
-                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     "bye" -> {
                         reply(message, SEE_YOU_TOMORROW, allowSendingWithoutReply = true)
-                        if (founderNotes.add(callback.runId)) sendMessage(message.chat.id, FOUNDER_NOTE)
+                        sendFounderNote(message.chat, callback.runId)
                     }
                     else -> {
                         val result = ai.onboardingAction(
@@ -1008,6 +1030,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                         onboardingReminderCards.remove(key, card)
                                     }
                                 }
+                                if (markup != null) sendStartCallInvitation(message.chat)
                             }
                             "invalid" -> {
                                 val card = onboardingReminderCards[message.chat.id.toString()]
