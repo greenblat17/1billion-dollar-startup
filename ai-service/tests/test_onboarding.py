@@ -16,7 +16,7 @@ from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, R
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
-from app.pipeline import ClipPipeline
+from app.pipeline import NOTES_TIMEOUT_SECONDS, ClipPipeline
 from app.stt import SttResult
 from tests.conftest import FakeLlm, FakeTts, test_settings as settings
 
@@ -125,7 +125,7 @@ class Model:
         }
 
 
-def service(stt=None, model=None, store=None, tts=None, llm=None, notes_timeout_seconds=8.0):
+def service(stt=None, model=None, store=None, tts=None, llm=None, notes_timeout_seconds=NOTES_TIMEOUT_SECONDS):
     pipeline = ClipPipeline(
         stt=stt or Stt(), llm=llm or FakeLlm([Correction("I builds", "I build")]),
         tts=tts or FakeTts(), dialogue=MemoryDialogueStore(40, 3600),

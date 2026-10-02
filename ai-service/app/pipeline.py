@@ -18,7 +18,7 @@ from app.tts import TextToSpeech, TtsAudio
 logger = logging.getLogger(__name__)
 
 CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
-NOTES_TIMEOUT_SECONDS = 8.0
+NOTES_TIMEOUT_SECONDS = 10.0
 CORRECTION_METRICS_TIMEOUT_SECONDS = 0.2
 
 
