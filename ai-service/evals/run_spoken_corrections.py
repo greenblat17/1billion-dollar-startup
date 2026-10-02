@@ -2,12 +2,14 @@
 import argparse
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from openai import AsyncOpenAI
 
 from app.config import Settings
 from app.llm import OpenAiChatModel
+from app.pipeline import NOTES_TIMEOUT_SECONDS
 
 
 def normalized(text):
@@ -32,10 +34,18 @@ async def evaluate():
         raise SystemExit("OPENAI_API_KEY is required; no requests sent.")
     cases = json.loads(Path(__file__).with_name("spoken_corrections.json").read_text())
     false_corrections = missed = missing_edits = edits_for_review = contexts_for_review = 0
-    async with AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url) as client:
+    async with AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0) as client:
         model = OpenAiChatModel(client, settings.llm_model, notes_model=settings.notes_model)
         for case in cases:
-            notes = await model.complete_notes(case["transcript"])
+            deadline_at = time.monotonic() + NOTES_TIMEOUT_SECONDS
+            try:
+                run = await asyncio.wait_for(
+                    model.complete_notes_result(case["transcript"], deadline_at=deadline_at),
+                    NOTES_TIMEOUT_SECONDS,
+                )
+                notes = run.corrections
+            except asyncio.TimeoutError:
+                notes = []
             if case["expect"] == "omit":
                 false_corrections += bool(notes)
             else:

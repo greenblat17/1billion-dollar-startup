@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
@@ -284,6 +285,8 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${card("₽ на ход", rubPerTurn)}
         ${card("₽ на DAU", rubPerDau)}
         </dl>
+        <h2>Исправления</h2>
+        ${correctionReport(snapshot)}
         <h2>Воронка</h2>
         <p class="meta">Activated за 7 дней: ${snapshot.activated7}</p>
         <table>
@@ -310,6 +313,55 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </html>
     """.trimIndent()
 }
+
+private val correctionLabels = linkedMapOf(
+    "shown" to "Показано исправление",
+    "empty" to "Ошибок не найдено",
+    "filtered" to "Отклонено проверкой",
+    "deadline" to "Превышен лимит 8 с",
+    "provider_timeout" to "Таймаут провайдера",
+    "rate_limit" to "Лимит запросов провайдера",
+    "provider_5xx" to "Ошибка провайдера 5xx",
+    "provider_4xx" to "Ошибка провайдера 4xx",
+    "network" to "Сетевая ошибка",
+    "no_choices" to "Ответ без choices",
+    "empty_text" to "Пустой текст ответа",
+    "invalid_json" to "Невалидный JSON",
+    "invalid_schema" to "Неверная структура JSON",
+    "token_limit" to "Лимит токенов ответа",
+    "other_error" to "Другая ошибка",
+)
+
+private val nonfailureCorrectionOutcomes = setOf("shown", "empty", "filtered")
+
+private fun correctionReport(snapshot: MetricsSnapshot): String {
+    val rows = correctionLabels.mapNotNull { (key, label) ->
+        snapshot.corrections[key]?.takeIf { it.count > 0 }?.let { Triple(key, label, it) }
+    }
+    if (rows.isEmpty()) return "<p class=\"meta\">Пока нет данных.</p>"
+    val total = rows.sumOf { it.third.count }
+    val failures = rows.filter { it.first !in nonfailureCorrectionOutcomes }.sumOf { it.third.count }
+    val secondAttempts = rows.sumOf { it.third.secondAttempts }
+    val failureRate = String.format(Locale.US, "%.1f%%", failures * 100.0 / total)
+    val tableRows = rows.joinToString("\n") { (_, label, metrics) ->
+        "<tr><td>${escapeHtml(label)}</td><td>${metrics.count}</td><td>${averageCorrectionMs(metrics)}</td></tr>"
+    }
+    return """
+        <dl>
+        ${card("Запросы исправлений", total.toString())}
+        ${card("Сбои", failures.toString())}
+        ${card("Доля сбоев", failureRate)}
+        ${card("Повторная попытка", secondAttempts.toString())}
+        </dl>
+        <table>
+        <thead><tr><th>Исход</th><th>Количество</th><th>Среднее время, мс</th></tr></thead>
+        <tbody>$tableRows</tbody>
+        </table>
+    """.trimIndent()
+}
+
+private fun averageCorrectionMs(metrics: CorrectionMetrics): String =
+    String.format(Locale.US, "%.0f", metrics.elapsedMs.toDouble() / metrics.count)
 
 private fun funnelDayRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelDays.isEmpty()) {

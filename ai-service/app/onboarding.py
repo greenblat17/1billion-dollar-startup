@@ -26,6 +26,7 @@ FIRST_QUESTION = (
     "whatever you’d like me to know."
 )
 RETRY_TEXT = "I couldn't prepare your result. Please try again."
+RESULT_READY_TEXT = "Your results are ready."
 SPEECH_LIMIT_SECONDS = 120
 PROFILE_FIELDS = ("work", "leisure", "goal")
 
@@ -356,12 +357,7 @@ class OnboardingService:
             return self._result(state, FIRST_QUESTION, audio)
         if action == "retry":
             if state["status"] == "completed":
-                review = state.get("review") or {}
-                spoken = review.get("spokenText") or state.get("question") or ""
-                subtitle = review.get("closingText") or spoken
-                turn = state["turns"][-1] if state["turns"] else None
-                audio = await self.pipeline.speech.synthesize(session_id, spoken) if spoken else None
-                return self._result(state, subtitle, audio, turn)
+                return self._result(None)
             if state["status"] == "pending":
                 return await self._finish(session_id, state)
             if state["status"] == "active" and state["turns"]:
@@ -430,44 +426,112 @@ class OnboardingService:
             return await self._advance_turn(session_id, state, turn)
 
     async def _advance_turn(self, session_id: str, state: dict, turn: dict) -> PipelineResult:
-        if turn["corrections"] is None:
-            notes = await self.pipeline.llm.complete_notes(turn["transcript"])
-            turn["corrections"] = [note.to_json() for note in notes]
+        closing = should_close(state)
+        closing_task = asyncio.create_task(self._closing_voice(session_id, state)) if closing else None
+        notes_task = (
+            asyncio.create_task(self.pipeline.complete_live_notes(turn["transcript"]))
+            if turn["corrections"] is None else None
+        )
+        audio_task = None
+        try:
+            if turn["analysis"] is None:
+                state["ask"] = next_ask(state.get("profile") or {})
+                try:
+                    turn["analysis"] = await self.model.assess(state)
+                except Exception:
+                    logger.exception("onboarding assessment failed session=%s", session_id)
+                    # A long answer may already be ready to close. Retry reuses it instead of asking again.
+                    if state["seconds"] >= SPEECH_LIMIT_SECONDS:
+                        if notes_task is not None:
+                            notes = await notes_task
+                            turn["corrections"] = [note.to_json() for note in notes]
+                        state["status"] = "pending"
+                        await self.store.save(session_id, state)
+                        return await self._closing_result(session_id, state, turn, closing_task, RETRY_TEXT)
+                    raise
+                state["profile"] = turn["analysis"]["profile"]
+                _apply_level(state, turn["analysis"])
+                await self.store.save(session_id, state)
+            assessment = turn["analysis"]
+            state["profile"] = assessment["profile"]
+            _apply_level(state, assessment)
+            if not closing:
+                audio_task = asyncio.create_task(
+                    self.pipeline.speech.synthesize(session_id, assessment["question"])
+                )
+            if notes_task is not None:
+                notes = await notes_task
+                turn["corrections"] = [note.to_json() for note in notes]
+                await self.store.save(session_id, state)
+            if closing:
+                state["status"] = "pending"
+                state["assessment"] = assessment
+                await self.store.save(session_id, state)
+                return await self._finish(session_id, state, turn, closing_task)
+            question = assessment["question"]
+            reply_audio = await audio_task
+            state["question"] = question
+            turn["reply"] = question
+            turn["delivered"] = True
             await self.store.save(session_id, state)
-        if turn["analysis"] is None:
-            state["ask"] = next_ask(state.get("profile") or {})
-            try:
-                turn["analysis"] = await self.model.assess(state)
-            except Exception:
-                logger.exception("onboarding assessment failed session=%s", session_id)
-                # A long answer may already be ready to close. Retry reuses it instead of asking again.
-                if state["seconds"] >= SPEECH_LIMIT_SECONDS:
-                    state["status"] = "pending"
-                    await self.store.save(session_id, state)
-                    return self._result(state, RETRY_TEXT, turn=turn)
-                raise
-            state["profile"] = turn["analysis"]["profile"]
-            _apply_level(state, turn["analysis"])
-            await self.store.save(session_id, state)
-        assessment = turn["analysis"]
-        state["profile"] = assessment["profile"]
-        _apply_level(state, assessment)
-        if should_close(state):
-            state["status"] = "pending"
-            state["assessment"] = assessment
-            await self.store.save(session_id, state)
-            return await self._finish(session_id, state, turn)
-        question = assessment["question"]
-        reply_audio = await self.pipeline.speech.synthesize(session_id, question)
-        state["question"] = question
-        turn["reply"] = question
+            result = self._result(state, question, reply_audio, turn)
+            result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
+            return result
+        finally:
+            for task in (notes_task, audio_task, closing_task):
+                if task is not None and not task.done():
+                    task.cancel()
+            await asyncio.gather(
+                *(task for task in (notes_task, audio_task, closing_task) if task is not None),
+                return_exceptions=True,
+            )
+
+    async def _closing_voice(self, session_id: str, state: dict) -> tuple[str, str, TtsAudio]:
+        transcripts = [str(item.get("transcript") or "").strip() for item in state["turns"]]
+        transcripts = [text for text in transcripts if text]
+        try:
+            callback = grounded_callback(
+                await self.model.closing_callback(transcripts), transcripts[-1] if transcripts else "",
+            )
+        except Exception:
+            logger.exception("onboarding closing callback failed; using standard closing")
+            callback = None
+        subtitle, spoken = closing_lines(callback)
+        audio = await self.pipeline.speech.synthesize(session_id, spoken)
+        return subtitle, spoken, audio
+
+    async def _closing_result(
+        self, session_id: str, state: dict, turn: dict,
+        closing_task: asyncio.Task | None, fallback_text: str,
+    ) -> PipelineResult:
+        if closing_task is None:
+            return self._result(state, fallback_text)
+        try:
+            subtitle, spoken, audio = await closing_task
+        except Exception:
+            logger.exception("onboarding closing voice failed; sending text")
+            subtitle, spoken = closing_lines(None)
+            audio = None
+        state["closing"] = {"subtitle": subtitle, "spoken": spoken}
+        if isinstance(state.get("review"), dict):
+            state["review"].update(closingText=subtitle, spokenText=spoken)
+        state["question"] = spoken
+        turn["reply"] = spoken
         turn["delivered"] = True
+        await self._remember(session_id, state)
+        streak = None
+        if not turn.get("counted"):
+            streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(spoken))
+            turn["counted"] = True
         await self.store.save(session_id, state)
-        result = self._result(state, question, reply_audio, turn)
-        result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
+        result = self._result(state, subtitle if audio is not None else fallback_text, audio, turn)
+        result.streak = streak
         return result
 
-    async def _finish(self, session_id: str, state: dict, turn: dict | None = None) -> PipelineResult:
+    async def _finish(
+        self, session_id: str, state: dict, turn: dict | None = None,
+        closing_task: asyncio.Task | None = None,
+    ) -> PipelineResult:
         turn = turn or state["turns"][-1]
         try:
             assessment = state.get("assessment")
@@ -492,13 +556,11 @@ class OnboardingService:
             if state.get("review") is None:
                 state["review"] = await self._compose_review(state)
                 await self.store.save(session_id, state)
-            review = state["review"]
-            spoken = review["spokenText"]
-            subtitle = review["closingText"]
-            audio = await self.pipeline.speech.synthesize(session_id, spoken)
-            state["question"] = spoken
-            turn["reply"] = spoken
-            turn["delivered"] = True
+            if state.get("closing"):
+                state["review"].update(
+                    closingText=state["closing"]["subtitle"],
+                    spokenText=state["closing"]["spoken"],
+                )
             state["resultText"] = None
             state["status"] = "completed"
             await self._remember(session_id, state)
@@ -508,11 +570,9 @@ class OnboardingService:
             state["status"] = "pending"
             # Keep the accepted turns and pending status for an explicit retry without more speech.
             await self.store.save(session_id, state)
-            return self._result(state, RETRY_TEXT, turn=turn)
+            return await self._closing_result(session_id, state, turn, closing_task, RETRY_TEXT)
         await self.personalization.seed(session_id, state)
-        result = self._result(state, subtitle, audio, turn)
-        result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(spoken))
-        return result
+        return await self._closing_result(session_id, state, turn, closing_task, RESULT_READY_TEXT)
 
     async def progress_profile(self, session_id: str) -> dict:
         async with self.store.lock(session_id):
@@ -552,8 +612,6 @@ class OnboardingService:
                 key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")
             },
         })
-        callback = grounded_callback(raw.get("callback"), transcripts[-1] if transcripts else "")
-        subtitle, spoken = closing_lines(callback)
         seconds = float(state.get("seconds") or 0)
         timings = bool(metrics.get("hasWords"))
         grammar = apply_skill(raw["grammar"], seconds, "grammar")
@@ -576,8 +634,6 @@ class OnboardingService:
             "grammar": grammar,
             "vocabulary": vocabulary,
             "fluency": fluency,
-            "closingText": subtitle,
-            "spokenText": spoken,
         }
 
     async def _remember(self, session_id: str, state: dict) -> None:

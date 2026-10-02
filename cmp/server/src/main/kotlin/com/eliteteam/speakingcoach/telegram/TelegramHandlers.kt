@@ -248,10 +248,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val practice = result.call?.takeIf { onboarding == null }
         val progress = when {
             finished != null -> onboardingKeyboard("level", finished.runId)
+            onboarding?.status == "pending" -> null
             onboarding != null -> onboardingProgressKeyboard(onboarding.seconds)
             else -> null
         }
-        if (progress != null || practice != null) clearProgress(message.chat)
+        if (onboarding != null || practice != null) clearProgress(message.chat)
         if (practice?.goalJustCrossed == true) {
             reply(message, callGoalReached(practice.goalSeconds), allowSendingWithoutReply = true)
         }
@@ -283,11 +284,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
             if (progress != null || practice != null) progressMessages[message.chat.id.toString()] = voice.messageId
+            if (onboarding?.status == "pending") {
+                reply(message, "I couldn't prepare your result. Please try again.",
+                    allowSendingWithoutReply = true, replyMarkup = onboardingKeyboard("retry", onboarding.runId))
+            }
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
-            val action = state?.let {
-                onboardingKeyboard(if (it.status == "pending") "retry" else "continue", it.runId)
-            }
+            val action = state?.takeIf { it.status == "pending" }
+                ?.let { onboardingKeyboard("retry", it.runId) }
             val sent = reply(
                 message,
                 result.text,

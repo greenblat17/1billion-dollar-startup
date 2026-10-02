@@ -116,6 +116,14 @@ data class MetricsSnapshot(
     val funnelSources: List<FunnelSource> = emptyList(),
     val reminders: RemindersSnapshot? = null,
     val streaks: StreaksSnapshot? = null,
+    val corrections: Map<String, CorrectionMetrics> = emptyMap(),
+)
+
+@Serializable
+data class CorrectionMetrics(
+    val count: Long = 0,
+    val elapsedMs: Long = 0,
+    val secondAttempts: Long = 0,
 )
 
 @Serializable
