@@ -11,7 +11,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 from app.llm import Correction
-from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
+from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
@@ -42,6 +42,7 @@ class OnboardingStore:
         self._goals: dict[str, int] = {}
         self._assessments: dict[str, dict] = {}
         self._learners: dict[str, dict] = {}
+        self._legacy_invited: set[str] = set()
         self._locks: dict[str, asyncio.Lock] = {}
 
     def lock(self, session_id: str) -> asyncio.Lock:
@@ -100,6 +101,20 @@ class OnboardingStore:
             await self._redis.set(f"learner:{session_id}", json.dumps(memory))
         else:
             self._learners[session_id] = deepcopy(memory)
+
+    async def claim_legacy_invitation(self, session_id: str) -> bool:
+        if self._redis is not None:
+            return bool(await self._redis.set(f"legacy-invitation:{session_id}", "1", nx=True))
+        if session_id in self._legacy_invited:
+            return False
+        self._legacy_invited.add(session_id)
+        return True
+
+    async def release_legacy_invitation(self, session_id: str) -> None:
+        if self._redis is not None:
+            await self._redis.delete(f"legacy-invitation:{session_id}")
+        else:
+            self._legacy_invited.discard(session_id)
 
     async def aclose(self) -> None:
         if self._redis is not None:
@@ -178,6 +193,7 @@ def _kept_assessment(existing: dict | None, fresh: dict | None) -> dict | None:
 def public_state(state: dict) -> dict:
     payload = {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
+        "legacyUser": bool(state.get("legacyUser") or state.get("status") == "exempt"),
         **overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state)),
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
         "react": state["status"] == "active" and not state.get("voiceArrived") and not state["turns"],
@@ -223,10 +239,11 @@ def _public_fluency(skill: dict) -> dict:
     }
 
 
-def _attempt(receipts: list[str] | None = None) -> dict:
+def _attempt(receipts: list[str] | None = None, legacy_user: bool = False) -> dict:
     return {
         "runId": uuid4().hex,
         "status": "waiting",
+        "legacyUser": legacy_user,
         "seconds": 0.0,
         "turns": [],
         "profile": {},
@@ -291,7 +308,7 @@ class OnboardingService:
             state = await self.store.get(session_id)
             if state is None:
                 known = await self.pipeline.metrics.is_known(session_id)
-                state = _attempt()
+                state = _attempt(legacy_user=known)
                 if known:
                     state["status"] = "exempt"
             if request_id not in state["receipts"]:
@@ -299,10 +316,22 @@ class OnboardingService:
                     if state["status"] == "completed":
                         await self.personalization.prepare(session_id)
                         await self.store.save(session_id, state)
-                    state = _attempt(state["receipts"])
+                    state = _attempt(state["receipts"], legacy_user=bool(
+                        state.get("legacyUser") or state["status"] == "exempt"
+                    ))
                 state["receipts"] = (state["receipts"] + [request_id])[-256:]
                 await self.store.save(session_id, state)
             return public_state(state)
+
+    async def legacy_invitation(self, session_id: str, action: str) -> bool:
+        async with self.store.lock(session_id):
+            if action == "release":
+                await self.store.release_legacy_invitation(session_id)
+                return True
+            state = await self.store.get(session_id)
+            if not state or state["status"] != "exempt":
+                return False
+            return await self.store.claim_legacy_invitation(session_id)
 
     async def action(self, session_id: str, run_id: str, action: str, request_id: str = "") -> PipelineResult:
         async with self.store.lock(session_id):
@@ -492,7 +521,7 @@ class OnboardingService:
             }
 
     async def set_goal(self, session_id: str, minutes: int) -> dict:
-        if minutes not in {5, 10, 15}:
+        if type(minutes) is not int or minutes not in {0, 5, 10, 15}:
             raise ValueError("invalid practice goal")
         async with self.store.lock(session_id):
             await self.store.set_goal(session_id, minutes)
@@ -521,15 +550,15 @@ class OnboardingService:
                 key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")
             },
         })
-        callback = grounded_callback(raw.get("callback"), transcripts)
+        callback = grounded_callback(raw.get("callback"), transcripts[-1] if transcripts else "")
         subtitle, spoken = closing_lines(callback)
         seconds = float(state.get("seconds") or 0)
         timings = bool(metrics.get("hasWords"))
         grammar = apply_skill(raw["grammar"], seconds, "grammar")
         vocabulary = apply_skill(raw["vocabulary"], seconds, "vocabulary")
         fluency = apply_skill(raw["fluency"], seconds, "fluency", timings=timings)
-        grammar["examples"] = examples["grammar"]
-        vocabulary["examples"] = examples["vocabulary"]
+        grammar["examples"] = explained_examples(examples["grammar"], raw["grammarExplanations"])
+        vocabulary["examples"] = explained_examples(examples["vocabulary"], raw["vocabularyExplanations"])
         fluency.update({
             "paceWpm": metrics["paceWpm"],
             "longPauses": metrics["longPauses"],

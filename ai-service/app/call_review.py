@@ -147,7 +147,7 @@ class CallReviews:
                 accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
             except Exception:
                 logger.exception("call correction verification failed; omitting examples")
-        examples = select_examples(candidates, accepted)
+        examples = select_examples(candidates, accepted, limit=2)
         metrics = fluency_metrics(call.get("turns") or [])
         transcripts = [str(turn.get("transcript") or "").strip() for turn in call.get("turns") or []]
         raw = await self.model.compose_call_review({

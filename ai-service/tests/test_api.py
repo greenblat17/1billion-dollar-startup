@@ -84,6 +84,35 @@ def test_call_status_does_not_open_a_call() -> None:
         assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
 
 
+def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-123"}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
+        assert client.post("/internal/funnel/start", json=payload).status_code == 200
+        state = client.post("/internal/onboarding/state", json={**payload, "requestId": "voice:1"}).json()
+        assert state["status"] == "exempt"
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
+        assert client.post("/internal/onboarding/legacy-invitation", json={**payload, "action": "release"}).json() == {"ok": True}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
+
+
+def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        call_id = client.post("/internal/calls/open", json=payload).json()["callId"]
+        voice = {**payload, "callId": call_id, "messageId": 42}
+        assert client.post("/internal/calls/telegram-voice", json=voice).json() == {"firstReplyToStarter": False}
+        assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": 43}).status_code == 200
+        assert client.post("/internal/calls/end", json=payload).json() == {
+            "callId": call_id, "lastVoiceMessageId": 43,
+        }
+        assert client.post("/internal/calls/telegram-voice", json=voice).status_code == 409
+        assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": -1}).status_code == 400
+
+
 def test_create_app_requires_internal_token() -> None:
     with pytest.raises(RuntimeError, match="AI_INTERNAL_TOKEN"):
         create_app(settings=replace(make_settings(), ai_internal_token=None))

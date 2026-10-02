@@ -203,6 +203,16 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun legacyInvitation(sessionId: SessionId, action: String): Boolean {
+        val response = http.post("$root/internal/onboarding/legacy-invitation") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(LegacyInvitationRequest(sessionId.value, action))
+        }
+        check(response.status.isSuccess()) { "ai-service legacy invitation returned ${response.status}" }
+        return response.body<LegacyInvitationResponse>().ok
+    }
+
     suspend fun savePracticeGoal(sessionId: SessionId, requestId: String, minutes: Int) {
         val response = http.post("$root/internal/onboarding/goal") {
             applyInternalToken()
@@ -258,6 +268,16 @@ class HttpClipClient(
             setBody(CallSessionRequest(sessionId.value))
         }
         check(response.status.isSuccess()) { "ai-service end call returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun noteCallVoice(sessionId: SessionId, callId: String, messageId: Long): CallVoiceMessageResponse {
+        val response = http.post("$root/internal/calls/telegram-voice") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallVoiceMessageRequest(sessionId.value, callId, messageId))
+        }
+        check(response.status.isSuccess()) { "ai-service call voice returned ${response.status}" }
         return response.body()
     }
 

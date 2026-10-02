@@ -3,19 +3,20 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.ai.OnboardingFluency
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 import com.eliteteam.speakingcoach.ai.OnboardingSkill
+import com.eliteteam.speakingcoach.speaking.Correction
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardMarkup
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.italic
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.row
-import dev.inmo.tgbotapi.utils.strikethrough
 
 internal const val ONBOARDING_VOICE_HINT =
-    "🎙 Reply with a voice message in English\n" +
+    "🎙 Reply with a voice message in English\n\n" +
         "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going."
 internal const val LEVEL_TITLE = "Your English level"
 internal const val LEVEL_ESTIMATE = "I'll make this more accurate as we talk more."
@@ -84,12 +85,12 @@ internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
     "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
-    "m5", "m10", "m15", "remind", "later",
+    "m5", "m10", "m15", "skip", "remind", "later",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
     "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
-    "m5", "m10", "m15" -> "callback:goal:$runId"
+    "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
 
@@ -124,12 +125,16 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
 internal const val PRACTICE_5_LABEL = "☕ 5 min/day"
 internal const val PRACTICE_10_LABEL = "✨ 10 min/day"
 internal const val PRACTICE_15_LABEL = "🔥 15 min/day"
+internal const val PRACTICE_SKIP_LABEL = "No goal for now"
 
 internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(PRACTICE_5_LABEL, "ob:m5:$runId") }
     row { dataButton(PRACTICE_10_LABEL, "ob:m10:$runId") }
     row { dataButton(PRACTICE_15_LABEL, "ob:m15:$runId") }
+    row { dataButton(PRACTICE_SKIP_LABEL, "ob:skip:$runId") }
 }
+
+internal const val PRACTICE_SKIPPED = "No daily goal for now. You can still practice whenever you like."
 
 internal fun practiceDealKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
@@ -146,6 +151,7 @@ internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKe
 }
 
 internal const val REMINDER_TIME_PROMPT = "When should I remind you?\nSend a time like 13:00"
+internal const val REMINDER_INVALID_TIME_PROMPT = "That time doesn't look right. Send a time like 13:00."
 internal const val REMINDER_OFFER = "Want me to remind you tomorrow? Tap /remind"
 internal const val REMIND_COMMAND_RUN = "cmd"
 
@@ -221,7 +227,8 @@ internal fun levelSlide(
         regularln("")
         bold("$overallScore / 100")
         regularln("")
-        regularln(scoreBar(overallScore))
+        val nextScore = if (nextBand != null && pointsToNext != null) overallScore + pointsToNext else null
+        regularln(scoreBar(overallScore, nextScore))
         if (nextBand != null && pointsToNext != null) {
             regularln("")
             regularln("✨ $pointsToNext points to $nextBand")
@@ -293,18 +300,23 @@ private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList =
         bold("What I noticed")
         regularln("")
         regularln("")
-        skill.examples.take(2).forEachIndexed { index, example ->
+        skill.examples.take(5).forEachIndexed { index, example ->
             if (index > 0) regular("\n\n")
-            strikethrough(example.wrong)
-            regular("\n→ ")
-            bold(example.better)
+            addAll(inlineCorrection(Correction(example.wrong, example.better)))
+            example.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
+                regular("\n")
+                italic(explanation)
+            }
         }
     }
 }
 
-internal fun scoreBar(score: Int): String {
+internal fun scoreBar(score: Int, nextScore: Int? = null): String {
     val filled = (score.coerceIn(0, 100) / 100.0 * 20).let { kotlin.math.round(it).toInt() }.coerceIn(0, 20)
-    return "█".repeat(filled) + "░".repeat(20 - filled)
+    val bar = "█".repeat(filled) + "░".repeat(20 - filled)
+    if (nextScore == null || nextScore <= score || nextScore >= 100) return bar
+    val boundary = (nextScore / 100.0 * 20).let { kotlin.math.round(it).toInt() }.coerceIn(1, 19)
+    return bar.substring(0, boundary) + "┃" + bar.substring(boundary)
 }
 
 private fun scoreLine(score: Int?): String = score?.let { "$it / 100" } ?: SKILL_UNKNOWN

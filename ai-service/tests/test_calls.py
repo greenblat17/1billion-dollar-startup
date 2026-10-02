@@ -111,6 +111,17 @@ async def test_open_call_records_speech_and_ignores_silence():
 
 
 @pytest.mark.asyncio
+async def test_call_without_a_goal_keeps_tracking_time_without_a_goal_nudge():
+    store = CallStore(goal_of=_goal(0))
+    opened = await store.open("tg-1")
+    assert opened["goalSeconds"] == 0
+    progress = await store.append_turn("tg-1", "I build software", "Tell me more.", [], 320, [])
+    assert progress["todaySeconds"] == 320
+    assert progress["goalSeconds"] == 0
+    assert progress["goalJustCrossed"] is False
+
+
+@pytest.mark.asyncio
 async def test_goal_nudge_happens_once_and_a_new_day_seals_the_old_call():
     clock = Clock(datetime(2026, 9, 30, 12, tzinfo=MOSCOW))
     store = CallStore(clock=clock, goal_of=_goal(5))
@@ -162,6 +173,29 @@ async def test_call_state_survives_redis():
     current = await again.summary("tg-1")
     assert current["callId"] == opened["callId"]
     assert current["todaySeconds"] == 8
+    await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_telegram_voice_reactions_follow_each_call_and_survive_restart():
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = CallStore(redis=redis)
+    first = await store.open("tg-1")
+    assert await store.note_telegram_voice("tg-1", first["callId"], 10) is False
+    assert await store.note_telegram_voice("tg-1", first["callId"], 11) is False
+    assert (await store.get(first["callId"]))["lastTelegramVoiceId"] == 11
+    await store.seal("tg-1")
+
+    second = await store.open("tg-1")
+    await store.save_opening(second["callId"], "Hi! How are you?")
+    await store.mark_opening_delivered(second["callId"])
+    restarted = CallStore(redis=redis)
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 20) is True
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 21) is False
+    assert await restarted.note_telegram_voice("tg-1", second["callId"], 20) is True
+    assert (await restarted.get(second["callId"]))["lastTelegramVoiceId"] == 21
+    with pytest.raises(ValueError, match="call is not open"):
+        await restarted.note_telegram_voice("tg-1", first["callId"], 22)
     await redis.aclose()
 
 

@@ -335,9 +335,16 @@ data class OnboardingRequest(
 )
 
 @Serializable
+data class LegacyInvitationRequest(val sessionId: String, val action: String)
+
+@Serializable
+data class LegacyInvitationResponse(val ok: Boolean)
+
+@Serializable
 data class OnboardingExample(
     val wrong: String = "",
     val better: String = "",
+    val explanation: String = "",
 )
 
 @Serializable
@@ -376,6 +383,7 @@ data class PracticeGoalRequest(
 data class OnboardingStateResponse(
     val runId: String = "",
     val status: String,
+    val legacyUser: Boolean = false,
     val seconds: Double = 0.0,
     val cefr: String? = null,
     val overallScore: Int? = null,
@@ -434,7 +442,18 @@ data class StartCallResponse(
 @Serializable
 data class EndCallResponse(
     val callId: String? = null,
+    val lastVoiceMessageId: Long? = null,
 )
+
+@Serializable
+data class CallVoiceMessageRequest(
+    val sessionId: String,
+    val callId: String,
+    val messageId: Long,
+)
+
+@Serializable
+data class CallVoiceMessageResponse(val firstReplyToStarter: Boolean = false)
 
 @Serializable
 data class CallReviewRequest(

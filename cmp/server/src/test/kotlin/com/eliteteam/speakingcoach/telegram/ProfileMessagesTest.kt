@@ -37,6 +37,7 @@ class ProfileMessagesTest {
         assertTrue(text.contains("5 min/day"))
         assertTrue(text.endsWith("1 day"))
         assertFalse(text.contains("/100"))
+        assertTrue(profileMessage(null, ProgressProfileResponse(dailyMinutes = 0)).plain().contains("⏱ Daily goal\nNot set yet"))
         assertTrue(profileMessage("", ProgressProfileResponse()).plain().contains("Not set yet"))
     }
 

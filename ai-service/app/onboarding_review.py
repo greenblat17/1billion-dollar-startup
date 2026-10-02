@@ -4,9 +4,10 @@ import re
 from typing import Any
 
 PAUSE_SECONDS = 1.0
-EXAMPLE_LIMIT = 2
+EXAMPLE_LIMIT = 5
 FILLERS = frozenset({"um", "uh", "uhm", "umm", "er", "erm", "ah", "ahh", "hmm", "mm", "mhm"})
-CLOSING_OPEN = "You know what, I really enjoyed talking with you."
+CLOSING_OPEN = "I really enjoyed talking with you."
+CLOSING_FALLBACK = "Thanks for sharing that with me."
 CLOSING_MID = "I feel like I know you a little better now."
 CLOSING_TAIL = "And I can already hear your English a little. Let me show you what I noticed."
 CLOSING_SMILE = "😊"
@@ -28,6 +29,15 @@ def select_examples(candidates: list[dict], accepted: set[str], limit: int = EXA
         + _ranked([note for note in notes if note["kind"] == "natural"])
     )[:limit]
     return {"grammar": _pairs(grammar), "vocabulary": _pairs(vocabulary)}
+
+
+def explained_examples(examples: list[dict[str, str]], explanations: list[str]) -> list[dict[str, str]]:
+    """Show only verified pairs for which the review supplied a concise explanation."""
+    return [
+        {**example, "explanation": explanation}
+        for example, explanation in zip(examples, explanations)
+        if explanation
+    ]
 
 
 def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
@@ -61,8 +71,8 @@ def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
     }
 
 
-def grounded_callback(callback: Any, transcripts: list[str]) -> str | None:
-    """Keep one sentence that names something the person actually said."""
+def grounded_callback(callback: Any, last_transcript: str) -> str | None:
+    """Keep one sentence that responds to the last answer."""
     if not isinstance(callback, str):
         return None
     text = " ".join(callback.split()).strip()
@@ -75,7 +85,7 @@ def grounded_callback(callback: Any, transcripts: list[str]) -> str | None:
     lowered = text.lower()
     if "let me show you" in lowered or "i really enjoyed talking" in lowered:
         return None
-    spoken = " ".join(transcripts).lower()
+    spoken = set(_CONTENT.findall(last_transcript.lower()))
     content = [token for token in _CONTENT.findall(lowered) if len(token) >= 4 and token not in _STOP]
     if not content or not any(token in spoken for token in content):
         return None
@@ -86,10 +96,7 @@ def grounded_callback(callback: Any, transcripts: list[str]) -> str | None:
 
 def closing_lines(callback: str | None) -> tuple[str, str]:
     """Subtitle keeps the smile. The spoken line does not, so TTS will not read it."""
-    head = CLOSING_OPEN
-    if callback:
-        head = f"{head} {callback}"
-    head = f"{head} {CLOSING_MID}"
+    head = f"{callback or CLOSING_FALLBACK} {CLOSING_OPEN} {CLOSING_MID}"
     subtitle = f"{head} {CLOSING_SMILE}\n{CLOSING_TAIL}"
     spoken = f"{head}\n{CLOSING_TAIL}"
     return subtitle, spoken
