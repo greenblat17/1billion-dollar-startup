@@ -139,6 +139,18 @@ def test_clips_with_wrong_internal_token_are_401() -> None:
         assert client.post("/v1/sessions").status_code == 401
 
 
+def test_prometheus_scrape_accepts_bearer_token() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-token"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 200
+
+
+def test_wrong_bearer_token_is_401() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer nope"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 401
+
+
 def test_unknown_job_is_404() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:

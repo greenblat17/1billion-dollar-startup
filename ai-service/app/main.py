@@ -38,6 +38,17 @@ logger = logging.getLogger(__name__)
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 
 
+def _provided_internal_token(request: Request) -> str | None:
+    direct = request.headers.get(INTERNAL_TOKEN_HEADER)
+    if direct is not None:
+        return direct
+    authorization = request.headers.get("authorization") or ""
+    scheme, separator, credential = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and credential and " " not in credential:
+        return credential
+    return None
+
+
 def create_app(
     settings: Settings | None = None,
     pipeline: ClipPipeline | None = None,
@@ -115,7 +126,7 @@ def create_app(
         if request.url.path in {"/health", "/"}:
             return await call_next(request)
         expected = settings.ai_internal_token
-        provided = request.headers.get(INTERNAL_TOKEN_HEADER)
+        provided = _provided_internal_token(request)
         if not expected or provided != expected:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
