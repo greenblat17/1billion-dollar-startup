@@ -17,6 +17,7 @@ internal class PostgresAppStore(databaseUrl: String) : AppStore {
     init {
         Flyway.configure()
             .dataSource(dataSource)
+            .ignoreMigrationPatterns("*:missing")
             .load()
             .migrate()
     }

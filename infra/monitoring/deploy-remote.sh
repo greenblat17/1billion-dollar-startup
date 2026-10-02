@@ -82,6 +82,8 @@ scrape_configs:
       - target_label: __address__
         replacement: 127.0.0.1:9115
 EOF
+chmod 644 "$MON/prometheus.yml"
+chown 65534:65534 "$MON/ai_token"
 
 VOLUMES="
 volumes:
