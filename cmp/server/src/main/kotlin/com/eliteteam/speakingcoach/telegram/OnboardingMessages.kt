@@ -134,11 +134,23 @@ internal fun practiceMinutesKeyboard(runId: String): InlineKeyboardMarkup = inli
     row { dataButton(PRACTICE_SKIP_LABEL, "ob:skip:$runId") }
 }
 
-internal const val NEXT_CHAT_HINT = "Whenever you're ready to chat again, tap 🎙 Start call or just send me a voice message."
-internal const val REMINDER_QUESTION = "Want a gentle reminder so we don't forget to talk?"
-internal const val PRACTICE_SKIPPED_FINAL =
-    "No daily goal for now. You can still practice whenever you like.\n\n$NEXT_CHAT_HINT"
-internal const val PRACTICE_SKIPPED = "$PRACTICE_SKIPPED_FINAL\n\n$REMINDER_QUESTION"
+private const val NEXT_CHAT_LEAD = "Whenever you're ready to chat again, tap "
+private const val NEXT_CHAT_TAIL = " or just send me a voice message."
+internal const val NEXT_CHAT_HINT = "$NEXT_CHAT_LEAD$START_CALL_BUTTON$NEXT_CHAT_TAIL"
+internal const val REMINDER_QUESTION = "How about we set a reminder so we don't forget to chat?"
+private const val PRACTICE_SKIPPED_LEAD = "No daily goal for now. You can still practice whenever you like."
+
+private fun nextChatHint(): TextSourcesList = buildEntities {
+    regular(NEXT_CHAT_LEAD)
+    bold(START_CALL_BUTTON)
+    regular(NEXT_CHAT_TAIL)
+}
+
+internal fun practiceSkipped(askReminder: Boolean = true): TextSourcesList = buildEntities {
+    regular("$PRACTICE_SKIPPED_LEAD\n\n")
+    addAll(nextChatHint())
+    if (askReminder) regular("\n\n$REMINDER_QUESTION")
+}
 
 internal fun reminderAskKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
@@ -176,8 +188,10 @@ internal fun parseReminderClock(text: String): String? {
 internal fun reminderSaved(time: String): String =
     "Perfect. I'll remind you every day at $time 🔔\n\n$PROFILE_ANYTIME"
 
-internal fun onboardingReminderSaved(time: String): String =
-    "Perfect. I'll remind you every day at $time 🔔\n\n$NEXT_CHAT_HINT"
+internal fun onboardingReminderSaved(time: String): TextSourcesList = buildEntities {
+    regular("Perfect. I'll remind you every day at $time 🔔\n\n")
+    addAll(nextChatHint())
+}
 
 internal const val REMINDER_SKIPPED = "Sounds good. You can set a reminder anytime with /remind."
 
@@ -192,7 +206,7 @@ internal fun practiceDeal(minutes: Int, currentStreak: Int? = null, askReminder:
         regularln("")
         regularln("")
     }
-    regular(NEXT_CHAT_HINT)
+    addAll(nextChatHint())
     if (askReminder) {
         regular("\n\n")
         regular(REMINDER_QUESTION)

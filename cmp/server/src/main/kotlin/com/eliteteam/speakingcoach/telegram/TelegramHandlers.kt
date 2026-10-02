@@ -861,7 +861,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     "skip" -> {
                         ai.savePracticeGoal(telegramSessionId(message.chat.id), "goal:${query.id}", 0)
                         val markup = reminderAskKeyboard(callback.runId)
-                        editMessageText(message.chat.id, message.messageId, PRACTICE_SKIPPED, replyMarkup = markup)
+                        editMessageText(message.chat.id, message.messageId, practiceSkipped(), replyMarkup = markup)
+                        showStartCallKeyboard(message.chat)
                     }
                     "m5", "m10", "m15" -> {
                         val minutes = when (callback.action) {
@@ -881,6 +882,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         val deal = practiceDeal(minutes, currentStreak)
                         val markup = reminderAskKeyboard(callback.runId)
                         editMessageText(message.chat.id, message.messageId, deal, replyMarkup = markup)
+                        showStartCallKeyboard(message.chat)
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -904,7 +906,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             val profile = ai.progressProfile(telegramSessionId(message.chat.id))
                             profile.dailyMinutes?.takeIf { it > 0 }
                                 ?.let { practiceDeal(it, profile.currentStreak, askReminder = false) }
-                                ?: buildEntities { regular(PRACTICE_SKIPPED_FINAL) }
+                                ?: practiceSkipped(askReminder = false)
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Throwable) {
@@ -992,10 +994,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 val key = message.chat.id.toString()
                                 val card = onboardingReminderCards[key]?.takeIf { it.first == scheduled.runId }
                                 val onboardingRun = scheduled.runId.takeIf { Regex("[a-f0-9]{32}").matches(it) }
-                                val confirmation = if (onboardingRun != null) {
+                                val confirmation: TextSourcesList = if (onboardingRun != null) {
                                     onboardingReminderSaved(scheduled.time.orEmpty())
                                 } else {
-                                    reminderSaved(scheduled.time.orEmpty())
+                                    buildEntities { regular(reminderSaved(scheduled.time.orEmpty())) }
                                 }
                                 if (card == null) {
                                     reply(message, confirmation, allowSendingWithoutReply = true)

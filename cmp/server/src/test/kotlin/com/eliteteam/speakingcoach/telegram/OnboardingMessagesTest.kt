@@ -154,13 +154,16 @@ class OnboardingMessagesTest {
         assertEquals(listOf(PRACTICE_5_LABEL, PRACTICE_10_LABEL, PRACTICE_15_LABEL, PRACTICE_SKIP_LABEL), minutes)
         assertEquals(
             "No daily goal for now. You can still practice whenever you like.\n\n$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION",
-            PRACTICE_SKIPPED,
+            practiceSkipped().plain(),
         )
+        assertTrue(practiceSkipped().any { it is BoldTextSource && it.source == START_CALL_BUTTON })
+        assertTrue(practiceSkipped(askReminder = false).plain().endsWith(NEXT_CHAT_HINT))
         val quietDeal = practiceDeal(10)
         assertTrue(quietDeal.plain().startsWith("10 minutes a day. Deal 🤝"))
         assertTrue(quietDeal.plain().endsWith("$NEXT_CHAT_HINT\n\n$REMINDER_QUESTION"))
         assertTrue(!quietDeal.plain().contains("/profile"))
         assertTrue(quietDeal.any { it is BoldTextSource && it.source == "10 minutes a day. Deal 🤝" })
+        assertTrue(quietDeal.any { it is BoldTextSource && it.source == START_CALL_BUTTON })
         val ask = reminderAskKeyboard(run).keyboard.single().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("🔔 Set reminder", "Not now"), ask.map { it.text })
         assertEquals("remind", parseOnboardingCallback(ask[0].callbackData)?.action)
@@ -174,7 +177,9 @@ class OnboardingMessagesTest {
             "Perfect. I'll remind you every day at 13:00 🔔\n\nYou can check your progress anytime with /profile.",
             reminderSaved("13:00"),
         )
-        assertEquals("Perfect. I'll remind you every day at 13:00 🔔\n\n$NEXT_CHAT_HINT", onboardingReminderSaved("13:00"))
+        val savedOnboardingReminder = onboardingReminderSaved("13:00")
+        assertEquals("Perfect. I'll remind you every day at 13:00 🔔\n\n$NEXT_CHAT_HINT", savedOnboardingReminder.plain())
+        assertTrue(savedOnboardingReminder.any { it is BoldTextSource && it.source == START_CALL_BUTTON })
         assertEquals(REMINDER_TIME_PROMPT, "When should I remind you?\n\nSend a time like 13:00.")
         assertEquals("That time doesn't look right. Send a time like 13:00.", REMINDER_INVALID_TIME_PROMPT)
         assertEquals(SEE_YOU_TOMORROW, "See you tomorrow. I'll be here when you're ready.")
