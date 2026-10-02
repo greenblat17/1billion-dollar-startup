@@ -5,7 +5,8 @@ import json
 import pytest
 
 from app.onboarding_model import (
-    REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT, REVIEW_RETRY_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM,
+    CLOSING_CALLBACK_MAX_TOKENS, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT,
+    REVIEW_RETRY_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM,
     OnboardingModel, parse_review, validate_review_response,
 )
 from app.onboarding_review import closing_lines, fluency_metrics, grounded_callback, correction_candidates, select_examples
@@ -271,6 +272,20 @@ def test_parse_review_accepts_a_skill_without_flags_or_notes():
     assert shaded["grammar"]["shade"] == "-"
     assert shaded["vocabulary"]["shade"] == "0"
     assert shaded["fluency"]["shade"] == "-"
+
+
+@pytest.mark.asyncio
+async def test_closing_callback_uses_transcripts_without_review_data():
+    class Llm:
+        async def complete_json(self, system, data, **kwargs):
+            self.system, self.data, self.options = system, data, kwargs
+            return '{"callback":"I hope your startup goes well."}'
+
+    llm = Llm()
+    callback = await OnboardingModel(llm).closing_callback(["I am building a startup."])
+    assert callback == "I hope your startup goes well."
+    assert json.loads(llm.data) == {"transcripts": ["I am building a startup."]}
+    assert llm.options["max_tokens"] == CLOSING_CALLBACK_MAX_TOKENS
 
 
 @pytest.mark.asyncio
