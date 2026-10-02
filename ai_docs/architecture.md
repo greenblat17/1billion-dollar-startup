@@ -14,7 +14,7 @@
 | Redis | контейнер `redis` | `session:{id}`, диалог до 40 сообщений, TTL 30 дней |
 | CMP UI | `cmp/app/` | Releva Auth/Home/Call(WebRTC)/Review против Ktor; карточка «Последний разговор» мок. **Не** clip API |
 
-Внешние API: Groq Whisper (STT), OpenRouter `gpt-4o-mini` (LLM), Kokoro TTS, Telegram Bot API.
+Внешние API: Groq Whisper (STT), OpenRouter `gpt-5.6-luna` (LLM по умолчанию), OpenRouter (TTS по умолчанию) или прямой Deepgram Aura-2 Thalia (при `TTS_PROVIDER=deepgram`), Telegram Bot API.
 
 ## Прод: компоненты
 
@@ -27,7 +27,7 @@ flowchart LR
   redis[(Redis)]
   groq[Groq_STT]
   orouter[OpenRouter_LLM]
-  kokoro[Kokoro_TTS]
+  ttsProvider[OpenRouter_or_Deepgram_TTS]
 
   user -->|voice_and_start| tg
   tg -->|HTTPS_webhook| ktor
@@ -36,7 +36,7 @@ flowchart LR
   ai --> redis
   ai --> groq
   ai --> orouter
-  ai --> kokoro
+  ai --> ttsProvider
 ```
 
 Ktor на VPS слушает **443** с PEM, регистрирует webhook с сертификатом. Секрет заголовка `X-Telegram-Bot-Api-Secret-Token`. Ответ Telegram **200** сразу, обработка в отдельном scope.
@@ -76,10 +76,12 @@ sequenceDiagram
   end
   Queue->>Ai: GET audio
   Ktor->>Telegram: You said quote if transcript
-  Ktor->>Telegram: sendVoice OGG
+  Ktor->>Telegram: sendVoice OGG or MP3
 ```
 
 Идентификатор сессии Telegram: `tg-$chatId` (`TelegramHandlers.telegramSessionId`). В Redis ключ `session:{sessionId}`. `/start` — get-or-create, историю не стирает.
+
+После онбординга обычный голос — это звонок, не бесконечная лента. Снимок `assessment:{sessionId}` и выбранные минуты обязательны. Открытый звонок — `call:open:{sessionId}`, ходы — `call:{id}`, минуты дня — `call:day:{sessionId}:{moscowDay}`. Конец сдвигает уровень не больше чем на 2 балла внутри текущей клетки. Диалог `session:{id}` и память `learner:{id}` между звонками остаются. Контракт: `integrations/2026-09-30-telegram-calls.md`.
 
 ## Пайплайн ai-service
 
@@ -91,7 +93,7 @@ flowchart TD
   clarify{empty_or_no_speech}
   reply[OpenRouter_reply_JSON]
   notes[OpenRouter_notes_JSON]
-  tts[Kokoro_then_ffmpeg_OGG]
+  tts[TTS_OpenRouter_OGG_or_Deepgram_OGG_MP3]
   redis[(Redis_dialogue)]
   ok[job_status_ok]
 
@@ -107,8 +109,8 @@ flowchart TD
 ```
 
 - Clarify: *I didn't catch that. Could you say it again?* Notes пустые, LLM не зовётся.
-- Два параллельных LLM-вызова (одна модель, один ключ): reply JSON `{"reply"}` с историей, `temperature` 0.7; notes JSON `{"notes":[{"wrong","better","kind"}]}` **без** истории, `temperature` 0. `kind`: `grammar` / `word` / `natural` (нейтив сказал бы иначе). Промпт задаёт ширину спана (few-shot) и тип. Пайплайн ждёт оба, потом TTS. В Redis кладётся **spoken reply**, не notes.
-- В job: `result.corrections` `[{wrong, better, kind}]` и для совместимости `result.notes` строками `wrong|||better` (макс. 3, приоритет grammar > word > natural). Цитата в Telegram: курсивом русская подпись типа на отдельной строке, под ней strike `wrong`, ещё ниже bold `better`; при пересечении спанов побеждает более приоритетный тип; `wrong` только как целое слово/фраза; висячая пунктуация после спана съедается. `natural` — эксперимент, см. `integrations/2026-09-18-telegram.md`.
+- Два параллельных LLM-вызова (по умолчанию Luna): reply JSON `{"reply"}` с историей, `temperature` 0.7, модель `LLM_MODEL`; notes JSON с коротким точным контекстом и локальной правкой **без** истории, `temperature` 0, модель `NOTES_MODEL`. `kind`: `grammar` / `word` / `natural` (явно неидиоматичная фраза). Общий фильтр оставляет только уверенные полезные ошибки разговорной речи; фрагмент должен быть понятен самостоятельно. См. `integrations/2026-09-30-spoken-corrections.md`. TTS начинается после готовности reply и идёт параллельно с notes; notes ограничены отдельным дедлайном 8 секунд, после которого готовый голос отдаётся без исправлений. В Redis кладётся **spoken reply**, не notes.
+- В job: `result.corrections` `[{wrong, better, kind}]` и для совместимости `result.notes` строками `wrong|||better` (макс. 3, приоритет grammar > word > natural). Карточка Telegram показывает короткую фразу целиком: ошибочные слова зачёркнуты, замена выделена жирным рядом, остальные слова остаются обычным текстом. При пересечении фрагментов побеждает более приоритетный тип. `natural` — эксперимент, см. `integrations/2026-09-18-telegram.md`.
 
 Jobs в памяти процесса, TTL ~10 мин. Рестарт ai-service убивает незавершённые jobs, **не** Redis-диалог.
 

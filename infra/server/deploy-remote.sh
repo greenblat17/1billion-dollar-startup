@@ -28,10 +28,28 @@ BUILD=$(mktemp -d)
 cp "$APP/server-all.jar" "$APP/Dockerfile.runtime" "$BUILD/"
 docker build -f Dockerfile.runtime -t speaking-coach:local "$BUILD"
 rm -rf "$BUILD"
+mkdir -p "$APP/logs"
+cat > /etc/logrotate.d/speaking-coach <<'EOF'
+/opt/speaking-coach/logs/app.log {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    copytruncate
+    dateext
+    missingok
+    notifempty
+}
+EOF
 docker rm -f speaking-coach >/dev/null 2>&1 || true
 docker run -d --name speaking-coach --restart unless-stopped \
   --network host \
   --env-file "$APP/.env" \
   -v "$APP/tls.crt:$APP/tls.crt:ro" \
   -v "$APP/tls.key:$APP/tls.key:ro" \
+  -v "$APP/logs:/opt/speaking-coach/logs" \
   speaking-coach:local
+
+if [ -f "$APP/monitoring/deploy-remote.sh" ]; then
+  bash "$APP/monitoring/deploy-remote.sh" || echo "Monitoring stack was not updated" >&2
+fi

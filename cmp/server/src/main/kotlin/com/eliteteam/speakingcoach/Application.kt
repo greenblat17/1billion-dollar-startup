@@ -12,15 +12,20 @@ import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.ReminderRunner
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignRunner
 import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
 import com.eliteteam.speakingcoach.telegram.launchDailyReminder
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
+import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.types.ChatId
 import dev.inmo.tgbotapi.types.RawChatId
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerBotCommands
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.telegram.telegramSessionId
+import com.eliteteam.speakingcoach.telegram.legacyCampaignMessage
+import com.eliteteam.speakingcoach.telegram.legacyCampaignKeyboard
 import kotlinx.coroutines.CancellationException
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
@@ -31,6 +36,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
@@ -53,7 +59,18 @@ suspend fun main() {
     if (config.usesWebhook) {
         startWebhookServer(config)
     } else {
-        embeddedServer(Netty, port = config.serverPort, host = "0.0.0.0") {
+        embeddedServer(Netty, configure = {
+            connector {
+                host = "0.0.0.0"
+                port = config.serverPort
+            }
+            if (config.monitoringPort > 0) {
+                connector {
+                    host = "127.0.0.1"
+                    port = config.monitoringPort
+                }
+            }
+        }) {
             module(config)
         }.start(wait = true)
     }
@@ -76,7 +93,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
     val reminderRunner = ReminderRunner(
-        claim = ai::claimReminders,
+        claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
         send = { chatId, text -> behaviourContext.sendTextMessage(ChatId(RawChatId(chatId)), text) },
         streakOf = { chatId ->
@@ -90,6 +107,11 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     )
+    val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
+        behaviourContext.sendMessage(
+            ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
+        )
+    }
     val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
@@ -108,6 +130,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 host = "0.0.0.0"
                 port = config.serverPort
             }
+            if (config.monitoringPort > 0) {
+                connector {
+                    host = "127.0.0.1"
+                    port = config.monitoringPort
+                }
+            }
         },
     ) {
         val ktorApp = this
@@ -120,6 +148,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 HttpMetricsSource(ai),
                 secureCookie = true,
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+                campaign = campaignRunner,
+            ),
+            monitoring = MonitoringDashboard(
+                source = HttpMetricsSource(ai),
+                reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
+                campaign = campaignRunner,
+                monitoringPort = config.monitoringPort,
             ),
         ) {
             route("/telegram/webhook") {
@@ -162,17 +197,28 @@ internal fun Application.module(
     appApi: AppApi? = createAppApi(config),
     metricsSource: MetricsSource? = null,
     reminderAdmin: ReminderAdmin? = null,
+    campaignAdmin: LegacyCampaignAdmin? = null,
 ) {
     if (appApi != null) {
         installAppPlugins(appApi)
     }
+    val source = metricsSource ?: ownedMetricsSource(config)
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
             config,
-            metricsSource ?: ownedMetricsSource(config),
+            source,
             secureCookie = false,
             reminders = reminderAdmin,
+            campaign = campaignAdmin,
         ),
+        monitoring = source?.let {
+            MonitoringDashboard(
+                source = it,
+                reminders = reminderAdmin,
+                campaign = campaignAdmin,
+                monitoringPort = config.monitoringPort,
+            )
+        },
     ) {
         if (config.usesWebhook) {
             val webhookSecret = checkNotNull(config.telegramWebhookSecret)
@@ -196,16 +242,17 @@ private fun Application.metricsDashboard(
     source: MetricsSource?,
     secureCookie: Boolean,
     reminders: ReminderAdmin? = null,
+    campaign: LegacyCampaignAdmin? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
-    if (config.metricsPassword.isNullOrBlank()) {
+    if (config.metricsPassword.isNullOrBlank() && config.monitoringPort == 0) {
         return null
     }
     val http = speakingCoachAiHttpClient()

@@ -2,7 +2,10 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
@@ -46,6 +49,7 @@ internal class MetricsDashboard(
     val source: MetricsSource,
     val secureCookie: Boolean,
     val reminders: ReminderAdmin? = null,
+    val campaign: LegacyCampaignAdmin? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -94,6 +98,22 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         call.respondText(html, ContentType.Text.Html)
     }.hide()
+    get(LEGACY_CAMPAIGN_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            legacyCampaignPageHtml(
+                dashboard.campaign?.status() ?: LegacyCampaignStatus(),
+                call.request.queryParameters["notice"], controls = dashboard.campaign != null,
+            )
+        } catch (error: Throwable) {
+            log.warn("Campaign status failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
     post("/admin/metrics/login") {
         val provided = call.receiveParameters()["password"].orEmpty()
         if (!metricsPasswordMatches(dashboard.password, provided)) {
@@ -134,6 +154,35 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             false
         }
         call.respondRedirect("$REMINDERS_PATH?notice=${if (sent) NOTICE_TEST_SENT else NOTICE_TEST_FAILED}")
+    }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/send") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val status = admin.status()
+        val notice = when {
+            !status.ready -> "not-ready"
+            status.remaining == 0 -> "busy"
+            admin.startAll() -> "started"
+            else -> "busy"
+        }
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=$notice")
+    }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/test") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val chatId = call.receiveParameters()["chatId"]?.trim()?.toLongOrNull()
+        if (chatId == null || chatId <= 0) {
+            call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=test-invalid")
+            return@post
+        }
+        val sent = admin.sendTest(chatId)
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=${if (sent) "test-sent" else "test-failed"}")
     }.hide()
 }
 
@@ -192,7 +241,7 @@ private fun metricsLoginHtml(rejected: Boolean = false): String {
     """.trimIndent()
 }
 
-private fun metricsUnavailableHtml(): String = """
+internal fun metricsUnavailableHtml(): String = """
     <!doctype html>
     <html lang="ru">
     <head>
@@ -236,6 +285,8 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${card("₽ на ход", rubPerTurn)}
         ${card("₽ на DAU", rubPerDau)}
         </dl>
+        <h2>Исправления</h2>
+        ${correctionReport(snapshot)}
         <h2>Воронка</h2>
         <p class="meta">Activated за 7 дней: ${snapshot.activated7}</p>
         <table>
@@ -263,7 +314,56 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
     """.trimIndent()
 }
 
-private fun funnelDayRows(snapshot: MetricsSnapshot): String {
+private val correctionLabels = linkedMapOf(
+    "shown" to "Показано исправление",
+    "empty" to "Ошибок не найдено",
+    "filtered" to "Отклонено проверкой",
+    "deadline" to "Превышен лимит 8 с",
+    "provider_timeout" to "Таймаут провайдера",
+    "rate_limit" to "Лимит запросов провайдера",
+    "provider_5xx" to "Ошибка провайдера 5xx",
+    "provider_4xx" to "Ошибка провайдера 4xx",
+    "network" to "Сетевая ошибка",
+    "no_choices" to "Ответ без choices",
+    "empty_text" to "Пустой текст ответа",
+    "invalid_json" to "Невалидный JSON",
+    "invalid_schema" to "Неверная структура JSON",
+    "token_limit" to "Лимит токенов ответа",
+    "other_error" to "Другая ошибка",
+)
+
+private val nonfailureCorrectionOutcomes = setOf("shown", "empty", "filtered")
+
+internal fun correctionReport(snapshot: MetricsSnapshot): String {
+    val rows = correctionLabels.mapNotNull { (key, label) ->
+        snapshot.corrections[key]?.takeIf { it.count > 0 }?.let { Triple(key, label, it) }
+    }
+    if (rows.isEmpty()) return "<p class=\"meta\">Пока нет данных.</p>"
+    val total = rows.sumOf { it.third.count }
+    val failures = rows.filter { it.first !in nonfailureCorrectionOutcomes }.sumOf { it.third.count }
+    val secondAttempts = rows.sumOf { it.third.secondAttempts }
+    val failureRate = String.format(Locale.US, "%.1f%%", failures * 100.0 / total)
+    val tableRows = rows.joinToString("\n") { (_, label, metrics) ->
+        "<tr><td>${escapeHtml(label)}</td><td>${metrics.count}</td><td>${averageCorrectionMs(metrics)}</td></tr>"
+    }
+    return """
+        <dl>
+        ${card("Запросы исправлений", total.toString())}
+        ${card("Сбои", failures.toString())}
+        ${card("Доля сбоев", failureRate)}
+        ${card("Повторная попытка", secondAttempts.toString())}
+        </dl>
+        <table>
+        <thead><tr><th>Исход</th><th>Количество</th><th>Среднее время, мс</th></tr></thead>
+        <tbody>$tableRows</tbody>
+        </table>
+    """.trimIndent()
+}
+
+private fun averageCorrectionMs(metrics: CorrectionMetrics): String =
+    String.format(Locale.US, "%.0f", metrics.elapsedMs.toDouble() / metrics.count)
+
+internal fun funnelDayRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelDays.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
@@ -272,7 +372,7 @@ private fun funnelDayRows(snapshot: MetricsSnapshot): String {
     }
 }
 
-private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
+internal fun funnelSourceRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelSources.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет источников.</td></tr>"
     }
@@ -303,8 +403,13 @@ internal fun card(label: String, value: String): String {
     return "<div class=\"card\"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>"
 }
 
-internal fun adminTabs(active: String): String {
-    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики")
+internal fun adminTabs(active: String, root: String = "/admin/metrics"): String {
+    val tabs = listOf(
+        root to "Сводка",
+        "$root/reminders" to "Напоминания",
+        "$root/streaks" to "Стрики",
+        "$root/onboarding-campaign" to "Onboarding рассылка",
+    )
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
         "<a href=\"$path\"$current>$label</a>"
@@ -348,9 +453,9 @@ internal fun escapeHtml(text: String): String = buildString {
     }
 }
 
-private fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
 
-private fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
 
 private fun formatRub(value: Double?): String {
     if (value == null) {

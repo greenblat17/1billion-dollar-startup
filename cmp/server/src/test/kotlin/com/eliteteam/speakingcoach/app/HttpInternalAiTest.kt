@@ -31,7 +31,7 @@ class HttpInternalAiTest {
         }
         val http = client(engine)
         val started = HttpInternalAi("http://ai.local", http, "secret")
-            .startCall("v=0 offer", "Work", "marin")
+            .startCall("v=0 offer", "Work", "marin", "", null)
         assertEquals("v=0 answer", started.sdpAnswer)
         assertEquals("rtc_1", started.openaiCallId)
         http.close()

@@ -156,6 +156,10 @@ async def test_forecast_drops_after_claim() -> None:
             await metrics.record_start("tg-1", None, now=moment)
             await metrics.record_start("tg-2", None, now=moment)
             await metrics.record_turn("tg-2", 1, 1, now=moment)
+            await metrics.schedule_reminder("tg-1", "ask", run_id="run")
+            await metrics.schedule_reminder("tg-1", "submit", text="11:00")
+            await metrics.schedule_reminder("tg-2", "ask", run_id="run")
+            await metrics.schedule_reminder("tg-2", "submit", text="11:00")
             assert await metrics.reminder_forecast(now=moment) == 1
             await metrics.claim_reminders(now=moment)
             assert await metrics.reminder_forecast(now=moment) == 0
@@ -185,6 +189,8 @@ async def test_report_and_metrics_routes() -> None:
     store = MemoryMetricsStore(MetricRates())
     await store.record_start("tg-5", None)
     await store.record_turn("tg-5", 1, 1, now=1_000_000.0)
+    await store.schedule_reminder("tg-5", "ask", run_id="run")
+    await store.schedule_reminder("tg-5", "submit", text="13:00")
     pipeline = ClipPipeline(
         stt=FakeStt(["hi"]),
         llm=FakeLlm(),

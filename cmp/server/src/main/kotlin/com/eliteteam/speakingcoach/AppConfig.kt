@@ -12,6 +12,7 @@ data class AppConfig(
     val jwtSecret: String?,
     val databaseUrl: String?,
     val metricsPassword: String? = null,
+    val monitoringPort: Int = 0,
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
@@ -53,6 +54,7 @@ data class AppConfig(
             jwtSecret = env("JWT_SECRET")?.takeIf { it.isNotBlank() },
             databaseUrl = env("DATABASE_URL")?.takeIf { it.isNotBlank() },
             metricsPassword = env("METRICS_PASSWORD")?.takeIf { it.isNotBlank() },
+            monitoringPort = env("MONITORING_PORT")?.toIntOrNull() ?: 8081,
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

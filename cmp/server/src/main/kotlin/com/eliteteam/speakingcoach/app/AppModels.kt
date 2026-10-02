@@ -16,6 +16,7 @@ internal data class SpeakingSession(
     val openaiCallId: String? = null,
     val durationSec: Int? = null,
     val status: SessionStatus = SessionStatus.Created,
+    val platform: String? = null,
 )
 
 internal enum class SessionStatus {

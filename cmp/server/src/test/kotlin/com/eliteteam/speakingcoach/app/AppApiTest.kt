@@ -246,7 +246,13 @@ class AppApiTest {
 private class FakeInternalAi : InternalAi {
     var lastSdp: String? = null
 
-    override suspend fun startCall(sdp: String, topic: String, tutorVoice: String): RealtimeCall {
+    override suspend fun startCall(
+        sdp: String,
+        topic: String,
+        tutorVoice: String,
+        sessionId: String,
+        platform: String?,
+    ): RealtimeCall {
         lastSdp = sdp
         return RealtimeCall(sdpAnswer = "v=0 answer", openaiCallId = "rtc_test")
     }

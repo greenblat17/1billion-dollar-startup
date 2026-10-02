@@ -18,6 +18,7 @@ internal fun remindersPageHtml(
     snapshot: MetricsSnapshot,
     notice: String?,
     controls: Boolean,
+    summaryRoot: String = "/admin/metrics",
 ): String = """
     <!doctype html>
     <html lang="ru">
@@ -29,9 +30,9 @@ internal fun remindersPageHtml(
     </head>
     <body>
     <h1>Speaky</h1>
-    ${adminTabs(REMINDERS_PATH)}
-    <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Авторассылка в 19:00 выключена.</p>
-    ${remindersSectionHtml(snapshot.reminders, notice, controls)}
+    ${adminTabs("$summaryRoot/reminders", summaryRoot)}
+    <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Ежедневно в 19:00.</p>
+    ${remindersSectionHtml(snapshot.reminders, notice, controls, summaryRoot)}
     </body>
     </html>
 """.trimIndent()
@@ -40,6 +41,7 @@ private fun remindersSectionHtml(
     reminders: RemindersSnapshot?,
     notice: String?,
     controls: Boolean,
+    summaryRoot: String,
 ): String {
     val body = if (reminders == null) {
         "<p class=\"meta\">Нет данных о напоминаниях.</p>"
@@ -53,7 +55,7 @@ private fun remindersSectionHtml(
         ${card("Прогноз на сегодня", reminders.forecast.toString())}
         ${card("Авто-рассылка сегодня", autoTodayLabel(reminders.autoToday))}
         </dl>
-        ${controlsHtml(reminders.forecast, controls)}
+        ${controlsHtml(reminders.forecast, controls, summaryRoot)}
         <h2>Рассылки</h2>
         <table>
         <thead><tr><th>Начало</th><th>Режим</th><th>Claimed</th><th>Отправлено</th><th>Блок</th><th>Ошибки</th><th>Длительность</th></tr></thead>
@@ -96,7 +98,7 @@ private fun noticeHtml(notice: String?): String = when (notice) {
     else -> ""
 }
 
-private fun controlsHtml(forecast: Long, controls: Boolean): String {
+private fun controlsHtml(forecast: Long, controls: Boolean, summaryRoot: String): String {
     if (!controls) {
         return "<p class=\"meta\">Ручной запуск доступен только в webhook-режиме.</p>"
     }
@@ -104,14 +106,14 @@ private fun controlsHtml(forecast: Long, controls: Boolean): String {
         "<option value=\"${escapeHtml(template.id)}\">${escapeHtml(template.id)}</option>"
     }
     return """
-        <form class="inline" method="post" action="/admin/metrics/reminders/test">
+        <form class="inline" method="post" action="$summaryRoot/reminders/test">
         <label>Chat id <input name="chatId" inputmode="numeric" required></label>
         <label>Шаблон <select name="template"><option value="today">Сегодняшний</option>
         $options
         </select></label>
         <button type="submit">Отправить на себя</button>
         </form>
-        <form class="inline" method="post" action="/admin/metrics/reminders/send" onsubmit="return confirm('Отправить напоминание примерно $forecast людям?')">
+        <form class="inline" method="post" action="$summaryRoot/reminders/send" onsubmit="return confirm('Отправить напоминание примерно $forecast людям?')">
         <button type="submit">Отправить всем сейчас</button>
         </form>
     """.trimIndent()

@@ -46,6 +46,13 @@ class Settings:
     log_level: str
     ai_internal_token: str | None
     openai_realtime_api_key: str | None
+    notes_model: str = "openai/gpt-5.6-luna"
+    onboarding_review_model: str | None = None
+    onboarding_review_fallback_model: str | None = None
+    tts_provider: str = "openrouter"
+    deepgram_api_key: str | None = None
+    tts_output_format: str = "ogg"
+    tts_speed: float = 0.9
 
     @staticmethod
     def from_env() -> Settings:
@@ -55,7 +62,7 @@ class Settings:
             openai_base_url=_env("OPENAI_BASE_URL", "https://openrouter.ai/api/v1") or "https://openrouter.ai/api/v1",
             groq_base_url=_env("GROQ_BASE_URL", "https://api.groq.com/openai/v1") or "https://api.groq.com/openai/v1",
             stt_model=_env("STT_MODEL", "whisper-large-v3") or "whisper-large-v3",
-            llm_model=_env("LLM_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
+            llm_model=_env("LLM_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
             tts_model=_env("TTS_MODEL", "hexgrad/kokoro-82m") or "hexgrad/kokoro-82m",
             tts_voice=_env("TTS_VOICE", "af_heart") or "af_heart",
             tts_response_format=_env("TTS_RESPONSE_FORMAT", "mp3") or "mp3",
@@ -68,4 +75,11 @@ class Settings:
             log_level=_env("LOG_LEVEL", "INFO") or "INFO",
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
+            notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
+            onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL"),
+            onboarding_review_fallback_model=_env("ONBOARDING_REVIEW_FALLBACK_MODEL"),
+            tts_provider=_env("TTS_PROVIDER", "openrouter") or "openrouter",
+            deepgram_api_key=_env("DEEPGRAM_API_KEY"),
+            tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
+            tts_speed=_float_env("TTS_SPEED", 0.9),
         )

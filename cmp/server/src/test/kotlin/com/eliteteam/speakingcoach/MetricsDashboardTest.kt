@@ -4,6 +4,11 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.MetricsV2Chat
+import com.eliteteam.speakingcoach.ai.MetricsV2Client
+import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.ReminderSegment
@@ -17,6 +22,7 @@ import com.eliteteam.speakingcoach.ai.StreakBucket
 import com.eliteteam.speakingcoach.ai.StreakReminderBucket
 import com.eliteteam.speakingcoach.ai.StreaksSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -27,12 +33,84 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun correctionsSectionShowsFailuresLatencyAndRetries() = testApplication {
+        val snapshot = sampleSnapshot().copy(corrections = mapOf(
+            "shown" to CorrectionMetrics(count = 2, elapsedMs = 500, secondAttempts = 1),
+            "empty" to CorrectionMetrics(count = 1, elapsedMs = 200),
+            "deadline" to CorrectionMetrics(count = 1, elapsedMs = 8000, secondAttempts = 1),
+            "invalid_json" to CorrectionMetrics(count = 1, elapsedMs = 1000),
+            "<script>alert(1)</script>" to CorrectionMetrics(count = 100),
+        ))
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
+        }
+        val html = client.get("/admin/metrics") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(html.contains("<h2>Исправления</h2>"))
+        assertTrue(html.contains("<dt>Запросы исправлений</dt><dd>5</dd>"))
+        assertTrue(html.contains("<dt>Сбои</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Доля сбоев</dt><dd>40.0%</dd>"))
+        assertTrue(html.contains("<dt>Повторная попытка</dt><dd>2</dd>"))
+        assertTrue(html.contains("<tr><td>Показано исправление</td><td>2</td><td>250</td></tr>"))
+        assertTrue(html.contains("<tr><td>Превышен лимит 8 с</td><td>1</td><td>8000</td></tr>"))
+        assertFalse(html.contains("<script>alert(1)</script>"))
+    }
+
+    @Test
+    fun correctionsSectionAcceptsOlderMetricsResponseWithoutCorrections() {
+        val oldResponse = """{
+            "timezone":"Europe/Moscow","day":"2026-09-24","promptTokens":0,
+            "completionTokens":0,"tpm":0,"tps":0.0,"turns":0,"dau":0,
+            "sttSeconds":0.0,"ttsChars":0
+        }"""
+        val snapshot = Json.decodeFromString<MetricsSnapshot>(oldResponse)
+        assertTrue(snapshot.corrections.isEmpty())
+        val section = metricsReportHtml(snapshot).substringAfter("<h2>Исправления</h2>").substringBefore("<h2>Воронка</h2>")
+        assertTrue(section.contains("Пока нет данных."))
+        assertFalse(section.contains("Доля сбоев"))
+    }
+
+    @Test
+    fun campaignPageRequiresLoginAndSendsOnlyOnExplicitPost() = testApplication {
+        val admin = FakeCampaignAdmin()
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), campaignAdmin = admin)
+        }
+        val browser = createClient { followRedirects = false }
+        assertEquals(HttpStatusCode.Forbidden, browser.post("$LEGACY_CAMPAIGN_PATH/send").status)
+        assertEquals(0, admin.started)
+        val page = browser.get(LEGACY_CAMPAIGN_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Отправить выбранным пользователям"))
+        assertTrue(page.contains("<b>именно для тебя, очень важно пройти новый onboarding"))
+        assertTrue(page.contains("🎙 Пройти onboarding"))
+        assertEquals(0, admin.started)
+
+        suspend fun post(path: String, body: String = "") = browser.post(path) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+            contentType(ContentType.Application.FormUrlEncoded)
+            setBody(body)
+        }.headers[HttpHeaders.Location]
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-invalid", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=abc"))
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-sent", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=42"))
+        assertEquals(listOf(42L), admin.tests)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=started", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+        admin.current = admin.current.copy(ready = false)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=not-ready", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+    }
+
     @Test
     fun metricsRoutesStayHiddenWithoutPassword() = testApplication {
         application {
@@ -257,6 +335,54 @@ class MetricsDashboardTest {
         assertFalse(html.contains("<script>"))
     }
 
+    @Test
+    fun monitoringShowsProviderCostPerClientWithoutAPassword() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            v2 = MetricsV2Snapshot(
+                clients = listOf(
+                    MetricsV2Client(
+                        client = "telegram",
+                        dau = 2,
+                        turns = 3,
+                        costMicro = 1_500_000,
+                        costCurrency = "USD",
+                        promptTokens = 11,
+                        chats = listOf(MetricsV2Chat(session = "tg-1", turns = 3)),
+                        actions = mapOf("text" to 4),
+                    ),
+                    MetricsV2Client(client = "android"),
+                ),
+            ),
+            reminders = RemindersSnapshot(),
+        )
+        application {
+            module(
+                dashboardConfig(password = null),
+                metricsSource = FixedMetricsSource(snapshot),
+                reminderAdmin = FakeReminderAdmin(),
+            )
+        }
+        val html = client.get("/admin/monitoring").bodyAsText()
+        assertTrue(html.contains("Telegram"))
+        assertTrue(html.contains("Android"))
+        assertTrue(html.contains("1.500000 USD"))
+        assertTrue(html.contains("tg-1"))
+        assertTrue(html.contains("text"))
+        assertFalse(html.contains("₽ на ход"))
+        assertFalse(html.contains("₽ на DAU"))
+        assertFalse(html.contains(">100<"))
+        val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
+        assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))
+        assertEquals(HttpStatusCode.NotFound, client.get("/admin/metrics").status)
+    }
+
+    @Test
+    fun monitoringStaysOffThePublicConnector() {
+        assertTrue(monitoringRequestAllowed(localPort = 8081, monitoringPort = 8081))
+        assertFalse(monitoringRequestAllowed(localPort = 443, monitoringPort = 8081))
+        assertTrue(monitoringRequestAllowed(localPort = 54321, monitoringPort = 0))
+    }
+
     private class FakeReminderAdmin : ReminderAdmin {
         var canStart = true
         var testResult = true
@@ -273,6 +399,24 @@ class MetricsDashboardTest {
         override suspend fun sendTest(chatId: Long, templateId: String?): Boolean {
             tests += chatId to templateId
             return testResult
+        }
+    }
+
+    private class FakeCampaignAdmin : LegacyCampaignAdmin {
+        var current = LegacyCampaignStatus(ready = true, audience = 3, remaining = 3)
+        var started = 0
+        val tests = mutableListOf<Long>()
+
+        override suspend fun status(): LegacyCampaignStatus = current
+
+        override fun startAll(): Boolean {
+            started += 1
+            return true
+        }
+
+        override suspend fun sendTest(chatId: Long): Boolean {
+            tests += chatId
+            return true
         }
     }
 
