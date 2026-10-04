@@ -144,6 +144,7 @@ data class RecentError(
     val code: String,
     val stage: String,
     val message: String,
+    val username: String = "",
 )
 
 @Serializable

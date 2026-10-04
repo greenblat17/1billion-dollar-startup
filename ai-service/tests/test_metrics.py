@@ -96,8 +96,12 @@ async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
     moment = datetime(2026, 9, 24, 21, 30, tzinfo=timezone.utc).timestamp()
     try:
         for store in opened.stores:
+            await store.record_profile("tg-1", "@alex", "Alex")
             await store.record_clip_result(None, now=moment)
-            await store.record_clip_result("timeout", stage="stt", message="Provider failed: token=sk-secret123456", now=moment)
+            await store.record_clip_result(
+                "timeout", session_id="tg-1", stage="stt",
+                message="Provider failed: token=sk-secret123456", now=moment,
+            )
             await store.record_clip_result("pipeline_failed", now=moment - 86400)
             snapshot = await store.snapshot(now=moment)
             assert snapshot["errors"]["today"] == {
@@ -107,8 +111,26 @@ async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
             assert len(snapshot["errors"]["days"]) == 14
             assert snapshot["errors"]["recent"][0]["stage"] == "stt"
             assert snapshot["errors"]["recent"][0]["code"] == "timeout"
+            assert snapshot["errors"]["recent"][0]["username"] == "alex"
+            assert snapshot["errors"]["recent"][1]["username"] == ""
             assert "secret123456" not in snapshot["errors"]["recent"][0]["message"]
             assert "[redacted]" in snapshot["errors"]["recent"][0]["message"]
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_recent_clip_errors_keep_only_last_fifteen() -> None:
+    opened = _Stores(MetricRates())
+    moment = datetime(2026, 9, 25, tzinfo=timezone.utc).timestamp()
+    try:
+        for store in opened.stores:
+            for offset in range(17):
+                await store.record_clip_result("pipeline_failed", message=f"failure {offset}", now=moment + offset)
+            recent = (await store.snapshot(now=moment + 16))["errors"]["recent"]
+            assert len(recent) == 15
+            assert recent[0]["message"] == "failure 16"
+            assert recent[-1]["message"] == "failure 2"
     finally:
         await opened.aclose()
 

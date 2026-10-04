@@ -14,10 +14,11 @@ internal fun errorsPageHtml(snapshot: MetricsSnapshot, summaryRoot: String = MET
         "<tr><td>${escapeHtml(day.day)}</td><td>${day.ok}</td><td>${day.timeout}</td>" +
             "<td>${day.pipelineFailed}</td><td>${day.timeout + day.pipelineFailed}</td></tr>"
     }.ifEmpty { "<tr><td colspan=\"5\">Пока нет данных.</td></tr>" }
-    val recentRows = errors?.recent.orEmpty().joinToString("\n") { item ->
-        "<tr><td>${escapeHtml(item.at)}</td><td>${escapeHtml(item.stage)}</td>" +
+    val recentRows = errors?.recent.orEmpty().take(15).joinToString("\n") { item ->
+        val username = item.username.takeIf { it.isNotBlank() }?.let { "@${escapeHtml(it.removePrefix("@"))}" } ?: "—"
+        "<tr><td>${escapeHtml(item.at)}</td><td>$username</td><td>${escapeHtml(item.stage)}</td>" +
             "<td>${escapeHtml(item.code)}</td><td>${escapeHtml(item.message)}</td></tr>"
-    }.ifEmpty { "<tr><td colspan=\"4\">Недавних ошибок нет.</td></tr>" }
+    }.ifEmpty { "<tr><td colspan=\"5\">Недавних ошибок нет.</td></tr>" }
     return """
         <!doctype html>
         <html lang="ru">
@@ -46,9 +47,9 @@ internal fun errorsPageHtml(snapshot: MetricsSnapshot, summaryRoot: String = MET
         <tbody>$rows</tbody>
         </table>
         <h2>Последние ошибки</h2>
-        <p class="meta">До 50 записей за последние 30 дней. Текст сокращён до 240 символов, типичные секреты и ID сессий скрыты.</p>
+        <p class="meta">До 15 записей за последние 30 дней. Текст сокращён до 240 символов, типичные секреты и ID сессий скрыты.</p>
         <table>
-        <thead><tr><th>Время</th><th>Этап</th><th>Код</th><th>Текст ошибки</th></tr></thead>
+        <thead><tr><th>Время</th><th>Username</th><th>Этап</th><th>Код</th><th>Текст ошибки</th></tr></thead>
         <tbody>$recentRows</tbody>
         </table>
         </body>

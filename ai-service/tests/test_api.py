@@ -221,6 +221,9 @@ def test_clip_failures_are_counted_without_exposing_error_text() -> None:
     app, _, _, _ = build_app(stt=FakeStt(["hello"]), tts=FailingTts())
     with _client(app) as client:
         session_id = _start_session(client)
+        assert client.post(
+            "/internal/funnel/start", json={"sessionId": session_id, "username": "@alex"},
+        ).status_code == 200
         created = client.post(
             "/v1/clips",
             data={"sessionId": session_id},
@@ -230,6 +233,7 @@ def test_clip_failures_are_counted_without_exposing_error_text() -> None:
         metrics = client.get("/internal/metrics").json()
         assert metrics["errors"]["today"]["pipelineFailed"] == 1
         recent = metrics["errors"]["recent"][0]
+        assert recent["username"] == "alex"
         assert recent["stage"] == "tts"
         assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
         assert "secret123456" not in str(metrics["errors"])

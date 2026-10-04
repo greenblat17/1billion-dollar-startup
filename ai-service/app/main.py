@@ -686,7 +686,7 @@ async def _run_job(
         code = _error_code(error)
         job.error = {"code": code, "message": _public_error(error)}
         failed_stage = "stt" if code == "onboarding_stt_failed" else getattr(error, "_speaky_stage", stage)
-        await _record_clip_result(pipeline.metrics, code, failed_stage, error)
+        await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id)
 
 
 async def _record_clip_result(
@@ -694,10 +694,11 @@ async def _record_clip_result(
     code: str | None,
     stage: str | None = None,
     error: Exception | None = None,
+    session_id: str | None = None,
 ) -> None:
     try:
         message = None if error is None else f"{type(error).__name__}: {error}"
-        await metrics.record_clip_result(code, stage=stage, message=message)
+        await metrics.record_clip_result(code, session_id=session_id, stage=stage, message=message)
     except Exception:
         logger.exception("clip result metric failed")
 

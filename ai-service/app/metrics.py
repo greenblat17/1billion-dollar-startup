@@ -21,7 +21,7 @@ FUNNEL_WINDOW_DAYS = 14
 FUNNEL_WEEK_DAYS = 7
 ERROR_WINDOW_DAYS = 14
 ERROR_RETAIN_SECONDS = 30 * 24 * 60 * 60
-RECENT_ERROR_LIMIT = 50
+RECENT_ERROR_LIMIT = 15
 ERROR_MESSAGE_MAX_CHARS = 240
 ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
@@ -154,6 +154,7 @@ class MetricsStore(Protocol):
         self,
         error_code: str | None,
         *,
+        session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
         now: float | None = None,
@@ -284,6 +285,7 @@ class MemoryMetricsStore:
         self,
         error_code: str | None,
         *,
+        session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
         now: float | None = None,
@@ -295,7 +297,8 @@ class MemoryMetricsStore:
             counts = self._clip_results.setdefault(day_name, {})
             counts[field] = counts.get(field, 0) + 1
             if error_code is not None:
-                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message))
+                username = self._profiles.get(session_id or "", ChatProfile()).username
+                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username))
                 self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
 
     async def record_turn(
@@ -481,6 +484,7 @@ class RedisMetricsStore:
         self,
         error_code: str | None,
         *,
+        session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
         now: float | None = None,
@@ -492,7 +496,8 @@ class RedisMetricsStore:
         pipe.hincrby(key, field, 1)
         pipe.expire(key, ERROR_RETAIN_SECONDS)
         if error_code is not None:
-            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message)))
+            username = await self._redis.hget(_chat_key(session_id), "username") if session_id else None
+            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username)))
             pipe.ltrim(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)
             pipe.expire(_RECENT_ERRORS_KEY, ERROR_RETAIN_SECONDS)
         await pipe.execute()
@@ -841,7 +846,13 @@ def _clip_result_field(error_code: str | None) -> str:
     return error_code if error_code in {"timeout", "pipeline_failed"} else "pipeline_failed"
 
 
-def _error_event(moment: float, code: str, stage: str | None, message: str | None) -> dict[str, Any]:
+def _error_event(
+    moment: float,
+    code: str,
+    stage: str | None,
+    message: str | None,
+    username: str | None,
+) -> dict[str, Any]:
     safe_code = code if code in {"timeout", "pipeline_failed", "onboarding_stt_failed"} else "pipeline_failed"
     safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
     text = " ".join((message or "").split())
@@ -853,7 +864,13 @@ def _error_event(moment: float, code: str, stage: str | None, message: str | Non
         text,
     )
     text = _TELEGRAM_SESSION_RE.sub("[session]", text)
-    return {"ts": moment, "code": safe_code, "stage": safe_stage, "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—"}
+    return {
+        "ts": moment,
+        "code": safe_code,
+        "stage": safe_stage,
+        "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—",
+        "username": normalize_profile(username, None).username,
+    }
 
 
 def _parse_error_event(raw: Any) -> dict[str, Any] | None:
@@ -887,6 +904,7 @@ def error_view(
                 "code": item["code"],
                 "stage": item["stage"],
                 "message": item["message"],
+                "username": item.get("username", ""),
             }
             for item in sorted(recent or [], key=lambda entry: entry["ts"], reverse=True)
             if 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
