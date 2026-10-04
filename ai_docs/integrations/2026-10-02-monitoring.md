@@ -10,6 +10,8 @@ Grafana is the outside HTTPS door, on port 8443, with anonymous access off and o
 
 The **Speaky** Grafana dashboard shows only series with `client="telegram"`. It omits the shared availability panel and the link to the all-client operator page. Collection and the separate `/admin/monitoring` page still retain the other clients.
 
+The errors panel uses the Telegram DAU series as a zero fallback because `speaking_errors` has no series until an error occurs. It shows zero while Prometheus receives Telegram metrics; if the scrape is unavailable, it still shows `No data`.
+
 New counters use the Redis prefix `metrics:v2` on the AI host. Old `metrics:day` and `metrics:dau` are left as they are and are not shown as a client column. Money is OpenRouter `usage.cost` and TTS `total_cost`, stored as micro-units plus currency. Realtime usage is tokens from `response.done`. Groq stays seconds. A missing cost increments the call count only.
 
 The CMP app sends `platform` on `POST /v1/sessions`. Telegram action names are posted to `POST /internal/metrics/action`. Journal text and voice objects are not in this cut.

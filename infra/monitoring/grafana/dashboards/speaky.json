@@ -54,7 +54,7 @@
       "type": "timeseries",
       "title": "Ошибки сервисов",
       "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
-      "targets": [{"expr": "speaking_errors{client=\"telegram\"}", "legendFormat": "{{outcome}}", "refId": "A"}]
+      "targets": [{"expr": "speaking_errors{client=\"telegram\"} or on() label_replace(speaking_dau{client=\"telegram\"} * 0, \"outcome\", \"нет ошибок\", \"client\", \"telegram\")", "legendFormat": "{{outcome}}", "refId": "A"}]
     }
   ]
 }
