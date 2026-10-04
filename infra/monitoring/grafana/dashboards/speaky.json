@@ -4,66 +4,57 @@
   "schemaVersion": 39,
   "timezone": "Europe/Moscow",
   "time": {"from": "now-24h", "to": "now"},
-  "links": [
-    {"title": "Действия и журнал", "url": "/admin/monitoring", "type": "link", "targetBlank": true}
-  ],
   "panels": [
     {
       "type": "timeseries",
-      "title": "Доступность",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
-      "targets": [{"expr": "avg_over_time(probe_success[5m])", "legendFormat": "{{job}}", "refId": "A"}]
-    },
-    {
-      "type": "timeseries",
       "title": "Списано, микроединицы",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-      "targets": [{"expr": "speaking_cost_micro", "legendFormat": "{{client}} {{currency}}", "refId": "A"}]
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "speaking_cost_micro{client=\"telegram\"}", "legendFormat": "{{currency}}", "refId": "A"}]
     },
     {
       "type": "timeseries",
       "title": "Токены чата",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "targets": [
-        {"expr": "speaking_prompt_tokens", "legendFormat": "{{client}} prompt", "refId": "A"},
-        {"expr": "speaking_completion_tokens", "legendFormat": "{{client}} completion", "refId": "B"}
+        {"expr": "speaking_prompt_tokens{client=\"telegram\"}", "legendFormat": "prompt", "refId": "A"},
+        {"expr": "speaking_completion_tokens{client=\"telegram\"}", "legendFormat": "completion", "refId": "B"}
       ]
     },
     {
       "type": "timeseries",
       "title": "Токены звонка",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-      "targets": [{"expr": "speaking_realtime_tokens", "legendFormat": "{{client}} {{part}}", "refId": "A"}]
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "speaking_realtime_tokens{client=\"telegram\"}", "legendFormat": "{{part}}", "refId": "A"}]
     },
     {
       "type": "timeseries",
       "title": "Объём",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
       "targets": [
-        {"expr": "speaking_stt_seconds", "legendFormat": "{{client}} stt s", "refId": "A"},
-        {"expr": "speaking_tts_chars", "legendFormat": "{{client}} tts chars", "refId": "B"}
+        {"expr": "speaking_stt_seconds{client=\"telegram\"}", "legendFormat": "stt s", "refId": "A"},
+        {"expr": "speaking_tts_chars{client=\"telegram\"}", "legendFormat": "tts chars", "refId": "B"}
       ]
     },
     {
       "type": "timeseries",
       "title": "DAU и ходы",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
       "targets": [
-        {"expr": "speaking_dau", "legendFormat": "{{client}} dau", "refId": "A"},
-        {"expr": "speaking_turns", "legendFormat": "{{client}} turns", "refId": "B"}
+        {"expr": "speaking_dau{client=\"telegram\"}", "legendFormat": "dau", "refId": "A"},
+        {"expr": "speaking_turns{client=\"telegram\"}", "legendFormat": "turns", "refId": "B"}
       ]
     },
     {
       "type": "timeseries",
       "title": "Частота",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
-      "targets": [{"expr": "speaking_actions", "legendFormat": "{{client}} {{action}}", "refId": "A"}]
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [{"expr": "speaking_actions{client=\"telegram\"}", "legendFormat": "{{action}}", "refId": "A"}]
     },
     {
       "type": "timeseries",
       "title": "Ошибки сервисов",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
-      "targets": [{"expr": "speaking_errors", "legendFormat": "{{client}} {{outcome}}", "refId": "A"}]
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "targets": [{"expr": "speaking_errors{client=\"telegram\"}", "legendFormat": "{{outcome}}", "refId": "A"}]
     }
   ]
 }
