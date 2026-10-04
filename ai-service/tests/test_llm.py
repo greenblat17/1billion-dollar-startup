@@ -159,7 +159,8 @@ async def test_live_notes_path_uses_strict_parser_and_separate_output_budget():
         calls = 0
 
         async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
-                            reasoning_effort=None):
+                            reasoning_effort=None, purpose="reply"):
+            assert purpose == "notes"
             self.calls += 1
             assert messages[0]["content"] == NOTES_SYSTEM
             assert max_tokens == NOTES_MAX_TOKENS
@@ -284,7 +285,7 @@ async def test_notes_metrics_distinguish_empty_invalid_and_filtered_outputs():
         response = ""
 
         async def _complete(self, messages, temperature, max_tokens=None, model=None, retry=True,
-                            reasoning_effort=None):
+                            reasoning_effort=None, purpose="reply"):
             return self.response
 
     metrics = MemoryMetricsStore(MetricRates())

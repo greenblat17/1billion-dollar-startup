@@ -38,6 +38,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
     ai: HttpClipClient,
     sessionClipQueue: SessionClipQueue,
     scope: CoroutineScope,
+    analytics: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
 ): BehaviourContext {
     val bot = speakingCoachTelegramBot(token)
     return bot.buildBehaviour(
@@ -46,7 +47,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(ai, sessionClipQueue)
+        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics)
     }
 }
 

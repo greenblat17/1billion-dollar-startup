@@ -12,6 +12,8 @@ Agents: start here, then open the linked docs for the current task. Do not skip 
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
 these files, not only in chat.
 
+Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+
 ## Structure
 
 - `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.

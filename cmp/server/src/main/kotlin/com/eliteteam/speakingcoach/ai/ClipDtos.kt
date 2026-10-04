@@ -108,6 +108,9 @@ data class MetricsSnapshot(
     val day: String,
     val promptTokens: Long,
     val completionTokens: Long,
+    val llmRequests: Long? = null,
+    val llmFailures: Long? = null,
+    val llmRequestsByPurpose: Map<String, Long> = emptyMap(),
     val tpm: Long,
     val tps: Double,
     val turns: Long,
@@ -169,6 +172,16 @@ data class CorrectionMetrics(
 )
 
 @Serializable
+data class LlmRequestPeriod(
+    val from: String,
+    val to: String,
+    val timezone: String,
+    val requests: Long,
+    val failures: Long,
+    val byPurpose: Map<String, Long> = emptyMap(),
+)
+
+@Serializable
 data class RemindersSnapshot(
     val today: ReminderTotals = ReminderTotals(),
     val week: ReminderTotals = ReminderTotals(),
@@ -179,6 +192,13 @@ data class RemindersSnapshot(
     val runs: List<ReminderRun> = emptyList(),
     val autoToday: ReminderRun? = null,
     val forecast: Long = 0,
+)
+
+@Serializable
+data class ReminderClockSummary(
+    val timezone: String,
+    val active: Int,
+    val hours: Map<String, Int>,
 )
 
 @Serializable
@@ -438,6 +458,23 @@ data class PracticeGoalRequest(
 )
 
 @Serializable
+data class OnboardingVoiceAnalyticsResponse(
+    val voiceIndex: Int = 0,
+    val telegramDurationSec: Double = 0.0,
+    val recognizedDurationSec: Double = 0.0,
+    val recognized: Boolean = false,
+    val failureReason: String? = null,
+    val milestones: List<Int> = emptyList(),
+    val completedNow: Boolean = false,
+    val assessmentFailed: Boolean = false,
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val scoreAvailable: Boolean = false,
+    val speechBeforeSec: Double? = null,
+    val speechAfterSec: Double? = null,
+)
+
+@Serializable
 data class OnboardingStateResponse(
     val runId: String = "",
     val status: String,
@@ -451,6 +488,7 @@ data class OnboardingStateResponse(
     val retryAvailable: Boolean = false,
     val react: Boolean = false,
     val review: OnboardingReview? = null,
+    val analytics: OnboardingVoiceAnalyticsResponse? = null,
 )
 
 @Serializable

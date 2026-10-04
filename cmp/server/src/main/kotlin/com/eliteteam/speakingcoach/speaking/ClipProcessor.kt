@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.speaking
 
+import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 
 fun interface ClipSource {
@@ -92,4 +93,5 @@ data class OnboardingStatus(
     val overallScore: Int? = null,
     val nextBand: String? = null,
     val pointsToNext: Int? = null,
+    val analytics: OnboardingVoiceFacts? = null,
 )

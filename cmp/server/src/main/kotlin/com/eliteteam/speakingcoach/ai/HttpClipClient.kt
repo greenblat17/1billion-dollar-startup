@@ -1,10 +1,12 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.LlmRange
 import com.eliteteam.speakingcoach.speaking.CallProgress
 import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
+import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
@@ -161,6 +163,12 @@ class HttpClipClient(
         val response = http.get("$root/internal/reminders/${sessionId.value}") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service reminder time returned ${response.status}" }
         return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
+    }
+
+    suspend fun reminderSummary(): ReminderClockSummary {
+        val response = http.get("$root/internal/reminders/summary") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder summary returned ${response.status}" }
+        return response.body()
     }
 
     suspend fun scheduleReminder(
@@ -323,6 +331,16 @@ class HttpClipClient(
         }
     }
 
+    internal suspend fun loadLlmRange(range: LlmRange): LlmRequestPeriod {
+        val response = http.get("$root/internal/metrics/llm?from=${range.from}&to=${range.to}") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service GET /internal/metrics/llm returned ${response.status}")
+        }
+        return response.body()
+    }
+
     private suspend fun createSession(sessionId: SessionId?): SessionCreatedResponse {
         val response = http.post("$root/v1/sessions") {
             applyInternalToken()
@@ -388,7 +406,7 @@ class HttpClipClient(
                         onboarding = status.onboarding?.let {
                             OnboardingStatus(
                                 it.runId, it.status, it.seconds, it.cefr, it.review,
-                                it.overallScore, it.nextBand, it.pointsToNext,
+                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
                             )
                         },
                         transcript = status.transcript,
@@ -400,7 +418,7 @@ class HttpClipClient(
                 }
                 is ClipJobStatus.Failed -> {
                     log.warn("Clip job {} failed", jobId)
-                    error("ai-service job $jobId failed: ${status.message}")
+                    throw ClipJobFailure(status.code, "ai-service job $jobId failed: ${status.message}")
                 }
             }
         }
@@ -439,7 +457,7 @@ class HttpClipClient(
             applyInternalToken()
         }
         if (response.status == HttpStatusCode.NotFound) {
-            return ClipJobStatus.Failed("unknown job")
+            return ClipJobStatus.Failed("unknown_job", "unknown job")
         }
         if (!response.status.isSuccess()) {
             error("ai-service GET /v1/clips/$jobId returned ${response.status}")
@@ -456,8 +474,8 @@ class HttpClipClient(
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
             )
-            "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
-            else -> ClipJobStatus.Failed("unexpected status ${body.status}")
+            "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error")
+            else -> ClipJobStatus.Failed("unknown", "unexpected status ${body.status}")
         }
     }
 
@@ -501,6 +519,8 @@ internal class HttpMetricsSource(
     private val clips: HttpClipClient,
 ) : MetricsSource {
     override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
+    override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = clips.loadLlmRange(range)
+    override suspend fun reminderSummary(): ReminderClockSummary = clips.reminderSummary()
 }
 
 private sealed interface ClipJobStatus {
@@ -514,8 +534,26 @@ private sealed interface ClipJobStatus {
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
     ) : ClipJobStatus
-    data class Failed(val message: String) : ClipJobStatus
+    data class Failed(val code: String, val message: String) : ClipJobStatus
 }
+
+internal class ClipJobFailure(val code: String, message: String) : IllegalStateException(message)
+
+private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
+    voiceIndex = voiceIndex,
+    telegramDurationSec = telegramDurationSec,
+    recognizedDurationSec = recognizedDurationSec,
+    recognized = recognized,
+    failureReason = failureReason,
+    milestones = milestones,
+    completedNow = completedNow,
+    assessmentFailed = assessmentFailed,
+    cefr = cefr,
+    overallScore = overallScore,
+    scoreAvailable = scoreAvailable,
+    speechBeforeSec = speechBeforeSec,
+    speechAfterSec = speechAfterSec,
+)
 
 private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(
     current = streak.current,

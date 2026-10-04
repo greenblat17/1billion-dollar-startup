@@ -5,9 +5,11 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
@@ -22,7 +24,7 @@ from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import build_metrics_v2
-from app.onboarding import OnboardingService, OnboardingStore
+from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
@@ -83,7 +85,7 @@ def create_app(
     streaks = clip_pipeline.streaks
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
-    session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings)
+    session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings, clip_pipeline.metrics)
     greeting_audio: dict[float, TtsAudio] = {}
     greeting_lock = asyncio.Lock()
     campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
@@ -183,6 +185,15 @@ def create_app(
         await v2.record_action(session_id, action, platform=platform if isinstance(platform, str) else None)
         return {"ok": True}
 
+    @app.get("/internal/metrics/llm")
+    async def llm_metrics_range(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 366:
+            raise HTTPException(status_code=400, detail="LLM period must be 1-366 days ending no later than today")
+        return await clip_pipeline.metrics.llm_range(from_day, to_day)
+
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
         payload = await _json_object(request)
@@ -231,6 +242,10 @@ def create_app(
     @app.get("/internal/streak/{session_id}")
     async def streak_profile(session_id: str) -> dict[str, Any]:
         return await streaks.profile(session_id)
+
+    @app.get("/internal/reminders/summary")
+    async def reminders_summary() -> dict:
+        return await clip_pipeline.metrics.reminder_summary()
 
     @app.get("/internal/reminders/{session_id}")
     async def reminder_time(session_id: str) -> dict[str, str | None]:
@@ -577,7 +592,7 @@ def _build_realtime(settings: Settings) -> RealtimeGateway | None:
     return OpenAiRealtimeGateway(settings.openai_realtime_api_key)
 
 
-def _build_reviewer(settings: Settings) -> SessionReviewer | None:
+def _build_reviewer(settings: Settings, metrics: MetricsStore) -> SessionReviewer | None:
     if not settings.openai_api_key:
         return None
     openai_headers = {}
@@ -592,7 +607,7 @@ def _build_reviewer(settings: Settings) -> SessionReviewer | None:
         default_headers=openai_headers or None,
         max_retries=0,
     )
-    return OpenAiSessionReviewer(client, settings.llm_model)
+    return OpenAiSessionReviewer(client, settings.llm_model, metrics=metrics)
 
 
 async def _json_object(request: Request) -> dict[str, Any]:
@@ -706,6 +721,8 @@ async def _watch_realtime(base_url: str, api_key: str, call_id: str, session_id:
 
 
 def _error_code(error: BaseException) -> str:
+    if isinstance(error, OnboardingSttError):
+        return "onboarding_stt_failed"
     if isinstance(error, TimeoutError) or isinstance(error, asyncio.TimeoutError):
         return "timeout"
     return "pipeline_failed"

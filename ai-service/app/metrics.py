@@ -5,8 +5,8 @@ import json
 import math
 import re
 import time
-from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 METRICS_TIMEZONE = "Europe/Moscow"
 LLM_WINDOW_SECONDS = 60
 LLM_RETAIN_SECONDS = 120
+LLM_PURPOSES = ("reply", "notes", "onboarding", "session_review")
 CHAT_LIMIT = 200
 FUNNEL_WINDOW_DAYS = 14
 FUNNEL_WEEK_DAYS = 7
@@ -76,6 +77,9 @@ DEFAULT_RATES = MetricRates(
 class DayTotals:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    llm_requests: int = 0
+    llm_failures: int = 0
+    llm_by_purpose: dict[str, int] = field(default_factory=dict)
     stt_ms: int = 0
     tts_chars: int = 0
     turns: int = 0
@@ -148,6 +152,8 @@ class MetricsStore(Protocol):
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None: ...
 
@@ -176,6 +182,8 @@ class MetricsStore(Protocol):
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]: ...
+
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]: ...
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
@@ -190,6 +198,8 @@ class MetricsStore(Protocol):
     ) -> dict[str, str]: ...
 
     async def reminder_time(self, session_id: str) -> str | None: ...
+
+    async def reminder_summary(self) -> dict[str, Any]: ...
 
     async def is_known(self, session_id: str) -> bool: ...
 
@@ -221,21 +231,29 @@ class MemoryMetricsStore:
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None:
+        if purpose not in LLM_PURPOSES:
+            raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
         sample = LlmSample(
             ts=moment,
-            prompt_tokens=nonneg_int(prompt_tokens),
-            completion_tokens=nonneg_int(completion_tokens),
+            prompt_tokens=nonneg_int(prompt_tokens) if success else 0,
+            completion_tokens=nonneg_int(completion_tokens) if success else 0,
             elapsed_ms=nonneg_int(elapsed_ms),
         )
         async with self._lock:
             day = self._days.setdefault(metrics_day(moment), DayTotals())
             day.prompt_tokens += sample.prompt_tokens
             day.completion_tokens += sample.completion_tokens
-            self._samples.append(sample)
-            self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
+            day.llm_requests += 1
+            day.llm_failures += int(not success)
+            day.llm_by_purpose[purpose] = day.llm_by_purpose.get(purpose, 0) + 1
+            if success:
+                self._samples.append(sample)
+                self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
 
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
         _check_correction_outcome(outcome)
@@ -304,6 +322,11 @@ class MemoryMetricsStore:
             payload["corrections"] = {key: value.copy() for key, value in self._corrections.get(day_name, {}).items()}
             return payload
 
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        async with self._lock:
+            days = [self._days.get(day.isoformat(), DayTotals()) for day in llm_days(from_day, to_day)]
+            return llm_range_snapshot(from_day, to_day, days)
+
     async def schedule_reminder(
         self,
         session_id: str,
@@ -326,6 +349,13 @@ class MemoryMetricsStore:
             return None
         async with self._lock:
             return self._reminder_times.get(session)
+
+    async def reminder_summary(self) -> dict[str, Any]:
+        async with self._lock:
+            hours = empty_reminder_hours()
+            for session, clock in self._reminder_times.items():
+                add_reminder_hour(hours, session, clock)
+            return reminder_summary(hours)
 
     def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
         if "write_pending" in decision:
@@ -419,11 +449,15 @@ class RedisMetricsStore:
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None:
+        if purpose not in LLM_PURPOSES:
+            raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
-        prompt = nonneg_int(prompt_tokens)
-        completion = nonneg_int(completion_tokens)
+        prompt = nonneg_int(prompt_tokens) if success else 0
+        completion = nonneg_int(completion_tokens) if success else 0
         elapsed = nonneg_int(elapsed_ms)
         payload = json.dumps(
             {"ts": moment, "prompt": prompt, "completion": completion, "elapsed_ms": elapsed},
@@ -431,11 +465,17 @@ class RedisMetricsStore:
         async with self._lock:
             pipe = self._redis.pipeline()
             day_key = _day_key(metrics_day(moment))
-            pipe.hincrby(day_key, "prompt_tokens", prompt)
-            pipe.hincrby(day_key, "completion_tokens", completion)
-            pipe.lpush(_EVENTS_KEY, payload)
+            pipe.hincrby(day_key, "llm_requests", 1)
+            pipe.hincrby(day_key, f"llm_{purpose}_requests", 1)
+            if success:
+                pipe.hincrby(day_key, "prompt_tokens", prompt)
+                pipe.hincrby(day_key, "completion_tokens", completion)
+                pipe.lpush(_EVENTS_KEY, payload)
+            else:
+                pipe.hincrby(day_key, "llm_failures", 1)
             await pipe.execute()
-            await self._prune_events(moment)
+            if success:
+                await self._prune_events(moment)
 
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
         _check_correction_outcome(outcome)
@@ -517,6 +557,13 @@ class RedisMetricsStore:
         payload["corrections"] = _correction_counts(await self._redis.hgetall(_correction_key(day_name)))
         return payload
 
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        pipe = self._redis.pipeline()
+        for day in llm_days(from_day, to_day):
+            pipe.hgetall(_day_key(day.isoformat()))
+        raw_days = await pipe.execute()
+        return llm_range_snapshot(from_day, to_day, [_day_totals(raw) for raw in raw_days])
+
     @property
     def redis(self) -> Redis:
         return self._redis
@@ -551,6 +598,32 @@ class RedisMetricsStore:
             return None
         value = await self._redis.get(_reminder_time_key(session))
         return str(value) if value else None
+
+    async def reminder_summary(self) -> dict[str, Any]:
+        hours = empty_reminder_hours()
+        prefix = _reminder_time_key("")
+        keys: list[str] = []
+        seen: set[str] = set()
+
+        async def count_batch() -> None:
+            if not keys:
+                return
+            values = await self._redis.mget(keys)
+            for key, value in zip(keys, values):
+                if value:
+                    add_reminder_hour(hours, key.removeprefix(prefix), str(value))
+            keys.clear()
+
+        async for key in self._redis.scan_iter(match=f"{prefix}*", count=200):
+            key = str(key)
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+            if len(keys) == 200:
+                await count_batch()
+        await count_batch()
+        return reminder_summary(hours)
 
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
         moment = _moment(now)
@@ -733,6 +806,22 @@ def parse_reminder_clock(text: str) -> str | None:
     if hour > 23 or minute > 59:
         return None
     return f"{hour:02d}:{minute:02d}"
+
+
+def empty_reminder_hours() -> dict[str, int]:
+    return {f"{hour:02d}": 0 for hour in range(24)}
+
+
+def add_reminder_hour(hours: dict[str, int], session: str, clock: str) -> None:
+    if telegram_chat_id(session) is None:
+        return
+    normalized = parse_reminder_clock(clock)
+    if normalized is not None:
+        hours[normalized[:2]] += 1
+
+
+def reminder_summary(hours: dict[str, int]) -> dict[str, Any]:
+    return {"timezone": METRICS_TIMEZONE, "active": sum(hours.values()), "hours": hours}
 
 
 def reminder_is_due(moment: float, hhmm: str) -> bool:
@@ -994,6 +1083,9 @@ def build_snapshot(
         "day": metrics_day(now),
         "promptTokens": day.prompt_tokens,
         "completionTokens": day.completion_tokens,
+        "llmRequests": day.llm_requests,
+        "llmFailures": day.llm_failures,
+        "llmRequestsByPurpose": {purpose: day.llm_by_purpose.get(purpose, 0) for purpose in LLM_PURPOSES},
         "tpm": window_prompt + window_completion,
         "tps": (window_completion / (elapsed_ms / 1000)) if elapsed_ms > 0 else 0.0,
         "turns": day.turns,
@@ -1013,6 +1105,26 @@ def build_snapshot(
             }
             for row in ordered
         ],
+    }
+
+
+def llm_days(from_day: date, to_day: date) -> list[date]:
+    if to_day < from_day or (to_day - from_day).days >= 366:
+        raise ValueError("LLM range must be between 1 and 366 days")
+    return [from_day + timedelta(days=offset) for offset in range((to_day - from_day).days + 1)]
+
+
+def llm_range_snapshot(from_day: date, to_day: date, days: list[DayTotals]) -> dict[str, Any]:
+    return {
+        "from": from_day.isoformat(),
+        "to": to_day.isoformat(),
+        "timezone": METRICS_TIMEZONE,
+        "requests": sum(day.llm_requests for day in days),
+        "failures": sum(day.llm_failures for day in days),
+        "byPurpose": {
+            purpose: sum(day.llm_by_purpose.get(purpose, 0) for day in days)
+            for purpose in LLM_PURPOSES
+        },
     }
 
 
@@ -1098,6 +1210,9 @@ def _day_totals(raw: Any) -> DayTotals:
     return DayTotals(
         prompt_tokens=nonneg_int(data.get("prompt_tokens")),
         completion_tokens=nonneg_int(data.get("completion_tokens")),
+        llm_requests=nonneg_int(data.get("llm_requests")),
+        llm_failures=nonneg_int(data.get("llm_failures")),
+        llm_by_purpose={purpose: nonneg_int(data.get(f"llm_{purpose}_requests")) for purpose in LLM_PURPOSES},
         stt_ms=nonneg_int(data.get("stt_ms")),
         tts_chars=nonneg_int(data.get("tts_chars")),
         turns=nonneg_int(data.get("turns")),

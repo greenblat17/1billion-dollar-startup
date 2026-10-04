@@ -1,6 +1,10 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.analytics.AnalyticsWriteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -34,24 +38,54 @@ internal class TelegramChatActions {
             onFull()
             return
         }
+        var voiceReleased = false
         try {
-            chat.actions.withLock {
-                if (voice && admission > 0) onQueued()
-                action()
+            val analyticsWrites = AnalyticsWriteBuffer()
+            var previousAnalytics: CompletableDeferred<Unit>? = null
+            val analyticsDone = CompletableDeferred<Unit>()
+            var actionStarted = false
+            try {
+                chat.actions.withLock {
+                    actionStarted = true
+                    try {
+                        withContext(analyticsWrites) {
+                            if (voice && admission > 0) onQueued()
+                            action()
+                        }
+                    } finally {
+                        previousAnalytics = chat.analyticsTail
+                        chat.analyticsTail = analyticsDone
+                    }
+                }
+            } finally {
+                if (voice) {
+                    withContext(NonCancellable) { chat.guard.withLock { chat.voices-- } }
+                    voiceReleased = true
+                }
+                if (actionStarted) {
+                    try {
+                        withContext(NonCancellable) {
+                            previousAnalytics?.await()
+                            analyticsWrites.flush()
+                        }
+                    } finally {
+                        analyticsDone.complete(Unit)
+                    }
+                }
             }
         } catch (error: Throwable) {
-            chat.guard.withLock { chat.accepted.remove(requestId) }
+            withContext(NonCancellable) { chat.guard.withLock { chat.accepted.remove(requestId) } }
             throw error
         } finally {
-            chat.guard.withLock {
-                if (voice) chat.voices--
-            }
+            // Also release the slot if acquiring the action lock was cancelled.
+            if (voice && !voiceReleased) withContext(NonCancellable) { chat.guard.withLock { chat.voices-- } }
         }
     }
 
     private class Chat {
         val guard = Mutex()
         val actions = Mutex()
+        var analyticsTail: CompletableDeferred<Unit>? = null
         val accepted = mutableSetOf<String>()
         var voices = 0
     }

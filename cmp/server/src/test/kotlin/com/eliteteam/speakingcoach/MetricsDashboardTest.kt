@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
 import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
@@ -15,6 +16,7 @@ import com.eliteteam.speakingcoach.ai.ReminderSegment
 import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
 import com.eliteteam.speakingcoach.ai.ReminderTotals
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.RetentionCohort
 import com.eliteteam.speakingcoach.ai.RetentionSlice
 import com.eliteteam.speakingcoach.ai.RetentionSnapshot
@@ -34,6 +36,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
+import java.time.LocalDate
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -109,6 +116,142 @@ class MetricsDashboardTest {
         admin.current = admin.current.copy(ready = false)
         assertEquals("$LEGACY_CAMPAIGN_PATH?notice=not-ready", post("$LEGACY_CAMPAIGN_PATH/send"))
         assertEquals(1, admin.started)
+    }
+
+    @Test
+    fun onboardingPageAndAgentExportPreserveSelectedLlmPeriod() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val selected = "llmFrom=2026-09-23&llmTo=2026-09-24"
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Запросы к LLM · все пользователи"))
+        assertTrue(page.contains("name=\"llmFrom\" value=\"2026-09-23\""))
+        assertTrue(page.contains("name=\"llmTo\" value=\"2026-09-24\""))
+        assertTrue(page.contains("llmFrom=2026-09-23&amp;llmTo=2026-09-24"))
+        assertTrue(page.contains("<tr><td>8</td><td>1</td><td>3</td>"))
+
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        val llm = root.getValue("llm_requests_period").jsonObject
+        assertEquals("2026-09-23", llm.getValue("from").jsonPrimitive.content)
+        assertEquals("2026-09-24", llm.getValue("to").jsonPrimitive.content)
+        assertEquals(JsonNull, root.getValue("llm_requests_today"))
+        assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
+        assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
+
+        val mainPage = client.get("$METRICS_PATH?$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(mainPage.contains("2026-09-23 — 2026-09-24 включительно"))
+        assertTrue(mainPage.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(mainPage.contains("<dt>Токены prompt</dt><dd>100</dd>"))
+
+        val current = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals("all_users_today", Json.parseToJsonElement(current.bodyAsText()).jsonObject
+            .getValue("llm_requests_today").jsonObject.getValue("scope").jsonPrimitive.content)
+    }
+
+    @Test
+    fun llmRequestCountsAppearOnMetricsPage() {
+        val range = LlmRange(LocalDate.parse("2026-09-23"), LocalDate.parse("2026-09-24"))
+        val html = metricsReportHtml(sampleSnapshot(), sampleLlmPeriod(range), range)
+        assertTrue(html.contains("2026-09-23 — 2026-09-24 включительно"))
+        assertTrue(html.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(html.contains("<dt>Ошибки LLM</dt><dd>1</dd>"))
+        assertTrue(html.contains("<dt>LLM · онбординг</dt><dd>3</dd>"))
+    }
+
+    @Test
+    fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD, source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false, onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        for (path in listOf(
+            "$METRICS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
+            "$ONBOARDING_ANALYTICS_PATH?llmFrom=2026-09-23",
+            "$ONBOARDING_AGENT_PATH?llmFrom=2020-01-01&llmTo=2026-10-01",
+        )) {
+            val response = client.get(path) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+    }
+
+    @Test
+    fun agentExportUsesMetricsSessionAndKeepsFilters() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused for onboarding")
+                    override suspend fun reminderSummary() = ReminderClockSummary(
+                        "Europe/Moscow", 2, mapOf("08" to 1, "13" to 1))
+                },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val anonymous = client.get("$ONBOARDING_AGENT_PATH?days=7")
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+        assertEquals("no-store", anonymous.headers[HttpHeaders.CacheControl])
+
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertTrue(exported.headers[HttpHeaders.ContentType].orEmpty().startsWith("application/json"))
+        assertTrue(exported.headers[HttpHeaders.ContentDisposition].orEmpty().contains("attachment"))
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        assertEquals(JsonNull, root["llm_requests_today"])
+        assertEquals(JsonNull, root["llm_requests_period"])
+        assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
+        assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
+        assertEquals("2", root.getValue("current_reminders").jsonObject.getValue("active").jsonPrimitive.content)
+
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("$ONBOARDING_AGENT_PATH?days=7&amp;source=campaign"))
+        assertTrue(page.contains("Активных: 2"))
+        assertTrue(page.contains("08:00–08:59"))
+    }
+
+    @Test
+    fun reminderSourceFailureDoesNotHideOnboardingAnalytics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused")
+                    override suspend fun reminderSummary(): ReminderClockSummary = error("ai-service unavailable")
+                },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val exported = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertEquals(JsonNull, Json.parseToJsonElement(exported.bodyAsText()).jsonObject["current_reminders"])
+        val page = client.get(ONBOARDING_ANALYTICS_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Текущие настройки напоминаний недоступны"))
     }
 
     @Test
@@ -480,6 +623,7 @@ class MetricsDashboardTest {
 
     private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {
         override suspend fun load(): MetricsSnapshot = snapshot
+        override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = sampleLlmPeriod(range)
     }
 
     private class FailingMetricsSource : MetricsSource {
@@ -490,5 +634,11 @@ class MetricsDashboardTest {
 
     private companion object {
         const val PASSWORD = "secret-pass"
+
+        fun sampleLlmPeriod(range: LlmRange) = LlmRequestPeriod(
+            from = range.from.toString(), to = range.to.toString(), timezone = "Europe/Moscow",
+            requests = 8, failures = 1,
+            byPurpose = mapOf("onboarding" to 3, "reply" to 3, "notes" to 1, "session_review" to 1),
+        )
     }
 }

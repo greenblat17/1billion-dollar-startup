@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.app.AppApi
@@ -87,11 +88,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val aiHttp = speakingCoachAiHttpClient()
     val webhookScope = newTelegramWebhookScope()
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
+    val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
     )
-    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope)
+    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope, onboardingAnalytics)
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
@@ -149,6 +151,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 secureCookie = true,
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
                 campaign = campaignRunner,
+                onboarding = onboardingAnalytics,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -187,6 +190,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         behaviourContext.cancel()
         webhookScope.cancel()
         aiHttp.close()
+        onboardingAnalytics?.close()
         server.stop()
     }
 }
@@ -199,6 +203,10 @@ internal fun Application.module(
     reminderAdmin: ReminderAdmin? = null,
     campaignAdmin: LegacyCampaignAdmin? = null,
 ) {
+    val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
+    onboardingAnalytics?.let { store ->
+        monitor.subscribe(ApplicationStopped) { store.close() }
+    }
     if (appApi != null) {
         installAppPlugins(appApi)
     }
@@ -210,6 +218,7 @@ internal fun Application.module(
             secureCookie = false,
             reminders = reminderAdmin,
             campaign = campaignAdmin,
+            onboarding = onboardingAnalytics,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -243,12 +252,13 @@ private fun Application.metricsDashboard(
     secureCookie: Boolean,
     reminders: ReminderAdmin? = null,
     campaign: LegacyCampaignAdmin? = null,
+    onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
