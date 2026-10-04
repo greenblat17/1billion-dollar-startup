@@ -57,7 +57,7 @@ class MetricsDashboardTest {
                 today = ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1),
                 days = listOf(ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1)),
                 recent = listOf(
-                    RecentError("2026-09-24T12:00:00+03:00", "pipeline_failed", "tts", "Provider <failed>", "alex<script>"),
+                    RecentError("2026-09-24T12:00:00+03:00", "pipeline_failed", "tts", "Provider <failed>", "alex<script>", 123),
                     RecentError("2026-09-24T11:00:00+03:00", "timeout", "stt", "TimeoutError"),
                 ),
             ),
@@ -75,8 +75,9 @@ class MetricsDashboardTest {
         assertTrue(page.bodyAsText().contains("Provider &lt;failed&gt;"))
         assertFalse(page.bodyAsText().contains("Provider <failed>"))
         assertTrue(page.bodyAsText().contains("@alex&lt;script&gt;"))
+        assertTrue(page.bodyAsText().contains("<td>@alex&lt;script&gt;</td><td>123</td><td>tts</td>"))
         assertFalse(page.bodyAsText().contains("@alex<script>"))
-        assertTrue(page.bodyAsText().contains("<td>—</td><td>stt</td>"))
+        assertTrue(page.bodyAsText().contains("<td>—</td><td>—</td><td>stt</td>"))
     }
 
     @Test

@@ -102,7 +102,7 @@ async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
                 "timeout", session_id="tg-1", stage="stt",
                 message="Provider failed: token=sk-secret123456", now=moment,
             )
-            await store.record_clip_result("pipeline_failed", now=moment - 86400)
+            await store.record_clip_result("pipeline_failed", session_id="tg-ChatId(chatId=-100)", now=moment - 86400)
             snapshot = await store.snapshot(now=moment)
             assert snapshot["errors"]["today"] == {
                 "day": "2026-09-25", "ok": 1, "timeout": 1, "pipelineFailed": 0,
@@ -112,7 +112,9 @@ async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
             assert snapshot["errors"]["recent"][0]["stage"] == "stt"
             assert snapshot["errors"]["recent"][0]["code"] == "timeout"
             assert snapshot["errors"]["recent"][0]["username"] == "alex"
+            assert snapshot["errors"]["recent"][0]["telegramId"] == 1
             assert snapshot["errors"]["recent"][1]["username"] == ""
+            assert snapshot["errors"]["recent"][1]["telegramId"] == -100
             assert "secret123456" not in snapshot["errors"]["recent"][0]["message"]
             assert "[redacted]" in snapshot["errors"]["recent"][0]["message"]
     finally:

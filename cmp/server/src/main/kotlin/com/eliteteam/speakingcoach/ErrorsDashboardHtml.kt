@@ -16,9 +16,10 @@ internal fun errorsPageHtml(snapshot: MetricsSnapshot, summaryRoot: String = MET
     }.ifEmpty { "<tr><td colspan=\"5\">Пока нет данных.</td></tr>" }
     val recentRows = errors?.recent.orEmpty().take(15).joinToString("\n") { item ->
         val username = item.username.takeIf { it.isNotBlank() }?.let { "@${escapeHtml(it.removePrefix("@"))}" } ?: "—"
-        "<tr><td>${escapeHtml(item.at)}</td><td>$username</td><td>${escapeHtml(item.stage)}</td>" +
+        val telegramId = item.telegramId?.toString() ?: "—"
+        "<tr><td>${escapeHtml(item.at)}</td><td>$username</td><td>$telegramId</td><td>${escapeHtml(item.stage)}</td>" +
             "<td>${escapeHtml(item.code)}</td><td>${escapeHtml(item.message)}</td></tr>"
-    }.ifEmpty { "<tr><td colspan=\"5\">Недавних ошибок нет.</td></tr>" }
+    }.ifEmpty { "<tr><td colspan=\"6\">Недавних ошибок нет.</td></tr>" }
     return """
         <!doctype html>
         <html lang="ru">
@@ -49,7 +50,7 @@ internal fun errorsPageHtml(snapshot: MetricsSnapshot, summaryRoot: String = MET
         <h2>Последние ошибки</h2>
         <p class="meta">До 15 записей за последние 30 дней. Текст сокращён до 240 символов, типичные секреты и ID сессий скрыты.</p>
         <table>
-        <thead><tr><th>Время</th><th>Username</th><th>Этап</th><th>Код</th><th>Текст ошибки</th></tr></thead>
+        <thead><tr><th>Время</th><th>Username</th><th>Telegram ID</th><th>Этап</th><th>Код</th><th>Текст ошибки</th></tr></thead>
         <tbody>$recentRows</tbody>
         </table>
         </body>

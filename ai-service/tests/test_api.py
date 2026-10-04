@@ -234,6 +234,7 @@ def test_clip_failures_are_counted_without_exposing_error_text() -> None:
         assert metrics["errors"]["today"]["pipelineFailed"] == 1
         recent = metrics["errors"]["recent"][0]
         assert recent["username"] == "alex"
+        assert recent["telegramId"] is None
         assert recent["stage"] == "tts"
         assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
         assert "secret123456" not in str(metrics["errors"])

@@ -145,6 +145,7 @@ data class RecentError(
     val stage: String,
     val message: String,
     val username: String = "",
+    val telegramId: Long? = null,
 )
 
 @Serializable

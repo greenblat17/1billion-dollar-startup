@@ -298,7 +298,8 @@ class MemoryMetricsStore:
             counts[field] = counts.get(field, 0) + 1
             if error_code is not None:
                 username = self._profiles.get(session_id or "", ChatProfile()).username
-                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username))
+                telegram_id = telegram_chat_id(session_id or "")
+                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username, telegram_id))
                 self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
 
     async def record_turn(
@@ -497,7 +498,8 @@ class RedisMetricsStore:
         pipe.expire(key, ERROR_RETAIN_SECONDS)
         if error_code is not None:
             username = await self._redis.hget(_chat_key(session_id), "username") if session_id else None
-            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username)))
+            telegram_id = telegram_chat_id(session_id or "")
+            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username, telegram_id)))
             pipe.ltrim(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)
             pipe.expire(_RECENT_ERRORS_KEY, ERROR_RETAIN_SECONDS)
         await pipe.execute()
@@ -852,6 +854,7 @@ def _error_event(
     stage: str | None,
     message: str | None,
     username: str | None,
+    telegram_id: int | None,
 ) -> dict[str, Any]:
     safe_code = code if code in {"timeout", "pipeline_failed", "onboarding_stt_failed"} else "pipeline_failed"
     safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
@@ -870,6 +873,7 @@ def _error_event(
         "stage": safe_stage,
         "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—",
         "username": normalize_profile(username, None).username,
+        "telegramId": telegram_id,
     }
 
 
@@ -905,6 +909,7 @@ def error_view(
                 "stage": item["stage"],
                 "message": item["message"],
                 "username": item.get("username", ""),
+                "telegramId": item.get("telegramId"),
             }
             for item in sorted(recent or [], key=lambda entry: entry["ts"], reverse=True)
             if 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
