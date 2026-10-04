@@ -53,6 +53,11 @@ scrape_configs:
     bearer_token_file: /etc/prometheus/ai_token
     static_configs:
       - targets: ["${AI_TARGET}"]
+  - job_name: speaking-telegram
+    scrape_interval: 15s
+    metrics_path: /internal/telegram-metrics/prometheus
+    static_configs:
+      - targets: ["127.0.0.1:${MONITORING_PORT}"]
   - job_name: blackbox-ktor
     scrape_interval: 15s
     metrics_path: /probe

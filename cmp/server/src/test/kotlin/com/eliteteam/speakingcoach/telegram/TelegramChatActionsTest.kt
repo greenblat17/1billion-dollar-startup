@@ -63,6 +63,30 @@ class TelegramChatActionsTest {
     }
 
     @Test
+    fun recordsWaitUntilActionActuallyStarts() = runTest {
+        val actions = TelegramChatActions()
+        val release = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val first = async {
+            actions.run("chat", "first", voice = true) {
+                started.complete(Unit)
+                release.await()
+            }
+        }
+        started.await()
+        var waitNanos = -1L
+        val second = async {
+            actions.run("chat", "second", voice = true, onActionStart = { waitNanos = it }) {}
+        }
+        yield()
+        assertEquals(-1L, waitNanos)
+        release.complete(Unit)
+        first.await()
+        second.await()
+        assertEquals(true, waitNanos >= 0)
+    }
+
+    @Test
     fun duplicateDeliveryDoesNotRunTwiceAndFailureAllowsRetry() = runTest {
         val actions = TelegramChatActions()
         var calls = 0

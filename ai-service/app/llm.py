@@ -16,6 +16,7 @@ from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
 from app.metrics import MetricsStore
 from app.metrics_v2 import read_provider_cost
+from app.operational_metrics import telegram_stage
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
 
@@ -252,6 +253,7 @@ class OpenAiChatModel:
             purpose="onboarding",
         )
 
+    @telegram_stage("llm")
     async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
                         model: str | None = None, response_format: dict | None = None,
                         retry: bool = True, reasoning_effort: str | None = None,

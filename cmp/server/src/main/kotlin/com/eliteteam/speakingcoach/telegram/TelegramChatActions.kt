@@ -18,6 +18,7 @@ internal class TelegramChatActions {
         voice: Boolean = false,
         onQueued: suspend () -> Unit = {},
         onFull: suspend () -> Unit = {},
+        onActionStart: (Long) -> Unit = {},
         action: suspend () -> Unit,
     ) {
         val chat = chats.getOrPut(chatId) { Chat() }
@@ -39,6 +40,7 @@ internal class TelegramChatActions {
             return
         }
         var voiceReleased = false
+        val waitStarted = System.nanoTime()
         try {
             val analyticsWrites = AnalyticsWriteBuffer()
             var previousAnalytics: CompletableDeferred<Unit>? = null
@@ -47,6 +49,7 @@ internal class TelegramChatActions {
             try {
                 chat.actions.withLock {
                     actionStarted = true
+                    onActionStart(System.nanoTime() - waitStarted)
                     try {
                         withContext(analyticsWrites) {
                             if (voice && admission > 0) onQueued()

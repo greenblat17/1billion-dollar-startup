@@ -24,6 +24,7 @@ from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import build_metrics_v2
+from app.operational_metrics import STAGE_METRICS
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult
@@ -169,7 +170,7 @@ def create_app(
             v2_snapshot = await v2.snapshot()
             v2_snapshot["day"] = payload.get("day", "")
             body = v2.prometheus(v2_snapshot)
-        return Response(content=body, media_type="text/plain; version=0.0.4")
+        return Response(content=body + STAGE_METRICS.prometheus(), media_type="text/plain; version=0.0.4")
 
     @app.post("/internal/metrics/action")
     async def metrics_action(request: Request) -> dict[str, bool]:
