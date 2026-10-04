@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.ReminderReport
+import com.eliteteam.speakingcoach.withRequestLog
 import com.eliteteam.speakingcoach.ai.ReminderSendResult
 import com.eliteteam.speakingcoach.ai.ReminderTarget
 import dev.inmo.tgbotapi.bot.exceptions.RequestException
@@ -73,6 +74,7 @@ internal class ReminderRunner(
             return null
         }
         try {
+            log.info("Started reminder round {}", mode.wire)
             val started = now()
             val day = started.toLocalDate()
             val targets = claim(mode)
@@ -83,7 +85,9 @@ internal class ReminderRunner(
             for (target in targets) {
                 val chatId = reminderChatId(target.sessionId) ?: continue
                 val template = reminderTemplate(chatId, day, target.streak)
-                val status = deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
+                val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
+                    deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
+                }
                 results += ReminderSendResult(target.sessionId, template.id, status)
                 delay(pause)
             }
@@ -106,7 +110,7 @@ internal class ReminderRunner(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                log.warn("Failed to report reminder round: {}", error.message)
+                log.warn("Failed to report reminder round", error)
             }
             log.info("Reminder round {} {}: {}", mode.wire, day, outcome)
             return outcome
@@ -128,6 +132,7 @@ internal class ReminderRunner(
     private suspend fun deliver(chatId: Long, text: String): String {
         var retried = false
         while (true) {
+            log.info("Sending reminder")
             try {
                 send(chatId, text)
                 return STATUS_SENT
@@ -144,7 +149,7 @@ internal class ReminderRunner(
                         delay(failure.wait)
                     }
                     SendFailure.Failed -> {
-                        log.warn("Failed to send reminder to tg-{}: {}", chatId, error.message)
+                        log.warn("Failed to send reminder to {}", chatId, error)
                         return STATUS_FAILED
                     }
                 }
@@ -164,12 +169,14 @@ internal class RunnerReminderAdmin(
             return false
         }
         scope.launch {
-            try {
-                runner.runRound(ReminderMode.MANUAL)
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                log.error("Manual reminder round failed", error)
+            withRequestLog(request = "reminder:manual") {
+                try {
+                    runner.runRound(ReminderMode.MANUAL)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.error("Manual reminder round failed", error)
+                }
             }
         }
         return true

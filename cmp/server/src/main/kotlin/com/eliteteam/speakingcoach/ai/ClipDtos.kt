@@ -96,6 +96,13 @@ data class ClipErrorResponse(
 )
 
 @Serializable
+data class MetricsActionRequest(
+    val sessionId: String,
+    val action: String,
+    val platform: String? = null,
+)
+
+@Serializable
 data class MetricsSnapshot(
     val timezone: String,
     val day: String,
@@ -117,6 +124,41 @@ data class MetricsSnapshot(
     val reminders: RemindersSnapshot? = null,
     val streaks: StreaksSnapshot? = null,
     val corrections: Map<String, CorrectionMetrics> = emptyMap(),
+    val v2: MetricsV2Snapshot? = null,
+)
+
+@Serializable
+data class MetricsV2Snapshot(
+    val clients: List<MetricsV2Client> = emptyList(),
+)
+
+@Serializable
+data class MetricsV2Client(
+    val client: String = "",
+    val dau: Long = 0,
+    val turns: Long = 0,
+    val calls: Long = 0,
+    val costMicro: Long = 0,
+    val costCurrency: String = "",
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val realtimeInText: Long = 0,
+    val realtimeInAudio: Long = 0,
+    val realtimeOutText: Long = 0,
+    val realtimeOutAudio: Long = 0,
+    val realtimeCachedText: Long = 0,
+    val realtimeCachedAudio: Long = 0,
+    val sttSeconds: Double = 0.0,
+    val ttsChars: Long = 0,
+    val actions: Map<String, Long> = emptyMap(),
+    val errors: Map<String, Long> = emptyMap(),
+    val chats: List<MetricsV2Chat> = emptyList(),
+)
+
+@Serializable
+data class MetricsV2Chat(
+    val session: String = "",
+    val turns: Long = 0,
 )
 
 @Serializable

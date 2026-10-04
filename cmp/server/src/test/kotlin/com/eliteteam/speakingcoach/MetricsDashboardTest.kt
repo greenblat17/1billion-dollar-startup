@@ -4,6 +4,9 @@ import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.MetricsV2Chat
+import com.eliteteam.speakingcoach.ai.MetricsV2Client
+import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
 import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
@@ -330,6 +333,54 @@ class MetricsDashboardTest {
         assertTrue(html.contains("Нет данных о напоминаниях."))
         assertFalse(html.contains("/admin/metrics/reminders/send"))
         assertFalse(html.contains("<script>"))
+    }
+
+    @Test
+    fun monitoringShowsProviderCostPerClientWithoutAPassword() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            v2 = MetricsV2Snapshot(
+                clients = listOf(
+                    MetricsV2Client(
+                        client = "telegram",
+                        dau = 2,
+                        turns = 3,
+                        costMicro = 1_500_000,
+                        costCurrency = "USD",
+                        promptTokens = 11,
+                        chats = listOf(MetricsV2Chat(session = "tg-1", turns = 3)),
+                        actions = mapOf("text" to 4),
+                    ),
+                    MetricsV2Client(client = "android"),
+                ),
+            ),
+            reminders = RemindersSnapshot(),
+        )
+        application {
+            module(
+                dashboardConfig(password = null),
+                metricsSource = FixedMetricsSource(snapshot),
+                reminderAdmin = FakeReminderAdmin(),
+            )
+        }
+        val html = client.get("/admin/monitoring").bodyAsText()
+        assertTrue(html.contains("Telegram"))
+        assertTrue(html.contains("Android"))
+        assertTrue(html.contains("1.500000 USD"))
+        assertTrue(html.contains("tg-1"))
+        assertTrue(html.contains("text"))
+        assertFalse(html.contains("₽ на ход"))
+        assertFalse(html.contains("₽ на DAU"))
+        assertFalse(html.contains(">100<"))
+        val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
+        assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))
+        assertEquals(HttpStatusCode.NotFound, client.get("/admin/metrics").status)
+    }
+
+    @Test
+    fun monitoringStaysOffThePublicConnector() {
+        assertTrue(monitoringRequestAllowed(localPort = 8081, monitoringPort = 8081))
+        assertFalse(monitoringRequestAllowed(localPort = 443, monitoringPort = 8081))
+        assertTrue(monitoringRequestAllowed(localPort = 54321, monitoringPort = 0))
     }
 
     private class FakeReminderAdmin : ReminderAdmin {

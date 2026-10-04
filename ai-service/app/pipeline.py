@@ -10,6 +10,7 @@ from typing import Any
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
+from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
 from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
@@ -50,6 +51,7 @@ class ClipPipeline:
         calls: Any | None = None,
         speech: SessionSpeech | None = None,
         notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
+        v2: MetricsV2 | None = None,
     ) -> None:
         if notes_timeout_seconds <= 0:
             raise ValueError("notes timeout must be positive")
@@ -60,6 +62,7 @@ class ClipPipeline:
         self.speech = speech or SessionSpeech(tts)
         self._dialogue = dialogue
         self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
+        self._v2 = v2
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
         self._notes_timeout_seconds = notes_timeout_seconds
@@ -116,6 +119,8 @@ class ClipPipeline:
                 self._metrics.record_correction(run.outcome, elapsed_ms, attempts),
                 CORRECTION_METRICS_TIMEOUT_SECONDS,
             )
+            if self._v2 is not None and run.outcome not in {"shown", "filtered", "empty"}:
+                await self._v2.record_error("", "corrections", run.outcome)
         except Exception:
             logger.exception("failed to record correction outcome")
         return run.corrections
@@ -133,10 +138,23 @@ class ClipPipeline:
         profile_note: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
+        bound = bind_metrics(session_id)
+        try:
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started)
+        finally:
+            reset_metrics(bound)
 
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started):
         stt_started = time.perf_counter()
-        stt_result = await self._stt.transcribe(audio, content_type, filename)
+        try:
+            stt_result = await self._stt.transcribe(audio, content_type, filename)
+        except Exception:
+            if self._v2 is not None:
+                await self._v2.record_error(session_id, "stt", "failed")
+            raise
         stt_ms = _elapsed_ms(stt_started)
+        if self._v2 is not None:
+            await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
 
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
@@ -144,6 +162,8 @@ class ClipPipeline:
             timings = {"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)}
             finalize_started = time.perf_counter()
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
+            if self._v2 is not None:
+                await self._v2.record_turn(session_id)
             await self._metrics.record_exchange(session_id)
             streak = await self._record_streak(session_id)
             call = await self._call_summary(session_id)
@@ -200,6 +220,8 @@ class ClipPipeline:
         timings["llm"] = max(timings["reply"], timings["notes"])
         finalize_started = time.perf_counter()
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
+        if self._v2 is not None:
+            await self._v2.record_turn(session_id)
         await self._metrics.record_exchange(session_id)
         streak = await self._record_streak(session_id)
         call = await self._record_call(session_id, stt_result, reply_text, corrections)
@@ -219,6 +241,9 @@ class ClipPipeline:
     async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:
         await self._metrics.record_turn(session_id, seconds, tts_chars)
         await self._metrics.record_exchange(session_id)
+        if self._v2 is not None:
+            await self._v2.record_stt(session_id, "onboarding", seconds)
+            await self._v2.record_turn(session_id)
         return await self._record_streak(session_id)
 
     async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:

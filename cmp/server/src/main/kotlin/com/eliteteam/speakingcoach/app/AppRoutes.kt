@@ -17,6 +17,7 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.utils.io.ExperimentalKtorApi
 import io.ktor.server.routing.openapi.hide
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
@@ -80,7 +81,21 @@ internal fun Route.installAppRoutes(app: Application, api: AppApi) {
                 call.respond(HttpStatusCode.BadRequest)
                 return@post
             }
-            val session = api.store.createSession(user.id, body.topic, body.tutorVoice)
+            val platform = when (val parsed = metricPlatform(body.platform)) {
+                MetricPlatform.Rejected -> {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
+                MetricPlatform.Absent -> null
+                is MetricPlatform.Known -> parsed.name
+            }
+            val session = api.store.createSession(user.id, body.topic, body.tutorVoice, platform)
+            try {
+                api.ai.noteSession(session.id, "session", platform)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+            }
             call.respond(HttpStatusCode.Created, CreateSessionResponse(session.id))
         }.hide()
         route("/v1/sessions/{id}") {
@@ -107,7 +122,13 @@ internal fun Route.installAppRoutes(app: Application, api: AppApi) {
                     return@post
                 }
                 try {
-                    val started = api.ai.startCall(offer, session.topic, session.tutorVoice)
+                    val started = api.ai.startCall(offer, session.topic, session.tutorVoice, session.id, session.platform)
+                    try {
+                        api.ai.noteSession(session.id, "rtc", session.platform)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Throwable) {
+                    }
                     api.store.attachOpenaiCallId(session.id, started.openaiCallId)
                     call.respondText(started.sdpAnswer, ContentType.parse("application/sdp"), HttpStatusCode.Created)
                 } catch (error: Throwable) {
@@ -205,6 +226,21 @@ private suspend fun io.ktor.server.application.ApplicationCall.appUser(api: AppA
         return null
     }
     return user
+}
+
+private sealed interface MetricPlatform {
+    data object Absent : MetricPlatform
+    data object Rejected : MetricPlatform
+    data class Known(val name: String) : MetricPlatform
+}
+
+private fun metricPlatform(raw: String?): MetricPlatform {
+    val name = raw?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return MetricPlatform.Absent
+    return if (name == "android" || name == "ios" || name == "desktop") {
+        MetricPlatform.Known(name)
+    } else {
+        MetricPlatform.Rejected
+    }
 }
 
 private suspend fun ownedSession(sessionId: String?, userId: String, api: AppApi): SpeakingSession? {

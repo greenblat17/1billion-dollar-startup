@@ -16,6 +16,7 @@ from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
+from app.metrics_v2 import bind_metrics, reset_metrics
 from app.tts import TtsAudio
 
 logger = logging.getLogger(__name__)
@@ -337,6 +338,13 @@ class OnboardingService:
             return await self.store.claim_legacy_invitation(session_id)
 
     async def action(self, session_id: str, run_id: str, action: str, request_id: str = "") -> PipelineResult:
+        bound = bind_metrics(session_id)
+        try:
+            return await self._action_locked(session_id, run_id, action, request_id)
+        finally:
+            reset_metrics(bound)
+
+    async def _action_locked(self, session_id: str, run_id: str, action: str, request_id: str = "") -> PipelineResult:
         async with self.store.lock(session_id):
             state = await self._current(session_id, run_id)
             if state is None:
@@ -388,6 +396,16 @@ class OnboardingService:
         return self._result(None)
 
     async def turn(
+        self, session_id: str, run_id: str, request_id: str,
+        audio: bytes, content_type: str, filename: str, duration: float = 0.0,
+    ) -> PipelineResult:
+        bound = bind_metrics(session_id)
+        try:
+            return await self._turn_locked(session_id, run_id, request_id, audio, content_type, filename, duration)
+        finally:
+            reset_metrics(bound)
+
+    async def _turn_locked(
         self, session_id: str, run_id: str, request_id: str,
         audio: bytes, content_type: str, filename: str, duration: float = 0.0,
     ) -> PipelineResult:

@@ -7,7 +7,12 @@ import com.eliteteam.speakingcoach.telegram.LEGACY_CAMPAIGN_BOLD
 
 internal const val LEGACY_CAMPAIGN_PATH = "/admin/metrics/onboarding-campaign"
 
-internal fun legacyCampaignPageHtml(status: LegacyCampaignStatus, notice: String?, controls: Boolean): String {
+internal fun legacyCampaignPageHtml(
+    status: LegacyCampaignStatus,
+    notice: String?,
+    controls: Boolean,
+    summaryRoot: String = "/admin/metrics",
+): String {
     val note = when (notice) {
         "started" -> "<p class=\"notice\">Отправка запущена. Обновите страницу, чтобы увидеть результаты.</p>"
         "busy" -> "<p class=\"notice warn\">Отправка уже идёт.</p>"
@@ -22,17 +27,18 @@ internal fun legacyCampaignPageHtml(status: LegacyCampaignStatus, notice: String
     } else {
         "Аудитория будет зафиксирована при раскатке AI-сервиса. Сейчас рассылка недоступна."
     }
+    val campaignPath = "$summaryRoot/onboarding-campaign"
     val controlsHtml = if (!controls) {
         "<p class=\"meta\">Отправка доступна только в webhook-режиме.</p>"
     } else {
         val sendForm = if (status.ready && status.remaining > 0) """
-            <form class="inline" method="post" action="$LEGACY_CAMPAIGN_PATH/send"
+            <form class="inline" method="post" action="$campaignPath/send"
               onsubmit="return confirm('Отправить сообщение ${status.remaining} пользователям из зафиксированного списка?')">
               <button type="submit">Отправить выбранным пользователям</button>
             </form>
         """.trimIndent() else ""
         """
-            <form class="inline" method="post" action="$LEGACY_CAMPAIGN_PATH/test">
+            <form class="inline" method="post" action="$campaignPath/test">
               <label>Мой chat ID <input name="chatId" inputmode="numeric" required></label>
               <button type="submit">Отправить тест себе</button>
             </form>
@@ -53,7 +59,7 @@ internal fun legacyCampaignPageHtml(status: LegacyCampaignStatus, notice: String
         </head>
         <body>
         <h1>Speaky</h1>
-        ${adminTabs(LEGACY_CAMPAIGN_PATH)}
+        ${adminTabs(campaignPath, summaryRoot)}
         <h2>Повторное знакомство со Speaky</h2>
         <p class="meta">$readiness</p>
         $note

@@ -3,8 +3,11 @@ package com.eliteteam.speakingcoach.speaking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.slf4j.MDCContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.slf4j.MDC
 import java.util.concurrent.ConcurrentHashMap
 
 class SessionClipQueue(
@@ -29,7 +32,7 @@ class SessionClipQueue(
                 return@withLock null
             }
             val behind = state.processing || state.queue.isNotEmpty()
-            state.queue.addLast(QueuedTurn(source, deferred, onProcessingStart))
+            state.queue.addLast(QueuedTurn(source, deferred, onProcessingStart, MDC.getCopyOfContextMap()))
             if (!state.processing) {
                 state.processing = true
                 scope.launch { processLoop(sessionId, state) }
@@ -52,10 +55,12 @@ class SessionClipQueue(
                 next
             } ?: return
             try {
-                turn.onProcessingStart()
-                val clip = turn.source.load()
-                val reply = processor.process(sessionId, clip)
-                turn.result.complete(ClipSubmitResult.Completed(reply))
+                withContext(MDCContext(turn.logContext)) {
+                    turn.onProcessingStart()
+                    val clip = turn.source.load()
+                    val reply = processor.process(sessionId, clip)
+                    turn.result.complete(ClipSubmitResult.Completed(reply))
+                }
             } catch (error: Throwable) {
                 turn.result.completeExceptionally(error)
             }
@@ -72,5 +77,6 @@ class SessionClipQueue(
         val source: ClipSource,
         val result: CompletableDeferred<ClipSubmitResult>,
         val onProcessingStart: () -> Unit,
+        val logContext: Map<String, String>?,
     )
 }

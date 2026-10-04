@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -20,6 +21,7 @@ from app.jobs import ClipJob, JobStore
 from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
+from app.metrics_v2 import build_metrics_v2
 from app.onboarding import OnboardingService, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult
@@ -34,6 +36,17 @@ from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsA
 logger = logging.getLogger(__name__)
 
 INTERNAL_TOKEN_HEADER = "X-Internal-Token"
+
+
+def _provided_internal_token(request: Request) -> str | None:
+    direct = request.headers.get(INTERNAL_TOKEN_HEADER)
+    if direct is not None:
+        return direct
+    authorization = request.headers.get("authorization") or ""
+    scheme, separator, credential = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and credential and " " not in credential:
+        return credential
+    return None
 
 
 def create_app(
@@ -113,7 +126,7 @@ def create_app(
         if request.url.path in {"/health", "/"}:
             return await call_next(request)
         expected = settings.ai_internal_token
-        provided = request.headers.get(INTERNAL_TOKEN_HEADER)
+        provided = _provided_internal_token(request)
         if not expected or provided != expected:
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -125,6 +138,11 @@ def create_app(
     @app.get("/internal/metrics")
     async def metrics_snapshot() -> dict:
         payload = await clip_pipeline.metrics.snapshot()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is not None:
+            v2_snapshot = await v2.snapshot()
+            v2_snapshot["day"] = payload.get("day")
+            payload["v2"] = v2_snapshot
         payload["reminders"] = {
             **await reminder_ledger.snapshot(),
             "forecast": await clip_pipeline.metrics.reminder_forecast(),
@@ -139,6 +157,31 @@ def create_app(
             chat["lastReminderAt"] = mark.get("lastReminderAt")
             chat["reminderIgnored"] = mark.get("ignored", 0)
         return payload
+
+    @app.get("/internal/metrics/prometheus")
+    async def metrics_prometheus() -> Response:
+        payload = await clip_pipeline.metrics.snapshot()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        body = ""
+        if v2 is not None:
+            v2_snapshot = await v2.snapshot()
+            v2_snapshot["day"] = payload.get("day", "")
+            body = v2.prometheus(v2_snapshot)
+        return Response(content=body, media_type="text/plain; version=0.0.4")
+
+    @app.post("/internal/metrics/action")
+    async def metrics_action(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        action = str(payload.get("action") or "").strip()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if not session_id or not action or v2 is None:
+            raise HTTPException(status_code=400, detail="sessionId and action required")
+        platform = payload.get("platform")
+        if isinstance(platform, str) and platform.strip():
+            await v2.remember_platform(session_id, platform)
+        await v2.record_action(session_id, action, platform=platform if isinstance(platform, str) else None)
+        return {"ok": True}
 
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
@@ -431,6 +474,14 @@ def create_app(
         if not sdp.strip() or topic not in TOPICS or voice not in VOICES:
             raise HTTPException(status_code=400, detail="invalid realtime request")
         answer, call_id = await realtime_gateway.start_call(sdp, topic, voice)
+        session_id = str(payload.get("sessionId") or "").strip()
+        platform = str(payload.get("platform") or "").strip()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is not None and session_id and platform:
+            await v2.remember_platform(session_id, platform)
+        if call_id and session_id and settings.openai_realtime_api_key:
+            base = getattr(realtime_gateway, "_base_url", "https://api.openai.com/v1")
+            asyncio.create_task(_watch_realtime(base, settings.openai_realtime_api_key, call_id, session_id, v2))
         return {"sdp": answer, "openaiCallId": call_id}
 
     @app.post("/internal/review")
@@ -499,6 +550,11 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
             settings.ffmpeg_bin,
         )
     metrics = build_metrics_store(settings)
+    v2 = build_metrics_v2(settings)
+    if hasattr(tts, "_v2"):
+        tts._v2 = v2
+    model = OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics, notes_model=settings.notes_model)
+    model._v2 = v2
     speech = SessionSpeech(
         tts,
         SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
@@ -506,12 +562,12 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     )
     return ClipPipeline(
         stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
-        llm=OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics,
-                            notes_model=settings.notes_model),
+        llm=model,
         tts=tts,
         speech=speech,
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
+        v2=v2,
     )
 
 
@@ -606,6 +662,47 @@ async def _run_job(
         logger.exception("clip job failed job_id=%s session=%s", job.job_id, job.session_id)
         job.status = "error"
         job.error = {"code": _error_code(error), "message": _public_error(error)}
+
+
+async def _watch_realtime(base_url: str, api_key: str, call_id: str, session_id: str, v2) -> None:
+    if v2 is None:
+        return
+    try:
+        import websockets
+    except ImportError:
+        logger.warning("websockets is not installed; realtime token usage is not recorded")
+        return
+    url = base_url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/")
+    url = f"{url}/realtime?call_id={call_id}"
+    try:
+        async with websockets.connect(url, additional_headers={"Authorization": f"Bearer {api_key}"}) as socket:
+            async for raw in socket:
+                event = json.loads(raw)
+                kind = event.get("type")
+                if kind == "response.done":
+                    usage = (event.get("response") or {}).get("usage") or {}
+                    details_in = usage.get("input_token_details") or {}
+                    details_out = usage.get("output_token_details") or {}
+                    cached = details_in.get("cached_tokens_details") or {}
+                    model = (event.get("response") or {}).get("model") or "gpt-realtime"
+                    await v2.record_realtime(session_id, str(model), {
+                        "in_text": details_in.get("text_tokens") or 0,
+                        "in_audio": details_in.get("audio_tokens") or 0,
+                        "out_text": details_out.get("text_tokens") or 0,
+                        "out_audio": details_out.get("audio_tokens") or 0,
+                        "cached_text": cached.get("text_tokens") or 0,
+                        "cached_audio": cached.get("audio_tokens") or 0,
+                    })
+                elif kind == "conversation.item.input_audio_transcription.completed":
+                    usage = event.get("usage") or {}
+                    if usage:
+                        amount = usage.get("seconds") or usage.get("total_tokens") or 0
+                        await v2.record_transcript(session_id, str(usage.get("model") or "transcript"), int(amount or 0))
+    except websockets.ConnectionClosedOK:
+        return
+    except Exception:
+        logger.warning("realtime usage socket closed call_id=%s", call_id)
+        await v2.record_error(session_id, "realtime", "socket")
 
 
 def _error_code(error: BaseException) -> str:

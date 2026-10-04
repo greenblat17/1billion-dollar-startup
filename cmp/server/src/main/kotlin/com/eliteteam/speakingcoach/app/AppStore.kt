@@ -15,7 +15,7 @@ internal interface AppStore {
 
     suspend fun findUserById(id: String): AppUser?
 
-    suspend fun createSession(userId: String, topic: String, tutorVoice: String): SpeakingSession
+    suspend fun createSession(userId: String, topic: String, tutorVoice: String, platform: String? = null): SpeakingSession
 
     suspend fun findSession(id: String): SpeakingSession?
 
