@@ -7,9 +7,10 @@
   "panels": [
     {
       "type": "timeseries",
-      "title": "Списано, микроединицы",
+      "title": "Списано, USD",
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-      "targets": [{"expr": "speaking_cost_micro{client=\"telegram\"}", "legendFormat": "{{currency}}", "refId": "A"}]
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 6}, "overrides": []},
+      "targets": [{"expr": "speaking_cost_micro{client=\"telegram\"} / 1000000", "legendFormat": "{{currency}}", "refId": "A"}]
     },
     {
       "type": "timeseries",
