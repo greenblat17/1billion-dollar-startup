@@ -91,6 +91,29 @@ class _Stores:
 
 
 @pytest.mark.asyncio
+async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
+    opened = _Stores(MetricRates())
+    moment = datetime(2026, 9, 24, 21, 30, tzinfo=timezone.utc).timestamp()
+    try:
+        for store in opened.stores:
+            await store.record_clip_result(None, now=moment)
+            await store.record_clip_result("timeout", stage="stt", message="Provider failed: token=sk-secret123456", now=moment)
+            await store.record_clip_result("pipeline_failed", now=moment - 86400)
+            snapshot = await store.snapshot(now=moment)
+            assert snapshot["errors"]["today"] == {
+                "day": "2026-09-25", "ok": 1, "timeout": 1, "pipelineFailed": 0,
+            }
+            assert snapshot["errors"]["days"][1]["pipelineFailed"] == 1
+            assert len(snapshot["errors"]["days"]) == 14
+            assert snapshot["errors"]["recent"][0]["stage"] == "stt"
+            assert snapshot["errors"]["recent"][0]["code"] == "timeout"
+            assert "secret123456" not in snapshot["errors"]["recent"][0]["message"]
+            assert "[redacted]" in snapshot["errors"]["recent"][0]["message"]
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
 async def test_day_counters_window_and_moscow_date() -> None:
     opened = _Stores(MetricRates())
     moment = datetime(2026, 9, 24, 21, 30, tzinfo=timezone.utc).timestamp()

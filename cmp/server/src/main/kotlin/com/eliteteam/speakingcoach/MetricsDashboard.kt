@@ -42,6 +42,7 @@ internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
+internal const val ERRORS_PATH = "/admin/metrics/errors"
 internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
 internal const val ONBOARDING_AGENT_PATH = "$ONBOARDING_ANALYTICS_PATH/agent.json"
 internal const val NOTICE_STARTED = "started"
@@ -120,6 +121,19 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         val html = try {
             streaksPageHtml(dashboard.source.load())
+        } catch (error: Throwable) {
+            log.warn("Metrics snapshot failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ERRORS_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            errorsPageHtml(dashboard.source.load())
         } catch (error: Throwable) {
             log.warn("Metrics snapshot failed", error)
             metricsUnavailableHtml()
@@ -562,6 +576,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         add("$root/reminders" to "Напоминания")
         add("$root/streaks" to "Стрики")
+        add("$root/errors" to "Ошибки")
         add("$root/onboarding-campaign" to "Onboarding рассылка")
     }
     val links = tabs.joinToString("") { (path, label) ->

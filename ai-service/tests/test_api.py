@@ -213,6 +213,28 @@ def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
 
 
+def test_clip_failures_are_counted_without_exposing_error_text() -> None:
+    class FailingTts(FakeTts):
+        async def synthesize(self, text: str, speed: float | None = None):
+            raise RuntimeError("provider rejected <audio>: token=sk-secret123456")
+
+    app, _, _, _ = build_app(stt=FakeStt(["hello"]), tts=FailingTts())
+    with _client(app) as client:
+        session_id = _start_session(client)
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id},
+            files={"audio": ("voice.ogg", b"voice", "audio/ogg")},
+        )
+        assert _wait_status(client, created.json()["jobId"])["status"] == "error"
+        metrics = client.get("/internal/metrics").json()
+        assert metrics["errors"]["today"]["pipelineFailed"] == 1
+        recent = metrics["errors"]["recent"][0]
+        assert recent["stage"] == "tts"
+        assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
+        assert "secret123456" not in str(metrics["errors"])
+
+
 @pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])
 def test_empty_transcript_clarifies_without_llm(media_type: str) -> None:
     llm = FakeLlm()

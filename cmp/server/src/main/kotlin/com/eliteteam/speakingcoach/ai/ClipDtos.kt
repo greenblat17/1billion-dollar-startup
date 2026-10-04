@@ -128,6 +128,30 @@ data class MetricsSnapshot(
     val streaks: StreaksSnapshot? = null,
     val corrections: Map<String, CorrectionMetrics> = emptyMap(),
     val v2: MetricsV2Snapshot? = null,
+    val errors: ErrorsSnapshot? = null,
+)
+
+@Serializable
+data class ErrorsSnapshot(
+    val today: ErrorDay = ErrorDay(),
+    val days: List<ErrorDay> = emptyList(),
+    val recent: List<RecentError> = emptyList(),
+)
+
+@Serializable
+data class RecentError(
+    val at: String,
+    val code: String,
+    val stage: String,
+    val message: String,
+)
+
+@Serializable
+data class ErrorDay(
+    val day: String = "",
+    val ok: Long = 0,
+    val timeout: Long = 0,
+    val pipelineFailed: Long = 0,
 )
 
 @Serializable

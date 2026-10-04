@@ -73,6 +73,16 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
         }
         call.respondText(html, ContentType.Text.Html)
     }.hide()
+    get("$root/errors") {
+        if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
+        val html = try {
+            errorsPageHtml(dashboard.source.load(), summaryRoot = root)
+        } catch (error: Throwable) {
+            log.warn("Monitoring snapshot failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
     get("$root/onboarding-campaign") {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
         val html = try {

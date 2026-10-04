@@ -662,13 +662,20 @@ async def _run_job(
     duration: float = 0.0,
 ) -> None:
     started = time.perf_counter()
+    stage = "onboarding" if onboarding is not None and run_id else "stt"
+
+    def set_stage(value: str) -> None:
+        nonlocal stage
+        stage = value
+
     try:
         result = await asyncio.wait_for(
             onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
-            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename),
+            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename, on_stage=set_stage),
             timeout=timeout_seconds,
         )
         _complete_job(job, result)
+        await _record_clip_result(pipeline.metrics, None)
         logger.info(
             "clip job complete job_id=%s session=%s job_ms=%d timings_ms=%s",
             job.job_id, job.session_id, int((time.perf_counter() - started) * 1000), result.timings_ms,
@@ -676,7 +683,23 @@ async def _run_job(
     except Exception as error:
         logger.exception("clip job failed job_id=%s session=%s", job.job_id, job.session_id)
         job.status = "error"
-        job.error = {"code": _error_code(error), "message": _public_error(error)}
+        code = _error_code(error)
+        job.error = {"code": code, "message": _public_error(error)}
+        failed_stage = "stt" if code == "onboarding_stt_failed" else getattr(error, "_speaky_stage", stage)
+        await _record_clip_result(pipeline.metrics, code, failed_stage, error)
+
+
+async def _record_clip_result(
+    metrics: MetricsStore,
+    code: str | None,
+    stage: str | None = None,
+    error: Exception | None = None,
+) -> None:
+    try:
+        message = None if error is None else f"{type(error).__name__}: {error}"
+        await metrics.record_clip_result(code, stage=stage, message=message)
+    except Exception:
+        logger.exception("clip result metric failed")
 
 
 async def _watch_realtime(base_url: str, api_key: str, call_id: str, session_id: str, v2) -> None:

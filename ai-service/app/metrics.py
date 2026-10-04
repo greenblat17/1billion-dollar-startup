@@ -19,6 +19,10 @@ LLM_PURPOSES = ("reply", "notes", "onboarding", "session_review")
 CHAT_LIMIT = 200
 FUNNEL_WINDOW_DAYS = 14
 FUNNEL_WEEK_DAYS = 7
+ERROR_WINDOW_DAYS = 14
+ERROR_RETAIN_SECONDS = 30 * 24 * 60 * 60
+RECENT_ERROR_LIMIT = 50
+ERROR_MESSAGE_MAX_CHARS = 240
 ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
@@ -33,6 +37,7 @@ CORRECTION_OUTCOMES = frozenset({
     "provider_4xx", "network", "no_choices", "empty_text", "provider_timeout",
     "invalid_json", "invalid_schema", "token_limit", "other_error",
 })
+_RECENT_ERRORS_KEY = "metrics:clip-errors:recent"
 _CHATS_KEY = "metrics:chats"
 _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
 _SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -145,6 +150,14 @@ class FunnelDelta:
 
 class MetricsStore(Protocol):
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None: ...
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        stage: str | None = None,
+        message: str | None = None,
+        now: float | None = None,
+    ) -> None: ...
 
     async def record_llm(
         self,
@@ -213,6 +226,8 @@ class MemoryMetricsStore:
         self._rates = rates
         self._days: dict[str, DayTotals] = {}
         self._corrections: dict[str, dict[str, dict[str, int]]] = {}
+        self._clip_results: dict[str, dict[str, int]] = {}
+        self._recent_errors: list[dict[str, Any]] = []
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
         self._chats: dict[str, ChatRow] = {}
@@ -264,6 +279,24 @@ class MemoryMetricsStore:
             item["count"] += 1
             item["elapsedMs"] += nonneg_int(elapsed_ms)
             item["secondAttempts"] += int(attempts == 2)
+
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        stage: str | None = None,
+        message: str | None = None,
+        now: float | None = None,
+    ) -> None:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
+        field = _clip_result_field(error_code)
+        async with self._lock:
+            counts = self._clip_results.setdefault(day_name, {})
+            counts[field] = counts.get(field, 0) + 1
+            if error_code is not None:
+                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message))
+                self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
 
     async def record_turn(
         self,
@@ -320,6 +353,7 @@ class MemoryMetricsStore:
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
             payload["corrections"] = {key: value.copy() for key, value in self._corrections.get(day_name, {}).items()}
+            payload["errors"] = error_view(moment, self._clip_results, self._recent_errors)
             return payload
 
     async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
@@ -443,6 +477,26 @@ class RedisMetricsStore:
         self._rates = rates
         self._lock = asyncio.Lock()
 
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        stage: str | None = None,
+        message: str | None = None,
+        now: float | None = None,
+    ) -> None:
+        moment = _moment(now)
+        key = _clip_results_key(metrics_day(moment))
+        pipe = self._redis.pipeline()
+        field = _clip_result_field(error_code)
+        pipe.hincrby(key, field, 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
+        if error_code is not None:
+            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message)))
+            pipe.ltrim(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)
+            pipe.expire(_RECENT_ERRORS_KEY, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
     async def record_llm(
         self,
         prompt_tokens: int,
@@ -555,6 +609,13 @@ class RedisMetricsStore:
         )
         payload.update(await self._funnel_snapshot(moment))
         payload["corrections"] = _correction_counts(await self._redis.hgetall(_correction_key(day_name)))
+        days = recent_days(moment, ERROR_WINDOW_DAYS)
+        pipe = self._redis.pipeline()
+        for day in days:
+            pipe.hgetall(_clip_results_key(day))
+        daily = dict(zip(days, await pipe.execute(), strict=True))
+        recent = [_parse_error_event(item) for item in await self._redis.lrange(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)]
+        payload["errors"] = error_view(moment, daily, [item for item in recent if item is not None])
         return payload
 
     async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
@@ -772,6 +833,65 @@ def metrics_day(moment: float) -> str:
 def recent_days(moment: float, count: int) -> list[str]:
     current = datetime.fromtimestamp(moment, _TZ).date()
     return [(current - timedelta(days=offset)).isoformat() for offset in range(count)]
+
+
+def _clip_result_field(error_code: str | None) -> str:
+    if error_code is None:
+        return "ok"
+    return error_code if error_code in {"timeout", "pipeline_failed"} else "pipeline_failed"
+
+
+def _error_event(moment: float, code: str, stage: str | None, message: str | None) -> dict[str, Any]:
+    safe_code = code if code in {"timeout", "pipeline_failed", "onboarding_stt_failed"} else "pipeline_failed"
+    safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
+    text = " ".join((message or "").split())
+    text = re.sub(r"(?i)\b(bearer\s+)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)\b(?:sk|gsk)[-_][A-Za-z0-9_-]{8,}\b", "[redacted]", text)
+    text = re.sub(
+        r"""(?i)(\b(?:api[_-]?key|access[_-]?token|token|password|secret)\b\s*[:=]\s*["']?)[^\s,;}"']+""",
+        r"\1[redacted]",
+        text,
+    )
+    text = _TELEGRAM_SESSION_RE.sub("[session]", text)
+    return {"ts": moment, "code": safe_code, "stage": safe_stage, "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—"}
+
+
+def _parse_error_event(raw: Any) -> dict[str, Any] | None:
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict) or not isinstance(value.get("ts"), (int, float)):
+            return None
+        return value
+    except (TypeError, ValueError):
+        return None
+
+
+def error_view(
+    moment: float,
+    daily: dict[str, dict[str, Any]],
+    recent: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    rows = []
+    for day in recent_days(moment, ERROR_WINDOW_DAYS):
+        counts = daily.get(day, {})
+        ok = nonneg_int(counts.get("ok"))
+        timeout = nonneg_int(counts.get("timeout"))
+        pipeline_failed = nonneg_int(counts.get("pipeline_failed"))
+        rows.append({"day": day, "ok": ok, "timeout": timeout, "pipelineFailed": pipeline_failed})
+    return {
+        "today": rows[0],
+        "days": rows,
+        "recent": [
+            {
+                "at": datetime.fromtimestamp(item["ts"], _TZ).isoformat(timespec="seconds"),
+                "code": item["code"],
+                "stage": item["stage"],
+                "message": item["message"],
+            }
+            for item in sorted(recent or [], key=lambda entry: entry["ts"], reverse=True)
+            if 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
+        ],
+    }
 
 
 def normalize_source(value: str | None) -> str | None:
@@ -1195,6 +1315,8 @@ def _correction_counts(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
         for outcome in sorted(CORRECTION_OUTCOMES)
         if raw.get(f"{outcome}:count") is not None
     }
+def _clip_results_key(day_name: str) -> str:
+    return f"metrics:clip-results:{day_name}"
 
 
 def _dau_key(day_name: str) -> str:

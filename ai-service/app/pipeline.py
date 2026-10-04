@@ -5,7 +5,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from typing import Any
+from typing import Any, Callable
 
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction, CorrectionRun
@@ -136,16 +136,22 @@ class ClipPipeline:
         content_type: str,
         filename: str,
         profile_note: str | None = None,
+        on_stage: Callable[[str], None] | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
         bound = bind_metrics(session_id)
         try:
-            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started)
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
         finally:
             reset_metrics(bound)
 
-    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started):
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage):
+        def stage(name: str) -> None:
+            if on_stage is not None:
+                on_stage(name)
+
         stt_started = time.perf_counter()
+        stage("stt")
         try:
             stt_result = await self._stt.transcribe(audio, content_type, filename)
         except Exception:
@@ -158,9 +164,11 @@ class ClipPipeline:
 
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
+            stage("tts")
             reply_audio = await self.speech.synthesize(session_id, CLARIFY_TEXT)
             timings = {"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)}
             finalize_started = time.perf_counter()
+            stage("metrics")
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             if self._v2 is not None:
                 await self._v2.record_turn(session_id)
@@ -181,6 +189,7 @@ class ClipPipeline:
             )
 
         context_started = time.perf_counter()
+        stage("state")
         history = await self._dialogue.history(session_id)
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
@@ -190,6 +199,10 @@ class ClipPipeline:
             step_started = time.perf_counter()
             try:
                 return await operation
+            except Exception as error:
+                operation_stage = "tts" if name == "tts" else "llm" if name in {"reply", "notes"} else "state"
+                error._speaky_stage = operation_stage
+                raise
             finally:
                 timings[name] = _elapsed_ms(step_started)
 
@@ -199,12 +212,15 @@ class ClipPipeline:
                 "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),
             )))
         try:
+            stage("llm")
             reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
             tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
+            stage("state")
             await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
+            stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
             if self.personalization is not None:
                 observation = await tasks[1]
@@ -219,6 +235,7 @@ class ClipPipeline:
 
         timings["llm"] = max(timings["reply"], timings["notes"])
         finalize_started = time.perf_counter()
+        stage("metrics")
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         if self._v2 is not None:
             await self._v2.record_turn(session_id)
