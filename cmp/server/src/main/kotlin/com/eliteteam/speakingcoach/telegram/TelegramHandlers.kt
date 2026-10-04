@@ -4,11 +4,17 @@ import com.eliteteam.speakingcoach.ai.ChatProfile
 import com.eliteteam.speakingcoach.withRequestLog
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.ClipJobFailure
+import com.eliteteam.speakingcoach.ai.ClipUploadFailure
+import com.eliteteam.speakingcoach.ai.ClipPollingTimeout
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 import com.eliteteam.speakingcoach.ai.voiceExtension
 import com.eliteteam.speakingcoach.analytics.AttemptMark
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
+import com.eliteteam.speakingcoach.analytics.AnalyticsWriteBuffer
+import com.eliteteam.speakingcoach.analytics.VoiceAttempt
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.voiceAttemptId
 import com.eliteteam.speakingcoach.analytics.safely
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.AudioClip
@@ -27,6 +33,7 @@ import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
@@ -60,6 +67,26 @@ internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-T
 private const val CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
 
 internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
+private val telegramChatIdPattern = Regex("(?:ChatId\\(chatId=)?(-?\\d+)\\)?")
+internal fun telegramChatNumber(chatId: Any): Long? =
+    telegramChatIdPattern.matchEntire(chatId.toString())?.groupValues?.get(1)?.toLongOrNull()
+
+private fun aiFailureStage(stage: String): String = when (stage) {
+    "stt" -> "stt"
+    "llm" -> "reply_llm"
+    "tts" -> "tts"
+    "state" -> "state"
+    else -> "other"
+}
+
+private fun localFailureReason(error: Throwable): String = when {
+    error.javaClass.simpleName.contains("timeout", ignoreCase = true) -> "timeout"
+    error.javaClass.simpleName.contains("connect", ignoreCase = true) ||
+        error.javaClass.simpleName.contains("network", ignoreCase = true) ||
+        error.javaClass.simpleName.contains("socket", ignoreCase = true) -> "network"
+    error is IllegalArgumentException -> "invalid_input"
+    else -> "unknown"
+}
 
 private fun spokenKey(chatId: Any, messageId: MessageId) = "$chatId:${messageId.long}"
 
@@ -156,6 +183,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     ai: HttpClipClient,
     sessionClipQueue: SessionClipQueue,
     analytics: OnboardingAnalytics? = null,
+    voiceAttempts: VoiceAttemptRecorder? = null,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
@@ -164,6 +192,28 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val progressMessages = ConcurrentHashMap<String, MessageId>()
     val onboardingReminderCards = ConcurrentHashMap<String, Pair<String, MessageId>>()
     val spokenLines = ConcurrentHashMap<String, String>()
+    suspend fun noteOptionalCardMetric(sessionId: SessionId, outcome: String) {
+        val write: suspend () -> Unit = { noteUserAction(ai, log, sessionId, "follow_up_card_$outcome") }
+        val buffer = currentCoroutineContext()[AnalyticsWriteBuffer]
+        if (buffer != null) buffer.add(write) else write()
+    }
+    fun recordVoiceAttempt(message: ChatMessage, receivedAt: Instant, eligible: Boolean? = null,
+                           outcome: String? = null, stage: String? = null, reason: String? = null,
+                           setupMs: Long? = null, queueMs: Long? = null, chatQueueMs: Long? = null,
+                           downloadMs: Long? = null,
+                           processingMs: Long? = null, deliveryMs: Long? = null, totalMs: Long? = null,
+                           jobId: String? = null, timingsMs: Map<String, Long> = emptyMap()) {
+        val chatId = telegramChatNumber(message.chat.id) ?: return
+        voiceAttempts?.record(VoiceAttempt(chatId, message.messageId.long, receivedAt,
+            username = telegramProfile(message.chat).username.orEmpty(), eligible = eligible,
+            outcome = outcome, stage = stage, reason = reason,
+            jobId = jobId, terminalAt = if (outcome == null) null else Instant.now(), setupMs = setupMs,
+            queueMs = queueMs, chatQueueMs = chatQueueMs, downloadMs = downloadMs,
+            processingMs = processingMs, deliveryMs = deliveryMs,
+            totalMs = totalMs, sttMs = timingsMs["stt"], replyLlmMs = timingsMs["reply"],
+            correctionLlmMs = timingsMs["notes"], ttsMs = timingsMs["tts"],
+            finalizeMs = timingsMs["finalize"]))
+    }
     suspend fun showStatus(chat: Chat, action: BotAction) {
         try {
             sendBotAction(chat, action)
@@ -171,6 +221,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to show Telegram action {} for {}", action.actionName, chat.id, error)
+        }
+    }
+    suspend fun optionalCard(message: ChatMessage, label: String, send: suspend () -> Unit) {
+        noteOptionalCardMetric(telegramSessionId(message.chat.id), "attempted")
+        try {
+            send()
+            noteOptionalCardMetric(telegramSessionId(message.chat.id), "succeeded")
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Optional {} card failed", label, error)
+            noteOptionalCardMetric(telegramSessionId(message.chat.id), "failed")
         }
     }
     suspend fun hideStartCallKeyboard(chat: Chat) {
@@ -302,21 +364,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         if (onboarding != null || practice != null) clearProgress(message.chat)
         if (practice?.goalJustCrossed == true) {
-            reply(message, callGoalReached(practice.goalSeconds), allowSendingWithoutReply = true)
+            optionalCard(message, "goal") {
+                reply(message, callGoalReached(practice.goalSeconds), allowSendingWithoutReply = true)
+            }
         }
         if (onboarding != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
                 showStatus(message.chat, TypingAction)
-                reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+                optionalCard(message, "correction") {
+                    reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+                }
             }
         } else if (practice != null) {
             result.corrections.minByOrNull { it.priority }?.let { correction ->
                 showStatus(message.chat, TypingAction)
-                reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+                optionalCard(message, "correction") {
+                    reply(message, onboardingCorrection(correction), allowSendingWithoutReply = true)
+                }
             }
         } else if (result.transcript.isNotBlank()) {
             if (result.corrections.isNotEmpty()) showStatus(message.chat, TypingAction)
-            reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
+            optionalCard(message, "coaching") {
+                reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
+            }
         }
         val beforeVoiceMs = deliveryStarted.elapsedNow().inWholeMilliseconds
         val audio = result.audio
@@ -333,8 +403,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
             if (progress != null || practice != null) progressMessages[message.chat.id.toString()] = voice.messageId
             if (onboarding?.status == "pending") {
-                reply(message, "I couldn't prepare your result. Please try again.",
-                    allowSendingWithoutReply = true, replyMarkup = onboardingKeyboard("retry", onboarding.runId))
+                optionalCard(message, "retry") {
+                    reply(message, "I couldn't prepare your result. Please try again.",
+                        allowSendingWithoutReply = true, replyMarkup = onboardingKeyboard("retry", onboarding.runId))
+                }
             }
         } else if (result.text.isNotBlank()) {
             val state = result.onboarding
@@ -531,11 +603,13 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.info("Voice waiting for onboarding")
             reply(message, ONBOARDING_BEGIN_HINT, replyMarkup = onboardingKeyboard("begin", state.runId))
             analytics.safely { event(state.runId, requestId, "pre_begin_voice_hint", Instant.now()) }
+            recordVoiceAttempt(message, receivedAt, eligible = false, outcome = "not_eligible", reason = "invalid_input")
             return
         }
         if (state.status == "pending") {
             log.info("Voice waiting for onboarding result")
             reply(message, "I couldn't prepare your result. Please try again.", replyMarkup = onboardingKeyboard("retry", state.runId))
+            recordVoiceAttempt(message, receivedAt, eligible = false, outcome = "not_eligible", reason = "invalid_input")
             return
         }
         if (state.status != "active") {
@@ -545,6 +619,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 "legacy" -> legacyConversation = true
                 "need-onboarding" -> {
                     greet(message, "/onboarding", force = true, trigger = "automatic_restart")
+                    recordVoiceAttempt(message, receivedAt, eligible = false, outcome = "not_eligible", reason = "invalid_input")
                     return
                 }
                 "need-goal" -> {
@@ -556,6 +631,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         allowSendingWithoutReply = true,
                         replyMarkup = practiceMinutesKeyboard(state.runId),
                     )
+                    recordVoiceAttempt(message, receivedAt, eligible = false, outcome = "not_eligible", reason = "invalid_input")
                     return
                 }
                 else -> {
@@ -593,12 +669,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         log.info("Ensuring session")
         ai.ensureSession(sessionId)
         log.info("Queued voice clip")
+        recordVoiceAttempt(message, receivedAt, eligible = true)
         val setupMs = voiceStarted.elapsedNow().inWholeMilliseconds
         val queueStarted = System.nanoTime()
         val processingStarted = AtomicLong(0)
         val downloadMs = AtomicLong(0)
         val started = System.nanoTime()
         var replyReady = false
+        var downloadFailed = false
         var completedFacts: OnboardingVoiceFacts? = null
         try {
         val result = withRecordVoiceAction(message.chat) {
@@ -614,6 +692,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         throw error
                     } catch (error: Throwable) {
                         log.warn("Voice download failed", error)
+                        downloadFailed = true
                         throw error
                     }
                     downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
@@ -622,6 +701,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         onboardingRunId = state.runId.takeIf { state.status == "active" || state.status == "completed" },
                         requestId = requestId,
                         durationSeconds = (content.media.duration ?: 0L).toDouble(),
+                        attemptId = telegramChatNumber(message.chat.id)
+                            ?.let { voiceAttemptId(it, message.messageId.long) },
                     )
                 },
             )
@@ -633,6 +714,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         when (result) {
             ClipSubmitResult.QueueFull -> {
                 log.warn("Voice clip queue is full")
+                recordVoiceAttempt(message, receivedAt, eligible = true, outcome = "queue_full", stage = "queue",
+                    reason = "internal", setupMs = setupMs, totalMs = voiceStarted.elapsedNow().inWholeMilliseconds)
                 reply(message, QUEUE_FULL_TEXT)
                 if (state.status == "active") analytics.safely {
                     recordVoice(state.runId, sessionId.value, requestId,
@@ -658,6 +741,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                 }
                 deliver(message, result.reply)
+                val deliveryOutcome = when {
+                    result.reply.audio != null -> "delivered"
+                    result.reply.text.isNotBlank() -> "text_fallback"
+                    else -> "other_failed"
+                }
+                recordVoiceAttempt(message, receivedAt, eligible = true, outcome = deliveryOutcome,
+                    stage = if (deliveryOutcome == "delivered") null else "tts",
+                    reason = if (deliveryOutcome == "delivered") null else "internal", setupMs = setupMs,
+                    queueMs = queueMs, downloadMs = downloadMs.get(), processingMs = processingMs,
+                    deliveryMs = deliveryStarted.elapsedNow().inWholeMilliseconds,
+                    totalMs = voiceStarted.elapsedNow().inWholeMilliseconds,
+                    jobId = result.reply.jobId, timingsMs = result.reply.timingsMs)
                 val now = Instant.now()
                 val facts = completedFacts
                 if (state.status == "active" && facts != null) {
@@ -672,11 +767,13 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     analytics.safely { recordReturn(sessionId.value, now) }
                 }
                 if (legacyConversation && result.reply.transcript.isNotBlank() && result.reply.text.isNotBlank()) {
+                    noteOptionalCardMetric(sessionId, "attempted")
                     try {
                         if (ai.legacyInvitation(sessionId, "claim")) {
                             try {
                                 sendMessage(message.chat.id, legacyCampaignMessage(afterVoice = true),
                                     replyMarkup = legacyCampaignKeyboard())
+                                noteOptionalCardMetric(sessionId, "succeeded")
                             } catch (error: Throwable) {
                                 try {
                                     ai.legacyInvitation(sessionId, "release")
@@ -689,6 +786,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Throwable) {
+                        noteOptionalCardMetric(sessionId, "failed")
                         log.warn("Failed to send legacy invitation for {}", sessionId.value, error)
                     }
                 }
@@ -711,6 +809,22 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
+            val failedAt = when {
+                replyReady -> "delivery_failed" to "telegram_delivery"
+                downloadFailed -> "download_failed" to "telegram_download"
+                error is ClipUploadFailure -> "upload_rejected" to "upload"
+                error is ClipPollingTimeout -> "ai_timeout" to "other"
+                error is ClipJobFailure && error.code == "timeout" -> "ai_timeout" to aiFailureStage(error.stage)
+                error is ClipJobFailure -> "ai_failed" to aiFailureStage(error.stage)
+                else -> "other_failed" to "other"
+            }
+            recordVoiceAttempt(message, receivedAt, eligible = true, outcome = failedAt.first, stage = failedAt.second,
+                reason = (error as? ClipJobFailure)?.reason?.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
+                    ?: (error as? ClipUploadFailure)?.reason
+                    ?: if (failedAt.first == "ai_timeout") "timeout" else localFailureReason(error),
+                setupMs = setupMs, downloadMs = downloadMs.get(), totalMs = voiceStarted.elapsedNow().inWholeMilliseconds,
+                jobId = (error as? ClipJobFailure)?.jobId ?: (error as? ClipPollingTimeout)?.jobId,
+                timingsMs = (error as? ClipJobFailure)?.timingsMs.orEmpty())
             if (state.status == "active") {
                 analytics.safely {
                     recordVoice(
@@ -738,6 +852,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                        receivedAt: Instant = Instant.now(), block: suspend () -> Unit) {
         withRequestLog(telegramSessionId(message.chat.id).value, "message:${message.messageId}") {
         val handleStarted = TimeSource.Monotonic.markNow()
+        if (isVoice) recordVoiceAttempt(message, receivedAt)
         var outcome = "ok"
         val input = (message as? ContentMessage<*>)?.content
         val action = when (input) {
@@ -748,13 +863,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val text = (input as? TextContent)?.text.orEmpty()
         log.info("User action {} text={}", action, oneLine(text))
         noteUserAction(ai, log, telegramSessionId(message.chat.id), action)
+        val chatQueueStarted = TimeSource.Monotonic.markNow()
         try {
             actions.run(
                 chatId = message.chat.id.toString(),
                 requestId = "message:${message.messageId}",
                 voice = isVoice,
+                onActionStart = {
+                    if (isVoice) recordVoiceAttempt(message, receivedAt,
+                        chatQueueMs = chatQueueStarted.elapsedNow().inWholeMilliseconds)
+                },
                 onQueued = { reply(message, QUEUED_TEXT) },
                 onFull = {
+                    if (isVoice) recordVoiceAttempt(message, receivedAt, eligible = true,
+                        outcome = "queue_full", stage = "queue", reason = "internal",
+                        totalMs = handleStarted.elapsedNow().inWholeMilliseconds)
                     reply(message, QUEUE_FULL_TEXT)
                     if (isVoice) {
                         try {
@@ -778,6 +901,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             outcome = "error"
+            if (isVoice) recordVoiceAttempt(message, receivedAt, eligible = true,
+                outcome = "other_failed", stage = "other", reason = localFailureReason(error),
+                totalMs = handleStarted.elapsedNow().inWholeMilliseconds)
             log.error("Telegram message failed for {}", message.chat.id, error)
             val state = if (isVoice) {
                 runCatching { ai.onboardingState(telegramSessionId(message.chat.id), "error:${message.messageId}") }.getOrNull()

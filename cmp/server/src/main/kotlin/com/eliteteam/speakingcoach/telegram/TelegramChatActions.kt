@@ -16,6 +16,7 @@ internal class TelegramChatActions {
         chatId: String,
         requestId: String,
         voice: Boolean = false,
+        onActionStart: () -> Unit = {},
         onQueued: suspend () -> Unit = {},
         onFull: suspend () -> Unit = {},
         action: suspend () -> Unit,
@@ -47,6 +48,7 @@ internal class TelegramChatActions {
             try {
                 chat.actions.withLock {
                     actionStarted = true
+                    onActionStart()
                     try {
                         withContext(analyticsWrites) {
                             if (voice && admission > 0) onQueued()

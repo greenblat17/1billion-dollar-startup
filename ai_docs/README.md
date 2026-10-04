@@ -13,6 +13,7 @@ when changing product behavior, UI, navigation, or backend contracts. Put new de
 these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
 
 ## Structure
 

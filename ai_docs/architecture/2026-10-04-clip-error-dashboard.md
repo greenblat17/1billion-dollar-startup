@@ -1,5 +1,7 @@
 # Clip error dashboard
 
+The later [end-to-end Telegram voice error dashboard](2026-10-05-voice-error-observability.md) adds user-visible delivery outcomes. The AI-job counters described below retain their original definition.
+
 Both `/admin/metrics/errors` and the local-port `/admin/monitoring/errors` use the same **Ошибки** page. The first uses the existing metrics password cookie; the second follows the monitoring port restriction from PR #31. It shows completed clip jobs only: successful jobs, pipeline timeouts, and other pipeline failures. The daily failure rate is `failed / (successful + failed)`. The day boundary is Europe/Moscow.
 
 AI service records one result per completed job, including onboarding clips. Redis stores daily hashes under `metrics:clip-results:YYYY-MM-DD` with a 30 day TTL; the in-memory store uses the same fields for local development. The dashboard reads the most recent 14 days. A job is successful when the clip or onboarding turn returns; an exception is `pipeline_failed` (or the existing `onboarding_stt_failed`), and the whole-job timeout is `timeout`. The current pipeline stage is recorded as STT, LLM, TTS, dialogue state, metrics, or onboarding. Concurrent processing can make the stage approximate on a timeout. Failures caught inside the pipeline (such as the optional streak update) do not make the job fail.

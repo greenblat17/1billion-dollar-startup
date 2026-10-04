@@ -59,6 +59,7 @@ data class ClipStatusResponse(
     val error: ClipErrorResponse? = null,
     val transcript: String? = null,
     val replyText: String = "",
+    val timingsMs: Map<String, Long> = emptyMap(),
 )
 
 @Serializable
@@ -93,6 +94,8 @@ data class ClipCorrectionResponse(
 data class ClipErrorResponse(
     val code: String,
     val message: String,
+    val stage: String = "other",
+    val reason: String = "unknown",
 )
 
 @Serializable
@@ -127,6 +130,9 @@ data class MetricsSnapshot(
     val reminders: RemindersSnapshot? = null,
     val streaks: StreaksSnapshot? = null,
     val corrections: Map<String, CorrectionMetrics> = emptyMap(),
+    val partialFailures: Map<String, Long> = emptyMap(),
+    val partialRecent: List<PartialRecent> = emptyList(),
+    val providerOutcomes: Map<String, Long> = emptyMap(),
     val v2: MetricsV2Snapshot? = null,
     val errors: ErrorsSnapshot? = null,
 )
@@ -136,7 +142,14 @@ data class ErrorsSnapshot(
     val today: ErrorDay = ErrorDay(),
     val days: List<ErrorDay> = emptyList(),
     val recent: List<RecentError> = emptyList(),
+    val reasons: List<ErrorReason> = emptyList(),
 )
+
+@Serializable
+data class ErrorReason(val stage: String, val reason: String, val count: Long)
+
+@Serializable
+data class PartialRecent(val at: String, val feature: String, val reason: String)
 
 @Serializable
 data class RecentError(
@@ -146,6 +159,9 @@ data class RecentError(
     val message: String,
     val username: String = "",
     val telegramId: Long? = null,
+    val jobId: String = "",
+    val attemptId: String = "",
+    val reason: String = "unknown",
 )
 
 @Serializable

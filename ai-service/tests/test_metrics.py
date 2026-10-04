@@ -29,12 +29,60 @@ from app.metrics import (
     metrics_day,
 )
 from app.pipeline import CLARIFY_TEXT, ClipPipeline
+from app.retry import bind_provider_metrics, reset_provider_metrics, once_on_retryable
 from app.review import OpenAiSessionReviewer
 from app.stt import SttResult, duration_seconds
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts
 from tests.conftest import test_settings as make_settings
 
 AUTH = {"X-Internal-Token": "test-internal-token"}
+
+
+@pytest.mark.asyncio
+async def test_provider_retry_counts_attempts_and_final_operation_separately() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    token = bind_provider_metrics(store)
+    calls = 0
+
+    async def request() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("bad first attempt")
+        return "ok"
+
+    try:
+        assert await once_on_retryable(request, delay_seconds=0, retry_if=lambda _: True,
+                                       metric_service="stt") == "ok"
+    finally:
+        reset_provider_metrics(token)
+    counters = (await store.snapshot())["providerOutcomes"]
+    assert counters == {"stt:unknown:attempt:invalid_input": 1, "stt:unknown:attempt:ok": 1,
+                        "stt:unknown:operation:ok": 1}
+
+
+@pytest.mark.asyncio
+async def test_partial_and_error_reason_snapshots_match_memory_and_redis() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        for store in opened.stores:
+            await store.record_partial("streak", "attempted")
+            await store.record_partial("streak", "failed")
+            await store.record_provider("tts", "attempt", "rate_limit")
+            await store.record_provider("tts", "operation", "ok")
+            await store.record_clip_result("pipeline_failed", stage="tts", reason="rate_limit",
+                                           job_id="job-1", attempt_id="attempt-1")
+            snapshot = await store.snapshot()
+            assert snapshot["partialFailures"] == {"streak:attempted": 1, "streak:failed": 1}
+            assert snapshot["partialRecent"][0]["feature"] == "streak"
+            assert snapshot["partialRecent"][0]["reason"] == "unknown"
+            assert snapshot["providerOutcomes"] == {"tts:unknown:attempt:rate_limit": 1,
+                                                    "tts:unknown:operation:ok": 1}
+            assert snapshot["errors"]["reasons"][0] == {"stage": "tts", "reason": "rate_limit", "count": 1}
+            assert snapshot["errors"]["recent"][0]["jobId"] == "job-1"
+            assert snapshot["errors"]["recent"][0]["attemptId"] == "attempt-1"
+    finally:
+        await opened.aclose()
 FULL_RATES = MetricRates(
     prompt_rub_per_million=2,
     completion_rub_per_million=4,

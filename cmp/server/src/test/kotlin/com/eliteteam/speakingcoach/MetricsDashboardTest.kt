@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.MemoryVoiceAttemptStore
+import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.ai.FunnelDay
 import com.eliteteam.speakingcoach.ai.ErrorDay
 import com.eliteteam.speakingcoach.ai.ErrorsSnapshot
@@ -41,6 +43,8 @@ import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import java.time.LocalDate
+import java.time.Instant
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonNull
@@ -50,6 +54,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun voiceErrorsShowDeliveryImpactAndEscapeUsernames() = runTest {
+        val store = MemoryVoiceAttemptStore()
+        val now = Instant.now()
+        store.record(VoiceAttempt(123, 1, now.minusSeconds(10), username = "<script>", eligible = true,
+            outcome = "ai_failed", stage = "stt", reason = "network", totalMs = 120, sttMs = 80))
+        val html = errorsPageHtml(sampleSnapshot(), store.report(now))
+        assertTrue(html.contains("Результат голосового сообщения в Telegram"))
+        assertTrue(html.contains("Затронуто чатов за 14 дней"))
+        assertTrue(html.contains("network"))
+        assertTrue(html.contains("p95"))
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertFalse(html.contains("<script>"))
+        assertTrue(html.contains("ID попытки"))
+        assertTrue(errorsPageHtml(null, store.report(now)).contains("Метрики AI service недоступны"))
+    }
+
     @Test
     fun errorDashboardRequiresSessionAndShowsCounts() = testApplication {
         val snapshot = sampleSnapshot().copy(

@@ -10,6 +10,7 @@ from uuid import uuid4
 class ClipJob:
     job_id: str
     session_id: str
+    attempt_id: str | None = None
     status: str = "pending"
     reply_audio: bytes | None = None
     reply_content_type: str = "audio/ogg"
@@ -58,9 +59,9 @@ class JobStore:
         self._ttl_seconds = ttl_seconds
         self._jobs: dict[str, ClipJob] = {}
 
-    def create(self, session_id: str) -> ClipJob:
+    def create(self, session_id: str, attempt_id: str | None = None) -> ClipJob:
         self.purge()
-        job = ClipJob(job_id=str(uuid4()), session_id=session_id)
+        job = ClipJob(job_id=str(uuid4()), session_id=session_id, attempt_id=attempt_id)
         self._jobs[job.job_id] = job
         return job
 

@@ -23,6 +23,7 @@ ERROR_WINDOW_DAYS = 14
 ERROR_RETAIN_SECONDS = 30 * 24 * 60 * 60
 RECENT_ERROR_LIMIT = 15
 ERROR_MESSAGE_MAX_CHARS = 240
+ERROR_REASONS = frozenset({"timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal", "unknown"})
 ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
@@ -37,6 +38,12 @@ CORRECTION_OUTCOMES = frozenset({
     "provider_4xx", "network", "no_choices", "empty_text", "provider_timeout",
     "invalid_json", "invalid_schema", "token_limit", "other_error",
 })
+PARTIAL_FEATURES = frozenset({"streak", "call_turn", "call_summary", "assessment", "review", "review_verification", "closing_voice", "closing_callback", "follow_up_card"})
+PARTIAL_OUTCOMES = frozenset({"attempted", "succeeded", "failed", "skipped"})
+_PARTIAL_RECENT_KEY = "metrics:partial:recent"
+PROVIDER_SERVICES = frozenset({"stt", "reply_llm", "tts"})
+PROVIDER_NAMES = frozenset({"groq", "deepgram", "openrouter", "openai", "unknown"})
+PROVIDER_RESULTS = frozenset({"ok", "timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal"})
 _RECENT_ERRORS_KEY = "metrics:clip-errors:recent"
 _CHATS_KEY = "metrics:chats"
 _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
@@ -149,6 +156,8 @@ class FunnelDelta:
 
 
 class MetricsStore(Protocol):
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None: ...
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None: ...
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None: ...
     async def record_clip_result(
         self,
@@ -157,6 +166,9 @@ class MetricsStore(Protocol):
         session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
         now: float | None = None,
     ) -> None: ...
 
@@ -228,6 +240,10 @@ class MemoryMetricsStore:
         self._days: dict[str, DayTotals] = {}
         self._corrections: dict[str, dict[str, dict[str, int]]] = {}
         self._clip_results: dict[str, dict[str, int]] = {}
+        self._clip_reasons: dict[str, dict[str, int]] = {}
+        self._partial: dict[str, dict[str, int]] = {}
+        self._partial_recent: list[dict[str, Any]] = []
+        self._provider: dict[str, dict[str, int]] = {}
         self._recent_errors: list[dict[str, Any]] = []
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
@@ -288,6 +304,9 @@ class MemoryMetricsStore:
         session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
         now: float | None = None,
     ) -> None:
         moment = _moment(now)
@@ -297,10 +316,32 @@ class MemoryMetricsStore:
             counts = self._clip_results.setdefault(day_name, {})
             counts[field] = counts.get(field, 0) + 1
             if error_code is not None:
+                reason_key = _clip_reason_key(stage, reason)
+                reasons = self._clip_reasons.setdefault(day_name, {})
+                reasons[reason_key] = reasons.get(reason_key, 0) + 1
                 username = self._profiles.get(session_id or "", ChatProfile()).username
                 telegram_id = telegram_chat_id(session_id or "")
-                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username, telegram_id))
+                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username, telegram_id,
+                                                         job_id, attempt_id, reason))
                 self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
+
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        _check_partial(feature, outcome)
+        moment = _moment(now)
+        async with self._lock:
+            counts = self._partial.setdefault(metrics_day(moment), {})
+            key = f"{feature}:{outcome}"
+            counts[key] = counts.get(key, 0) + 1
+            if outcome == "failed":
+                self._partial_recent.insert(0, _partial_event(moment, feature, reason))
+                self._partial_recent = self._partial_recent[:RECENT_ERROR_LIMIT]
+
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        _check_provider(service, kind, result, provider)
+        async with self._lock:
+            counts = self._provider.setdefault(metrics_day(_moment(now)), {})
+            key = f"{service}:{provider}:{kind}:{result}"
+            counts[key] = counts.get(key, 0) + 1
 
     async def record_turn(
         self,
@@ -357,7 +398,10 @@ class MemoryMetricsStore:
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
             payload["corrections"] = {key: value.copy() for key, value in self._corrections.get(day_name, {}).items()}
-            payload["errors"] = error_view(moment, self._clip_results, self._recent_errors)
+            payload["errors"] = error_view(moment, self._clip_results, self._recent_errors, self._clip_reasons)
+            payload["partialFailures"] = self._partial.get(day_name, {}).copy()
+            payload["partialRecent"] = _partial_recent_view(moment, self._partial_recent)
+            payload["providerOutcomes"] = self._provider.get(day_name, {}).copy()
             return payload
 
     async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
@@ -488,6 +532,9 @@ class RedisMetricsStore:
         session_id: str | None = None,
         stage: str | None = None,
         message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
         now: float | None = None,
     ) -> None:
         moment = _moment(now)
@@ -497,11 +544,35 @@ class RedisMetricsStore:
         pipe.hincrby(key, field, 1)
         pipe.expire(key, ERROR_RETAIN_SECONDS)
         if error_code is not None:
+            reasons_key = _clip_reasons_key(metrics_day(moment))
+            pipe.hincrby(reasons_key, _clip_reason_key(stage, reason), 1)
+            pipe.expire(reasons_key, ERROR_RETAIN_SECONDS)
             username = await self._redis.hget(_chat_key(session_id), "username") if session_id else None
             telegram_id = telegram_chat_id(session_id or "")
-            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username, telegram_id)))
+            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username,
+                                                                  telegram_id, job_id, attempt_id, reason)))
             pipe.ltrim(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)
             pipe.expire(_RECENT_ERRORS_KEY, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        _check_partial(feature, outcome)
+        key = _partial_key(metrics_day(_moment(now)))
+        pipe = self._redis.pipeline()
+        pipe.hincrby(key, f"{feature}:{outcome}", 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
+        if outcome == "failed":
+            pipe.lpush(_PARTIAL_RECENT_KEY, json.dumps(_partial_event(_moment(now), feature, reason)))
+            pipe.ltrim(_PARTIAL_RECENT_KEY, 0, RECENT_ERROR_LIMIT - 1)
+            pipe.expire(_PARTIAL_RECENT_KEY, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        _check_provider(service, kind, result, provider)
+        key = _provider_key(metrics_day(_moment(now)))
+        pipe = self._redis.pipeline()
+        pipe.hincrby(key, f"{service}:{provider}:{kind}:{result}", 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
         await pipe.execute()
 
     async def record_llm(
@@ -616,13 +687,24 @@ class RedisMetricsStore:
         )
         payload.update(await self._funnel_snapshot(moment))
         payload["corrections"] = _correction_counts(await self._redis.hgetall(_correction_key(day_name)))
+        payload["partialFailures"] = {
+            key: nonneg_int(value) for key, value in (await self._redis.hgetall(_partial_key(day_name))).items()
+        }
+        recent_partial = [_parse_error_event(item) for item in await self._redis.lrange(_PARTIAL_RECENT_KEY, 0, RECENT_ERROR_LIMIT - 1)]
+        payload["partialRecent"] = _partial_recent_view(moment, [item for item in recent_partial if item is not None])
+        payload["providerOutcomes"] = {
+            key: nonneg_int(value) for key, value in (await self._redis.hgetall(_provider_key(day_name))).items()
+        }
         days = recent_days(moment, ERROR_WINDOW_DAYS)
         pipe = self._redis.pipeline()
         for day in days:
             pipe.hgetall(_clip_results_key(day))
-        daily = dict(zip(days, await pipe.execute(), strict=True))
+            pipe.hgetall(_clip_reasons_key(day))
+        raw = await pipe.execute()
+        daily = dict(zip(days, raw[::2], strict=True))
+        reasons = dict(zip(days, raw[1::2], strict=True))
         recent = [_parse_error_event(item) for item in await self._redis.lrange(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)]
-        payload["errors"] = error_view(moment, daily, [item for item in recent if item is not None])
+        payload["errors"] = error_view(moment, daily, [item for item in recent if item is not None], reasons)
         return payload
 
     async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
@@ -848,6 +930,12 @@ def _clip_result_field(error_code: str | None) -> str:
     return error_code if error_code in {"timeout", "pipeline_failed"} else "pipeline_failed"
 
 
+def _clip_reason_key(stage: str | None, reason: str | None) -> str:
+    safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
+    safe_reason = reason if reason in ERROR_REASONS else "unknown"
+    return f"{safe_stage}:{safe_reason}"
+
+
 def _error_event(
     moment: float,
     code: str,
@@ -855,6 +943,9 @@ def _error_event(
     message: str | None,
     username: str | None,
     telegram_id: int | None,
+    job_id: str | None = None,
+    attempt_id: str | None = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     safe_code = code if code in {"timeout", "pipeline_failed", "onboarding_stt_failed"} else "pipeline_failed"
     safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
@@ -871,10 +962,25 @@ def _error_event(
         "ts": moment,
         "code": safe_code,
         "stage": safe_stage,
+        "reason": reason if reason in ERROR_REASONS else "unknown",
         "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—",
         "username": normalize_profile(username, None).username,
         "telegramId": telegram_id,
+        "jobId": job_id or "",
+        "attemptId": attempt_id or "",
     }
+
+
+def _partial_event(moment: float, feature: str, reason: str) -> dict[str, Any]:
+    return {"ts": moment, "feature": feature, "reason": reason if reason in ERROR_REASONS else "unknown"}
+
+
+def _partial_recent_view(moment: float, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {"at": datetime.fromtimestamp(item["ts"], _TZ).isoformat(timespec="seconds"),
+         "feature": str(item.get("feature") or "unknown"), "reason": str(item.get("reason") or "unknown")}
+        for item in rows if isinstance(item.get("ts"), (int, float)) and 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
+    ]
 
 
 def _parse_error_event(raw: Any) -> dict[str, Any] | None:
@@ -891,6 +997,7 @@ def error_view(
     moment: float,
     daily: dict[str, dict[str, Any]],
     recent: list[dict[str, Any]] | None = None,
+    reasons: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     rows = []
     for day in recent_days(moment, ERROR_WINDOW_DAYS):
@@ -902,14 +1009,22 @@ def error_view(
     return {
         "today": rows[0],
         "days": rows,
+        "reasons": [
+            {"stage": key.partition(":")[0], "reason": key.partition(":")[2], "count": nonneg_int(value)}
+            for day in recent_days(moment, ERROR_WINDOW_DAYS)
+            for key, value in (reasons or {}).get(day, {}).items()
+        ],
         "recent": [
             {
                 "at": datetime.fromtimestamp(item["ts"], _TZ).isoformat(timespec="seconds"),
                 "code": item["code"],
                 "stage": item["stage"],
+                "reason": item.get("reason", "unknown"),
                 "message": item["message"],
                 "username": item.get("username", ""),
                 "telegramId": item.get("telegramId"),
+                "jobId": item.get("jobId", ""),
+                "attemptId": item.get("attemptId", ""),
             }
             for item in sorted(recent or [], key=lambda entry: entry["ts"], reverse=True)
             if 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
@@ -1340,6 +1455,29 @@ def _correction_counts(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
     }
 def _clip_results_key(day_name: str) -> str:
     return f"metrics:clip-results:{day_name}"
+
+
+def _clip_reasons_key(day_name: str) -> str:
+    return f"metrics:clip-reasons:{day_name}"
+
+
+def _partial_key(day_name: str) -> str:
+    return f"metrics:partial:{day_name}"
+
+
+def _check_partial(feature: str, outcome: str) -> None:
+    if feature not in PARTIAL_FEATURES or outcome not in PARTIAL_OUTCOMES:
+        raise ValueError("unknown partial result")
+
+
+def _provider_key(day_name: str) -> str:
+    return f"metrics:provider:{day_name}"
+
+
+def _check_provider(service: str, kind: str, result: str, provider: str) -> None:
+    if (service not in PROVIDER_SERVICES or provider not in PROVIDER_NAMES or
+            kind not in {"attempt", "operation"} or result not in PROVIDER_RESULTS):
+        raise ValueError("unknown provider result")
 
 
 def _dau_key(day_name: str) -> str:

@@ -294,6 +294,8 @@ class OpenAiChatModel:
             response = (
                 await once_on_retryable(
                     call_with_choices, retry_if=lambda error: is_retryable(error) or isinstance(error, EmptyCompletionError),
+                    metric_service="reply_llm" if purpose == "reply" else None,
+                    metric_provider="openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai",
                 ) if retry else await call_with_choices()
             )
         except Exception:

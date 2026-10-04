@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
@@ -69,6 +70,7 @@ internal class MetricsDashboard(
     val reminders: ReminderAdmin? = null,
     val campaign: LegacyCampaignAdmin? = null,
     val onboarding: OnboardingAnalytics? = null,
+    val voiceAttempts: VoiceAttemptRecorder? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -132,12 +134,11 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
         }
-        val html = try {
-            errorsPageHtml(dashboard.source.load())
-        } catch (error: Throwable) {
-            log.warn("Metrics snapshot failed", error)
-            metricsUnavailableHtml()
-        }
+        val metrics = try { dashboard.source.load() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Metrics snapshot failed", error); null }
+        val voice = try { dashboard.voiceAttempts?.report() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Voice attempt snapshot failed", error); null }
+        val html = errorsPageHtml(metrics, voice)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(LEGACY_CAMPAIGN_PATH) {

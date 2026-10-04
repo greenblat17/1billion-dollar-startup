@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import logging
+import time
 from copy import deepcopy
 from typing import Any
 from uuid import uuid4
@@ -15,7 +16,7 @@ from app.onboarding_review import closing_lines, correction_candidates, explaine
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.personalization import Personalization
-from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult
+from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult, current_job_timings
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.tts import TtsAudio
 
@@ -433,9 +434,14 @@ class OnboardingService:
                     state["voiceArrived"] = True
                     await self.store.save(session_id, state)
                 try:
+                    stt_started = time.perf_counter()
                     stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
                 except Exception as error:
                     raise OnboardingSttError() from error
+                finally:
+                    timings = current_job_timings()
+                    if timings is not None:
+                        timings["stt"] = int((time.perf_counter() - stt_started) * 1000)
                 if stt.no_speech or not stt.text.strip():
                     return self._result(
                         state, CLARIFY_TEXT, await self.pipeline.speech.synthesize(session_id, CLARIFY_TEXT),
@@ -483,9 +489,13 @@ class OnboardingService:
         try:
             if turn["analysis"] is None:
                 state["ask"] = next_ask(state.get("profile") or {})
+                await self.pipeline.record_partial("assessment", "attempted")
+                assessment_started = time.perf_counter()
                 try:
                     turn["analysis"] = await self.model.assess(state)
-                except Exception:
+                    await self.pipeline.record_partial("assessment", "succeeded")
+                except Exception as error:
+                    await self.pipeline.record_partial("assessment", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
                     logger.exception("onboarding assessment failed session=%s", session_id)
                     # A long answer may already be ready to close. Retry reuses it instead of asking again.
                     if state["seconds"] >= SPEECH_LIMIT_SECONDS:
@@ -499,6 +509,10 @@ class OnboardingService:
                             analytics={"assessmentFailed": True},
                         )
                     raise
+                finally:
+                    timings = current_job_timings()
+                    if timings is not None:
+                        timings["reply"] = int((time.perf_counter() - assessment_started) * 1000)
                 state["profile"] = turn["analysis"]["profile"]
                 _apply_level(state, turn["analysis"])
                 await self.store.save(session_id, state)
@@ -540,14 +554,23 @@ class OnboardingService:
         transcripts = [str(item.get("transcript") or "").strip() for item in state["turns"]]
         transcripts = [text for text in transcripts if text]
         try:
+            await self.pipeline.record_partial("closing_callback", "attempted")
             callback = grounded_callback(
                 await self.model.closing_callback(transcripts), transcripts[-1] if transcripts else "",
             )
-        except Exception:
+            await self.pipeline.record_partial("closing_callback", "succeeded")
+        except Exception as error:
+            await self.pipeline.record_partial("closing_callback", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("onboarding closing callback failed; using standard closing")
             callback = None
         subtitle, spoken = closing_lines(callback)
-        audio = await self.pipeline.speech.synthesize(session_id, spoken)
+        tts_started = time.perf_counter()
+        try:
+            audio = await self.pipeline.speech.synthesize(session_id, spoken)
+        finally:
+            timings = current_job_timings()
+            if timings is not None:
+                timings["tts"] = int((time.perf_counter() - tts_started) * 1000)
         return subtitle, spoken, audio
 
     async def _closing_result(
@@ -556,12 +579,16 @@ class OnboardingService:
         analytics: dict | None = None,
     ) -> PipelineResult:
         if closing_task is None:
+            await self.pipeline.record_partial("closing_voice", "skipped")
             result = self._result(state, fallback_text, turn=turn, analytics=analytics)
             result.corrections = []
             return result
+        await self.pipeline.record_partial("closing_voice", "attempted")
         try:
             subtitle, spoken, audio = await closing_task
-        except Exception:
+            await self.pipeline.record_partial("closing_voice", "succeeded")
+        except Exception as error:
+            await self.pipeline.record_partial("closing_voice", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("onboarding closing voice failed; sending text")
             subtitle, spoken = closing_lines(None)
             audio = None
@@ -607,7 +634,13 @@ class OnboardingService:
                 result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
                 return result
             if state.get("review") is None:
-                state["review"] = await self._compose_review(state)
+                await self.pipeline.record_partial("review", "attempted")
+                try:
+                    state["review"] = await self._compose_review(state)
+                    await self.pipeline.record_partial("review", "succeeded")
+                except Exception as error:
+                    await self.pipeline.record_partial("review", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+                    raise
                 await self.store.save(session_id, state)
             if state.get("closing"):
                 state["review"].update(
@@ -658,9 +691,12 @@ class OnboardingService:
         candidates = correction_candidates(state["turns"])
         accepted: set[str] = set()
         if candidates:
+            await self.pipeline.record_partial("review_verification", "attempted")
             try:
                 accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
-            except Exception:
+                await self.pipeline.record_partial("review_verification", "succeeded")
+            except Exception as error:
+                await self.pipeline.record_partial("review_verification", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
                 logger.exception("onboarding correction verification failed; omitting examples")
         examples = select_examples(candidates, accepted)
         metrics = fluency_metrics(state["turns"])
@@ -724,7 +760,7 @@ class OnboardingService:
             payload = {**payload, "analytics": facts}
         return PipelineResult(
             audio=audio, transcript=turn["transcript"] if turn else "", reply_text=text,
-            timings_ms={}, corrections=_shown_corrections(turn),
+            timings_ms=(current_job_timings() or {}).copy(), corrections=_shown_corrections(turn),
             onboarding=payload,
         )
 

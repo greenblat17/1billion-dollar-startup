@@ -26,7 +26,8 @@ from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import build_metrics_v2
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
-from app.pipeline import ClipPipeline, PipelineResult
+from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_job_timings
+from app.retry import bind_provider_metrics, reset_provider_metrics
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.reminders import build_reminder_ledger, parse_report
 from app.review import OpenAiSessionReviewer, SessionReviewer
@@ -442,6 +443,7 @@ def create_app(
         audio: UploadFile = File(),
         onboardingRunId: str | None = Form(default=None),
         requestId: str | None = Form(default=None),
+        attemptId: str | None = Form(default=None),
         durationSeconds: float = Form(default=0),
     ) -> dict[str, str]:
         if not await sessions.exists(sessionId):
@@ -451,7 +453,13 @@ def create_app(
             raise HTTPException(status_code=400, detail="empty audio")
         if onboardingRunId and not requestId:
             raise HTTPException(status_code=400, detail="requestId required for onboarding")
-        job = jobs.create(sessionId)
+        if attemptId is not None:
+            from uuid import UUID
+            try:
+                attemptId = str(UUID(attemptId))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid attemptId") from None
+        job = jobs.create(sessionId, attemptId)
         content_type = audio.content_type or "audio/ogg"
         filename = audio.filename or "voice.ogg"
         task = asyncio.create_task(
@@ -662,6 +670,9 @@ async def _run_job(
     duration: float = 0.0,
 ) -> None:
     started = time.perf_counter()
+    provider_metrics_token = bind_provider_metrics(pipeline.metrics)
+    job_timings: dict[str, int] = {}
+    timings_token = bind_job_timings(job_timings)
     stage = "onboarding" if onboarding is not None and run_id else "stt"
 
     def set_stage(value: str) -> None:
@@ -675,18 +686,25 @@ async def _run_job(
             timeout=timeout_seconds,
         )
         _complete_job(job, result)
-        await _record_clip_result(pipeline.metrics, None)
+        await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
         logger.info(
-            "clip job complete job_id=%s session=%s job_ms=%d timings_ms=%s",
-            job.job_id, job.session_id, int((time.perf_counter() - started) * 1000), result.timings_ms,
+            "clip job complete job_id=%s attempt_id=%s session=%s job_ms=%d timings_ms=%s",
+            job.job_id, job.attempt_id, job.session_id, int((time.perf_counter() - started) * 1000), result.timings_ms,
         )
     except Exception as error:
-        logger.exception("clip job failed job_id=%s session=%s", job.job_id, job.session_id)
+        logger.exception("clip job failed job_id=%s attempt_id=%s session=%s", job.job_id, job.attempt_id, job.session_id)
         job.status = "error"
+        job.timings_ms = job_timings.copy()
         code = _error_code(error)
+        reason = _error_reason(error)
         job.error = {"code": code, "message": _public_error(error)}
         failed_stage = "stt" if code == "onboarding_stt_failed" else getattr(error, "_speaky_stage", stage)
-        await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id)
+        job.error.update(stage=failed_stage, reason=reason)
+        await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id,
+                                  job_id=job.job_id, attempt_id=job.attempt_id, reason=reason)
+    finally:
+        reset_job_timings(timings_token)
+        reset_provider_metrics(provider_metrics_token)
 
 
 async def _record_clip_result(
@@ -695,10 +713,14 @@ async def _record_clip_result(
     stage: str | None = None,
     error: Exception | None = None,
     session_id: str | None = None,
+    job_id: str | None = None,
+    attempt_id: str | None = None,
+    reason: str | None = None,
 ) -> None:
     try:
         message = None if error is None else f"{type(error).__name__}: {error}"
-        await metrics.record_clip_result(code, session_id=session_id, stage=stage, message=message)
+        await metrics.record_clip_result(code, session_id=session_id, stage=stage, message=message,
+                                         job_id=job_id, attempt_id=attempt_id, reason=reason)
     except Exception:
         logger.exception("clip result metric failed")
 
@@ -750,6 +772,28 @@ def _error_code(error: BaseException) -> str:
     if isinstance(error, TimeoutError) or isinstance(error, asyncio.TimeoutError):
         return "timeout"
     return "pipeline_failed"
+
+
+def _error_reason(error: BaseException) -> str:
+    if isinstance(error, OnboardingSttError) and error.__cause__ is not None:
+        return _error_reason(error.__cause__)
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)) or "timeout" in type(error).__name__.lower():
+        return "timeout"
+    status = getattr(error, "status_code", None)
+    if status is None:
+        status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429:
+        return "rate_limit"
+    if isinstance(status, int) and 500 <= status < 600:
+        return "provider_5xx"
+    if isinstance(status, int) and 400 <= status < 500:
+        return "provider_4xx"
+    name = type(error).__name__.lower()
+    if any(word in name for word in ("connect", "network", "socket")):
+        return "network"
+    if isinstance(error, (ValueError, TypeError)):
+        return "invalid_input"
+    return "internal"
 
 
 def _public_error(error: BaseException) -> str:

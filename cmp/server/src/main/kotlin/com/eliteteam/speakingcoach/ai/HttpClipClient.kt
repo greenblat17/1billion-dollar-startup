@@ -414,25 +414,29 @@ class HttpClipClient(
                         call = status.call?.let {
                             CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
                         },
+                        jobId = jobId,
+                        timingsMs = status.timingsMs,
                     )
                 }
                 is ClipJobStatus.Failed -> {
                     log.warn("Clip job {} failed", jobId)
-                    throw ClipJobFailure(status.code, "ai-service job $jobId failed: ${status.message}")
+                    throw ClipJobFailure(status.code, jobId, status.stage, status.reason, status.timingsMs,
+                        "ai-service job $jobId failed: ${status.message}")
                 }
             }
         }
         log.warn("Clip job {} timed out after {}", jobId, timeout)
-        error("ai-service job $jobId timed out after $timeout")
+        throw ClipPollingTimeout(jobId)
     }
 
     private suspend fun submit(sessionId: SessionId, clip: AudioClip): String {
-        val response = http.submitFormWithBinaryData(
+        val response = try { http.submitFormWithBinaryData(
             url = "$root/v1/clips",
             formData = formData {
                 append("sessionId", sessionId.value)
                 clip.onboardingRunId?.let { append("onboardingRunId", it) }
                 clip.requestId?.let { append("requestId", it) }
+                clip.attemptId?.let { append("attemptId", it) }
                 append("durationSeconds", clip.durationSeconds.toString())
                 append(
                     "audio",
@@ -445,9 +449,13 @@ class HttpClipClient(
             },
         ) {
             applyInternalToken()
-        }
+        } } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { throw ClipUploadFailure(
+                if (error.javaClass.simpleName.contains("timeout", ignoreCase = true)) "timeout" else "network",
+                "ai-service upload failed", error) }
         if (response.status != HttpStatusCode.Accepted) {
-            error("ai-service POST /v1/clips returned ${response.status}")
+            throw ClipUploadFailure(if (response.status.value in 400..499) "invalid_input" else "internal",
+                "ai-service POST /v1/clips returned ${response.status}")
         }
         return response.body<ClipAcceptedResponse>().jobId
     }
@@ -473,8 +481,10 @@ class HttpClipClient(
                 audioAvailable = body.result?.audioAvailable ?: true,
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
+                timingsMs = body.timingsMs,
             )
-            "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error")
+            "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error",
+                body.error?.stage ?: "other", body.error?.reason ?: "unknown", body.timingsMs)
             else -> ClipJobStatus.Failed("unknown", "unexpected status ${body.status}")
         }
     }
@@ -533,11 +543,16 @@ private sealed interface ClipJobStatus {
         val audioAvailable: Boolean,
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
+        val timingsMs: Map<String, Long>,
     ) : ClipJobStatus
-    data class Failed(val code: String, val message: String) : ClipJobStatus
+    data class Failed(val code: String, val message: String, val stage: String = "other",
+                      val reason: String = "unknown", val timingsMs: Map<String, Long> = emptyMap()) : ClipJobStatus
 }
 
-internal class ClipJobFailure(val code: String, message: String) : IllegalStateException(message)
+internal class ClipJobFailure(val code: String, val jobId: String, val stage: String,
+                              val reason: String, val timingsMs: Map<String, Long>, message: String) : IllegalStateException(message)
+internal class ClipUploadFailure(val reason: String, message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+internal class ClipPollingTimeout(val jobId: String) : IllegalStateException("ai-service job $jobId timed out")
 
 private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
     voiceIndex = voiceIndex,
