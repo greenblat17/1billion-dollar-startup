@@ -183,6 +183,9 @@ def create_app(
         platform = payload.get("platform")
         if isinstance(platform, str) and platform.strip():
             await v2.remember_platform(session_id, platform)
+        event_id = payload.get("eventId")
+        if isinstance(event_id, str):
+            await v2.record_telegram_message(session_id, action, event_id)
         await v2.record_action(session_id, action, platform=platform if isinstance(platform, str) else None)
         return {"ok": True}
 

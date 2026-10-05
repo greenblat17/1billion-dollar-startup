@@ -100,6 +100,7 @@ data class MetricsActionRequest(
     val sessionId: String,
     val action: String,
     val platform: String? = null,
+    val eventId: String? = null,
 )
 
 @Serializable
@@ -133,6 +134,14 @@ data class MetricsSnapshot(
 @Serializable
 data class MetricsV2Snapshot(
     val clients: List<MetricsV2Client> = emptyList(),
+    val telegramJourney: TelegramJourneySnapshot? = null,
+)
+
+@Serializable
+data class TelegramJourneySnapshot(
+    val since: String = "",
+    val onlyStart: Long = 0,
+    val atLeast: Map<String, Long> = emptyMap(),
 )
 
 @Serializable

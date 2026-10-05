@@ -320,11 +320,11 @@ class HttpClipClient(
         return response.body()
     }
 
-    suspend fun recordUserAction(sessionId: SessionId, action: String, platform: String? = null) {
+    suspend fun recordUserAction(sessionId: SessionId, action: String, platform: String? = null, eventId: String? = null) {
         val response = http.post("$root/internal/metrics/action") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(MetricsActionRequest(sessionId.value, action, platform))
+            setBody(MetricsActionRequest(sessionId.value, action, platform, eventId))
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/metrics/action returned ${response.status}")

@@ -72,9 +72,10 @@ private suspend fun noteUserAction(
     log: org.slf4j.Logger,
     sessionId: SessionId,
     action: String,
+    eventId: String? = null,
 ) {
     try {
-        ai.recordUserAction(sessionId, action)
+        ai.recordUserAction(sessionId, action, eventId = eventId)
     } catch (error: CancellationException) {
         throw error
     } catch (error: Throwable) {
@@ -770,7 +771,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         val text = (input as? TextContent)?.text.orEmpty()
         log.info("User action {} text={}", action, oneLine(text))
-        noteUserAction(ai, log, telegramSessionId(message.chat.id), action)
+        noteUserAction(ai, log, telegramSessionId(message.chat.id), action, "message:${message.messageId.long}")
         try {
             actions.run(
                 chatId = message.chat.id.toString(),

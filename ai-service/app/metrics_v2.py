@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from contextvars import ContextVar, Token
 from typing import Any
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 from app.metrics import metrics_day
 
 _EVENTS_KEY = "metrics:v2:events"
 _CLIENTS = ("telegram", "android", "ios", "desktop", "unknown")
 _MOBILE = {"android", "ios", "desktop"}
+_TELEGRAM_VOICE_MILESTONES = (1, 3, 5, 10, 20)
+_TELEGRAM_RECEIPT_TTL = 7 * 24 * 60 * 60
+_TELEGRAM_JOURNEY_SINCE = "metrics:v2:telegram:journey:since"
+_TELEGRAM_JOURNEY_ONLY_START = "metrics:v2:telegram:journey:only-start"
+_TELEGRAM_JOURNEY_MILESTONES = "metrics:v2:telegram:journey:milestones"
+_TELEGRAM_MESSAGE_ID = re.compile(r"message:[0-9]+\Z")
 _session: ContextVar[str] = ContextVar("metrics_v2_session", default="")
 _platform: ContextVar[str] = ContextVar("metrics_v2_platform", default="")
 
@@ -90,6 +98,10 @@ class MetricsV2:
         self, session_id: str, action: str, *, platform: str | None = None, now: float | None = None,
     ) -> None: ...
 
+    async def record_telegram_message(
+        self, session_id: str, action: str, event_id: str, *, now: float | None = None,
+    ) -> None: ...
+
     async def record_error(
         self, session_id: str, service: str, outcome: str, *, platform: str | None = None, now: float | None = None,
     ) -> None: ...
@@ -111,6 +123,11 @@ class MemoryMetricsV2(MetricsV2):
         self.platforms: dict[str, str] = {}
         self.chats: dict[tuple[str, str], dict[str, int]] = {}
         self.events: list[dict[str, Any]] = []
+        self._telegram_seen: set[tuple[str, str]] = set()
+        self._telegram_only_start: set[str] = set()
+        self._telegram_voice_counts: dict[str, int] = {}
+        self._telegram_milestones = {threshold: 0 for threshold in _TELEGRAM_VOICE_MILESTONES}
+        self._telegram_since = ""
 
     async def record_llm(self, session_id, kind, model, prompt_tokens, completion_tokens, cost, *, platform=None, now=None):
         await self._add(session_id, platform, now, "llm", kind, model, {
@@ -152,6 +169,24 @@ class MemoryMetricsV2(MetricsV2):
         name = _token(action) or "other"
         await self._add(session_id, platform, now, "action", name, "", {"count": 1}, False)
 
+    async def record_telegram_message(self, session_id, action, event_id, *, now=None):
+        if not _telegram_journey_event(session_id, action, event_id):
+            return
+        receipt = (session_id, event_id)
+        if receipt in self._telegram_seen:
+            return
+        self._telegram_seen.add(receipt)
+        self._telegram_since = self._telegram_since or metrics_day(now if now is not None else time.time())
+        if action == "start":
+            if self._telegram_voice_counts.get(session_id, 0) == 0:
+                self._telegram_only_start.add(session_id)
+        else:
+            count = self._telegram_voice_counts.get(session_id, 0) + 1
+            self._telegram_voice_counts[session_id] = count
+            self._telegram_only_start.discard(session_id)
+            if count in _TELEGRAM_VOICE_MILESTONES:
+                self._telegram_milestones[count] += 1
+
     async def record_error(self, session_id, service, outcome, *, platform=None, now=None):
         await self._add(session_id, platform, now, "error", _token(service), _token(outcome), {"count": 1}, False)
 
@@ -173,7 +208,12 @@ class MemoryMetricsV2(MetricsV2):
             column = _column(client, bucket, len(self.dau.get((day, client), set())))
             column["chats"] = _chat_rows(self.chats.get((day, client), {}))
             columns.append(column)
-        return {"clients": columns}
+        return {
+            "clients": columns,
+            "telegramJourney": _telegram_journey_snapshot(
+                self._telegram_since, len(self._telegram_only_start), self._telegram_milestones,
+            ),
+        }
 
     def prometheus(self, snapshot):
         return _prometheus(snapshot)
@@ -250,6 +290,41 @@ class RedisMetricsV2(MetricsV2):
     async def record_action(self, session_id, action, *, platform=None, now=None):
         await self._add(session_id, platform, now, "action", _token(action) or "other", "", {"count": 1}, False)
 
+    async def record_telegram_message(self, session_id, action, event_id, *, now=None):
+        if not _telegram_journey_event(session_id, action, event_id):
+            return
+        user_key = f"metrics:v2:telegram:journey:user:{session_id}"
+        receipt_key = f"metrics:v2:telegram:journey:receipt:{session_id}:{event_id}"
+        day = metrics_day(now if now is not None else time.time())
+        for _ in range(5):
+            async with self._redis.pipeline() as pipe:
+                try:
+                    await pipe.watch(user_key, receipt_key)
+                    if await pipe.exists(receipt_key):
+                        return
+                    previous = await pipe.hgetall(user_key)
+                    voices = int(previous.get("voices") or 0)
+                    started = previous.get("started") == "1"
+                    pipe.multi()
+                    pipe.set(receipt_key, "1", ex=_TELEGRAM_RECEIPT_TTL)
+                    pipe.setnx(_TELEGRAM_JOURNEY_SINCE, day)
+                    if action == "start":
+                        if not started:
+                            pipe.hset(user_key, "started", "1")
+                            if voices == 0:
+                                pipe.sadd(_TELEGRAM_JOURNEY_ONLY_START, session_id)
+                    else:
+                        voices += 1
+                        pipe.hset(user_key, "voices", voices)
+                        pipe.srem(_TELEGRAM_JOURNEY_ONLY_START, session_id)
+                        if voices in _TELEGRAM_VOICE_MILESTONES:
+                            pipe.hincrby(_TELEGRAM_JOURNEY_MILESTONES, str(voices), 1)
+                    await pipe.execute()
+                    return
+                except WatchError:
+                    continue
+        raise RuntimeError("could not record Telegram voice milestone after concurrent updates")
+
     async def record_error(self, session_id, service, outcome, *, platform=None, now=None):
         await self._add(session_id, platform, now, "error", _token(service), _token(outcome), {"count": 1}, False)
 
@@ -278,7 +353,17 @@ class RedisMetricsV2(MetricsV2):
             chats = await self._redis.hgetall(_chat_key(day, client))
             column["chats"] = _chat_rows({str(key): int(value) for key, value in chats.items()})
             columns.append(column)
-        return {"clients": columns}
+        async with self._redis.pipeline() as pipe:
+            pipe.get(_TELEGRAM_JOURNEY_SINCE)
+            pipe.scard(_TELEGRAM_JOURNEY_ONLY_START)
+            pipe.hgetall(_TELEGRAM_JOURNEY_MILESTONES)
+            since, only_start, milestones = await pipe.execute()
+        return {
+            "clients": columns,
+            "telegramJourney": _telegram_journey_snapshot(
+                since or "", int(only_start), {int(key): int(value) for key, value in milestones.items()},
+            ),
+        }
 
     def prometheus(self, snapshot):
         return _prometheus(snapshot)
@@ -311,6 +396,22 @@ def build_metrics_v2(settings: Any, redis: Redis | None = None) -> MetricsV2:
     if url:
         return RedisMetricsV2(Redis.from_url(url, decode_responses=True))
     return MemoryMetricsV2()
+
+
+def _telegram_journey_event(session_id: str, action: str, event_id: str) -> bool:
+    return (
+        client_for(session_id) == "telegram"
+        and action in {"start", "voice"}
+        and bool(_TELEGRAM_MESSAGE_ID.fullmatch(event_id))
+    )
+
+
+def _telegram_journey_snapshot(since: str, only_start: int, milestones: dict[int, int]) -> dict[str, Any]:
+    return {
+        "since": since,
+        "onlyStart": only_start,
+        "atLeast": {str(threshold): milestones.get(threshold, 0) for threshold in _TELEGRAM_VOICE_MILESTONES},
+    }
 
 
 def _column(client: str, bucket: dict[str, int], dau: int) -> dict[str, Any]:
