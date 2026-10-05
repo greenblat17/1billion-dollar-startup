@@ -85,6 +85,8 @@ data class OnboardingVoiceFacts(
     val failureCode: String? = null,
 )
 
+internal data class ReminderOfferSummary(val offered: Int, val saved: Int)
+
 internal interface OnboardingAnalytics {
     suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
                             trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant? = null,
@@ -109,6 +111,7 @@ internal interface OnboardingAnalytics {
                       failureStage: String? = null, failureCode: String? = null)
     suspend fun recordReturn(sessionId: String, at: Instant)
     suspend fun report(now: Instant = Instant.now(), filter: OnboardingFilter = OnboardingFilter()): OnboardingReport
+    suspend fun reminderOffers(days: Int, now: Instant = Instant.now()): ReminderOfferSummary? = null
     fun close() {}
 }
 
@@ -271,6 +274,22 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             entries.values.toList(), practiceDays.values.toList())
     }
 
+    override suspend fun reminderOffers(days: Int, now: Instant): ReminderOfferSummary = lock.withLock {
+        val since = now.atZone(ONBOARDING_ZONE).toLocalDate().minusDays(days.toLong() - 1)
+            .atStartOfDay(ONBOARDING_ZONE).toInstant()
+        val offered = attempts.values.filter { attempt ->
+            val at = attempt.times[AttemptMark.REMINDER_OFFERED]
+            attempt.sessionId.startsWith("tg-") && at != null && !at.isBefore(since) && !at.isAfter(now)
+        }
+        ReminderOfferSummary(
+            offered = offered.map { it.sessionId }.toSet().size,
+            saved = offered.filter { attempt ->
+                val saved = attempt.times[AttemptMark.REMINDER_SET]
+                saved != null && !saved.isBefore(attempt.times.getValue(AttemptMark.REMINDER_OFFERED)) && !saved.isAfter(now)
+            }.map { it.sessionId }.toSet().size,
+        )
+    }
+
     private class MutableAttempt(
         val runId: String,
         val sessionId: String,
@@ -385,6 +404,29 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                         .warn("Onboarding username cleanup failed", error)
                 }
                 delay(3_600_000)
+            }
+        }
+    }
+
+    override suspend fun reminderOffers(days: Int, now: Instant): ReminderOfferSummary = withContext(Dispatchers.IO) {
+        val since = now.atZone(ONBOARDING_ZONE).toLocalDate().minusDays(days.toLong() - 1)
+            .atStartOfDay(ONBOARDING_ZONE).toInstant()
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                SELECT COUNT(DISTINCT session_id) AS offered,
+                       COUNT(DISTINCT session_id) FILTER
+                           (WHERE reminder_set_at >= reminder_offered_at AND reminder_set_at <= ?) AS saved
+                FROM onboarding_attempts
+                WHERE reminder_offered_at >= ? AND reminder_offered_at <= ?
+                  AND session_id LIKE 'tg-%'
+            """.trimIndent()).use { statement ->
+                statement.setTimestamp(1, Timestamp.from(now))
+                statement.setTimestamp(2, Timestamp.from(since))
+                statement.setTimestamp(3, Timestamp.from(now))
+                statement.executeQuery().use { rows ->
+                    rows.next()
+                    ReminderOfferSummary(rows.getInt("offered"), rows.getInt("saved"))
+                }
             }
         }
     }

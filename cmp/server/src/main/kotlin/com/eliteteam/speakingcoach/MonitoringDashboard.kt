@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.analytics.InteractionChat
 import com.eliteteam.speakingcoach.analytics.InteractionEvent
@@ -12,12 +13,14 @@ import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.openapi.hide
@@ -46,6 +49,7 @@ internal class MonitoringDashboard(
     val monitoringPort: Int = 0,
     val voiceAttempts: VoiceAttemptRecorder? = null,
     val audit: InteractionAudit? = null,
+    val onboarding: OnboardingAnalytics? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -64,17 +68,19 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
     }.hide()
     get("$root/reminders") {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
-        val html = try {
-            remindersPageHtml(
-                dashboard.source.load(),
-                notice = call.request.queryParameters["notice"],
-                controls = dashboard.reminders != null,
-                summaryRoot = root,
-            )
-        } catch (error: Throwable) {
-            log.warn("Monitoring snapshot failed", error)
-            metricsUnavailableHtml()
-        }
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        val days = call.request.queryParameters["days"]?.toIntOrNull()?.takeIf { it == 7 || it == 30 } ?: 7
+        val snapshot = try { dashboard.source.load() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Monitoring reminder snapshot failed", error); null }
+        val clock = snapshot?.reminders?.clockSummary ?: try { dashboard.source.reminderSummary() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Monitoring reminder clocks unavailable", error); null }
+        val offers = try { dashboard.onboarding?.reminderOffers(days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Monitoring reminder offers unavailable", error); null }
+        val html = remindersPageHtml(snapshot, notice = call.request.queryParameters["notice"],
+            controls = dashboard.reminders != null, summaryRoot = root, clock = clock, offers = offers, days = days)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get("$root/streaks") {

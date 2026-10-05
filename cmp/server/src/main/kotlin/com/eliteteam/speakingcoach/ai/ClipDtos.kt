@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 @Serializable
 data class SessionCreateRequest(
@@ -243,6 +244,34 @@ data class RemindersSnapshot(
     val runs: List<ReminderRun> = emptyList(),
     val autoToday: ReminderRun? = null,
     val forecast: Long = 0,
+    val clockSummary: ReminderClockSummary? = null,
+    val analyticsDays: List<ReminderAnalyticsDay> = emptyList(),
+    val settingUsers: Map<String, ReminderSettingUsers> = emptyMap(),
+    val trackingSince: String? = null,
+)
+
+@Serializable
+data class ReminderSettingUsers(
+    @SerialName("set_from_empty") val setFromEmpty: Long = 0,
+    val changed: Long = 0,
+    val cleared: Long = 0,
+)
+
+@Serializable
+data class ReminderHourOutcome(val sent: Long = 0, val returned: Long = 0)
+
+@Serializable
+data class ReminderAnalyticsDay(
+    val day: String,
+    val autoSent: Long = 0,
+    val autoBlocked: Long = 0,
+    val autoFailed: Long = 0,
+    @SerialName("skipped_active") val skippedActive: Long = 0,
+    @SerialName("claimed_auto") val claimedAuto: Long = 0,
+    @SerialName("set_from_empty") val setFromEmpty: Long = 0,
+    val changed: Long = 0,
+    val cleared: Long = 0,
+    val hours: Map<String, ReminderHourOutcome> = emptyMap(),
 )
 
 @Serializable
@@ -303,6 +332,7 @@ data class ReminderReport(
     val finishedAt: String,
     val claimed: Int,
     val results: List<ReminderSendResult>,
+    val reportId: String = "",
 )
 
 @Serializable
@@ -310,6 +340,7 @@ data class ReminderSendResult(
     val sessionId: String,
     val templateId: String,
     val status: String,
+    val hour: String? = null,
 )
 
 @Serializable
@@ -381,6 +412,7 @@ data class ReminderTarget(
     val sessionId: String,
     val name: String? = null,
     val streak: Int = 0,
+    val hour: String? = null,
 )
 
 @Serializable

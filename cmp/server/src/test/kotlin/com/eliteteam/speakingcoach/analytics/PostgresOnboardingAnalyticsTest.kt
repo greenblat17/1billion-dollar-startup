@@ -13,6 +13,37 @@ import kotlin.test.assertTrue
 /** Set TEST_POSTGRES_URL to a disposable Postgres database to exercise Flyway and JDBC writes. */
 class PostgresOnboardingAnalyticsTest {
     @Test
+    fun reminderOfferAggregateCountsUsersAcrossAttempts() = runTest {
+        val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
+        val schema = "reminders_${UUID.randomUUID().toString().replace("-", "")}"
+        val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
+        DriverManager.getConnection(jdbcUrl).use { connection ->
+            connection.createStatement().use { it.execute("CREATE SCHEMA $schema") }
+        }
+        val schemaUrl = jdbcUrl + (if ('?' in jdbcUrl) "&" else "?") + "currentSchema=$schema"
+        try {
+            val analytics = PostgresOnboardingAnalytics(schemaUrl)
+            try {
+                val at = Instant.parse("2026-10-05T09:00:00Z")
+                analytics.startAttempt("tg-123", "offer-a", "start", at)
+                analytics.mark("offer-a", AttemptMark.REMINDER_OFFERED, at.plusSeconds(1))
+                analytics.mark("offer-a", AttemptMark.REMINDER_SET, at.plusSeconds(2))
+                analytics.startAttempt("tg-123", "offer-b", "start", at.plusSeconds(3))
+                analytics.mark("offer-b", AttemptMark.REMINDER_OFFERED, at.plusSeconds(4))
+                analytics.startAttempt("tg-456", "offer-c", "start", at)
+                analytics.mark("offer-c", AttemptMark.REMINDER_OFFERED, at.plusSeconds(1))
+                assertEquals(ReminderOfferSummary(2, 1), analytics.reminderOffers(7, at.plusSeconds(30)))
+            } finally {
+                analytics.close()
+            }
+        } finally {
+            DriverManager.getConnection(jdbcUrl).use { connection ->
+                connection.createStatement().use { it.execute("DROP SCHEMA $schema CASCADE") }
+            }
+        }
+    }
+
+    @Test
     fun migrationPreservesLegacyVersionAndClassifiesOldFailuresAsUnknown() = runTest {
         val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
         val schema = "analytics_${UUID.randomUUID().toString().replace("-", "")}"

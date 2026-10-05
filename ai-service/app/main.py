@@ -164,10 +164,18 @@ def create_app(
             v2_snapshot = await v2.snapshot()
             v2_snapshot["day"] = payload.get("day")
             payload["v2"] = v2_snapshot
-        payload["reminders"] = {
-            **await reminder_ledger.snapshot(),
-            "forecast": await clip_pipeline.metrics.reminder_forecast(),
+        reminders = await reminder_ledger.snapshot()
+        activity = await clip_pipeline.metrics.reminder_activity([row["day"] for row in reminders["analyticsDays"]])
+        reminders["analyticsDays"] = [
+            {**row, **activity.get(row["day"], {})} for row in reminders["analyticsDays"]
+        ]
+        days = [row["day"] for row in reminders["analyticsDays"]]
+        reminders["settingUsers"] = {
+            "7": await clip_pipeline.metrics.reminder_activity_unique(days[:7]),
+            "30": await clip_pipeline.metrics.reminder_activity_unique(days[:30]),
         }
+        reminders["trackingSince"] = await clip_pipeline.metrics.reminder_tracking_since()
+        payload["reminders"] = {**reminders, **await clip_pipeline.metrics.reminder_overview()}
         payload["streaks"] = {
             **await streaks.snapshot(),
             "reminderBuckets": await reminder_ledger.week_streak_buckets(),
@@ -306,6 +314,7 @@ def create_app(
                     "sessionId": target.session_id,
                     "name": target.name or None,
                     "streak": await streaks.shown(target.session_id),
+                    "hour": target.hour,
                 },
             )
         return {"targets": claimed}

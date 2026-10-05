@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 METRICS_TIMEZONE = "Europe/Moscow"
 LLM_WINDOW_SECONDS = 60
@@ -29,7 +30,9 @@ DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
 NAME_MAX_CHARS = 128
 REMINDER_SENT_TTL_SECONDS = 2 * 24 * 60 * 60
+REMINDER_ANALYTICS_TTL_SECONDS = 40 * 24 * 60 * 60
 REMINDER_GRACE = timedelta(hours=2)
+REMINDER_SETTING_EVENTS = ("set_from_empty", "changed", "cleared")
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
@@ -124,6 +127,7 @@ class ChatProfile:
 class ReminderTarget:
     session_id: str
     name: str = ""
+    hour: str | None = None
 
 
 @dataclass
@@ -214,6 +218,8 @@ class MetricsStore(Protocol):
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
 
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]: ...
+
     async def schedule_reminder(
         self,
         session_id: str,
@@ -226,6 +232,10 @@ class MetricsStore(Protocol):
     async def reminder_time(self, session_id: str) -> str | None: ...
 
     async def reminder_summary(self) -> dict[str, Any]: ...
+
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]: ...
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]: ...
+    async def reminder_tracking_since(self) -> str: ...
 
     async def is_known(self, session_id: str) -> bool: ...
 
@@ -255,6 +265,9 @@ class MemoryMetricsStore:
         self._reminded: set[tuple[str, str]] = set()
         self._reminder_times: dict[str, str] = {}
         self._reminder_pending: dict[str, str] = {}
+        self._reminder_activity: dict[str, dict[str, set[str]]] = {}
+        self._reminder_claimed: dict[str, int] = {}
+        self._reminder_tracking_start = metrics_day(time.time())
         self._lock = asyncio.Lock()
 
     async def record_llm(
@@ -422,7 +435,11 @@ class MemoryMetricsStore:
             raise ValueError("session id required")
         async with self._lock:
             decision = schedule_decision(action, self._reminder_pending.get(session), text, run_id)
+            previous = self._reminder_times.get(session)
             self._apply_schedule(session, decision)
+            event = reminder_setting_event(previous, decision)
+            if event is not None and telegram_chat_id(session) is not None:
+                self._reminder_activity.setdefault(metrics_day(time.time()), {}).setdefault(event, set()).add(session)
             return public_schedule(decision)
 
     async def reminder_time(self, session_id: str) -> str | None:
@@ -438,6 +455,23 @@ class MemoryMetricsStore:
             for session, clock in self._reminder_times.items():
                 add_reminder_hour(hours, session, clock)
             return reminder_summary(hours)
+
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]:
+        async with self._lock:
+            return {
+                day: {**{event: len(self._reminder_activity.get(day, {}).get(event, set())) for event in REMINDER_SETTING_EVENTS},
+                      "skipped_active": len(self._reminder_activity.get(day, {}).get("skipped_active", set())),
+                      "claimed_auto": self._reminder_claimed.get(day, 0)}
+                for day in days
+            }
+
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]:
+        async with self._lock:
+            return {event: len(set().union(*(self._reminder_activity.get(day, {}).get(event, set()) for day in days)))
+                    for event in REMINDER_SETTING_EVENTS}
+
+    async def reminder_tracking_since(self) -> str:
+        return self._reminder_tracking_start
 
     def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
         if "write_pending" in decision:
@@ -455,22 +489,38 @@ class MemoryMetricsStore:
         day_name = metrics_day(moment)
         async with self._lock:
             targets = []
+            if mode == "auto":
+                for session, clock in self._reminder_times.items():
+                    if (telegram_chat_id(session) is not None and (day_name, session) not in self._reminded
+                            and session in self._dau.get(day_name, set())
+                            and reminder_is_due(moment, clock)):
+                        self._reminder_activity.setdefault(day_name, {}).setdefault("skipped_active", set()).add(session)
             for session in self._opted_in(day_name, moment, mode):
                 if (day_name, session) in self._reminded:
                     continue
                 self._reminded.add((day_name, session))
-                targets.append(ReminderTarget(session, self._profiles.get(session, ChatProfile()).name))
+                targets.append(ReminderTarget(session, self._profiles.get(session, ChatProfile()).name,
+                                              self._reminder_times[session][:2]))
+            if mode == "auto":
+                self._reminder_claimed[day_name] = self._reminder_claimed.get(day_name, 0) + len(targets)
             return targets
 
     async def reminder_forecast(self, *, now: float | None = None) -> int:
+        return int((await self.reminder_overview(now=now))["forecast"])
+
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         day_name = metrics_day(moment)
         async with self._lock:
-            return sum(
+            hours = empty_reminder_hours()
+            for session, clock in self._reminder_times.items():
+                add_reminder_hour(hours, session, clock)
+            forecast = sum(
                 1
                 for session in self._opted_in(day_name, moment, "manual")
                 if (day_name, session) not in self._reminded
             )
+            return {"forecast": forecast, "clockSummary": reminder_summary(hours)}
 
     async def is_known(self, session_id: str) -> bool:
         async with self._lock:
@@ -729,18 +779,35 @@ class RedisMetricsStore:
         session = session_id.strip()
         if not session:
             raise ValueError("session id required")
-        pending = await self._redis.get(_reminder_pending_key(session))
-        decision = schedule_decision(action, pending, text, run_id)
-        if "write_pending" in decision:
-            if decision["write_pending"]:
-                await self._redis.set(_reminder_pending_key(session), decision["write_pending"])
-            else:
-                await self._redis.delete(_reminder_pending_key(session))
-        if decision.get("clear_time"):
-            await self._redis.delete(_reminder_time_key(session))
-        elif decision.get("time"):
-            await self._redis.set(_reminder_time_key(session), decision["time"])
-        return public_schedule(decision)
+        time_key = _reminder_time_key(session)
+        pending_key = _reminder_pending_key(session)
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(time_key, pending_key)
+                    previous = await pipe.get(time_key)
+                    pending = await pipe.get(pending_key)
+                    decision = schedule_decision(action, pending, text, run_id)
+                    event = reminder_setting_event(previous, decision)
+                    pipe.multi()
+                    if "write_pending" in decision:
+                        if decision["write_pending"]:
+                            pipe.set(pending_key, decision["write_pending"])
+                        else:
+                            pipe.delete(pending_key)
+                    if decision.get("clear_time"):
+                        pipe.delete(time_key)
+                    elif decision.get("time"):
+                        pipe.set(time_key, decision["time"])
+                    if event is not None and telegram_chat_id(session) is not None:
+                        event_key = _reminder_activity_key(metrics_day(time.time()), event)
+                        pipe.sadd(event_key, session)
+                        pipe.expire(event_key, REMINDER_ANALYTICS_TTL_SECONDS)
+                        pipe.set("reminder:analytics:since", metrics_day(time.time()), nx=True)
+                    await pipe.execute()
+                    return public_schedule(decision)
+                except WatchError:
+                    continue
 
     async def reminder_time(self, session_id: str) -> str | None:
         session = session_id.strip()
@@ -775,33 +842,99 @@ class RedisMetricsStore:
         await count_batch()
         return reminder_summary(hours)
 
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]:
+        pipe = self._redis.pipeline()
+        for day in days:
+            for event in (*REMINDER_SETTING_EVENTS, "skipped_active"):
+                pipe.scard(_reminder_activity_key(day, event))
+            pipe.get(_reminder_claimed_key(day))
+        raw = await pipe.execute()
+        width = len(REMINDER_SETTING_EVENTS) + 2
+        return {
+            day: {**{event: nonneg_int(raw[index * width + offset])
+                     for offset, event in enumerate((*REMINDER_SETTING_EVENTS, "skipped_active"))},
+                  "claimed_auto": nonneg_int(raw[index * width + width - 1])}
+            for index, day in enumerate(days)
+        }
+
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]:
+        if not days:
+            return {event: 0 for event in REMINDER_SETTING_EVENTS}
+        return {event: len(await self._redis.sunion(*(_reminder_activity_key(day, event) for day in days)))
+                for event in REMINDER_SETTING_EVENTS}
+
+    async def reminder_tracking_since(self) -> str:
+        today = metrics_day(time.time())
+        await self._redis.set("reminder:analytics:since", today, nx=True)
+        return str(await self._redis.get("reminder:analytics:since") or today)
+
     async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
         moment = _moment(now)
         day_name = metrics_day(moment)
         targets = []
-        for session in await self._opted_in(day_name, moment, mode):
-            claimed = await self._redis.set(
-                _reminder_sent_key(day_name, session),
-                "1",
-                nx=True,
-                ex=REMINDER_SENT_TTL_SECONDS,
-            )
-            if not claimed:
+        times = await self._reminder_times_map()
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        if mode == "auto":
+            await self._redis.set("reminder:analytics:since", day_name, nx=True)
+            skipped = [session for session, clock in times.items()
+                       if telegram_chat_id(session) is not None and session in active and reminder_is_due(moment, clock)]
+            if skipped:
+                pipe = self._redis.pipeline()
+                for session in skipped:
+                    pipe.exists(_reminder_sent_key(day_name, session))
+                claimed = await pipe.execute()
+                skipped = [session for session, sent in zip(skipped, claimed, strict=True) if not sent]
+            if skipped:
+                key = _reminder_activity_key(day_name, "skipped_active")
+                pipe = self._redis.pipeline()
+                pipe.sadd(key, *skipped)
+                pipe.expire(key, REMINDER_ANALYTICS_TTL_SECONDS)
+                await pipe.execute()
+        for session in opted_reminder_sessions(times, active, moment, mode):
+            if not await self._claim_reminder(day_name, session, mode):
                 continue
             name = await self._redis.hget(_chat_key(session), "name")
-            targets.append(ReminderTarget(session, name or ""))
+            targets.append(ReminderTarget(session, name or "", times[session][:2]))
         return targets
 
+    async def _claim_reminder(self, day_name: str, session: str, mode: str) -> bool:
+        sent_key = _reminder_sent_key(day_name, session)
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(sent_key)
+                    if await pipe.exists(sent_key):
+                        return False
+                    pipe.multi()
+                    pipe.set(sent_key, "1", ex=REMINDER_SENT_TTL_SECONDS)
+                    if mode == "auto":
+                        count_key = _reminder_claimed_key(day_name)
+                        pipe.incr(count_key)
+                        pipe.expire(count_key, REMINDER_ANALYTICS_TTL_SECONDS)
+                    await pipe.execute()
+                    return True
+                except WatchError:
+                    continue
+
     async def reminder_forecast(self, *, now: float | None = None) -> int:
+        return int((await self.reminder_overview(now=now))["forecast"])
+
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
         day_name = metrics_day(moment)
-        sessions = await self._opted_in(day_name, moment, "manual")
-        if not sessions:
-            return 0
-        pipe = self._redis.pipeline()
-        for session in sessions:
-            pipe.exists(_reminder_sent_key(day_name, session))
-        return sum(1 for sent in await pipe.execute() if not sent)
+        times = await self._reminder_times_map()
+        hours = empty_reminder_hours()
+        for session, clock in times.items():
+            add_reminder_hour(hours, session, clock)
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        sessions = opted_reminder_sessions(times, active, moment, "manual")
+        forecast = 0
+        if sessions:
+            pipe = self._redis.pipeline()
+            for session in sessions:
+                pipe.exists(_reminder_sent_key(day_name, session))
+            forecast = sum(1 for sent in await pipe.execute() if not sent)
+        return {"forecast": forecast, "clockSummary": reminder_summary(hours)}
 
     async def is_known(self, session_id: str) -> bool:
         return bool(await self._redis.exists(_funnel_user_key(session_id))) or await self._redis.zscore(_CHATS_KEY, session_id) is not None
@@ -810,6 +943,11 @@ class RedisMetricsStore:
         return bool(await self._redis.hget(_funnel_user_key(session_id), "activated_day"))
 
     async def _opted_in(self, day_name: str, moment: float, mode: str) -> list[str]:
+        times = await self._reminder_times_map()
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        return opted_reminder_sessions(times, active, moment, mode)
+
+    async def _reminder_times_map(self) -> dict[str, str]:
         times: dict[str, str] = {}
         prefix = _reminder_time_key("")
         async for key in self._redis.scan_iter(match=f"{prefix}*"):
@@ -817,8 +955,7 @@ class RedisMetricsStore:
             value = await self._redis.get(key)
             if value:
                 times[session] = str(value)
-        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
-        return opted_reminder_sessions(times, active, moment, mode)
+        return times
 
     async def aclose(self) -> None:
         await self._redis.aclose()
@@ -1082,6 +1219,16 @@ def reminder_summary(hours: dict[str, int]) -> dict[str, Any]:
     return {"timezone": METRICS_TIMEZONE, "active": sum(hours.values()), "hours": hours}
 
 
+def reminder_setting_event(previous: str | None, decision: dict[str, str]) -> str | None:
+    valid_previous = parse_reminder_clock(previous or "")
+    if decision.get("clear_time"):
+        return "cleared" if valid_previous else None
+    chosen = decision.get("time")
+    if not chosen or chosen == previous:
+        return None
+    return "changed" if valid_previous else "set_from_empty"
+
+
 def reminder_is_due(moment: float, hhmm: str) -> bool:
     clock = parse_reminder_clock(hhmm)
     if clock is None:
@@ -1263,6 +1410,14 @@ def _funnel_user_key(session_id: str) -> str:
 
 def _reminder_sent_key(day_name: str, session_id: str) -> str:
     return f"reminder:sent:{day_name}:{session_id}"
+
+
+def _reminder_activity_key(day_name: str, event: str) -> str:
+    return f"reminder:activity:{day_name}:{event}"
+
+
+def _reminder_claimed_key(day_name: str) -> str:
+    return f"reminder:claimed:auto:{day_name}"
 
 
 def _reminder_time_key(session_id: str) -> str:

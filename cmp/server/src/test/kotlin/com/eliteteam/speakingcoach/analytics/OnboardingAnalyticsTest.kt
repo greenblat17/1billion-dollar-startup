@@ -10,6 +10,22 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OnboardingAnalyticsTest {
+    @Test
+    fun reminderOffersCountDistinctTelegramUsersAndOnlySavedAfterOffer() = runTest {
+        val analytics = MemoryOnboardingAnalytics()
+        val at = Instant.parse("2026-10-05T09:00:00Z")
+        analytics.startAttempt("tg-1", "run-a", "start", at)
+        analytics.mark("run-a", AttemptMark.REMINDER_OFFERED, at.plusSeconds(10))
+        analytics.mark("run-a", AttemptMark.REMINDER_SET, at.plusSeconds(20))
+        analytics.startAttempt("tg-1", "run-b", "start", at.plusSeconds(30))
+        analytics.mark("run-b", AttemptMark.REMINDER_OFFERED, at.plusSeconds(40))
+        analytics.startAttempt("tg-2", "run-c", "start", at)
+        analytics.mark("run-c", AttemptMark.REMINDER_OFFERED, at.plusSeconds(10))
+        analytics.startAttempt("app-3", "run-d", "start", at)
+        analytics.mark("run-d", AttemptMark.REMINDER_OFFERED, at.plusSeconds(10))
+        assertEquals(ReminderOfferSummary(2, 1), analytics.reminderOffers(7, at.plusSeconds(60)))
+    }
+
     private val start = Instant.parse("2026-09-28T07:00:00Z")
     private val closedNow = Instant.parse("2026-09-30T00:00:00Z")
 

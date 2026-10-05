@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
@@ -103,20 +104,24 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(REMINDERS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         if (!call.hasMetricsSession(dashboard.password)) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
         }
-        val html = try {
-            remindersPageHtml(
-                dashboard.source.load(),
-                notice = call.request.queryParameters["notice"],
-                controls = dashboard.reminders != null,
-            )
-        } catch (error: Throwable) {
-            log.warn("Metrics snapshot failed", error)
-            metricsUnavailableHtml()
-        }
+        val days = call.request.queryParameters["days"]?.toIntOrNull()?.takeIf { it == 7 || it == 30 } ?: 7
+        val snapshot = try { dashboard.source.load() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder metrics unavailable", error); null }
+        val clock = snapshot?.reminders?.clockSummary ?: try { dashboard.source.reminderSummary() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder clock summary unavailable", error); null }
+        val offers: ReminderOfferSummary? = try { dashboard.onboarding?.reminderOffers(days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder offers unavailable", error); null }
+        val html = remindersPageHtml(snapshot,
+            notice = call.request.queryParameters["notice"], controls = dashboard.reminders != null,
+            clock = clock, offers = offers, days = days)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(STREAKS_PATH) {

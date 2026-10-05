@@ -221,6 +221,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 monitoringPort = config.monitoringPort,
                 voiceAttempts = voiceAttempts,
                 audit = audit,
+                onboarding = onboardingAnalytics,
             ),
         ) {
             get("/internal/telegram-metrics/prometheus") {
@@ -310,6 +311,7 @@ internal fun Application.module(
                 campaign = campaignAdmin,
                 monitoringPort = config.monitoringPort,
                 voiceAttempts = voiceAttempts,
+                onboarding = onboardingAnalytics,
             )
         },
     ) {

@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.MemoryVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.ai.FunnelDay
@@ -23,6 +24,9 @@ import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
 import com.eliteteam.speakingcoach.ai.ReminderTotals
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
 import com.eliteteam.speakingcoach.ai.ReminderClockSummary
+import com.eliteteam.speakingcoach.ai.ReminderAnalyticsDay
+import com.eliteteam.speakingcoach.ai.ReminderHourOutcome
+import com.eliteteam.speakingcoach.ai.ReminderSettingUsers
 import com.eliteteam.speakingcoach.ai.RetentionCohort
 import com.eliteteam.speakingcoach.ai.RetentionSlice
 import com.eliteteam.speakingcoach.ai.RetentionSnapshot
@@ -41,9 +45,10 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
-import java.time.LocalDate
 import java.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
@@ -461,6 +466,7 @@ class MetricsDashboardTest {
                 ),
                 autoToday = ReminderRun(mode = "auto", startedAt = "2026-09-24T19:00:00+03:00", sent = 3),
                 forecast = 12,
+                clockSummary = ReminderClockSummary("Europe/Moscow", 4, mapOf("08" to 3, "23" to 1)),
             ),
         )
         application {
@@ -472,6 +478,7 @@ class MetricsDashboardTest {
 
         assertTrue(html.contains("<a href=\"/admin/metrics/reminders\" aria-current=\"page\">Напоминания</a>"))
         assertTrue(html.contains("Рассылка запущена."))
+        assertTrue(html.contains("75.0%"))
         assertTrue(html.contains("4 · 40%"))
         assertTrue(html.contains("1 ч 5 мин"))
         assertTrue(html.contains("19:00 · 3"))
@@ -482,6 +489,30 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<tr><td>Только /start</td><td>6</td><td>1</td><td>17%</td></tr>"))
         assertTrue(html.contains("удалён из пула"))
         assertFalse(html.contains("<h2>Воронка</h2>"))
+    }
+
+    @Test
+    fun reminderAnalyticsShowsAllHoursAndSeparatesMaturedAutoReplies() {
+        val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+        val matured = today.minusDays(2).toString()
+        val snapshot = sampleSnapshot().copy(reminders = RemindersSnapshot(
+            analyticsDays = listOf(ReminderAnalyticsDay(
+                day = matured, autoSent = 3, autoBlocked = 1, skippedActive = 2, claimedAuto = 4,
+                hours = mapOf("08" to ReminderHourOutcome(sent = 3, returned = 1)),
+            )),
+            settingUsers = mapOf("7" to ReminderSettingUsers(setFromEmpty = 5, changed = 2, cleared = 1)),
+            trackingSince = today.minusDays(5).toString(),
+        ))
+        val html = remindersPageHtml(snapshot, null, false,
+            clock = ReminderClockSummary("Europe/Moscow", 4, mapOf("08" to 3, "23" to 1)),
+            offers = ReminderOfferSummary(10, 6))
+        assertTrue(html.contains("00:00–00:59"))
+        assertTrue(html.contains("23:00–23:59"))
+        assertTrue(html.contains("75.0%"))
+        assertTrue(html.contains("6 / 10 · 60%"))
+        assertTrue(html.contains("<td>3</td><td>1</td><td>33%</td>"))
+        assertTrue(html.contains("<td>2</td><td>3</td><td>1</td><td>0</td><td>0</td>"))
+        assertTrue(html.contains("Сменили время: 2"))
     }
 
     @Test

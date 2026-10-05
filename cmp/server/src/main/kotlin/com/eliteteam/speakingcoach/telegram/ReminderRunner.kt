@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import org.slf4j.LoggerFactory
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
+import java.util.UUID
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -88,7 +89,7 @@ internal class ReminderRunner(
                 val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
                     deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
                 }
-                results += ReminderSendResult(target.sessionId, template.id, status)
+                results += ReminderSendResult(target.sessionId, template.id, status, target.hour)
                 delay(pause)
             }
             val outcome = RoundOutcome(
@@ -105,6 +106,7 @@ internal class ReminderRunner(
                         finishedAt = isoSeconds(now()),
                         claimed = targets.size,
                         results = results,
+                        reportId = UUID.randomUUID().toString(),
                     ),
                 )
             } catch (error: CancellationException) {
