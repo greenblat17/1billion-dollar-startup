@@ -665,7 +665,7 @@ data class CallFeedbackRequest(
 )
 
 @Serializable
-data class CallFeedbackResponse(val status: String = "ignored")
+data class CallFeedbackResponse(val status: String = "ignored", val reason: String? = null)
 
 @Serializable
 data class CallFeedbackEntry(

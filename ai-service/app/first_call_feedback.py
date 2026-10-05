@@ -11,6 +11,19 @@ ANSWER_WINDOW_SECONDS = 24 * 60 * 60
 RATED_INDEX = "first-call-feedback:rated"
 
 
+def offer_eligibility(call: dict[str, Any] | None, onboarding: dict[str, Any] | None,
+                      session_id: str) -> str | None:
+    if call is None or call.get("sessionId") != session_id:
+        return "session_mismatch"
+    if onboarding is None or onboarding.get("status") != "completed":
+        return "onboarding_incomplete"
+    if not call.get("turns"):
+        return "no_user_turn"
+    if not call.get("review"):
+        return "review_unavailable"
+    return None
+
+
 class FirstCallFeedback:
     """One survey per Telegram session; Redis hash operations keep claims atomic."""
 
@@ -28,9 +41,9 @@ class FirstCallFeedback:
             created = await self.redis.hsetnx(key, "callId", call_id)
             if created:
                 await self.redis.hset(key, mapping={"offeredAt": str(time.time()), "username": username})
-            return {"status": "offered" if created else "ignored"}
+            return {"status": "offered"} if created else {"status": "ignored", "reason": "already_offered"}
         if key in self.memory:
-            return {"status": "ignored"}
+            return {"status": "ignored", "reason": "already_offered"}
         self.memory[key] = {"callId": call_id, "offeredAt": str(time.time()), "username": username}
         return {"status": "offered"}
 

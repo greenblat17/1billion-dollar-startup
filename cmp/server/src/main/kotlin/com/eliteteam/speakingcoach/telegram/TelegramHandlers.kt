@@ -1315,6 +1315,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             if (offered.status == "offered") {
                 reply(message, FIRST_CALL_FEEDBACK_PROMPT, allowSendingWithoutReply = true,
                     replyMarkup = firstCallFeedbackKeyboard(callId))
+            } else {
+                log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
             }
         } catch (error: CancellationException) {
             throw error

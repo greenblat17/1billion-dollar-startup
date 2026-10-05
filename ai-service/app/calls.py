@@ -145,26 +145,6 @@ class CallStore:
         call = await self._read_call(call_id)
         return deepcopy(call) if call is not None else None
 
-    async def is_first_practice_call(self, session_id: str, call_id: str) -> bool:
-        """Ignore abandoned opening-only calls when finding the first conversation."""
-        current = await self._read_call(call_id)
-        if current is None:
-            return False
-        prefix = f"call:day:{session_id}:"
-        if self._redis is not None:
-            keys = [key async for key in self._redis.scan_iter(match=f"{prefix}*", count=100)]
-        else:
-            keys = [key for key in self._days if key.startswith(prefix)]
-        for key in keys:
-            day = str(key).removeprefix(prefix)
-            for previous_id in (await self._day(session_id, day)).get("ids") or []:
-                if previous_id == call_id:
-                    continue
-                previous = await self._read_call(str(previous_id))
-                if previous and previous.get("turns") and float(previous.get("startedUnix") or 0) <= float(current.get("startedUnix") or 0):
-                    return False
-        return True
-
     async def save_opening(self, call_id: str, question: str) -> None:
         call = await self._read_call(call_id)
         if call is None:

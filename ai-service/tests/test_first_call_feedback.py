@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from app.calls import CallStore
-from app.first_call_feedback import FirstCallFeedback
+from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 
 
 @pytest.mark.asyncio
@@ -55,17 +54,20 @@ async def test_dashboard_lists_rated_feedback_with_username_and_optional_message
     await feedback.aclose()
 
 
+def test_offer_needs_completed_onboarding_review_and_real_conversation():
+    call = {"sessionId": "tg-1", "turns": [{"transcript": "hello"}], "review": {"score": 52}}
+    completed = {"status": "completed"}
+    assert offer_eligibility(call, completed, "tg-1") is None
+    assert offer_eligibility(call, {"status": "exempt"}, "tg-1") == "onboarding_incomplete"
+    assert offer_eligibility({**call, "turns": []}, completed, "tg-1") == "no_user_turn"
+    assert offer_eligibility({**call, "review": None}, completed, "tg-1") == "review_unavailable"
+    assert offer_eligibility(call, completed, "tg-2") == "session_mismatch"
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("redis", [None, FakeAsyncRedis(decode_responses=True)])
-async def test_only_first_real_conversation_qualifies(redis):
-    calls = CallStore(redis=redis)
-    abandoned = await calls.open("tg-1")
-    await calls.seal("tg-1")
-    first = await calls.open("tg-1")
-    await calls.append_turn("tg-1", "hello", "hi", [], 2, [])
-    await calls.seal("tg-1")
-    second = await calls.open("tg-1")
-    assert await calls.is_first_practice_call("tg-1", first["callId"])
-    assert not await calls.is_first_practice_call("tg-1", second["callId"])
-    assert await calls.is_first_practice_call("tg-1", abandoned["callId"])
-    await calls.aclose()
+async def test_existing_user_receives_one_survey_on_next_eligible_call():
+    feedback = FirstCallFeedback()
+    existing_call = {"sessionId": "tg-1", "turns": [{"transcript": "hello"}], "review": {"score": 52}}
+    assert offer_eligibility(existing_call, {"status": "completed"}, "tg-1") is None
+    assert (await feedback.offer("tg-1", "b" * 32))["status"] == "offered"
+    assert (await feedback.offer("tg-1", "c" * 32))["reason"] == "already_offered"

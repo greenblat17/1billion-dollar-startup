@@ -18,7 +18,7 @@ from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
 from app.calls import CallStore, moscow_day
-from app.first_call_feedback import FirstCallFeedback
+from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -448,9 +448,10 @@ def create_app(
         call_id = str(payload.get("callId") or "")
         if action == "offer":
             call = await calls.get(call_id)
-            if (call is None or call.get("sessionId") != session_id or not call.get("review")
-                    or not await calls.is_first_practice_call(session_id, call_id)):
-                return {"status": "ignored"}
+            onboarding_state = await onboarding.store.get(session_id)
+            ineligible = offer_eligibility(call, onboarding_state, session_id)
+            if ineligible is not None:
+                return {"status": "ignored", "reason": ineligible}
             return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""))
         if action == "rate":
             try:
