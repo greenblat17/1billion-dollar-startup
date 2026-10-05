@@ -5,6 +5,9 @@ import com.eliteteam.speakingcoach.analytics.ErrorStat
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.OnboardingReport
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalyticsHealth
+import com.eliteteam.speakingcoach.analytics.JourneyMode
+import com.eliteteam.speakingcoach.analytics.JOURNEY_STAGES
+import com.eliteteam.speakingcoach.analytics.JourneyReport
 import com.eliteteam.speakingcoach.analytics.decisionCounts
 import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
@@ -13,6 +16,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 internal fun onboardingReportHtml(
     report: OnboardingReport?, reminderSummary: ReminderClockSummary? = null, llm: LlmRequestPeriod? = null,
@@ -34,9 +38,12 @@ internal fun onboardingReportHtml(
         <label>Версия <select name="version">${filterOptions(report.versions, report.filter.version)}</select></label>
         <label>Источник <select name="source">${filterOptions(report.sources, report.filter.source)}</select></label>
         <label>Причина <select name="trigger">${filterOptions(report.triggers, report.filter.trigger)}</select></label>
+        <label>Группа <select name="journey"><option value="primary"${if (report.filter.journeyMode == JourneyMode.PRIMARY) " selected" else ""}>Первый подходящий /start</option><option value="repeats"${if (report.filter.journeyMode == JourneyMode.REPEATS) " selected" else ""}>Повторные попытки</option></select></label>
         <button type="submit">Показать</button>
         </form>
         <a class="onb-export" href="${agentExportLink(report.filter, llmRange)}">Скачать JSON для анализа агентом</a>
+        ${journeySections(report.journey, report.filter.journeyMode)}
+        <details><summary>Дополнительная аналитика: когорты, A7 и голосовые</summary>
         <dl class="onb-kpis">
           ${card("Начали · закрытые дни", started.toString())}
           ${card("Результат за 24 ч", "$completed / $started · ${percentage(completed, started)}")}
@@ -76,6 +83,7 @@ internal fun onboardingReportHtml(
           <tr><td>Ошибки записи</td><td>${OnboardingAnalyticsHealth.failedWrites()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
           <tr><td>Без связанной попытки</td><td>${OnboardingAnalyticsHealth.missingAttempts()}</td><td>${OnboardingAnalyticsHealth.attemptedWrites()}</td></tr>
         </tbody></table>
+        </details>
         <details class="onb-notes"><summary>Как читать данные</summary>
           <ul><li>Закрытый день: прошли 24 часа после его окончания по Москве. Шаг воронки учитывается в первые 24 часа после старта.</li>
           <li>A7 созревает через 7 × 24 часа от подходящего входа. Знаменатель A7 — только созревшие входы. D1 и D7 — отдельные календарные дни.</li>
@@ -103,6 +111,56 @@ internal fun onboardingReportHtml(
     """.trimIndent()
 }
 
+private val journeyDateFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+
+private fun journeySections(journey: JourneyReport, mode: JourneyMode): String {
+    val population = if (mode == JourneyMode.PRIMARY) "пользователей · первый подходящий /start" else "повторных попыток"
+    val reached = journey.steps.associate { it.stage.id to it.reached }
+    val steps = journey.steps.joinToString("") { step ->
+        val terminal = step.stage.id == JOURNEY_STAGES.last().id
+        "<tr><th scope=\"row\">${escapeHtml(step.stage.label)}</th><td>${step.reached}</td>" +
+            "<td>${if (terminal) "—" else step.continued}</td>" +
+            "<td>${if (terminal) "—" else step.stopped}</td>" +
+            "<td>${if (terminal) "—" else step.stoppedWithOutcome}</td>" +
+            "<td>${if (terminal) "—" else percentage(step.continued, step.reached)}</td></tr>"
+    }
+    val errors = journey.errors.joinToString("") { error ->
+        val label = JOURNEY_STAGES.firstOrNull { it.id == error.stageId }?.label ?: error.stageId
+        val affected = if (mode == JourneyMode.PRIMARY) error.users else error.attempts
+        "<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(error.technicalStage)}</td>" +
+            "<td>${escapeHtml(error.reason)}</td><td>${error.events}</td><td>${error.users}</td>" +
+            "<td>$affected/${reached[error.stageId] ?: 0} · ${percentage(affected, reached[error.stageId] ?: 0)}</td></tr>"
+    }.ifEmpty { "<tr><td colspan=\"6\">Ошибок и неуспешных исходов пока нет.</td></tr>" }
+    val recent = journey.recent.joinToString("") { user ->
+        val stage = JOURNEY_STAGES.firstOrNull { it.id == user.stageId }?.label ?: user.stageId
+        val state = when (user.state) {
+            "completed" -> "Завершил"
+            "in_progress" -> "В процессе"
+            "stopped" -> "Остановился после $stage"
+            else -> "Неполные данные"
+        }
+        val username = user.username?.let { "@${escapeHtml(it)}" } ?: "—"
+        "<tr><td>${journeyDateFormat.format(user.startedAt.atZone(ZoneId.of("Europe/Moscow")))}</td>" +
+            "<td>$username</td><td>${user.chatId ?: "—"}</td>" +
+            "<td>${escapeHtml(user.source ?: "direct")}</td><td>${escapeHtml(user.version ?: "—")}</td>" +
+            "<td>${user.attemptNumber ?: "—"}</td><td>${escapeHtml(stage)}</td><td>${escapeHtml(state)}</td>" +
+            "<td>${journeyDateFormat.format(user.lastAt.atZone(ZoneId.of("Europe/Moscow")))}</td>" +
+            "<td>${escapeHtml(user.lastError ?: "—")}</td></tr>"
+    }.ifEmpty { "<tr><td colspan=\"10\">Пока нет начавших онбординг в выбранной группе.</td></tr>" }
+    return """
+        <h2>Путь по стадиям</h2>
+        <p class="meta">${escapeHtml(population)}: ${journey.total}. В процессе: ${journey.open}; окно 24 часа закрыто: ${journey.closed}; неполные или непоследовательные данные: ${journey.incomplete}. Счётчики начинаются с включения записи событий.</p>
+        <div class="onb-scroll"><table><thead><tr><th>Стадия</th><th>Дошли</th><th>Перешли дальше</th><th>Остановились</th><th>Из них с исходом</th><th>Переход / дошли</th></tr></thead><tbody>$steps</tbody></table></div>
+        <p class="meta">«Дошли» включает открытые попытки. «Остановились» — только закрытые 24-часовые окна без следующей обязательной стадии; технический исход рядом не доказывает причину паузы. Пропущенные отметки вынесены в неполные данные. Grammar, Vocabulary и Fluency остаются дополнительными действиями ниже.</p>
+        <h2>Ошибки по стадиям</h2>
+        <p class="meta">Те же фильтры начала попытки. События и затронутые пользователи показаны отдельно; отсутствие речи — не технический сбой STT. Старые ошибки могут не иметь точной причины.</p>
+        <div class="onb-scroll"><table><thead><tr><th>Стадия</th><th>Технический этап</th><th>Исход / причина</th><th>События</th><th>Люди</th><th>${if (mode == JourneyMode.PRIMARY) "Люди / дошли" else "Попытки / дошли"}</th></tr></thead><tbody>$errors</tbody></table></div>
+        <h2>Последние 15 начавших</h2>
+        <p class="meta">${if (mode == JourneyMode.PRIMARY) "Первый подходящий вход каждого пользователя" else "Последняя подходящая повторная попытка каждого пользователя"}; username на момент начала. Telegram ID означает ID чата. Состояние пересчитывается при открытии страницы и учитывает позднее продолжение; воронка фиксирует первые 24 часа.</p>
+        <div class="onb-scroll"><table><thead><tr><th>Начало · МСК</th><th>Username</th><th>Telegram ID чата</th><th>Источник</th><th>Версия</th><th>Попытка</th><th>Последняя стадия</th><th>Состояние</th><th>Последнее событие · МСК</th><th>Последний исход</th></tr></thead><tbody>$recent</tbody></table></div>
+    """.trimIndent()
+}
+
 private fun llmRequestTable(summary: LlmRequestPeriod?): String {
     if (summary == null) return "<p>Счётчик LLM сейчас недоступен.</p>"
     val byPurpose = summary.byPurpose
@@ -116,6 +174,7 @@ private fun llmRequestTable(summary: LlmRequestPeriod?): String {
 
 private fun hiddenOnboardingFilter(filter: OnboardingFilter): String = buildString {
     append("<input type=\"hidden\" name=\"days\" value=\"${filter.days}\">")
+    append("<input type=\"hidden\" name=\"journey\" value=\"${if (filter.journeyMode == JourneyMode.REPEATS) "repeats" else "primary"}\">")
     for ((name, value) in listOf("version" to filter.version, "source" to filter.source, "trigger" to filter.trigger)) {
         if (value != null) append("<input type=\"hidden\" name=\"$name\" value=\"${escapeHtml(value)}\">")
     }
@@ -129,7 +188,8 @@ private fun agentExportLink(filter: OnboardingFilter, range: LlmRange): String {
     }
     val query = listOfNotNull(
         "days=${filter.days}", parameter("version", filter.version), parameter("source", filter.source),
-        parameter("trigger", filter.trigger), "llmFrom=${range.from}", "llmTo=${range.to}",
+        parameter("trigger", filter.trigger), "journey=${if (filter.journeyMode == JourneyMode.REPEATS) "repeats" else "primary"}",
+        "llmFrom=${range.from}", "llmTo=${range.to}",
     ).joinToString("&amp;")
     return "$ONBOARDING_AGENT_PATH?$query"
 }

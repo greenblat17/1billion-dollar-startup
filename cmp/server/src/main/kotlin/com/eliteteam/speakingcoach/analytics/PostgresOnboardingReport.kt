@@ -263,6 +263,7 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
         sources = choices.second,
         triggers = choices.third,
         activation = activationCohorts(now, filter),
+        journey = onboardingJourneyReport(now, filter),
     )
 }
 

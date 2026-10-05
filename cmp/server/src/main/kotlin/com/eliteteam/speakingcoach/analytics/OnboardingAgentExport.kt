@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private const val EXPORT_SCHEMA = "onboarding-analytics.v5"
+private const val EXPORT_SCHEMA = "onboarding-analytics.v6"
 private val exportJson = Json { prettyPrint = true }
 
 /** Aggregated, content-free snapshot that an analyst agent can consume without parsing HTML. */
@@ -33,6 +33,7 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("onboarding_version", optional(report.filter.version))
         put("start_source", optional(report.filter.source))
         put("trigger", optional(report.filter.trigger))
+        put("journey_mode", if (report.filter.journeyMode == JourneyMode.PRIMARY) "primary_users" else "repeat_attempts")
         put("llm_from", optional(llmRange?.from?.toString()))
         put("llm_to", optional(llmRange?.to?.toString()))
     })
@@ -58,6 +59,9 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("current_reminders", "Current saved reminder settings across all users, independent of onboarding date/version/source filters; hours are Moscow time")
         put("llm_requests_period", "Application attempts to call the LLM from llm_from through llm_to inclusive (Moscow days), across all users and onboarding versions, including failed attempts and application retries; SDK retries are not counted")
         put("llm_requests_today", "Legacy alias for llm_requests_period only when the selected range is the current Moscow day; otherwise null")
+        put("journey_window", "Stages within 24 hours of observed eligible start; open attempts are excluded from stopped counts")
+        put("journey_stopped", "Closed attempt reached a stage but not the next required stage, excluding missing or out-of-order facts; a recorded error does not prove causality")
+        put("journey_errors", "Errors and unsuccessful outcomes among the filtered starts, grouped by user stage, technical stage, and safe reason; no_speech is not a technical STT failure")
     })
     put("analysis_guidance", strings(listOf(
         "Report observations and counts before making recommendations; these aggregates do not identify causes.",
@@ -68,6 +72,7 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         "No audio, transcripts, profile text, user IDs, or attempt IDs are present in this export.",
         "Do not use filtered onboarding cohorts as the denominator for current_reminders.",
         "Do not use filtered onboarding cohorts as the denominator for llm_requests_period.",
+        "The recent fifteen usernames and chat IDs are available only on the protected HTML page, not in this export.",
     )))
     put("current_reminders", reminderSummary?.let { summary -> buildJsonObject {
         put("scope", "all_users_current")
@@ -99,6 +104,30 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("open_primary", JsonArray(report.openPrimary.map { cohort(it, closed = false, primary = true) }))
         put("closed_repeats", JsonArray(report.closedRepeats.map { cohort(it, closed = true, primary = false) }))
         put("open_repeat_attempts", report.openRepeatCount)
+    })
+    put("journey", buildJsonObject {
+        val journey = report.journey
+        put("population", if (report.filter.journeyMode == JourneyMode.PRIMARY) "first_eligible_start_users" else "repeat_attempts")
+        put("total", journey.total)
+        put("open", journey.open)
+        put("closed", journey.closed)
+        put("incomplete", journey.incomplete)
+        put("stages", JsonArray(journey.steps.map { step -> buildJsonObject {
+            put("id", step.stage.id)
+            put("label", step.stage.label)
+            put("reached", step.reached)
+            put("continued", step.continued)
+            put("stopped", step.stopped)
+            put("stopped_with_unsuccessful_outcome", step.stoppedWithOutcome)
+        } }))
+        put("errors", JsonArray(journey.errors.map { error -> buildJsonObject {
+            put("stage_id", error.stageId)
+            put("technical_stage", error.technicalStage)
+            put("reason", error.reason)
+            put("events", error.events)
+            put("affected_users", error.users)
+            put("affected_attempts", error.attempts)
+        } }))
     })
     put("activation_cohorts", JsonArray(report.activation.map { c -> buildJsonObject {
         put("start_day", c.day.toString())

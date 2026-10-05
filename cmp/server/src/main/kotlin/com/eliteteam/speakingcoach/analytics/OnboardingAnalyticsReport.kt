@@ -50,6 +50,11 @@ internal data class OnboardingAttemptRow(
     val grammarExamples: Int? = null,
     val vocabularyExamples: Int? = null,
     val fluencyMetricsAvailable: Boolean? = null,
+    val attemptNumber: Int = 1,
+    val chatId: Long? = null,
+    val username: String? = null,
+    val invitationDeliveredAt: Instant? = null,
+    val invitationError: String? = null,
 )
 
 internal data class OnboardingVoiceRow(
@@ -67,6 +72,8 @@ internal data class OnboardingVoiceRow(
     val speechBeforeSec: Double? = null,
     val speechAfterSec: Double? = null,
     val receivedAt: Instant = createdAt,
+    val failureStage: String? = null,
+    val failureCode: String? = null,
 )
 
 internal data class OnboardingFilter(
@@ -74,6 +81,7 @@ internal data class OnboardingFilter(
     val version: String? = null,
     val source: String? = null,
     val trigger: String? = null,
+    val journeyMode: JourneyMode = JourneyMode.PRIMARY,
 ) {
     init { require(days in 1..90) }
 }
@@ -82,6 +90,8 @@ internal data class OnboardingEventRow(
     val attemptId: String,
     val type: String,
     val createdAt: Instant,
+    val failureStage: String? = null,
+    val failureCode: String? = null,
 )
 
 internal data class FunnelStep(
@@ -198,6 +208,7 @@ internal data class OnboardingReport(
     val sources: List<String> = emptyList(),
     val triggers: List<String> = emptyList(),
     val activation: List<ActivationCohort> = emptyList(),
+    val journey: JourneyReport = JourneyReport(),
 )
 
 internal fun onboardingReport(
@@ -236,6 +247,7 @@ internal fun onboardingReport(
         sources = attempts.map { it.source ?: "direct" }.distinct().sorted(),
         triggers = attempts.map { it.trigger }.distinct().sorted(),
         activation = activationCohorts(entries, attempts, voices, practiceDays, now, filter),
+        journey = onboardingJourney(attempts, voices, events, entries, now, filter),
     )
 }
 

@@ -467,6 +467,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (state.status == "waiting") {
             log.info("Sending onboarding invitation")
             var invitedAt: Instant? = null
+            var invitationError: String? = null
             try {
                 clearProgress(message.chat)
                 if (force) sendMessage(message.chat.id, "Let's start again.", replyMarkup = ReplyKeyboardRemove())
@@ -477,12 +478,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     replyMarkup = onboardingKeyboard("begin", state.runId),
                 )
                 invitedAt = Instant.now()
+            } catch (error: Throwable) {
+                invitationError = localFailureReason(error)
+                throw error
             } finally {
-                if (trigger == "start") analytics.safely {
-                    recordEntry(sessionId.value, requestId, receivedAt, true, trigger, null, source, state.runId, invitedAt)
+                analytics.safely {
+                    recordEntry(sessionId.value, requestId, receivedAt, true, trigger, null, source, state.runId, invitedAt,
+                        telegramChatNumber(message.chat.id), telegramProfile(message.chat).username, invitationError)
                 }
+                analytics.safely { startAttempt(sessionId.value, state.runId, trigger, receivedAt, source,
+                    telegramChatNumber(message.chat.id), telegramProfile(message.chat).username, invitedAt, invitationError) }
             }
-            analytics.safely { startAttempt(sessionId.value, state.runId, trigger, Instant.now(), source) }
         } else {
             log.info("Starting session")
             val greeting = ai.startSession(sessionId)
@@ -727,7 +733,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 reply(message, QUEUE_FULL_TEXT)
                 if (state.status == "active") analytics.safely {
                     recordVoice(state.runId, sessionId.value, requestId,
-                        OnboardingVoiceFacts(failureReason = "queue_full"), 0, Instant.now(), receivedAt)
+                        OnboardingVoiceFacts(failureReason = "queue_full", failureStage = "queue", failureCode = "queue_full"),
+                        0, Instant.now(), receivedAt)
                 }
             }
             is ClipSubmitResult.Completed -> {
@@ -786,7 +793,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         processingMillis(started), now, receivedAt) }
                     if (facts.completedNow) analytics.safely { mark(state.runId, AttemptMark.RESULT_DELIVERED, now) }
                     if (facts.assessmentFailed) analytics.safely {
-                        event(state.runId, "$requestId:failed", "result_build_failed", now)
+                        event(state.runId, "$requestId:failed", "result_build_failed", now, "result_build", "internal")
                     }
                 } else if (state.status != "active" && result.reply.transcript.isNotBlank() &&
                     result.reply.text != CLARIFY_TEXT) {
@@ -844,10 +851,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 error is ClipJobFailure -> "ai_failed" to aiFailureStage(error.stage)
                 else -> "other_failed" to "other"
             }
-            recordVoiceAttempt(message, receivedAt, eligible = true, outcome = failedAt.first, stage = failedAt.second,
-                reason = (error as? ClipJobFailure)?.reason?.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
+            val failureCode = (error as? ClipJobFailure)?.reason?.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
                     ?: (error as? ClipUploadFailure)?.reason
-                    ?: if (failedAt.first == "ai_timeout") "timeout" else localFailureReason(error),
+                    ?: if (failedAt.first == "ai_timeout") "timeout" else localFailureReason(error)
+            recordVoiceAttempt(message, receivedAt, eligible = true, outcome = failedAt.first, stage = failedAt.second,
+                reason = failureCode,
                 setupMs = setupMs, downloadMs = downloadMs.get(), totalMs = voiceStarted.elapsedNow().inWholeMilliseconds,
                 jobId = (error as? ClipJobFailure)?.jobId ?: (error as? ClipPollingTimeout)?.jobId,
                 timingsMs = (error as? ClipJobFailure)?.timingsMs.orEmpty())
@@ -860,10 +868,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         if (replyReady) {
                             (completedFacts ?: OnboardingVoiceFacts()).copy(
                                 outcome = "delivery_failure", failureReason = "delivery_failure",
+                                failureStage = "telegram_delivery", failureCode = failureCode,
                                 grammarExamples = null, vocabularyExamples = null, fluencyMetricsAvailable = null,
                             )
                         } else {
-                            OnboardingVoiceFacts(failureReason = analyticsFailure(error))
+                            OnboardingVoiceFacts(failureReason = analyticsFailure(error),
+                                failureStage = when (failedAt.second) {
+                                    "reply_llm" -> "llm"
+                                    "state" -> "result_build"
+                                    else -> failedAt.second
+                                }, failureCode = failureCode)
                         },
                         processingMillis(started),
                         Instant.now(),
@@ -1348,6 +1362,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.error("Onboarding callback failed for {}", message.chat.id, error)
+            val stage = when (callback.action) {
+                "begin" -> "first_question"
+                "see", "results", "vocab", "fluency", "finish" -> "result_card"
+                "skip", "m5", "m10", "m15" -> "goal"
+                "remind", "later" -> "reminder"
+                "retry" -> "result_delivery"
+                else -> "other"
+            }
+            analytics.safely { event(callback.runId, "callback:${query.id}:error", "stage_error", Instant.now(),
+                stage, localFailureReason(error)) }
             sendMessage(
                 message.chat.id, "Something went wrong. Please try again.",
                 replyMarkup = onboardingKeyboard(callback.action, callback.runId),

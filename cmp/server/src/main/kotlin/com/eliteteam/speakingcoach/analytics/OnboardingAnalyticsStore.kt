@@ -3,7 +3,14 @@ package com.eliteteam.speakingcoach.analytics
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -43,6 +50,19 @@ internal enum class AttemptMark(val column: String) {
 
 internal const val ONBOARDING_ANALYTICS_VERSION = "v2"
 
+internal fun safeOnboardingUsername(value: String?): String? =
+    value?.removePrefix("@")?.takeIf { it.length in 1..32 && it.all { char -> char.isLetterOrDigit() || char == '_' } }
+
+internal fun safeFailureStage(value: String?): String? = value?.takeIf {
+    it in setOf("invitation", "first_question", "queue", "telegram_download", "upload", "stt", "llm", "tts",
+        "telegram_delivery", "result_build", "result_delivery", "result_card", "goal", "reminder", "other")
+}
+
+internal fun safeFailureCode(value: String?): String? = value?.takeIf {
+    it in setOf("no_speech", "timeout", "rate_limit", "provider_5xx", "provider_4xx", "network",
+        "invalid_input", "internal", "delivery_failed", "queue_full", "unknown")
+}
+
 data class OnboardingVoiceFacts(
     val voiceIndex: Int = 0,
     val telegramDurationSec: Double = 0.0,
@@ -61,12 +81,17 @@ data class OnboardingVoiceFacts(
     val vocabularyExamples: Int? = null,
     val fluencyMetricsAvailable: Boolean? = null,
     val outcome: String? = null,
+    val failureStage: String? = null,
+    val failureCode: String? = null,
 )
 
 internal interface OnboardingAnalytics {
     suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
-                            trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant? = null)
-    suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String? = null)
+                            trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant? = null,
+                            chatId: Long? = null, username: String? = null, invitationError: String? = null)
+    suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String? = null,
+                             chatId: Long? = null, username: String? = null, invitationAt: Instant? = null,
+                             invitationError: String? = null)
     suspend fun mark(runId: String, step: AttemptMark, at: Instant)
     suspend fun markGoal(runId: String, minutes: Int, at: Instant)
     suspend fun markReminderDecision(runId: String, decision: String, at: Instant)
@@ -80,7 +105,8 @@ internal interface OnboardingAnalytics {
         receivedAt: Instant = at,
     )
     suspend fun recordOutcome(attemptId: String, facts: OnboardingVoiceFacts, at: Instant)
-    suspend fun event(attemptId: String, key: String, type: String, at: Instant)
+    suspend fun event(attemptId: String, key: String, type: String, at: Instant,
+                      failureStage: String? = null, failureCode: String? = null)
     suspend fun recordReturn(sessionId: String, at: Instant)
     suspend fun report(now: Instant = Instant.now(), filter: OnboardingFilter = OnboardingFilter()): OnboardingReport
     fun close() {}
@@ -100,14 +126,17 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
     private val practiceDays = linkedMapOf<Pair<String, LocalDate>, PracticeDayRow>()
 
     override suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
-                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?) {
+                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?,
+                                     chatId: Long?, username: String?, invitationError: String?) {
         lock.withLock {
             entries.putIfAbsent(sessionId to entryKey,
-                OnboardingEntryRow(sessionId, entryKey, at, eligible, trigger, reason, source, runId, invitationAt))
+                OnboardingEntryRow(sessionId, entryKey, at, eligible, trigger, reason, source, runId, invitationAt,
+                    chatId, safeOnboardingUsername(username), safeFailureCode(invitationError)))
         }
     }
 
-    override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?) {
+    override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?,
+                                      chatId: Long?, username: String?, invitationAt: Instant?, invitationError: String?) {
         lock.withLock {
             if (attempts.containsKey(runId)) return
             val number = attempts.values.count { it.sessionId == sessionId } + 1
@@ -116,8 +145,13 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
                 sessionId = sessionId,
                 trigger = if (number > 1 && trigger == "start") "repeat_start" else trigger,
                 isPrimary = number == 1 && trigger == "start",
+                attemptNumber = number,
                 startedAt = at,
                 source = source,
+                chatId = chatId,
+                username = safeOnboardingUsername(username),
+                invitationAt = invitationAt,
+                invitationError = safeFailureCode(invitationError),
             )
         }
     }
@@ -172,6 +206,8 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
                     speechBeforeSec = facts.speechBeforeSec,
                     speechAfterSec = facts.speechAfterSec,
                     receivedAt = receivedAt,
+                    failureStage = safeFailureStage(facts.failureStage),
+                    failureCode = safeFailureCode(facts.failureCode),
                 ),
             )
             if (facts.recognized) attempt.times.putIfAbsent(AttemptMark.FIRST_VOICE, at)
@@ -199,10 +235,12 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
         if (facts.assessmentFailed) attempt.times.putIfAbsent(AttemptMark.ASSESSMENT_FAILED, at)
     }
 
-    override suspend fun event(attemptId: String, key: String, type: String, at: Instant) {
+    override suspend fun event(attemptId: String, key: String, type: String, at: Instant,
+                               failureStage: String?, failureCode: String?) {
         lock.withLock {
             if (attempts[attemptId] == null) return
-            events.putIfAbsent(attemptId to key, OnboardingEventRow(attemptId, type, at))
+            events.putIfAbsent(attemptId to key, OnboardingEventRow(attemptId, type, at,
+                safeFailureStage(failureStage), safeFailureCode(failureCode)))
         }
     }
 
@@ -230,8 +268,13 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
         val sessionId: String,
         val trigger: String,
         val isPrimary: Boolean,
+        val attemptNumber: Int,
         val startedAt: Instant,
         val source: String?,
+        val chatId: Long?,
+        val username: String?,
+        val invitationAt: Instant?,
+        val invitationError: String?,
     ) {
         val times = linkedMapOf<AttemptMark, Instant>()
         var goalMinutes: Int? = null
@@ -250,6 +293,7 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             sessionId = sessionId,
             trigger = trigger,
             isPrimary = isPrimary,
+            attemptNumber = attemptNumber,
             startedAt = startedAt,
             letsChatAt = times[AttemptMark.LETS_CHAT],
             beginPressedAt = times[AttemptMark.BEGIN_PRESSED],
@@ -285,6 +329,10 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             vocabularyExamples = vocabularyExamples,
             fluencyMetricsAvailable = fluencyMetricsAvailable,
             version = ONBOARDING_ANALYTICS_VERSION,
+            chatId = chatId,
+            username = username,
+            invitationDeliveredAt = invitationAt,
+            invitationError = invitationError,
         )
     }
 }
@@ -309,20 +357,36 @@ private fun voiceOutcome(facts: OnboardingVoiceFacts): String = when {
 
 internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnalytics {
     private val dataSource: DataSource = hikari(databaseUrl)
+    private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     init {
         Flyway.configure().dataSource(dataSource).load().migrate()
+        cleanupScope.launch {
+            while (isActive) {
+                try {
+                    val cutoff = Timestamp.from(Instant.now().minusSeconds(90L * 86_400))
+                    while (isActive && purgePersonalSnapshots(cutoff) > 0) delay(25)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    org.slf4j.LoggerFactory.getLogger("OnboardingAnalytics")
+                        .warn("Onboarding username cleanup failed", error)
+                }
+                delay(3_600_000)
+            }
+        }
     }
 
     override suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
-                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?) {
+                                     trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant?,
+                                     chatId: Long?, username: String?, invitationError: String?) {
         withContext(Dispatchers.IO) {
             dataSource.connection.use { connection ->
                 connection.prepareStatement("""
                     INSERT INTO onboarding_entries
                         (session_id, entry_key, received_at, eligible, trigger, exclusion_reason, start_source, run_id,
-                         invitation_delivered_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         invitation_delivered_at, telegram_chat_id, telegram_username, invitation_error_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (session_id, entry_key) DO NOTHING
                 """.trimIndent()).use { statement ->
                     statement.setString(1, sessionId)
@@ -334,13 +398,17 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setString(7, source)
                     statement.setString(8, runId)
                     statement.setTimestamp(9, invitationAt?.let(Timestamp::from))
+                    statement.setObject(10, chatId)
+                    statement.setString(11, safeOnboardingUsername(username))
+                    statement.setString(12, safeFailureCode(invitationError))
                     statement.executeUpdate()
                 }
             }
         }
     }
 
-    override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?) {
+    override suspend fun startAttempt(sessionId: String, runId: String, trigger: String, at: Instant, source: String?,
+                                      chatId: Long?, username: String?, invitationAt: Instant?, invitationError: String?) {
         withContext(Dispatchers.IO) {
             dataSource.connection.use { connection ->
                 connection.autoCommit = false
@@ -365,8 +433,9 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                             """
                             INSERT INTO onboarding_attempts
                                 (run_id, session_id, attempt_number, trigger, is_primary, started_at,
-                                 start_source, onboarding_version)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                                 start_source, onboarding_version, telegram_chat_id, telegram_username,
+                                 invitation_delivered_at, invitation_error_reason)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """.trimIndent(),
                         ).use { statement ->
                             statement.setString(1, runId)
@@ -377,6 +446,10 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                             statement.setTimestamp(6, Timestamp.from(at))
                             statement.setString(7, source)
                             statement.setString(8, ONBOARDING_ANALYTICS_VERSION)
+                            statement.setObject(9, chatId)
+                            statement.setString(10, safeOnboardingUsername(username))
+                            statement.setTimestamp(11, invitationAt?.let(Timestamp::from))
+                            statement.setString(12, safeFailureCode(invitationError))
                             statement.executeUpdate()
                         }
                     }
@@ -464,8 +537,8 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                         attempt_id, request_id, session_id, voice_index,
                         telegram_duration_sec, recognized_duration_sec, recognized,
                         failure_reason, processing_ms, created_at, outcome,
-                        speech_before_sec, speech_after_sec, received_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        speech_before_sec, speech_after_sec, received_at, failure_stage, failure_code
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (attempt_id, request_id) DO NOTHING
                     """.trimIndent(),
                     ).use { statement ->
@@ -483,6 +556,8 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setObject(12, facts.speechBeforeSec)
                     statement.setObject(13, facts.speechAfterSec)
                     statement.setTimestamp(14, Timestamp.from(receivedAt))
+                    statement.setString(15, safeFailureStage(facts.failureStage))
+                    statement.setString(16, safeFailureCode(facts.failureCode))
                         statement.executeUpdate()
                     }
                     applyOutcome(connection, attemptId, facts, at, firstVoice = facts.recognized)
@@ -508,17 +583,20 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
         }
     }
 
-    override suspend fun event(attemptId: String, key: String, type: String, at: Instant) {
+    override suspend fun event(attemptId: String, key: String, type: String, at: Instant,
+                               failureStage: String?, failureCode: String?) {
         withContext(Dispatchers.IO) {
             dataSource.connection.use { connection ->
                 connection.prepareStatement(
-                    "INSERT INTO onboarding_events (attempt_id, event_key, event_type, created_at) " +
-                        "VALUES (?, ?, ?, ?) ON CONFLICT (attempt_id, event_key) DO NOTHING",
+                    "INSERT INTO onboarding_events (attempt_id, event_key, event_type, created_at, failure_stage, failure_code) " +
+                        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (attempt_id, event_key) DO NOTHING",
                 ).use { statement ->
                     statement.setString(1, attemptId)
                     statement.setString(2, key)
                     statement.setString(3, type)
                     statement.setTimestamp(4, Timestamp.from(at))
+                    statement.setString(5, safeFailureStage(failureStage))
+                    statement.setString(6, safeFailureCode(failureCode))
                     try {
                         statement.executeUpdate()
                     } catch (error: java.sql.SQLException) {
@@ -589,7 +667,26 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
     }
 
     override fun close() {
+        cleanupScope.cancel()
         (dataSource as? HikariDataSource)?.close()
+    }
+
+    private fun purgePersonalSnapshots(cutoff: Timestamp): Int = dataSource.connection.use { connection ->
+        listOf("onboarding_entries" to "received_at", "onboarding_attempts" to "started_at").sumOf { (table, at) ->
+            connection.prepareStatement("""
+                WITH expired AS (
+                    SELECT ctid FROM $table WHERE $at < ?
+                      AND (telegram_username IS NOT NULL OR telegram_chat_id IS NOT NULL)
+                    LIMIT 1000
+                )
+                UPDATE $table AS row SET telegram_username = NULL, telegram_chat_id = NULL
+                FROM expired WHERE row.ctid = expired.ctid
+            """.trimIndent()).use { statement ->
+                statement.setTimestamp(1, cutoff)
+                statement.queryTimeout = 5
+                statement.executeUpdate()
+            }
+        }
     }
 
     private fun applyOutcome(

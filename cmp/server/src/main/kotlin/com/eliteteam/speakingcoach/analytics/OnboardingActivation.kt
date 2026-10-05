@@ -17,6 +17,9 @@ internal data class OnboardingEntryRow(
     val source: String?,
     val runId: String?,
     val invitationDeliveredAt: Instant? = null,
+    val chatId: Long? = null,
+    val username: String? = null,
+    val invitationError: String? = null,
 )
 
 internal data class PracticeDayRow(val runId: String, val day: LocalDate, val firstReplyAt: Instant)

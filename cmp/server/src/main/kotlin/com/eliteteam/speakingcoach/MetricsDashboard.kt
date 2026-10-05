@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
+import com.eliteteam.speakingcoach.analytics.JourneyMode
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
@@ -158,6 +159,7 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(ONBOARDING_ANALYTICS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         if (!call.hasMetricsSession(dashboard.password)) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
@@ -305,6 +307,7 @@ private fun onboardingFilter(query: Parameters): OnboardingFilter = OnboardingFi
     version = query["version"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
     source = query["source"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) },
     trigger = query["trigger"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+    journeyMode = if (query["journey"] == "repeats") JourneyMode.REPEATS else JourneyMode.PRIMARY,
 )
 
 private suspend fun ApplicationCall.llmRangeOrRespond(): LlmRange? {
