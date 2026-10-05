@@ -581,6 +581,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         add("$root/reminders" to "Напоминания")
         add("$root/streaks" to "Стрики")
         add("$root/errors" to "Ошибки")
+        if (root == MONITORING_PATH) add("$root/history" to "История")
         add("$root/onboarding-campaign" to "Onboarding рассылка")
     }
     val links = tabs.joinToString("") { (path, label) ->

@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.InteractionAudit
+import com.eliteteam.speakingcoach.analytics.InteractionEvent
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
@@ -12,6 +14,7 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -22,6 +25,11 @@ import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import java.util.Locale
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.time.Instant
+import java.util.UUID
+import kotlinx.serialization.json.Json
 
 internal const val MONITORING_PATH = "/admin/monitoring"
 
@@ -34,6 +42,7 @@ internal class MonitoringDashboard(
     val campaign: LegacyCampaignAdmin? = null,
     val monitoringPort: Int = 0,
     val voiceAttempts: VoiceAttemptRecorder? = null,
+    val audit: InteractionAudit? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -83,6 +92,51 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
             catch (error: Throwable) { log.warn("Voice attempt snapshot failed", error); null }
         val html = errorsPageHtml(metrics, voice, summaryRoot = root)
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$root/history") {
+        if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
+        call.response.headers.append("Cache-Control", "no-store")
+        val chatId = call.request.queryParameters["chatId"]?.toLongOrNull()
+        val attemptId = call.request.queryParameters["attemptId"]?.takeIf {
+            runCatching { UUID.fromString(it) }.isSuccess
+        }
+        val jobId = call.request.queryParameters["jobId"]?.takeIf { it.isNotBlank() && it.length <= 100 }
+        val from = call.request.queryParameters["from"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val to = call.request.queryParameters["to"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val before = call.request.queryParameters["before"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val beforeId = call.request.queryParameters["beforeId"]?.takeIf { it.length <= 160 }
+        var historyError = false
+        val rows = try { dashboard.audit?.list(chatId, attemptId, jobId, from, to, before, beforeId, 101).orEmpty() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Interaction history read failed", error); historyError = true; emptyList() }
+        call.respondText(interactionHistoryHtml(chatId, attemptId, jobId, from, to, rows,
+            dashboard.audit != null && !historyError, dashboard.audit?.writeFailures?.get() ?: 0,
+            dashboard.audit?.pendingWrites?.get() ?: 0), ContentType.Text.Html)
+    }.hide()
+    get("$root/history/audio/{attemptId}") {
+        if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
+        call.response.headers.append("Cache-Control", "no-store")
+        val attemptId = call.parameters["attemptId"].orEmpty()
+        val bytes = dashboard.audit?.readAudio(attemptId)
+        if (bytes == null) {
+            call.respond(HttpStatusCode.NotFound)
+        } else {
+            call.response.headers.append("Accept-Ranges", "bytes")
+            val range = call.request.headers["Range"]
+            val slice = parseAudioRange(range, bytes.size)
+            when {
+                range != null && slice == null -> {
+                    call.response.headers.append("Content-Range", "bytes */${bytes.size}")
+                    call.respond(HttpStatusCode.RequestedRangeNotSatisfiable)
+                }
+                slice != null -> {
+                    call.response.headers.append("Content-Range", "bytes ${slice.first}-${slice.last}/${bytes.size}")
+                    call.respondBytes(bytes.copyOfRange(slice.first, slice.last + 1),
+                        ContentType.parse("audio/ogg"), HttpStatusCode.PartialContent)
+                }
+                else -> call.respondBytes(bytes, ContentType.parse("audio/ogg"))
+            }
+        }
     }.hide()
     get("$root/onboarding-campaign") {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
@@ -160,6 +214,85 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
         val sent = admin.sendTest(chatId)
         call.respondRedirect("$root/onboarding-campaign?notice=${if (sent) "test-sent" else "test-failed"}")
     }.hide()
+}
+
+internal fun parseAudioRange(header: String?, size: Int): IntRange? {
+    if (header == null || size <= 0) return null
+    val match = Regex("bytes=(\\d*)-(\\d*)").matchEntire(header) ?: return null
+    val first = match.groupValues[1]
+    val last = match.groupValues[2]
+    if (first.isEmpty() && last.isEmpty()) return null
+    val start: Long
+    val end: Long
+    if (first.isEmpty()) {
+        val suffix = last.toLongOrNull()?.takeIf { it > 0 } ?: return null
+        start = (size.toLong() - suffix).coerceAtLeast(0)
+        end = size.toLong() - 1
+    } else {
+        start = first.toLongOrNull() ?: return null
+        end = if (last.isEmpty()) size.toLong() - 1 else last.toLongOrNull() ?: return null
+    }
+    if (start >= size || end < start) return null
+    return start.toInt()..minOf(end, size.toLong() - 1).toInt()
+}
+
+private fun interactionHistoryHtml(
+    chatId: Long?, attemptId: String?, jobId: String?, from: Instant?, to: Instant?,
+    rows: List<InteractionEvent>, enabled: Boolean, writeFailures: Long, pendingWrites: Long,
+): String {
+    val page = rows.take(100)
+    val items = page.joinToString("\n") { event ->
+        val content = event.content?.let { "<p>${escapeHtml(it)}</p>" }
+            ?: if (event.receivedAt.isBefore(java.time.Instant.now().minusSeconds(7L * 86_400L)))
+                "<p>Содержимое удалено по сроку хранения</p>" else ""
+        val audio = if (event.kind == "audio" && event.audioFile != null &&
+            event.receivedAt.isAfter(java.time.Instant.now().minusSeconds(7L * 86_400L)))
+            "<audio controls preload=\"none\" src=\"$MONITORING_PATH/history/audio/${escapeHtml(event.attemptId.orEmpty())}\"></audio>"
+            else ""
+        val voice = if (event.kind == "voice") {
+            "<small> · итог: ${escapeHtml(event.voiceOutcome ?: "ещё обрабатывается или итог не записан")}" +
+                " · этап: ${escapeHtml(event.voiceStage.orEmpty())}" +
+                " · причина: ${escapeHtml(event.voiceReason.orEmpty())}</small>"
+        } else ""
+        val logs = event.attemptId?.let { id ->
+            val expression = Json.encodeToString("{host=~\"cmp|ai\"} |= \"attempt_id=$id\"")
+            val start = event.occurredAt.minusSeconds(300).toEpochMilli()
+            val end = event.occurredAt.plusSeconds(900).toEpochMilli()
+            val panes = """{"A":{"datasource":"speaky-loki","queries":[{"refId":"A","datasource":{"uid":"speaky-loki","type":"loki"},"expr":$expression}],"range":{"from":"$start","to":"$end"}}}"""
+            " <a href=\"/explore?panes=${URLEncoder.encode(panes, StandardCharsets.UTF_8)}&amp;schemaVersion=1&amp;orgId=1\">Логи</a>"
+        }.orEmpty()
+        "<li><strong>${escapeHtml(event.occurredAt.toString())} · ${escapeHtml(event.direction)} · " +
+            "${escapeHtml(event.kind)} · ${escapeHtml(event.status)}</strong>" +
+            "<small> attempt_id=${escapeHtml(event.attemptId.orEmpty())} " +
+            "job=${escapeHtml(event.jobId.orEmpty())}</small>$logs$voice$content$audio</li>"
+    }
+    val next = if (rows.size > 100) page.last().let { last ->
+        val query = listOfNotNull(
+            chatId?.let { "chatId" to it.toString() },
+            attemptId?.let { "attemptId" to it }, jobId?.let { "jobId" to it },
+            from?.let { "from" to it.toString() }, to?.let { "to" to it.toString() },
+            "before" to last.occurredAt.toString(), "beforeId" to last.id,
+        ).joinToString("&") { (key, value) -> "$key=${URLEncoder.encode(value, StandardCharsets.UTF_8)}" }
+        "<p><a href=\"$MONITORING_PATH/history?$query\">Следующие события</a></p>"
+    } else ""
+    return """
+        <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="robots" content="noindex">
+        <title>Speaky · история</title>${pageStyle()}</head><body>
+        <h1>История взаимодействий</h1>${adminTabs("$MONITORING_PATH/history", MONITORING_PATH)}
+        <form method="get" action="$MONITORING_PATH/history"><label>Telegram chat ID
+        <input name="chatId" type="number" value="${chatId ?: ""}"></label>
+        <label>Attempt ID <input name="attemptId" value="${escapeHtml(attemptId.orEmpty())}"></label>
+        <label>Job ID <input name="jobId" value="${escapeHtml(jobId.orEmpty())}"></label>
+        <label>От (UTC ISO 8601) <input name="from" value="${escapeHtml(from?.toString().orEmpty())}"></label>
+        <label>До (UTC ISO 8601) <input name="to" value="${escapeHtml(to?.toString().orEmpty())}"></label>
+        <button type="submit">Найти</button></form>
+        <p>Аудио, расшифровки и тексты хранятся 7 суток; технические события — 30 дней.
+        Доставка означает приём сообщения Telegram, а не прослушивание.</p>
+        ${if (writeFailures > 0) "<p>Ошибок записи журнала с последнего запуска: $writeFailures. История может быть неполной.</p>" else ""}
+        ${if (pendingWrites > 0) "<p>Событий в очереди записи: $pendingWrites.</p>" else ""}
+        ${if (!enabled) "<p>Хранилище истории недоступно.</p>" else if (chatId != null && rows.isEmpty()) "<p>Событий нет.</p>" else ""}
+        <ol>$items</ol>$next</body></html>
+    """.trimIndent()
 }
 
 private suspend fun ApplicationCall.blockPublicMonitoring(monitoringPort: Int): Boolean {

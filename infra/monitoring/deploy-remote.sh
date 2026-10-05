@@ -25,6 +25,8 @@ AI_URL=$(env_get AI_SERVICE_BASE_URL)
 TOKEN=$(env_get AI_INTERNAL_TOKEN)
 GRAFANA_PASSWORD=$(env_get GRAFANA_ADMIN_PASSWORD)
 GRAFANA_ROOT=$(env_get GRAFANA_ROOT_URL)
+SPEAKY_ENV=$(env_get SPEAKY_ENV)
+SPEAKY_ENV=${SPEAKY_ENV:-unknown}
 
 SERVER_PORT=${SERVER_PORT:-443}
 MONITORING_PORT=${MONITORING_PORT:-8081}
@@ -92,11 +94,19 @@ chown 65534:65534 "$MON/ai_token"
 
 VOLUMES="
 volumes:
-  speaking-coach-prometheus:"
+  speaking-coach-prometheus:
+  speaking-coach-loki:
+  speaking-coach-alloy:"
 
 cat > "$MON/compose.yml" <<EOF
+x-logging: &bounded_logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
 services:
   prometheus:
+    logging: *bounded_logging
     image: prom/prometheus:v2.55.1
     container_name: speaking-coach-prometheus
     network_mode: host
@@ -110,6 +120,7 @@ services:
       - ./ai_token:/etc/prometheus/ai_token:ro
       - speaking-coach-prometheus:/prometheus
   blackbox:
+    logging: *bounded_logging
     image: prom/blackbox-exporter:v0.25.0
     container_name: speaking-coach-blackbox
     network_mode: host
@@ -119,12 +130,44 @@ services:
       - --web.listen-address=127.0.0.1:9115
     volumes:
       - ./blackbox.yml:/etc/blackbox/blackbox.yml:ro
+  loki:
+    logging: *bounded_logging
+    image: grafana/loki:3.7.0
+    container_name: speaking-coach-loki
+    network_mode: host
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki.yml
+    volumes:
+      - ./loki.yml:/etc/loki/loki.yml:ro
+      - speaking-coach-loki:/loki
+  alloy:
+    logging: *bounded_logging
+    image: grafana/alloy:v1.20.1
+    container_name: speaking-coach-alloy
+    network_mode: host
+    user: "0:0"
+    restart: unless-stopped
+    command: run --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+    environment:
+      SPEAKY_ENV: ${SPEAKY_ENV}
+    volumes:
+      - ./alloy-local.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - speaking-coach-alloy:/var/lib/alloy
 EOF
 
 if [ -z "$GRAFANA_PASSWORD" ]; then
   echo "GRAFANA_ADMIN_PASSWORD is empty; Grafana is not published" >&2
   docker rm -f speaking-coach-grafana speaking-coach-monitoring-proxy >/dev/null 2>&1 || true
 else
+  INGEST_PASSWORD="$TOKEN"
+  if [ -z "$INGEST_PASSWORD" ]; then
+    INGEST_PASSWORD=$(openssl rand -hex 32)
+    echo "AI_INTERNAL_TOKEN is empty; remote Loki ingest remains locked" >&2
+  fi
+  HASH=$(printf '%s' "$INGEST_PASSWORD" | openssl passwd -apr1 -stdin)
+  printf 'alloy:%s\n' "$HASH" > "$MON/loki.htpasswd"
+  chmod 600 "$MON/loki.htpasswd"
   cat > "$MON/nginx.conf" <<EOF
 server {
   listen 8443 ssl;
@@ -147,6 +190,12 @@ server {
   location @need_login {
     return 302 /login;
   }
+  location = /loki/api/v1/push {
+    auth_basic "Loki ingest";
+    auth_basic_user_file /etc/nginx/loki.htpasswd;
+    client_max_body_size 10m;
+    proxy_pass http://127.0.0.1:3100;
+  }
   location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host \$host;
@@ -156,6 +205,7 @@ server {
 EOF
   cat >> "$MON/compose.yml" <<EOF
   grafana:
+    logging: *bounded_logging
     image: grafana/grafana:11.3.1
     container_name: speaking-coach-grafana
     network_mode: host
@@ -173,6 +223,7 @@ EOF
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
       - speaking-coach-grafana:/var/lib/grafana
   proxy:
+    logging: *bounded_logging
     image: nginx:1.27-alpine
     container_name: speaking-coach-monitoring-proxy
     network_mode: host
@@ -181,11 +232,14 @@ EOF
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ${APP}/tls.crt:/certs/tls.crt:ro
       - ${APP}/tls.key:/certs/tls.key:ro
+      - ./loki.htpasswd:/etc/nginx/loki.htpasswd:ro
 EOF
   VOLUMES="
 volumes:
   speaking-coach-prometheus:
-  speaking-coach-grafana:"
+  speaking-coach-grafana:
+  speaking-coach-loki:
+  speaking-coach-alloy:"
 fi
 
 printf '%s\n' "$VOLUMES" >> "$MON/compose.yml"

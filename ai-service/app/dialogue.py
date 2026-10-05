@@ -5,6 +5,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from app.audit_artifacts import recorded_at
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -15,6 +16,15 @@ from redis.asyncio import Redis
 class ChatMessage:
     role: str
     content: str
+    created_at: float = field(default_factory=recorded_at)
+
+
+CONTENT_RETENTION_SECONDS = 7 * 24 * 60 * 60
+
+
+def _current_messages(messages: list[ChatMessage]) -> list[ChatMessage]:
+    cutoff = time.time() - CONTENT_RETENTION_SECONDS
+    return [item for item in messages if item.created_at > cutoff]
 
 
 class DialogueStore(Protocol):
@@ -70,6 +80,7 @@ class MemoryDialogueStore:
             session = self._live_session(session_id)
             if session is None:
                 return []
+            session.messages = _current_messages(session.messages)
             return list(session.messages)
 
     async def record_turn(self, session_id: str, user_text: str, reply: str) -> None:
@@ -78,6 +89,7 @@ class MemoryDialogueStore:
             if session is None:
                 session = _Session()
                 self._sessions[session_id] = session
+            session.messages = _current_messages(session.messages)
             session.messages.append(ChatMessage("user", user_text))
             session.messages.append(ChatMessage("assistant", reply))
             session.messages = _trim(session.messages, self._max_messages)
@@ -91,11 +103,12 @@ class MemoryDialogueStore:
     ) -> str:
         async with await self._lock_for(session_id):
             session = self._live_session(session_id)
-            history = list(session.messages) if session is not None else []
+            history = _current_messages(session.messages) if session is not None else []
             reply = await generate(history, user_text)
             if session is None:
                 session = _Session()
                 self._sessions[session_id] = session
+            session.messages = history
             session.messages.append(ChatMessage("user", user_text))
             session.messages.append(ChatMessage("assistant", reply))
             session.messages = _trim(session.messages, self._max_messages)
@@ -104,6 +117,19 @@ class MemoryDialogueStore:
 
     async def aclose(self) -> None:
         return None
+
+    async def prune_all(self) -> int:
+        changed = 0
+        for session_id in list(self._sessions):
+            async with await self._lock_for(session_id):
+                session = self._live_session(session_id)
+                if session is None:
+                    continue
+                current = _current_messages(session.messages)
+                if len(current) != len(session.messages):
+                    session.messages = current
+                    changed += 1
+        return changed
 
     async def _lock_for(self, session_id: str) -> asyncio.Lock:
         async with self._meta:
@@ -127,7 +153,7 @@ class RedisDialogueStore:
     def __init__(self, redis: Redis, max_messages: int, ttl_seconds: int) -> None:
         self._redis = redis
         self._max_messages = max_messages
-        self._ttl_seconds = ttl_seconds
+        self._ttl_seconds = min(ttl_seconds, CONTENT_RETENTION_SECONDS)
         self._locks: dict[str, asyncio.Lock] = {}
         self._meta = asyncio.Lock()
 
@@ -156,13 +182,17 @@ class RedisDialogueStore:
         raw = await self._redis.get(_session_key(session_id))
         if raw is None:
             return []
-        return _load_messages(raw)
+        messages = _load_messages(raw)
+        current = _current_messages(messages)
+        if len(current) != len(messages):
+            await self._redis.set(_session_key(session_id), _dump_messages(current), ex=self._ttl_seconds)
+        return current
 
     async def record_turn(self, session_id: str, user_text: str, reply: str) -> None:
         async with await self._lock_for(session_id):
             key = _session_key(session_id)
             raw = await self._redis.get(key)
-            history = _load_messages(raw) if raw is not None else []
+            history = _current_messages(_load_messages(raw)) if raw is not None else []
             messages = history + [
                 ChatMessage("user", user_text),
                 ChatMessage("assistant", reply),
@@ -179,7 +209,7 @@ class RedisDialogueStore:
         async with await self._lock_for(session_id):
             key = _session_key(session_id)
             raw = await self._redis.get(key)
-            history = _load_messages(raw) if raw is not None else []
+            history = _current_messages(_load_messages(raw)) if raw is not None else []
             reply = await generate(history, user_text)
             messages = history + [
                 ChatMessage("user", user_text),
@@ -191,6 +221,21 @@ class RedisDialogueStore:
 
     async def aclose(self) -> None:
         await self._redis.aclose()
+
+    async def prune_all(self) -> int:
+        """Remove old and legacy untimestamped turns even from inactive sessions."""
+        changed = 0
+        async for key in self._redis.scan_iter(match="session:*", count=100):
+            async with await self._lock_for(key.removeprefix("session:")):
+                raw = await self._redis.get(key)
+                if raw is None:
+                    continue
+                messages = _load_messages(raw)
+                current = _current_messages(messages)
+                if len(current) != len(messages):
+                    await self._redis.set(key, _dump_messages(current), ex=self._ttl_seconds)
+                    changed += 1
+        return changed
 
     async def _lock_for(self, session_id: str) -> asyncio.Lock:
         async with self._meta:
@@ -224,7 +269,7 @@ def _trim(messages: list[ChatMessage], max_messages: int) -> list[ChatMessage]:
 
 
 def _dump_messages(messages: list[ChatMessage]) -> str:
-    return json.dumps({"messages": [{"role": item.role, "content": item.content} for item in messages]})
+    return json.dumps({"messages": [{"role": item.role, "content": item.content, "at": item.created_at} for item in messages]})
 
 
 def _load_messages(raw: str | bytes) -> list[ChatMessage]:
@@ -240,6 +285,9 @@ def _load_messages(raw: str | bytes) -> list[ChatMessage]:
             continue
         role = str(item.get("role") or "").strip()
         content = str(item.get("content") or "")
+        created_at = item.get("at")
         if role:
-            messages.append(ChatMessage(role=role, content=content))
+            # Legacy turns have no timestamp, so their age cannot be proven within seven days.
+            timestamp = float(created_at) if isinstance(created_at, (int, float)) else 0.0
+            messages.append(ChatMessage(role=role, content=content, created_at=timestamp))
     return messages

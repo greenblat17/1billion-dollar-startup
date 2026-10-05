@@ -331,6 +331,11 @@ class HttpClipClient(
         }
     }
 
+    suspend fun auditAttempt(attemptId: String): Map<String, String> {
+        val response = http.get("$root/internal/audit/attempt/$attemptId") { applyInternalToken() }
+        return if (response.status.isSuccess()) response.body() else emptyMap()
+    }
+
     internal suspend fun loadLlmRange(range: LlmRange): LlmRequestPeriod {
         val response = http.get("$root/internal/metrics/llm?from=${range.from}&to=${range.to}") {
             applyInternalToken()
@@ -437,6 +442,7 @@ class HttpClipClient(
                 clip.onboardingRunId?.let { append("onboardingRunId", it) }
                 clip.requestId?.let { append("requestId", it) }
                 clip.attemptId?.let { append("attemptId", it) }
+                clip.receivedAtEpoch?.let { append("receivedAtEpoch", it.toString()) }
                 append("durationSeconds", clip.durationSeconds.toString())
                 append(
                     "audio",

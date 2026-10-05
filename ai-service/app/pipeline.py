@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.dialogue import DialogueStore
+from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
@@ -182,6 +183,7 @@ class ClipPipeline:
         finally:
             timings["stt"] = _elapsed_ms(stt_started)
         stt_ms = timings["stt"]
+        await record_artifact("transcript", stt_result.text)
         if self._v2 is not None:
             await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
 
@@ -237,6 +239,7 @@ class ClipPipeline:
         try:
             stage("llm")
             reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
+            await record_artifact("reply", reply_text)
             tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()

@@ -66,8 +66,8 @@ class OnboardingJourneyTest {
         assertEquals(18L, report.journey.recent.first().chatId)
         assertFalse(report.journey.recent.any { it.chatId == 1L })
         val html = onboardingReportHtml(report)
-        assertFalse(html.contains("<script>"))
-        assertTrue(html.contains("&lt;script&gt;"))
+        assertFalse(html.contains("<td>@<script></td>"))
+        assertTrue(html.contains("<td>@&lt;script&gt;</td>"))
     }
 
     @Test
