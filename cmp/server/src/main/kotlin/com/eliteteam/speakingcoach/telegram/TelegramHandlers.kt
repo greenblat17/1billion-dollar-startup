@@ -135,6 +135,7 @@ private fun userAction(text: String): String = when {
 }
 
 private fun callbackAction(data: String): String = when {
+    parseCallFeedbackCallback(data) != null -> "callback:call-feedback"
     data == LEGACY_ONBOARDING_CALLBACK -> "callback:legacy-onboarding"
     parseSpeedCallback(data) != null -> "callback:speed"
     data == REMINDER_STOP_CALLBACK -> "callback:reminder-stop"
@@ -1308,6 +1309,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to edit call progress for {}", message.chat.id, error)
             reply(message, progress, allowSendingWithoutReply = true)
         }
+        try {
+            val offered = ai.callFeedback(telegramSessionId(message.chat.id), "offer", callId = callId,
+                username = telegramProfile(message.chat).username.orEmpty())
+            if (offered.status == "offered") {
+                reply(message, FIRST_CALL_FEEDBACK_PROMPT, allowSendingWithoutReply = true,
+                    replyMarkup = firstCallFeedbackKeyboard(callId))
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to show first-call feedback for {}", message.chat.id, error)
+        }
     }
     suspend fun endPracticeCall(message: ChatMessage, callbackId: String, pressedAt: Instant,
                                 expectedCallId: String) {
@@ -1435,6 +1448,46 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 throw error
             } catch (error: Throwable) {
                 log.error("Reminder stop failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
+        val feedbackCallback = parseCallFeedbackCallback(query.data)
+        if (feedbackCallback != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "callfb:${query.id}") {
+                    val result = ai.callFeedback(telegramSessionId(message.chat.id), feedbackCallback.action,
+                        callId = feedbackCallback.callId, choice = feedbackCallback.choice)
+                    if (result.status == "rated") {
+                        val question = if (feedbackCallback.choice == "liked")
+                            FIRST_CALL_FEEDBACK_LIKED_QUESTION else FIRST_CALL_FEEDBACK_IMPROVE_QUESTION
+                        try {
+                            editMessageText(message.chat.id, message.messageId, question,
+                                replyMarkup = firstCallFeedbackSkipKeyboard(feedbackCallback.callId))
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to edit first-call feedback question for {}", message.chat.id, error)
+                            reply(message, question, allowSendingWithoutReply = true,
+                                replyMarkup = firstCallFeedbackSkipKeyboard(feedbackCallback.callId))
+                        }
+                    } else if (feedbackCallback.action == "skip") {
+                        try {
+                            editMessageText(message.chat.id, message.messageId, FIRST_CALL_FEEDBACK_THANKS,
+                                replyMarkup = noInlineKeyboard)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Failed to edit skipped first-call feedback for {}", message.chat.id, error)
+                            reply(message, FIRST_CALL_FEEDBACK_THANKS, allowSendingWithoutReply = true)
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("First-call feedback failed for {}", message.chat.id, error)
                 reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
             }
             return@withRequestLog
@@ -1777,7 +1830,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                     }
                                 }
                             }
-                            else -> reply(message, SEND_VOICE_HINT)
+                            else -> {
+                                val feedback = ai.callFeedback(telegramSessionId(message.chat.id), "answer", text = content.text)
+                                when (feedback.status) {
+                                    "saved" -> reply(message, FIRST_CALL_FEEDBACK_THANKS, allowSendingWithoutReply = true)
+                                    "too_long" -> reply(message, "Пожалуйста, напиши до 500 символов.", allowSendingWithoutReply = true)
+                                    else -> reply(message, SEND_VOICE_HINT)
+                                }
+                            }
                         }
                         if (scheduled.status !in setOf("saved", "invalid")) {
                             val state = ai.onboardingState(telegramSessionId(message.chat.id), "analytics:text:${message.messageId}")

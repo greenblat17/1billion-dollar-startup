@@ -100,6 +100,36 @@ internal fun callRetryKeyboard(callId: String): InlineKeyboardMarkup = inlineKey
     row { dataButton("Retry", "call:retry:$callId") }
 }
 
+internal const val FIRST_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор со Speaky?"
+internal const val FIRST_CALL_FEEDBACK_LIKED_QUESTION = "Что тебе особенно понравилось?"
+internal const val FIRST_CALL_FEEDBACK_IMPROVE_QUESTION = "Что можно улучшить?"
+internal const val FIRST_CALL_FEEDBACK_THANKS = "Спасибо за отзыв 💙"
+
+internal data class CallFeedbackCallback(val action: String, val callId: String, val choice: String = "")
+
+internal fun parseCallFeedbackCallback(data: String): CallFeedbackCallback? {
+    val parts = data.split(':')
+    if (parts.size !in 3..4 || parts[0] != "callfb" || !Regex("[a-f0-9]{32}").matches(parts[2])) return null
+    return when {
+        parts.size == 4 && parts[1] == "rate" && parts[3] in setOf("liked", "neutral", "disliked") ->
+            CallFeedbackCallback("rate", parts[2], parts[3])
+        parts.size == 3 && parts[1] == "skip" -> CallFeedbackCallback("skip", parts[2])
+        else -> null
+    }
+}
+
+internal fun firstCallFeedbackKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("👍 Понравился", "callfb:rate:$callId:liked")
+        dataButton("😐 Так себе", "callfb:rate:$callId:neutral")
+        dataButton("👎 Не понравился", "callfb:rate:$callId:disliked")
+    }
+}
+
+internal fun firstCallFeedbackSkipKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("Пропустить", "callfb:skip:$callId") }
+}
+
 internal fun callYesterdayKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton("Yesterday's results", "call:review:$callId") }
 }

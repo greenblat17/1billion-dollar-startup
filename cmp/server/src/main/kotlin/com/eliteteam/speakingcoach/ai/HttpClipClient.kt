@@ -300,6 +300,25 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun callFeedback(
+        sessionId: SessionId, action: String, callId: String = "", choice: String = "", text: String = "",
+        username: String = "",
+    ): CallFeedbackResponse {
+        val response = http.post("$root/internal/calls/feedback") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallFeedbackRequest(sessionId.value, action, callId, choice, text, username))
+        }
+        check(response.status.isSuccess()) { "ai-service call feedback returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun callFeedbackList(offset: Int = 0, limit: Int = 25): CallFeedbackList {
+        val response = http.get("$root/internal/calls/feedback?offset=$offset&limit=$limit") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service call feedback list returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
         val response = http.post("$root/internal/onboarding/actions") {
             applyInternalToken()
@@ -538,6 +557,7 @@ internal class HttpMetricsSource(
     override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
     override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = clips.loadLlmRange(range)
     override suspend fun reminderSummary(): ReminderClockSummary = clips.reminderSummary()
+    override suspend fun callFeedback(offset: Int, limit: Int): CallFeedbackList = clips.callFeedbackList(offset, limit)
 }
 
 private sealed interface ClipJobStatus {

@@ -18,6 +18,7 @@ from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
 from app.calls import CallStore, moscow_day
+from app.first_call_feedback import FirstCallFeedback
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -81,6 +82,7 @@ def create_app(
         redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
         goal_of=onboarding.store.get_goal,
     )
+    first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
@@ -127,6 +129,7 @@ def create_app(
         if campaign_redis is not None:
             await campaign_redis.aclose()
         await audit_artifacts.aclose()
+        await first_call_feedback.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
             await close_tts()
@@ -436,6 +439,37 @@ def create_app(
             raise HTTPException(status_code=404, detail="unknown call") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail="numeric baseline required") from error
+
+    @app.post("/internal/calls/feedback")
+    async def calls_feedback(request: Request) -> dict[str, str]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = str(payload.get("action") or "")
+        call_id = str(payload.get("callId") or "")
+        if action == "offer":
+            call = await calls.get(call_id)
+            if (call is None or call.get("sessionId") != session_id or not call.get("review")
+                    or not await calls.is_first_practice_call(session_id, call_id)):
+                return {"status": "ignored"}
+            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""))
+        if action == "rate":
+            try:
+                return await first_call_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+        if action == "answer":
+            value = payload.get("text")
+            if not isinstance(value, str):
+                raise HTTPException(status_code=400, detail="text required")
+            return await first_call_feedback.answer(session_id, text=value)
+        if action == "skip":
+            return await first_call_feedback.answer(session_id, call_id=call_id)
+        raise HTTPException(status_code=400, detail="invalid feedback action")
+
+    @app.get("/internal/calls/feedback")
+    async def calls_feedback_list(offset: int = Query(0, ge=0, le=10_000),
+                                  limit: int = Query(25, ge=1, le=50)) -> dict[str, Any]:
+        return await first_call_feedback.list_rated(offset, limit)
 
     @app.post("/internal/onboarding/goal")
     async def onboarding_goal(request: Request) -> dict:

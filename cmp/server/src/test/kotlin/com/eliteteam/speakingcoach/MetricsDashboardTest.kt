@@ -16,6 +16,8 @@ import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
 import com.eliteteam.speakingcoach.ai.TelegramJourneySnapshot
 import com.eliteteam.speakingcoach.ai.CorrectionMetrics
+import com.eliteteam.speakingcoach.ai.CallFeedbackEntry
+import com.eliteteam.speakingcoach.ai.CallFeedbackList
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
@@ -60,6 +62,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun callDashboardDisplaysSavedFeedbackOnlyWithAdminSession() = testApplication {
+        val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry("tg-42", "alex", "liked", "Great chat")))
+        application {
+            module(dashboardConfig(password = PASSWORD),
+                metricsSource = FixedMetricsSource(sampleSnapshot(), feedback))
+        }
+        val anonymous = client.get(CALLS_PATH)
+        assertFalse(anonymous.bodyAsText().contains("Great chat"))
+        val page = client.get(CALLS_PATH) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertTrue(page.bodyAsText().contains("@alex"))
+        assertTrue(page.bodyAsText().contains("👍 Понравился"))
+        assertTrue(page.bodyAsText().contains("Great chat"))
+    }
+
     @Test
     fun callDashboardRequiresSessionAndRejectsInvalidCallId() = testApplication {
         application { module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot())) }
@@ -738,9 +756,13 @@ class MetricsDashboardTest {
         ),
     )
 
-    private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {
+    private class FixedMetricsSource(
+        private val snapshot: MetricsSnapshot,
+        private val feedback: CallFeedbackList? = null,
+    ) : MetricsSource {
         override suspend fun load(): MetricsSnapshot = snapshot
         override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = sampleLlmPeriod(range)
+        override suspend fun callFeedback(offset: Int, limit: Int): CallFeedbackList? = feedback
     }
 
     private class FailingMetricsSource : MetricsSource {

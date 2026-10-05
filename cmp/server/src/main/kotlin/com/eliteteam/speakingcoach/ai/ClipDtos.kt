@@ -655,6 +655,33 @@ data class CallReviewRequest(
 )
 
 @Serializable
+data class CallFeedbackRequest(
+    val sessionId: String,
+    val action: String,
+    val callId: String = "",
+    val choice: String = "",
+    val text: String = "",
+    val username: String = "",
+)
+
+@Serializable
+data class CallFeedbackResponse(val status: String = "ignored")
+
+@Serializable
+data class CallFeedbackEntry(
+    val sessionId: String = "",
+    val username: String = "",
+    val choice: String = "",
+    val message: String? = null,
+)
+
+@Serializable
+data class CallFeedbackList(
+    val total: Int = 0,
+    val items: List<CallFeedbackEntry> = emptyList(),
+)
+
+@Serializable
 data class CallReviewResponse(
     val callId: String = "",
     val retry: Boolean = false,

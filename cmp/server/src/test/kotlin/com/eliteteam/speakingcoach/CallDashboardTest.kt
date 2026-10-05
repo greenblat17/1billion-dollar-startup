@@ -3,6 +3,8 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.CallEvent
 import com.eliteteam.speakingcoach.analytics.CallEventsSnapshot
 import com.eliteteam.speakingcoach.analytics.MemoryCallEventStore
+import com.eliteteam.speakingcoach.ai.CallFeedbackEntry
+import com.eliteteam.speakingcoach.ai.CallFeedbackList
 import java.time.Instant
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -13,6 +15,20 @@ import kotlin.test.assertTrue
 class CallDashboardTest {
     private val callId = "a".repeat(32)
     private val start = Instant.now().minusSeconds(120)
+
+    @Test
+    fun showsFeedbackUsernameChoiceAndEscapedMessage() {
+        val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry(
+            "tg-42", "alex<script>", "neutral", "Improve <audio> & pacing",
+        )))
+        val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
+            feedback = feedback)
+        assertTrue(page.contains("Отзывы после первого разговора (1)"))
+        assertTrue(page.contains("@alex&lt;script&gt;"))
+        assertTrue(page.contains("😐 Так себе"))
+        assertTrue(page.contains("Improve &lt;audio&gt; &amp; pacing"))
+        assertFalse(page.contains("<audio>"))
+    }
 
     @Test
     fun correlatesVoiceReplyCorrectionsAndSubtitleClicksWithoutDoubleCounting() = runTest {

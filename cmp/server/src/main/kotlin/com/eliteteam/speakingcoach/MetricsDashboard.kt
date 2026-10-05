@@ -62,6 +62,7 @@ internal fun interface MetricsSource {
     suspend fun load(): MetricsSnapshot
     suspend fun llmRange(range: LlmRange): LlmRequestPeriod? = null
     suspend fun reminderSummary(): ReminderClockSummary? = null
+    suspend fun callFeedback(offset: Int, limit: Int): com.eliteteam.speakingcoach.ai.CallFeedbackList? = null
 }
 
 internal data class LlmRange(val from: LocalDate, val to: LocalDate)
@@ -164,11 +165,16 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             failed = query["failed"]?.toBooleanStrictOrNull(),
             offset = query["offset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0,
         )
+        val feedbackOffset = query["feedbackOffset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0
         val html = try {
             val firstDay = LocalDate.now(ZoneId.of("Europe/Moscow")).minusDays(29)
             val snapshot = dashboard.callEvents?.snapshot(firstDay.atStartOfDay(ZoneId.of("Europe/Moscow")).toInstant())
+            val feedback = try { dashboard.source.callFeedback(feedbackOffset, 25) }
+                catch (error: CancellationException) { throw error }
+                catch (error: Throwable) { log.warn("First-call feedback unavailable", error); null }
             if (snapshot == null) metricsUnavailableHtml() else
-                callDashboardPage(snapshot, filter, memoryOnly = dashboard.callEvents.memoryOnly)
+                callDashboardPage(snapshot, filter, memoryOnly = dashboard.callEvents.memoryOnly,
+                    feedback = feedback, feedbackOffset = feedbackOffset)
         } catch (error: CancellationException) { throw error }
           catch (error: Throwable) { log.warn("Call dashboard unavailable", error); metricsUnavailableHtml() }
         call.respondText(html, ContentType.Text.Html)

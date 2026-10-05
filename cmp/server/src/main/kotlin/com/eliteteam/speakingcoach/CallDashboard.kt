@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.CallEvent
 import com.eliteteam.speakingcoach.analytics.CallEventsSnapshot
 import com.eliteteam.speakingcoach.analytics.voiceAttemptId
+import com.eliteteam.speakingcoach.ai.CallFeedbackList
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -57,7 +58,8 @@ internal fun callDashboardRows(snapshot: CallEventsSnapshot): List<CallDashboard
     }.sortedByDescending { it.opened.at }
 
 internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboardFilter,
-                               memoryOnly: Boolean = false): String {
+                               memoryOnly: Boolean = false, feedback: CallFeedbackList? = null,
+                               feedbackOffset: Int = 0): String {
     val today = LocalDate.now(callZone)
     val from = today.minusDays((filter.days - 1).toLong())
     val allRows = callDashboardRows(snapshot)
@@ -117,6 +119,30 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
                 "<td>${group.sumOf { it.voices.size }}</td><td>${secondsText(group.sumOf { it.recognizedSeconds })}</td>" +
                 "<td>${group.sumOf { it.audioReplies }}</td></tr>"
         }
+    val feedbackRows = feedback?.items?.joinToString("") { item ->
+        val username = item.username.takeIf { it.isNotBlank() }?.let { "@${escapeHtml(it)}" }
+            ?: "— (${escapeHtml(item.sessionId)})"
+        val choice = when (item.choice) {
+            "liked" -> "👍 Понравился"
+            "neutral" -> "😐 Так себе"
+            "disliked" -> "👎 Не понравился"
+            else -> "—"
+        }
+        "<tr><td>$username</td><td>$choice</td>" +
+            "<td style=\"white-space:pre-wrap;overflow-wrap:anywhere\">${item.message?.let(::escapeHtml) ?: "—"}</td></tr>"
+    }.orEmpty()
+    val feedbackSection = when {
+        feedback == null -> "<p class=\"meta\">Отзывы сейчас недоступны.</p>"
+        feedback.total == 0 -> "<p class=\"meta\">Пока нет ответов.</p>"
+        else -> {
+            val base = "days=${filter.days}&source=${filter.source ?: ""}&status=${filter.status ?: ""}&failed=${filter.failed ?: ""}&offset=${filter.offset}"
+            val previous = if (feedbackOffset > 0) "<a href=\"$CALLS_PATH?$base&feedbackOffset=${(feedbackOffset - 25).coerceAtLeast(0)}\">← Предыдущие</a>" else ""
+            val nextFeedback = if (feedbackOffset + feedback.items.size < feedback.total)
+                "<a href=\"$CALLS_PATH?$base&feedbackOffset=${feedbackOffset + 25}\">Следующие →</a>" else ""
+            "<table><thead><tr><th>Username</th><th>Оценка</th><th>Сообщение</th></tr></thead><tbody>$feedbackRows</tbody></table>" +
+                "<p>$previous ${if (previous.isNotEmpty() && nextFeedback.isNotEmpty()) " · " else ""}$nextFeedback</p>"
+        }
+    }
     return """
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Звонки · Speaky</title>${pageStyle()}</head><body>
         ${adminTabs(CALLS_PATH)}<h1>Практические звонки</h1>
@@ -140,6 +166,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         </dl>
         <h2>По дням</h2><table><thead><tr><th>Дата начала</th><th>Звонки</th><th>Закрыто</th><th>Голоса</th><th>Речь</th><th>Аудиоответы</th></tr></thead><tbody>$daily</tbody></table>
         <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
+        <h2>Отзывы после первого разговора (${feedback?.total ?: "—"})</h2>$feedbackSection
         </body></html>
     """.trimIndent()
 }
