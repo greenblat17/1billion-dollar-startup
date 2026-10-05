@@ -160,6 +160,7 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
         lock.withLock {
             val attempt = attempts[runId] ?: return
             attempt.times.putIfAbsent(step, at)
+            if (step == AttemptMark.REMINDER_SET) attempt.postCompletionPracticeObservable = true
         }
     }
 
@@ -178,6 +179,7 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             if (attempt.times.containsKey(AttemptMark.REMINDER_DECISION)) return
             attempt.times[AttemptMark.REMINDER_DECISION] = at
             attempt.reminderDecision = decision
+            if (decision == "not_now") attempt.postCompletionPracticeObservable = true
         }
     }
 
@@ -253,6 +255,12 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             val voiceDay = at.atZone(ONBOARDING_ZONE).toLocalDate()
             practiceDays.putIfAbsent(attempt.runId to voiceDay, PracticeDayRow(attempt.runId, voiceDay, at))
             if (attempt.firstPracticeAt == null) attempt.firstPracticeAt = at
+            val completedAt = when {
+                attempt.reminderDecision == "not_now" -> attempt.times[AttemptMark.REMINDER_DECISION]
+                else -> attempt.times[AttemptMark.REMINDER_SET]
+            }
+            if (attempt.postCompletionPracticeObservable && completedAt != null && !at.isBefore(completedAt) &&
+                attempt.firstPostCompletionPracticeAt == null) attempt.firstPostCompletionPracticeAt = at
             if (voiceDay == startDay.plusDays(1) && attempt.d1VoiceAt == null) attempt.d1VoiceAt = at
             if (voiceDay == startDay.plusDays(7) && attempt.d7VoiceAt == null) attempt.d7VoiceAt = at
         }
@@ -283,6 +291,8 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
         var d1VoiceAt: Instant? = null
         var d7VoiceAt: Instant? = null
         var firstPracticeAt: Instant? = null
+        var firstPostCompletionPracticeAt: Instant? = null
+        var postCompletionPracticeObservable: Boolean = false
         var scoreAvailable: Boolean? = null
         var grammarExamples: Int? = null
         var vocabularyExamples: Int? = null
@@ -333,6 +343,8 @@ internal class MemoryOnboardingAnalytics : OnboardingAnalytics {
             username = username,
             invitationDeliveredAt = invitationAt,
             invitationError = invitationError,
+            postCompletionPracticeObservable = postCompletionPracticeObservable,
+            firstPostCompletionPracticeAt = firstPostCompletionPracticeAt,
         )
     }
 }
@@ -468,7 +480,9 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
         withContext(Dispatchers.IO) {
             dataSource.connection.use { connection ->
                 connection.prepareStatement(
-                    "UPDATE onboarding_attempts SET ${step.column} = COALESCE(${step.column}, ?) WHERE run_id = ?",
+                    "UPDATE onboarding_attempts SET ${step.column} = COALESCE(${step.column}, ?)" +
+                        if (step == AttemptMark.REMINDER_SET) ", post_completion_practice_observable = TRUE WHERE run_id = ?"
+                        else " WHERE run_id = ?",
                 ).use { statement ->
                     statement.setTimestamp(1, Timestamp.from(at))
                     statement.setString(2, runId)
@@ -505,13 +519,16 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     """
                     UPDATE onboarding_attempts
                     SET reminder_decision_at = COALESCE(reminder_decision_at, ?),
-                        reminder_decision = COALESCE(reminder_decision, ?)
+                        reminder_decision = COALESCE(reminder_decision, ?),
+                        post_completion_practice_observable =
+                            post_completion_practice_observable OR (reminder_decision IS NULL AND ? = 'not_now')
                     WHERE run_id = ?
                     """.trimIndent(),
                 ).use { statement ->
                     statement.setTimestamp(1, Timestamp.from(at))
                     statement.setString(2, decision)
-                    statement.setString(3, runId)
+                    statement.setString(3, decision)
+                    statement.setString(4, runId)
                     if (statement.executeUpdate() == 0) OnboardingAnalyticsHealth.recordMissingAttempt()
                 }
             }
@@ -617,6 +634,12 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     """
                     UPDATE onboarding_attempts
                     SET first_practice_at = COALESCE(first_practice_at, ?),
+                        first_post_completion_practice_at = CASE
+                            WHEN post_completion_practice_observable AND
+                                (CASE WHEN reminder_decision = 'not_now' THEN reminder_decision_at
+                                      ELSE reminder_set_at END) <= ?
+                            THEN COALESCE(first_post_completion_practice_at, ?)
+                            ELSE first_post_completion_practice_at END,
                         d1_voice_at = CASE WHEN ((started_at AT TIME ZONE 'Europe/Moscow')::date + 1)
                             = (? AT TIME ZONE 'Europe/Moscow')::date THEN COALESCE(d1_voice_at, ?) ELSE d1_voice_at END,
                         d7_voice_at = CASE WHEN ((started_at AT TIME ZONE 'Europe/Moscow')::date + 7)
@@ -632,8 +655,10 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setTimestamp(3, Timestamp.from(at))
                     statement.setTimestamp(4, Timestamp.from(at))
                     statement.setTimestamp(5, Timestamp.from(at))
-                    statement.setString(6, sessionId)
+                    statement.setTimestamp(6, Timestamp.from(at))
                     statement.setTimestamp(7, Timestamp.from(at))
+                    statement.setString(8, sessionId)
+                    statement.setTimestamp(9, Timestamp.from(at))
                     statement.executeUpdate()
                 }
                 connection.prepareStatement("""

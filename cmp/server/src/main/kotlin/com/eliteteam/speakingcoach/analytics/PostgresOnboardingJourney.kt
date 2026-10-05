@@ -28,6 +28,20 @@ internal fun Connection.onboardingJourneyReport(now: Instant, filter: Onboarding
         add("COUNT(*) AS total")
         add("COUNT(*) FILTER (WHERE start_at + interval '24 hours' > report_at) AS open_count")
         add("COUNT(*) FILTER (WHERE start_at + interval '24 hours' <= report_at AND ($missing)) AS incomplete")
+        if (filter.journeyMode == JourneyMode.PRIMARY) {
+            val completed = "s${JOURNEY_STAGES.lastIndex} AND NOT (${journeyGapSql()})"
+            val tracked = "$completed AND post_completion_practice_observable"
+            val mature24 = "$tracked AND reminder_resolved_at + interval '24 hours' <= report_at"
+            val mature7 = "$tracked AND reminder_resolved_at + interval '7 days' <= report_at"
+            add("COUNT(*) FILTER (WHERE $completed) AS practice_completed")
+            add("COUNT(*) FILTER (WHERE $tracked) AS practice_tracked")
+            add("COUNT(*) FILTER (WHERE $mature24) AS practice_mature_24")
+            add("COUNT(*) FILTER (WHERE $mature24 AND first_post_completion_practice_at " +
+                "BETWEEN reminder_resolved_at AND reminder_resolved_at + interval '24 hours') AS practiced_24")
+            add("COUNT(*) FILTER (WHERE $mature7) AS practice_mature_7")
+            add("COUNT(*) FILTER (WHERE $mature7 AND first_post_completion_practice_at " +
+                "BETWEEN reminder_resolved_at AND reminder_resolved_at + interval '7 days') AS practiced_7")
+        }
         JOURNEY_STAGES.indices.forEach { index ->
             add("COUNT(*) FILTER (WHERE s$index) AS reached_$index")
             if (index < JOURNEY_STAGES.lastIndex) {
@@ -47,38 +61,108 @@ internal fun Connection.onboardingJourneyReport(now: Instant, filter: Onboarding
                 if (index == JOURNEY_STAGES.lastIndex) 0 else rows.getInt("stopped_$index"),
                 if (index == JOURNEY_STAGES.lastIndex) 0 else rows.getInt("failed_$index"))
         }
+        val practice = if (filter.journeyMode == JourneyMode.PRIMARY) JourneyPractice(
+            rows.getInt("practice_completed"), rows.getInt("practice_tracked"),
+            rows.getInt("practice_mature_24"), rows.getInt("practiced_24"),
+            rows.getInt("practice_mature_7"), rows.getInt("practiced_7")) else null
         JourneyReport(rows.getInt("total"), rows.getInt("open_count"),
-            rows.getInt("total") - rows.getInt("open_count"), rows.getInt("incomplete"), steps)
+            rows.getInt("total") - rows.getInt("open_count"), rows.getInt("incomplete"), steps, practice = practice)
     }
     val errors = query("""
         , failures AS (
-            SELECT cohort_session_id AS session_id, run_id, 'start' AS stage_id, 'invitation' AS technical_stage,
-                   journey_invitation_error AS reason
+            SELECT cohort_session_id AS session_id, entry_run_id, start_at, run_id,
+                   'start' AS stage_id, 'invitation' AS technical_stage,
+                   journey_invitation_error AS reason, start_at AS failed_at,
+                   'invitation' AS kind, NULL::text AS event_type
             FROM facts WHERE journey_invitation_error IS NOT NULL
             UNION ALL
-            SELECT s.cohort_session_id AS session_id, s.run_id, ${voiceJourneyStageSql("v")} AS stage_id,
+            SELECT s.cohort_session_id, s.entry_run_id, s.start_at, s.run_id,
+                   ${voiceJourneyStageSql("v")} AS stage_id,
                    COALESCE(v.failure_stage, CASE v.outcome
                        WHEN 'no_speech' THEN 'stt' WHEN 'stt_failure' THEN 'stt'
                        WHEN 'delivery_failure' THEN 'telegram_delivery'
                        WHEN 'queue_full' THEN 'queue' ELSE 'other' END) AS technical_stage,
-                   COALESCE(v.failure_code, v.outcome) AS reason
+                   COALESCE(v.failure_code, v.outcome) AS reason, v.created_at AS failed_at,
+                   'voice' AS kind, NULL::text AS event_type
             FROM selected s JOIN onboarding_voices v ON v.attempt_id = s.run_id
             WHERE v.outcome <> 'recognized'
             UNION ALL
-            SELECT s.cohort_session_id AS session_id, s.run_id, ${eventJourneyStageSql("ev")} AS stage_id,
+            SELECT s.cohort_session_id, s.entry_run_id, s.start_at, s.run_id,
+                   ${eventJourneyStageSql("ev")} AS stage_id,
                    COALESCE(ev.failure_stage, 'result_build') AS technical_stage,
-                   COALESCE(ev.failure_code, 'unknown') AS reason
+                   COALESCE(ev.failure_code, 'unknown') AS reason, ev.created_at AS failed_at,
+                   'event' AS kind, ev.event_type
             FROM selected s JOIN onboarding_events ev ON ev.attempt_id = s.run_id
             WHERE ev.event_type IN ('stage_error', 'result_build_failed')
+        ), failure_counts AS (
+            SELECT stage_id, technical_stage, reason, COUNT(*) AS events,
+                   COUNT(DISTINCT session_id) AS users, COUNT(DISTINCT run_id) AS attempts
+            FROM failures GROUP BY stage_id, technical_stage, reason
+        ), first_failures AS (
+            SELECT DISTINCT ON (session_id, entry_run_id, stage_id, technical_stage, reason) *
+            FROM failures
+            ORDER BY session_id, entry_run_id, stage_id, technical_stage, reason, failed_at
+        ), recovery AS (
+            SELECT f.stage_id, f.technical_stage, f.reason,
+                   (f.kind <> 'event' OR f.event_type = 'result_build_failed' OR EXISTS (
+                       SELECT 1 FROM onboarding_events prior
+                       WHERE prior.attempt_id = f.run_id AND prior.event_type = 'action_attempt'
+                         AND prior.failure_stage = f.technical_stage AND prior.created_at <= f.failed_at
+                   )) AS measurable,
+                   CASE WHEN f.kind = 'invitation' THEN EXISTS (
+                       SELECT 1 FROM onboarding_entries later
+                       WHERE later.session_id = f.session_id AND later.eligible = TRUE
+                         AND later.received_at > f.failed_at
+                         AND later.received_at <= LEAST(f.start_at + interval '24 hours', x.report_at)
+                   ) WHEN f.kind = 'voice' THEN EXISTS (
+                       SELECT 1 FROM onboarding_voices later
+                       WHERE later.attempt_id = f.run_id AND later.received_at > f.failed_at
+                         AND later.received_at <= LEAST(f.start_at + interval '24 hours', x.report_at)
+                   ) OR (f.technical_stage = 'telegram_delivery' AND EXISTS (
+                       SELECT 1 FROM onboarding_events later
+                       WHERE later.attempt_id = f.run_id AND later.event_type = 'action_attempt'
+                         AND later.failure_stage = 'result_delivery' AND later.created_at > f.failed_at
+                         AND later.created_at <= LEAST(f.start_at + interval '24 hours', x.report_at)
+                   )) ELSE EXISTS (
+                       SELECT 1 FROM onboarding_events later
+                       WHERE later.attempt_id = f.run_id AND later.event_type IN ('action_attempt', 'retry_requested')
+                         AND (later.failure_stage = CASE WHEN f.technical_stage = 'result_build'
+                             THEN 'result_delivery' ELSE f.technical_stage END
+                             OR (f.technical_stage = 'result_build' AND later.event_type = 'retry_requested'))
+                         AND later.created_at > f.failed_at
+                         AND later.created_at <= LEAST(f.start_at + interval '24 hours', x.report_at)
+                   ) END AS retried,
+                   (${nextJourneyStageSql("f", "x")} > f.failed_at AND
+                       ${nextJourneyStageSql("f", "x")} <= LEAST(f.start_at + interval '24 hours', x.report_at))
+                       AS reached_next,
+                   (x.reminder_resolved_at > f.failed_at AND
+                       x.reminder_resolved_at <= LEAST(f.start_at + interval '24 hours', x.report_at)
+                       AND NOT (${journeyGapSql()})) AS completed
+            FROM first_failures f JOIN flags x ON x.cohort_session_id = f.session_id
+                AND x.entry_run_id IS NOT DISTINCT FROM f.entry_run_id AND x.start_at = f.start_at
+            WHERE f.failed_at BETWEEN f.start_at AND f.start_at + interval '24 hours'
+              AND f.start_at + interval '24 hours' <= x.report_at
+        ), recovery_counts AS (
+            SELECT stage_id, technical_stage, reason,
+                   COUNT(*) AS recovery_eligible,
+                   COUNT(*) FILTER (WHERE measurable) AS retry_measurable,
+                   COUNT(*) FILTER (WHERE measurable AND retried) AS retried,
+                   COUNT(*) FILTER (WHERE reached_next) AS reached_next,
+                   COUNT(*) FILTER (WHERE completed) AS completed
+            FROM recovery GROUP BY stage_id, technical_stage, reason
         )
-        SELECT stage_id, technical_stage, reason, COUNT(*) AS events,
-               COUNT(DISTINCT session_id) AS users, COUNT(DISTINCT run_id) AS attempts
-        FROM failures GROUP BY stage_id, technical_stage, reason
-        ORDER BY events DESC, stage_id, technical_stage, reason
+        SELECT e.*, COALESCE(r.recovery_eligible, 0) AS recovery_eligible,
+               COALESCE(r.retry_measurable, 0) AS retry_measurable,
+               COALESCE(r.retried, 0) AS retried, COALESCE(r.reached_next, 0) AS reached_next,
+               COALESCE(r.completed, 0) AS completed
+        FROM failure_counts e LEFT JOIN recovery_counts r USING (stage_id, technical_stage, reason)
+        ORDER BY e.events DESC, e.stage_id, e.technical_stage, e.reason
     """.trimIndent()) { rows -> buildList {
         while (rows.next()) add(JourneyErrorCount(rows.getString("stage_id"),
             rows.getString("technical_stage"), rows.getString("reason"),
-            rows.getInt("events"), rows.getInt("users"), rows.getInt("attempts")))
+            rows.getInt("events"), rows.getInt("users"), rows.getInt("attempts"),
+            rows.getInt("recovery_eligible"), rows.getInt("retry_measurable"), rows.getInt("retried"), rows.getInt("reached_next"),
+            rows.getInt("completed")))
     } }
     val recent = query("""
         , recent_user AS (
@@ -151,6 +235,11 @@ private val journeyColumns = listOf(
     "practice_setup_at", "goal_selected_at", "reminder_offered_at", "reminder_resolved_at",
 )
 
+private fun nextJourneyStageSql(failure: String, facts: String): String =
+    "CASE $failure.stage_id " + JOURNEY_STAGES.indices.filter { it < JOURNEY_STAGES.lastIndex }.joinToString(" ") { index ->
+        "WHEN '${JOURNEY_STAGES[index].id}' THEN $facts.${journeyColumns[index + 1]}"
+    } + " ELSE NULL::timestamptz END"
+
 private fun journeyGapSql(): String = JOURNEY_STAGES.indices.drop(1)
     .joinToString(" OR ") { "(s$it AND NOT s${it - 1})" }
 
@@ -191,7 +280,7 @@ private fun journeySqlPrefix(mode: JourneyMode): String {
             ORDER BY session_id, received_at, entry_key
         ), selected AS (
             SELECT e.session_id AS cohort_session_id, e.received_at AS start_at, e.run_id AS entry_run_id,
-                   e.invitation_delivered_at AS invitation_at,
+                   COALESCE(e.invitation_delivered_at, a.invitation_delivered_at) AS invitation_at,
                    e.invitation_error_reason AS entry_invitation_error, e.telegram_username AS entry_username,
                    e.telegram_chat_id AS entry_chat_id, e.start_source AS entry_source, a.*
             FROM first_entry e LEFT JOIN onboarding_attempts a ON a.run_id = e.run_id

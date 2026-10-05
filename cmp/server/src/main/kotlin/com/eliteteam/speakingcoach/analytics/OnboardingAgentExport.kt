@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private const val EXPORT_SCHEMA = "onboarding-analytics.v6"
+private const val EXPORT_SCHEMA = "onboarding-analytics.v7"
 private val exportJson = Json { prettyPrint = true }
 
 /** Aggregated, content-free snapshot that an analyst agent can consume without parsing HTML. */
@@ -62,6 +62,8 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("journey_window", "Stages within 24 hours of observed eligible start; open attempts are excluded from stopped counts")
         put("journey_stopped", "Closed attempt reached a stage but not the next required stage, excluding missing or out-of-order facts; a recorded error does not prove causality")
         put("journey_errors", "Errors and unsuccessful outcomes among the filtered starts, grouped by user stage, technical stage, and safe reason; no_speech is not a technical STT failure")
+        put("error_recovery", "For each error type, first occurrence per selected attempt inside a closed 24-hour start window; observed retry, next required stage, and full completion after that error within the window. Callback retry denominator includes only attempts with an observed action-attempt event at or before failure.")
+        put("post_completion_practice", "Primary users completing every required stage within 24 hours; first recognized ordinary voice with delivered bot reply after final reminder decision. Denominators include only completions tracked after this metric was introduced and mature for 24 hours or 7 days after completion.")
     })
     put("analysis_guidance", strings(listOf(
         "Report observations and counts before making recommendations; these aggregates do not identify causes.",
@@ -127,7 +129,18 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
             put("events", error.events)
             put("affected_users", error.users)
             put("affected_attempts", error.attempts)
+            put("recovery_eligible", error.recoveryEligible)
+            put("retry_measurable", error.retryMeasurable)
+            put("retried", error.retried)
+            put("reached_next_stage_after_error", error.reachedNext)
+            put("completed_after_error", error.completed)
         } }))
+        put("post_completion_practice", journey.practice?.let { practice -> buildJsonObject {
+            put("completed", practice.completed)
+            put("tracked", practice.tracked)
+            put("within_24_hours", ratio(practice.practiced24, practice.mature24))
+            put("within_7_days", ratio(practice.practiced7, practice.mature7))
+        } } ?: JsonNull)
     })
     put("activation_cohorts", JsonArray(report.activation.map { c -> buildJsonObject {
         put("start_day", c.day.toString())

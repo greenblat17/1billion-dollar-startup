@@ -105,6 +105,11 @@ internal fun onboardingReportHtml(
         <body>
         <h1>Speaky</h1>
         ${adminTabs(ONBOARDING_ANALYTICS_PATH)}
+        <a id="grafana-link" class="onb-grafana" href="#" target="_blank" rel="noopener noreferrer">Открыть Grafana ↗</a>
+        <script>
+          document.getElementById('grafana-link').href =
+            'https://' + window.location.hostname + ':8443/d/speaky-v2/speaky';
+        </script>
         $body
         </body>
         </html>
@@ -129,8 +134,11 @@ private fun journeySections(journey: JourneyReport, mode: JourneyMode): String {
         val affected = if (mode == JourneyMode.PRIMARY) error.users else error.attempts
         "<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(error.technicalStage)}</td>" +
             "<td>${escapeHtml(error.reason)}</td><td>${error.events}</td><td>${error.users}</td>" +
-            "<td>$affected/${reached[error.stageId] ?: 0} · ${percentage(affected, reached[error.stageId] ?: 0)}</td></tr>"
-    }.ifEmpty { "<tr><td colspan=\"6\">Ошибок и неуспешных исходов пока нет.</td></tr>" }
+            "<td>$affected/${reached[error.stageId] ?: 0} · ${percentage(affected, reached[error.stageId] ?: 0)}</td>" +
+            "<td>${if (error.retryMeasurable == 0) "—" else "${error.retried}/${error.retryMeasurable}"}</td>" +
+            "<td>${if (error.recoveryEligible == 0) "—" else "${error.reachedNext}/${error.recoveryEligible}"}</td>" +
+            "<td>${if (error.recoveryEligible == 0) "—" else "${error.completed}/${error.recoveryEligible}"}</td></tr>"
+    }.ifEmpty { "<tr><td colspan=\"9\">Ошибок и неуспешных исходов пока нет.</td></tr>" }
     val recent = journey.recent.joinToString("") { user ->
         val stage = JOURNEY_STAGES.firstOrNull { it.id == user.stageId }?.label ?: user.stageId
         val state = when (user.state) {
@@ -153,11 +161,25 @@ private fun journeySections(journey: JourneyReport, mode: JourneyMode): String {
         <div class="onb-scroll"><table><thead><tr><th>Стадия</th><th>Дошли</th><th>Перешли дальше</th><th>Остановились</th><th>Из них с исходом</th><th>Переход / дошли</th></tr></thead><tbody>$steps</tbody></table></div>
         <p class="meta">«Дошли» включает открытые попытки. «Остановились» — только закрытые 24-часовые окна без следующей обязательной стадии; технический исход рядом не доказывает причину паузы. Пропущенные отметки вынесены в неполные данные. Grammar, Vocabulary и Fluency остаются дополнительными действиями ниже.</p>
         <h2>Ошибки по стадиям</h2>
-        <p class="meta">Те же фильтры начала попытки. События и затронутые пользователи показаны отдельно; отсутствие речи — не технический сбой STT. Старые ошибки могут не иметь точной причины.</p>
-        <div class="onb-scroll"><table><thead><tr><th>Стадия</th><th>Технический этап</th><th>Исход / причина</th><th>События</th><th>Люди</th><th>${if (mode == JourneyMode.PRIMARY) "Люди / дошли" else "Попытки / дошли"}</th></tr></thead><tbody>$errors</tbody></table></div>
+        <p class="meta">Те же фильтры начала попытки. После первой ошибки этого вида в попытке: повторили действие, дошли до следующей обязательной стадии, завершили путь в первые 24 часа от старта. Для восстановления берутся только ошибки в закрытом 24-часовом окне; это наблюдаемая связь, а не доказательство влияния ошибки. Повторы callback до добавления события попытки исключены из знаменателя повторов. Отсутствие речи — не технический сбой STT.</p>
+        <div class="onb-scroll"><table><thead><tr><th>Стадия</th><th>Технический этап</th><th>Исход / причина</th><th>События</th><th>Люди</th><th>${if (mode == JourneyMode.PRIMARY) "Люди / дошли" else "Попытки / дошли"}</th><th>Повторили / наблюдаемы</th><th>Следующая стадия / закрытые</th><th>Завершили / закрытые</th></tr></thead><tbody>$errors</tbody></table></div>
+        ${if (mode == JourneyMode.PRIMARY) practiceSection(journey) else ""}
         <h2>Последние 15 начавших</h2>
         <p class="meta">${if (mode == JourneyMode.PRIMARY) "Первый подходящий вход каждого пользователя" else "Последняя подходящая повторная попытка каждого пользователя"}; username на момент начала. Telegram ID означает ID чата. Состояние пересчитывается при открытии страницы и учитывает позднее продолжение; воронка фиксирует первые 24 часа.</p>
         <div class="onb-scroll"><table><thead><tr><th>Начало · МСК</th><th>Username</th><th>Telegram ID чата</th><th>Источник</th><th>Версия</th><th>Попытка</th><th>Последняя стадия</th><th>Состояние</th><th>Последнее событие · МСК</th><th>Последний исход</th></tr></thead><tbody>$recent</tbody></table></div>
+    """.trimIndent()
+}
+
+private fun practiceSection(journey: JourneyReport): String {
+    val practice = journey.practice ?: return ""
+    return """
+        <h2>Первая обычная практика после завершения</h2>
+        <p class="meta">Завершение — последний обязательный шаг в первые 24 часа от /start. Практика — распознанный обычный голос с доставленным ответом бота после завершения. Знаменатель каждого окна — пользователи с новой записью этого факта, у которых прошло 24 часа или 7 дней после завершения. Старые завершения не восстановлены.</p>
+        <dl class="onb-kpis">
+          ${card("Завершили · наблюдаемы", "${practice.tracked} / ${practice.completed}")}
+          ${card("Практика за 24 часа", "${practice.practiced24} / ${practice.mature24} · ${percentage(practice.practiced24, practice.mature24)}")}
+          ${card("Практика за 7 дней", "${practice.practiced7} / ${practice.mature7} · ${percentage(practice.practiced7, practice.mature7)}")}
+        </dl>
     """.trimIndent()
 }
 
@@ -399,6 +421,7 @@ private fun onboardingStyle(): String = """
       details { margin: 12px 0; }
       summary { cursor: pointer; color: #0f766e; font-weight: 600; }
       .onb-export { display: inline-block; color: #0f766e; margin: 2px 0 12px; font-weight: 600; }
+      .onb-grafana { display: inline-block; padding: 8px 12px; border: 1px solid #d6d3d1; border-radius: 8px; background: #fff; color: #0f766e; text-decoration: none; font-weight: 600; }
       .onb-notes { margin-top: 24px; color: #57534e; }
       td:nth-child(n+2) { font-variant-numeric: tabular-nums; }
       @media (max-width: 760px) {

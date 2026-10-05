@@ -1,12 +1,18 @@
 package com.eliteteam.speakingcoach.analytics
 
+import com.eliteteam.speakingcoach.onboardingReportHtml
 import java.sql.DriverManager
 import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PostgresOnboardingJourneyTest {
     @Test
@@ -47,6 +53,64 @@ class PostgresOnboardingJourneyTest {
                 assertEquals("incomplete", report.journey.recent.first().state)
                 assertEquals("speaker_one", report.journey.recent.last().username)
                 assertFalse(onboardingAgentJson(report, now).contains("speaker_one"))
+            } finally {
+                analytics.close()
+            }
+        } finally {
+            DriverManager.getConnection(jdbcUrl).use { it.createStatement().execute("DROP SCHEMA $schema CASCADE") }
+        }
+    }
+
+    @Test
+    fun postgresTracksRecoveryAndFirstPracticeAfterFinalStep() = runTest {
+        val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
+        val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
+        val schema = "journey_${UUID.randomUUID().toString().replace("-", "")}"
+        DriverManager.getConnection(jdbcUrl).use { it.createStatement().execute("CREATE SCHEMA $schema") }
+        val schemaUrl = jdbcUrl + (if ('?' in jdbcUrl) "&" else "?") + "currentSchema=$schema"
+        try {
+            val analytics = PostgresOnboardingAnalytics(schemaUrl)
+            try {
+                val start = Instant.parse("2026-10-01T07:00:00Z")
+                analytics.recordEntry("tg-1", "message:1", start, true, "start", null, "campaign", "run-1",
+                    start.plusSeconds(2))
+                analytics.startAttempt("tg-1", "run-1", "start", start.plusSeconds(1), "campaign",
+                    invitationAt = start.plusSeconds(2))
+                analytics.mark("run-1", AttemptMark.BEGIN_PRESSED, start.plusSeconds(5))
+                analytics.event("run-1", "callback:1:attempt", "action_attempt", start.plusSeconds(6), "first_question")
+                analytics.event("run-1", "callback:1:error", "stage_error", start.plusSeconds(8),
+                    "first_question", "timeout")
+                analytics.event("run-1", "callback:2:attempt", "action_attempt", start.plusSeconds(10), "first_question")
+                analytics.mark("run-1", AttemptMark.FIRST_QUESTION_DELIVERED, start.plusSeconds(12))
+                analytics.recordVoice("run-1", "tg-1", "message:2",
+                    OnboardingVoiceFacts(recognized = true, outcome = "recognized",
+                        milestones = listOf(30, 60, 90, 120)), 100, start.plusSeconds(14), start.plusSeconds(13))
+                analytics.mark("run-1", AttemptMark.RESULT_DELIVERED, start.plusSeconds(15))
+                analytics.mark("run-1", AttemptMark.RESULTS, start.plusSeconds(16))
+                analytics.mark("run-1", AttemptMark.PRACTICE, start.plusSeconds(17))
+                analytics.markGoal("run-1", 0, start.plusSeconds(18))
+                analytics.mark("run-1", AttemptMark.REMINDER_OFFERED, start.plusSeconds(19))
+                analytics.recordReturn("tg-1", start.plusSeconds(30))
+                analytics.markReminderDecision("run-1", "not_now", start.plusSeconds(40))
+                analytics.recordReturn("tg-1", start.plusSeconds(50))
+                val report = analytics.report(start.plusSeconds(8 * 86_400), OnboardingFilter(source = "campaign"))
+                assertEquals(JourneyPractice(1, 1, 1, 1, 1, 1), report.journey.practice)
+                val error = report.journey.errors.single()
+                assertEquals(1, error.retryMeasurable)
+                assertEquals(1, error.retried)
+                assertEquals(1, error.reachedNext)
+                assertEquals(1, error.completed)
+                val html = onboardingReportHtml(report)
+                assertTrue(html.contains("Практика за 24 часа"))
+                assertTrue(html.contains("1 / 1 · 100%"))
+                val journey = Json.parseToJsonElement(onboardingAgentJson(report, start.plusSeconds(8 * 86_400)))
+                    .jsonObject.getValue("journey").jsonObject
+                val exportedError = journey.getValue("errors").jsonArray.single().jsonObject
+                assertEquals("1", exportedError.getValue("retried").jsonPrimitive.content)
+                assertEquals("1", exportedError.getValue("completed_after_error").jsonPrimitive.content)
+                val practice = journey.getValue("post_completion_practice").jsonObject
+                assertEquals("1", practice.getValue("within_24_hours").jsonObject.getValue("numerator").jsonPrimitive.content)
+                assertEquals("1", practice.getValue("within_7_days").jsonObject.getValue("denominator").jsonPrimitive.content)
             } finally {
                 analytics.close()
             }

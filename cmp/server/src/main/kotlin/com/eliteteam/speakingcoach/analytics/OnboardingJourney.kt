@@ -41,6 +41,20 @@ internal data class JourneyErrorCount(
     val events: Int,
     val users: Int,
     val attempts: Int = users,
+    val recoveryEligible: Int = 0,
+    val retryMeasurable: Int = 0,
+    val retried: Int = 0,
+    val reachedNext: Int = 0,
+    val completed: Int = 0,
+)
+
+internal data class JourneyPractice(
+    val completed: Int,
+    val tracked: Int,
+    val mature24: Int,
+    val practiced24: Int,
+    val mature7: Int,
+    val practiced7: Int,
 )
 
 internal data class JourneyRecentUser(
@@ -64,6 +78,7 @@ internal data class JourneyReport(
     val steps: List<JourneyStepCount> = emptyList(),
     val errors: List<JourneyErrorCount> = emptyList(),
     val recent: List<JourneyRecentUser> = emptyList(),
+    val practice: JourneyPractice? = null,
 )
 
 private data class JourneyItem(
@@ -94,8 +109,10 @@ private data class JourneyItem(
     }
 }
 
+private enum class FailureKind { INVITATION, VOICE, EVENT }
+
 private data class JourneyFailure(val sessionId: String, val runId: String?, val stageId: String, val technicalStage: String,
-                                  val reason: String, val at: Instant)
+                                  val reason: String, val at: Instant, val kind: FailureKind, val eventType: String? = null)
 
 internal fun onboardingJourney(
     attempts: List<OnboardingAttemptRow>, voices: List<OnboardingVoiceRow>,
@@ -130,12 +147,24 @@ internal fun onboardingJourney(
                 voicesByRun[it.runId].orEmpty(), eventsByRun[it.runId].orEmpty()) }
     }
     val failures = items.flatMap(::journeyFailures)
+    val itemsByAttempt = items.associateBy { it.sessionId to it.runId }
     val counts = mutableMapOf<Triple<String, String, String>, MutableList<JourneyFailure>>()
     failures.forEach { failure -> counts.getOrPut(Triple(failure.stageId, failure.technicalStage, failure.reason)) {
         mutableListOf()
     }.add(failure) }
-    val errors = counts.map { (key, rows) -> JourneyErrorCount(key.first, key.second, key.third,
-        rows.size, rows.map { it.sessionId }.distinct().size, rows.mapNotNull { it.runId }.distinct().size) }
+    val errors = counts.map { (key, rows) ->
+        val firstPerAttempt = rows.groupBy { it.sessionId to it.runId }.values.mapNotNull { it.minByOrNull(JourneyFailure::at) }
+        val recoveries = firstPerAttempt.mapNotNull { failure ->
+            val item = itemsByAttempt[failure.sessionId to failure.runId] ?: return@mapNotNull null
+            val end = item.start.plus(Duration.ofHours(24))
+            if (now.isBefore(end) || failure.at.isBefore(item.start) || failure.at.isAfter(end)) return@mapNotNull null
+            journeyRecovery(failure, item, entries, now)
+        }
+        JourneyErrorCount(key.first, key.second, key.third,
+            rows.size, rows.map { it.sessionId }.distinct().size, rows.mapNotNull { it.runId }.distinct().size,
+            recoveries.size, recoveries.count { it.measurable }, recoveries.count { it.retried },
+            recoveries.count { it.reachedNext }, recoveries.count { it.completed })
+    }
         .sortedWith(compareBy<JourneyErrorCount> { JOURNEY_STAGES.indexOfFirst { stage -> stage.id == it.stageId } }
             .thenByDescending { it.events })
     val flags = items.associateWith { item -> item.times.map { at ->
@@ -182,12 +211,58 @@ internal fun onboardingJourney(
                 lastError = latestError?.let { "${it.technicalStage}: ${it.reason}" },
             )
         }
-    return JourneyReport(items.size, items.size - closed.size, closed.size, incomplete, steps, errors, recent)
+    val practice = if (filter.journeyMode == JourneyMode.PRIMARY) {
+        val completedItems = items.mapNotNull { item ->
+            val completedAt = item.times.last() ?: return@mapNotNull null
+            if (completedAt.isBefore(item.start) || completedAt.isAfter(item.start.plus(Duration.ofHours(24))) ||
+                hasGap(flags.getValue(item))) return@mapNotNull null
+            item.attempt?.let { it to completedAt }
+        }
+        val tracked = completedItems.filter { it.first.postCompletionPracticeObservable }
+        fun within(at: Instant?, start: Instant, window: Duration): Boolean =
+            at != null && !at.isBefore(start) && !at.isAfter(start.plus(window))
+        val mature24 = tracked.filter { !now.isBefore(it.second.plus(Duration.ofHours(24))) }
+        val mature7 = tracked.filter { !now.isBefore(it.second.plus(Duration.ofDays(7))) }
+        JourneyPractice(completedItems.size, tracked.size, mature24.size,
+            mature24.count { within(it.first.firstPostCompletionPracticeAt, it.second, Duration.ofHours(24)) },
+            mature7.size, mature7.count { within(it.first.firstPostCompletionPracticeAt, it.second, Duration.ofDays(7)) })
+    } else null
+    return JourneyReport(items.size, items.size - closed.size, closed.size, incomplete, steps, errors, recent, practice)
+}
+
+private data class RecoveryFacts(val measurable: Boolean, val retried: Boolean, val reachedNext: Boolean,
+                                 val completed: Boolean)
+
+private fun journeyRecovery(failure: JourneyFailure, item: JourneyItem, entries: List<OnboardingEntryRow>,
+                            now: Instant): RecoveryFacts {
+    val end = minOf(now, item.start.plus(Duration.ofHours(24)))
+    fun inWindow(at: Instant) = at.isAfter(failure.at) && !at.isAfter(end)
+    val matchingStage = if (failure.technicalStage == "result_build") "result_delivery" else failure.technicalStage
+    val actionAttempts = item.events.filter { it.type == "action_attempt" && it.failureStage == matchingStage }
+    val measurable = failure.kind != FailureKind.EVENT || failure.eventType == "result_build_failed" ||
+        actionAttempts.any { !it.createdAt.isAfter(failure.at) }
+    val retried = when (failure.kind) {
+        FailureKind.INVITATION -> entries.any { it.sessionId == item.sessionId && it.eligible && inWindow(it.receivedAt) }
+        FailureKind.VOICE -> item.voices.any { inWindow(it.receivedAt) } ||
+            (failure.technicalStage == "telegram_delivery" && actionAttempts.any { inWindow(it.createdAt) })
+        FailureKind.EVENT -> actionAttempts.any { inWindow(it.createdAt) } ||
+            (failure.eventType == "result_build_failed" && item.events.any {
+                it.type == "retry_requested" && inWindow(it.createdAt)
+            })
+    }
+    val index = JOURNEY_STAGES.indexOfFirst { it.id == failure.stageId }
+    val next = item.times.getOrNull(index + 1)
+    val completed = item.times.last()
+    val ordered = item.times.map { it != null && !it.isBefore(item.start) &&
+        !it.isAfter(item.start.plus(Duration.ofHours(24))) }
+    val hasGap = ordered.indices.drop(1).any { ordered[it] && !ordered[it - 1] }
+    return RecoveryFacts(measurable, measurable && retried, next != null && inWindow(next),
+        completed != null && inWindow(completed) && !hasGap)
 }
 
 private fun journeyFailures(item: JourneyItem): List<JourneyFailure> = buildList {
     (item.entry?.invitationError ?: item.attempt?.invitationError)?.let {
-        add(JourneyFailure(item.sessionId, item.runId, "start", "invitation", it, item.start))
+        add(JourneyFailure(item.sessionId, item.runId, "start", "invitation", it, item.start, FailureKind.INVITATION))
     }
     item.voices.filter { it.outcome != "recognized" }.forEach { voice ->
         val stageId = when {
@@ -203,7 +278,8 @@ private fun journeyFailures(item: JourneyItem): List<JourneyFailure> = buildList
             "queue_full" -> "queue"
             else -> "other"
         }
-        add(JourneyFailure(item.sessionId, item.runId, stageId, technical, voice.failureCode ?: voice.outcome, voice.createdAt))
+        add(JourneyFailure(item.sessionId, item.runId, stageId, technical, voice.failureCode ?: voice.outcome,
+            voice.createdAt, FailureKind.VOICE))
     }
     item.events.filter { it.type == "stage_error" || it.type == "result_build_failed" }.forEach { event ->
         val technical = event.failureStage ?: "result_build"
@@ -215,6 +291,7 @@ private fun journeyFailures(item: JourneyItem): List<JourneyFailure> = buildList
             "reminder" -> "reminder_offered"
             else -> "start"
         }
-        add(JourneyFailure(item.sessionId, item.runId, stageId, technical, event.failureCode ?: "unknown", event.createdAt))
+        add(JourneyFailure(item.sessionId, item.runId, stageId, technical, event.failureCode ?: "unknown",
+            event.createdAt, FailureKind.EVENT, event.type))
     }
 }

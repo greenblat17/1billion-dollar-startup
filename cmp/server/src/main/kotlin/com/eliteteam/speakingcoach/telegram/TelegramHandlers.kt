@@ -90,6 +90,15 @@ private fun localFailureReason(error: Throwable): String = when {
     else -> "unknown"
 }
 
+private fun onboardingActionStage(action: String): String = when (action) {
+    "begin" -> "first_question"
+    "level", "see", "results", "vocab", "fluency", "finish", "profile", "bye" -> "result_card"
+    "skip", "m5", "m10", "m15" -> "goal"
+    "remind", "later" -> "reminder"
+    "retry" -> "result_delivery"
+    else -> "other"
+}
+
 private fun spokenKey(chatId: Any, messageId: MessageId) = "$chatId:${messageId.long}"
 
 private fun oneLine(text: String): String = text.replace(Regex("[\\r\\n]+"), " ")
@@ -1196,6 +1205,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val requestId = onboardingCallbackRequestId(callback.action, callback.runId, query.id.toString())
         try {
             actions.run(message.chat.id.toString(), requestId) {
+                analytics.safely { event(callback.runId, "callback:${query.id}:attempt", "action_attempt", Instant.now(),
+                    onboardingActionStage(callback.action)) }
                 when (callback.action) {
                     "level" -> {
                         val state = ai.onboardingState(
@@ -1362,16 +1373,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             throw error
         } catch (error: Throwable) {
             log.error("Onboarding callback failed for {}", message.chat.id, error)
-            val stage = when (callback.action) {
-                "begin" -> "first_question"
-                "see", "results", "vocab", "fluency", "finish" -> "result_card"
-                "skip", "m5", "m10", "m15" -> "goal"
-                "remind", "later" -> "reminder"
-                "retry" -> "result_delivery"
-                else -> "other"
-            }
             analytics.safely { event(callback.runId, "callback:${query.id}:error", "stage_error", Instant.now(),
-                stage, localFailureReason(error)) }
+                onboardingActionStage(callback.action), localFailureReason(error)) }
             sendMessage(
                 message.chat.id, "Something went wrong. Please try again.",
                 replyMarkup = onboardingKeyboard(callback.action, callback.runId),

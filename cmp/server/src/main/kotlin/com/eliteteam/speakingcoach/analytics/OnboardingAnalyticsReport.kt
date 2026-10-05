@@ -55,6 +55,8 @@ internal data class OnboardingAttemptRow(
     val username: String? = null,
     val invitationDeliveredAt: Instant? = null,
     val invitationError: String? = null,
+    val postCompletionPracticeObservable: Boolean = false,
+    val firstPostCompletionPracticeAt: Instant? = null,
 )
 
 internal data class OnboardingVoiceRow(

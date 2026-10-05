@@ -114,6 +114,80 @@ class OnboardingJourneyTest {
         assertEquals(2, report.journey.recent.single().attemptNumber)
     }
 
+    @Test
+    fun repeatedVoiceFailureCountsOneRecoveredUserAndTwoEvents() {
+        val finished = finishedAttempt("recovered", "tg-1")
+        val voices = listOf(
+            OnboardingVoiceRow("recovered", "tg-1", false, "no_speech", start.plusSeconds(36),
+                outcome = "no_speech", receivedAt = start.plusSeconds(35)),
+            OnboardingVoiceRow("recovered", "tg-1", false, "no_speech", start.plusSeconds(42),
+                outcome = "no_speech", receivedAt = start.plusSeconds(40)),
+            OnboardingVoiceRow("recovered", "tg-1", true, null, start.plusSeconds(55),
+                outcome = "recognized", receivedAt = start.plusSeconds(50)),
+        )
+        val report = onboardingJourney(listOf(finished), voices, emptyList(), listOf(entry("tg-1", "recovered")),
+            start.plusSeconds(86_401), OnboardingFilter())
+        val error = report.errors.single()
+        assertEquals(2, error.events)
+        assertEquals(1, error.users)
+        assertEquals(1, error.retryMeasurable)
+        assertEquals(1, error.retried)
+        assertEquals(1, error.reachedNext)
+        assertEquals(1, error.completed)
+    }
+
+    @Test
+    fun callbackRetriesRequireAnObservedInitialAction() {
+        val attempts = listOf(
+            attempt("measured", "tg-1").copy(beginPressedAt = start.plusSeconds(20),
+                firstQuestionDeliveredAt = start.plusSeconds(50)),
+            attempt("historical", "tg-2").copy(beginPressedAt = start.plusSeconds(20),
+                firstQuestionDeliveredAt = start.plusSeconds(50)),
+        )
+        val events = listOf(
+            OnboardingEventRow("measured", "action_attempt", start.plusSeconds(25), "first_question"),
+            OnboardingEventRow("measured", "stage_error", start.plusSeconds(30), "first_question", "timeout"),
+            OnboardingEventRow("measured", "action_attempt", start.plusSeconds(40), "first_question"),
+            OnboardingEventRow("historical", "stage_error", start.plusSeconds(30), "first_question", "timeout"),
+        )
+        val report = onboardingJourney(attempts, emptyList(), events,
+            listOf(entry("tg-1", "measured"), entry("tg-2", "historical")),
+            start.plusSeconds(86_401), OnboardingFilter())
+        val error = report.errors.single()
+        assertEquals(2, error.users)
+        assertEquals(1, error.retryMeasurable)
+        assertEquals(1, error.retried)
+        assertEquals(2, error.reachedNext)
+    }
+
+    @Test
+    fun postCompletionPracticeUsesMatureTrackedCompletions() {
+        val finished = finishedAttempt("tracked", "tg-1").copy(
+            postCompletionPracticeObservable = true,
+            firstPracticeAt = start.plusSeconds(115),
+            firstPostCompletionPracticeAt = start.plusSeconds(150),
+        )
+        val old = finishedAttempt("old", "tg-2").copy(firstPracticeAt = start.plusSeconds(150))
+        val voices = listOf("tracked" to "tg-1", "old" to "tg-2").map { (run, session) ->
+            OnboardingVoiceRow(run, session, true, null, start.plusSeconds(55),
+                outcome = "recognized", receivedAt = start.plusSeconds(50))
+        }
+        val report = onboardingJourney(listOf(finished, old), voices, emptyList(),
+            listOf(entry("tg-1", "tracked"), entry("tg-2", "old")),
+            start.plusSeconds(86_521), OnboardingFilter())
+        assertEquals(JourneyPractice(2, 1, 1, 1, 0, 0), report.practice)
+    }
+
+    private fun finishedAttempt(run: String, session: String) = attempt(run, session).copy(
+        beginPressedAt = start.plusSeconds(20), firstQuestionDeliveredAt = start.plusSeconds(30),
+        speech30At = start.plusSeconds(60), speech60At = start.plusSeconds(60),
+        speech90At = start.plusSeconds(60), speech120At = start.plusSeconds(60),
+        resultDeliveredAt = start.plusSeconds(70), resultsOpenedAt = start.plusSeconds(80),
+        practiceSetupAt = start.plusSeconds(90), goalSelectedAt = start.plusSeconds(100),
+        goalMinutes = 0, reminderOfferedAt = start.plusSeconds(110),
+        reminderDecision = "not_now", reminderDecisionAt = start.plusSeconds(120),
+    )
+
     private fun attempt(run: String, session: String) = OnboardingAttemptRow(
         runId = run, sessionId = session, trigger = "start", isPrimary = true,
         startedAt = start.plusSeconds(5), invitationDeliveredAt = start.plusSeconds(10),
