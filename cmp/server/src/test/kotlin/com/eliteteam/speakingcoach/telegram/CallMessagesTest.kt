@@ -11,6 +11,14 @@ import kotlin.test.assertTrue
 
 class CallMessagesTest {
     @Test
+    fun followUpQuestionsExplainHowToAnswerOrSkip() {
+        for (question in listOf(FIRST_CALL_FEEDBACK_LIKED_QUESTION, FIRST_CALL_FEEDBACK_IMPROVE_QUESTION)) {
+            assertTrue(question.contains("Напиши ответ текстом в чат"))
+            assertTrue(question.contains("Пропустить"))
+        }
+    }
+
+    @Test
     fun firstCallFeedbackUsesExpectedChoicesAndBoundedCallbacks() {
         val callId = "a".repeat(32)
         val buttons = firstCallFeedbackKeyboard(callId).keyboard.single()
