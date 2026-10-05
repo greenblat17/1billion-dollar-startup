@@ -3,58 +3,528 @@
   "uid": "speaky-v2",
   "schemaVersion": 39,
   "timezone": "Europe/Moscow",
-  "time": {"from": "now-24h", "to": "now"},
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
   "panels": [
     {
+      "type": "stat",
+      "title": "Ktor /health",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-ktor\"}",
+          "legendFormat": "Ktor",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "AI service /health",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-ai\"}",
+          "legendFormat": "AI",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Сбор метрик AI / Ktor",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"speaking-v2|speaking-telegram\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Возраст метрик Telegram",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "time() - timestamp(speaking_dau{client=\"telegram\"})",
+          "legendFormat": "секунд",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      },
+      "description": "Секунды с последнего успешного сбора Telegram-метрик, а не с последнего действия пользователя."
+    },
+    {
       "type": "timeseries",
-      "title": "Списано, микроединицы",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
-      "targets": [{"expr": "speaking_cost_micro{client=\"telegram\"}", "legendFormat": "{{currency}}", "refId": "A"}]
+      "title": "Ответ пользователю, p50 / p95",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "description": "От получения голосового сообщения Ktor до подтверждения отправки ответа Telegram. Успешно доставленные ответы за последние 15 минут."
+    },
+    {
+      "type": "timeseries",
+      "title": "Ожидание в очередях, p50 / p95",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "description": "Сумма ожидания очереди действий чата и очереди обработки клипа для доставленных ответов за последние 15 минут."
+    },
+    {
+      "type": "stat",
+      "title": "Ответов за 15 минут",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "increase(telegram_voice_response_duration_seconds_count{client=\"telegram\"}[15m])",
+          "legendFormat": "Ответов за 15 минут",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Сбоев за 5 минут",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[5m]))",
+          "legendFormat": "Сбоев за 5 минут",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Сбоев за 15 минут",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m]))",
+          "legendFormat": "Сбоев за 15 минут",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Очередь заполнена за 15 минут",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "increase(telegram_voice_requests_total{client=\"telegram\",outcome=\"queue_full\"}[15m])",
+          "legendFormat": "Очередь заполнена за 15 минут",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Сбои по этапам, 5 / 15 минут",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[5m]))",
+          "legendFormat": "{{stage}} 5 мин",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m]))",
+          "legendFormat": "{{stage}} 15 мин",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Доля сбоев по этапам, 15 минут",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "100 * sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m])) / clamp_min(sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\"}[15m])), 1) and on(stage) (sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\"}[15m])) > 0)",
+          "legendFormat": "{{stage}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "description": "Неудачные логические операции / все логические операции этапа. Пустое окно без попыток не считается 0%."
+    },
+    {
+      "type": "timeseries",
+      "title": "Исходы голосовых сообщений, 15 минут",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "increase(telegram_voice_requests_total{client=\"telegram\"}[15m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ходов на активного пользователя сегодня",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "(speaking_turns{client=\"telegram\"} / clamp_min(speaking_dau{client=\"telegram\"}, 1)) and on(client, day) (speaking_dau{client=\"telegram\"} > 0)",
+          "legendFormat": "ходов / DAU",
+          "refId": "A"
+        }
+      ],
+      "description": "Завершённые голосовые ходы сегодня / Telegram DAU сегодня, по московскому дню."
+    },
+    {
+      "type": "timeseries",
+      "title": "Списано, USD",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "speaking_cost_micro{client=\"telegram\"} / 1000000",
+          "legendFormat": "{{currency}}",
+          "refId": "A"
+        }
+      ]
     },
     {
       "type": "timeseries",
       "title": "Токены чата",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
       "targets": [
-        {"expr": "speaking_prompt_tokens{client=\"telegram\"}", "legendFormat": "prompt", "refId": "A"},
-        {"expr": "speaking_completion_tokens{client=\"telegram\"}", "legendFormat": "completion", "refId": "B"}
+        {
+          "expr": "speaking_prompt_tokens{client=\"telegram\"}",
+          "legendFormat": "prompt",
+          "refId": "A"
+        },
+        {
+          "expr": "speaking_completion_tokens{client=\"telegram\"}",
+          "legendFormat": "completion",
+          "refId": "B"
+        }
       ]
     },
     {
       "type": "timeseries",
       "title": "Токены звонка",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
-      "targets": [{"expr": "speaking_realtime_tokens{client=\"telegram\"}", "legendFormat": "{{part}}", "refId": "A"}]
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "speaking_realtime_tokens{client=\"telegram\"}",
+          "legendFormat": "{{part}}",
+          "refId": "A"
+        }
+      ]
     },
     {
       "type": "timeseries",
       "title": "Объём",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
       "targets": [
-        {"expr": "speaking_stt_seconds{client=\"telegram\"}", "legendFormat": "stt s", "refId": "A"},
-        {"expr": "speaking_tts_chars{client=\"telegram\"}", "legendFormat": "tts chars", "refId": "B"}
+        {
+          "expr": "speaking_stt_seconds{client=\"telegram\"}",
+          "legendFormat": "stt s",
+          "refId": "A"
+        },
+        {
+          "expr": "speaking_tts_chars{client=\"telegram\"}",
+          "legendFormat": "tts chars",
+          "refId": "B"
+        }
       ]
     },
     {
       "type": "timeseries",
       "title": "DAU и ходы",
-      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
       "targets": [
-        {"expr": "speaking_dau{client=\"telegram\"}", "legendFormat": "dau", "refId": "A"},
-        {"expr": "speaking_turns{client=\"telegram\"}", "legendFormat": "turns", "refId": "B"}
+        {
+          "expr": "speaking_dau{client=\"telegram\"}",
+          "legendFormat": "dau",
+          "refId": "A"
+        },
+        {
+          "expr": "speaking_turns{client=\"telegram\"}",
+          "legendFormat": "turns",
+          "refId": "B"
+        }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Частота",
-      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
-      "targets": [{"expr": "speaking_actions{client=\"telegram\"}", "legendFormat": "{{action}}", "refId": "A"}]
+      "title": "Действия за день",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "speaking_actions{client=\"telegram\"}",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ]
     },
     {
       "type": "timeseries",
-      "title": "Ошибки сервисов",
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
-      "targets": [{"expr": "speaking_errors{client=\"telegram\"}", "legendFormat": "{{outcome}}", "refId": "A"}]
+      "title": "Ошибки сервисов за день",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "speaking_errors{client=\"telegram\"} or on() label_replace(speaking_dau{client=\"telegram\"} * 0, \"outcome\", \"нет ошибок\", \"client\", \"telegram\")",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ]
     }
   ]
 }

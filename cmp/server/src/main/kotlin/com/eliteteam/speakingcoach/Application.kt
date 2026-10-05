@@ -43,6 +43,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.ContentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -52,6 +53,8 @@ import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
 import io.ktor.server.request.header
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
 import io.ktor.server.routing.openapi.hide
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -103,7 +106,10 @@ private suspend fun startWebhookServer(config: AppConfig) {
         processor = ai,
         scope = webhookScope,
     )
-    val behaviourContext = buildTelegramWebhookBehaviour(token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts)
+    val telegramMetrics = TelegramOperationalMetrics()
+    val behaviourContext = buildTelegramWebhookBehaviour(
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, telegramMetrics,
+    )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
@@ -172,6 +178,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 voiceAttempts = voiceAttempts,
             ),
         ) {
+            get("/internal/telegram-metrics/prometheus") {
+                if (!telegramMetricsScrapeAllowed(call.request.local.localPort, config.monitoringPort)) {
+                    call.respond(HttpStatusCode.NotFound)
+                } else {
+                    call.respondText(telegramMetrics.prometheus(), ContentType.parse("text/plain; version=0.0.4"))
+                }
+            }.hide()
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
             }.hide()

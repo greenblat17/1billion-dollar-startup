@@ -13,6 +13,7 @@ import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
+import com.eliteteam.speakingcoach.ai.TelegramJourneySnapshot
 import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
@@ -549,6 +550,11 @@ class MetricsDashboardTest {
                     ),
                     MetricsV2Client(client = "android"),
                 ),
+                telegramJourney = TelegramJourneySnapshot(
+                    since = "2026-10-05",
+                    onlyStart = 4,
+                    atLeast = mapOf("1" to 3, "3" to 2, "5" to 1, "10" to 1, "20" to 0),
+                ),
             ),
             reminders = RemindersSnapshot(),
         )
@@ -565,6 +571,10 @@ class MetricsDashboardTest {
         assertTrue(html.contains("1.500000 USD"))
         assertTrue(html.contains("tg-1"))
         assertTrue(html.contains("text"))
+        assertTrue(html.contains("Только Start, без ГС"))
+        assertTrue(html.contains("Учёт с 2026-10-05"))
+        assertTrue(html.contains("≥3 ГС"))
+        assertTrue(html.contains("20+ ГС"))
         assertFalse(html.contains("₽ на ход"))
         assertFalse(html.contains("₽ на DAU"))
         assertFalse(html.contains(">100<"))

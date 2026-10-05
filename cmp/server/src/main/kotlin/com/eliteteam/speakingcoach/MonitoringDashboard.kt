@@ -197,6 +197,7 @@ internal fun monitoringReportHtml(snapshot: MetricsSnapshot): String {
         ${card("TPS (60 с)", formatTps(snapshot.tps))}
         </dl>
         $columnsHtml
+        ${telegramJourneyHtml(snapshot)}
         <h2>Telegram · воронка</h2>
         <p class="meta">Первый start, голос и обмен. Только Telegram. Activated за 7 дней: ${snapshot.activated7}</p>
         <table>
@@ -212,6 +213,23 @@ internal fun monitoringReportHtml(snapshot: MetricsSnapshot): String {
         ${correctionReport(snapshot)}
         </body>
         </html>
+    """.trimIndent()
+}
+
+private fun telegramJourneyHtml(snapshot: MetricsSnapshot): String {
+    val journey = snapshot.v2?.telegramJourney ?: return ""
+    val since = if (journey.since.isBlank()) "Учёт ещё не начался." else "Учёт с ${escapeHtml(journey.since)}."
+    return """
+        <h2>Telegram · путь от Start до голосовых</h2>
+        <p class="meta">$since Накопительные числа пользователей с момента включения учёта, без восстановления прошлых сообщений. Пороги голосовых включают друг друга.</p>
+        <dl>
+        ${card("Только Start, без ГС", journey.onlyStart.toString())}
+        ${card("≥1 ГС", (journey.atLeast["1"] ?: 0).toString())}
+        ${card("≥3 ГС", (journey.atLeast["3"] ?: 0).toString())}
+        ${card("≥5 ГС", (journey.atLeast["5"] ?: 0).toString())}
+        ${card("≥10 ГС", (journey.atLeast["10"] ?: 0).toString())}
+        ${card("20+ ГС", (journey.atLeast["20"] ?: 0).toString())}
+        </dl>
     """.trimIndent()
 }
 

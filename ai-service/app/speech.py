@@ -3,6 +3,7 @@ from __future__ import annotations
 from redis.asyncio import Redis
 
 from app.tts import TextToSpeech, TtsAudio
+from app.operational_metrics import telegram_stage
 
 SPEED_CHOICES = (0.8, 0.9, 1.0)
 
@@ -44,6 +45,7 @@ class SessionSpeech:
     async def speed(self, session_id: str) -> float:
         return await self.speeds.get(session_id) or self.default_speed
 
+    @telegram_stage("tts", session_arg=True)
     async def synthesize(self, session_id: str, text: str, *, speed: float | None = None) -> TtsAudio:
         selected = speed if speed is not None else await self.speed(session_id)
         if selected == self.default_speed:

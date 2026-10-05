@@ -1,6 +1,12 @@
 import pytest
+from fakeredis import FakeAsyncRedis
+from fastapi.testclient import TestClient
 
-from app.metrics_v2 import MemoryMetricsV2, client_for, cost_micro
+from app.metrics_v2 import MemoryMetricsV2, RedisMetricsV2, client_for, cost_micro
+from app.main import create_app
+from tests.conftest import FakeLlm, FakeStt, FakeTts, test_settings as make_settings
+from app.dialogue import MemoryDialogueStore
+from app.pipeline import ClipPipeline
 
 
 def test_client_for_prefixes() -> None:
@@ -59,3 +65,40 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
     assert "speaking_cost_micro" in text
     assert 'client="ios"' in text
     assert "speaking_cost_micro{client=\"ios\"" not in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_telegram_journey_counts_distinct_users_at_cumulative_voice_milestones(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    await store.record_telegram_message("tg-first", "start", "message:1", now=1_000_000_000)
+    await store.record_telegram_message("tg-first", "start", "message:1", now=1_000_000_000)
+    await store.record_telegram_message("tg-second", "start", "message:1", now=1_000_000_000)
+    await store.record_telegram_message("app-android", "voice", "message:2", now=1_000_000_000)
+    assert (await store.snapshot())["telegramJourney"]["onlyStart"] == 2
+
+    for index in range(2, 22):
+        await store.record_telegram_message("tg-first", "voice", f"message:{index}", now=1_000_000_000)
+    await store.record_telegram_message("tg-first", "voice", "message:21", now=1_000_000_000)
+    await store.record_telegram_message("tg-second", "voice", "message:2", now=1_000_000_000)
+    await store.record_telegram_message("tg-third", "voice", "message:1", now=1_000_000_000)
+    await store.record_telegram_message("tg-third", "start", "message:2", now=1_000_000_000)
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey == {
+        "since": "2001-09-09",
+        "onlyStart": 0,
+        "atLeast": {"1": 3, "3": 1, "5": 1, "10": 1, "20": 1},
+    }
+
+
+def test_action_endpoint_records_telegram_message_id_once() -> None:
+    v2 = MemoryMetricsV2()
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400), v2=v2)
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    with TestClient(app, headers={"X-Internal-Token": "test-internal-token"}) as client:
+        for _ in range(2):
+            assert client.post("/internal/metrics/action", json={
+                "sessionId": "tg-1", "action": "voice", "eventId": "message:42",
+            }).status_code == 200
+        journey = client.get("/internal/metrics").json()["v2"]["telegramJourney"]
+    assert journey["atLeast"]["1"] == 1
