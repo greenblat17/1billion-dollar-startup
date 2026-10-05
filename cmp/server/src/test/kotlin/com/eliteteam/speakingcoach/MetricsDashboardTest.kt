@@ -1,7 +1,12 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.MemoryVoiceAttemptStore
+import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.ai.FunnelDay
+import com.eliteteam.speakingcoach.ai.ErrorDay
+import com.eliteteam.speakingcoach.ai.ErrorsSnapshot
+import com.eliteteam.speakingcoach.ai.RecentError
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
@@ -39,6 +44,8 @@ import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import java.time.LocalDate
+import java.time.Instant
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonNull
@@ -48,6 +55,53 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun voiceErrorsShowDeliveryImpactAndEscapeUsernames() = runTest {
+        val store = MemoryVoiceAttemptStore()
+        val now = Instant.now()
+        store.record(VoiceAttempt(123, 1, now.minusSeconds(10), username = "<script>", eligible = true,
+            outcome = "ai_failed", stage = "stt", reason = "network", totalMs = 120, sttMs = 80))
+        val html = errorsPageHtml(sampleSnapshot(), store.report(now))
+        assertTrue(html.contains("Результат голосового сообщения в Telegram"))
+        assertTrue(html.contains("Затронуто чатов за 14 дней"))
+        assertTrue(html.contains("network"))
+        assertTrue(html.contains("p95"))
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertFalse(html.contains("<script>"))
+        assertTrue(html.contains("ID попытки"))
+        assertTrue(errorsPageHtml(null, store.report(now)).contains("Метрики AI service недоступны"))
+    }
+
+    @Test
+    fun errorDashboardRequiresSessionAndShowsCounts() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            errors = ErrorsSnapshot(
+                today = ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1),
+                days = listOf(ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1)),
+                recent = listOf(
+                    RecentError("2026-09-24T12:00:00+03:00", "pipeline_failed", "tts", "Provider <failed>", "alex<script>", 123),
+                    RecentError("2026-09-24T11:00:00+03:00", "timeout", "stt", "TimeoutError"),
+                ),
+            ),
+        )
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
+        }
+        val anonymous = client.get(ERRORS_PATH)
+        assertTrue(anonymous.bodyAsText().contains("Пароль"))
+        assertFalse(anonymous.bodyAsText().contains("Доля ошибок"))
+        val page = client.get(ERRORS_PATH) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertTrue(page.bodyAsText().contains("20.0%"))
+        assertTrue(page.bodyAsText().contains("<td>2026-09-24</td><td>8</td><td>1</td><td>1</td><td>2</td>"))
+        assertTrue(page.bodyAsText().contains("Provider &lt;failed&gt;"))
+        assertFalse(page.bodyAsText().contains("Provider <failed>"))
+        assertTrue(page.bodyAsText().contains("@alex&lt;script&gt;"))
+        assertTrue(page.bodyAsText().contains("<td>@alex&lt;script&gt;</td><td>123</td><td>tts</td>"))
+        assertFalse(page.bodyAsText().contains("@alex<script>"))
+        assertTrue(page.bodyAsText().contains("<td>—</td><td>—</td><td>stt</td>"))
+    }
+
     @Test
     fun correctionsSectionShowsFailuresLatencyAndRetries() = testApplication {
         val snapshot = sampleSnapshot().copy(corrections = mapOf(
@@ -526,6 +580,9 @@ class MetricsDashboardTest {
         assertFalse(html.contains(">100<"))
         val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
         assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))
+        val errors = client.get("/admin/monitoring/errors").bodyAsText()
+        assertTrue(errors.contains("Последние ошибки"))
+        assertTrue(errors.contains("href=\"/admin/monitoring/errors\" aria-current=\"page\""))
         assertEquals(HttpStatusCode.NotFound, client.get("/admin/metrics").status)
     }
 

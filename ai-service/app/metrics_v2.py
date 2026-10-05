@@ -11,6 +11,8 @@ from redis.exceptions import WatchError
 from app.metrics import metrics_day
 
 _EVENTS_KEY = "metrics:v2:events"
+_EVENTS_LIMIT = 10_000
+_EVENTS_TTL_SECONDS = 30 * 24 * 60 * 60
 _CLIENTS = ("telegram", "android", "ios", "desktop", "unknown")
 _MOBILE = {"android", "ios", "desktop"}
 _TELEGRAM_VOICE_MILESTONES = (1, 3, 5, 10, 20)
@@ -245,6 +247,8 @@ class MemoryMetricsV2(MetricsV2):
             "day": day, "client": client, "family": family, "kind": kind, "model": model,
             **(fields or {}),
         })
+        if len(self.events) > _EVENTS_LIMIT:
+            del self.events[:-_EVENTS_LIMIT]
 
 
 class RedisMetricsV2(MetricsV2):
@@ -282,9 +286,14 @@ class RedisMetricsV2(MetricsV2):
             return
         pipe = self._redis.pipeline()
         pipe.hincrby(_day_key(day, client), "turns", 1)
+        pipe.expire(_day_key(day, client), _EVENTS_TTL_SECONDS)
         pipe.sadd(_dau_key(day, client), session)
+        pipe.expire(_dau_key(day, client), _EVENTS_TTL_SECONDS)
         pipe.hincrby(_chat_key(day, client), session, 1)
+        pipe.expire(_chat_key(day, client), _EVENTS_TTL_SECONDS)
         pipe.lpush(_EVENTS_KEY, _event_json(day, client, "turn", "", ""))
+        pipe.ltrim(_EVENTS_KEY, 0, _EVENTS_LIMIT - 1)
+        pipe.expire(_EVENTS_KEY, _EVENTS_TTL_SECONDS)
         await pipe.execute()
 
     async def record_action(self, session_id, action, *, platform=None, now=None):
@@ -383,9 +392,12 @@ class RedisMetricsV2(MetricsV2):
         key = _day_key(day, client)
         for name, value in fields.items():
             pipe.hincrby(key, f"{family}|{kind}|{model}|{name}", int(value))
+        pipe.expire(key, _EVENTS_TTL_SECONDS)
         if billed:
             pipe.hset(key, "currency", "USD")
         pipe.lpush(_EVENTS_KEY, _event_json(day, client, family, kind, model, fields))
+        pipe.ltrim(_EVENTS_KEY, 0, _EVENTS_LIMIT - 1)
+        pipe.expire(_EVENTS_KEY, _EVENTS_TTL_SECONDS)
         await pipe.execute()
 
 

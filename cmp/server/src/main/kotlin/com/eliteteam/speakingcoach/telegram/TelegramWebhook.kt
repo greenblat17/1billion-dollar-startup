@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.HttpClipClient
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.TelegramOperationalMetrics
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import dev.inmo.tgbotapi.bot.TelegramBot
@@ -40,6 +41,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
     sessionClipQueue: SessionClipQueue,
     scope: CoroutineScope,
     analytics: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
+    voiceAttempts: VoiceAttemptRecorder? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
 ): BehaviourContext {
     val bot = speakingCoachTelegramBot(token)
@@ -49,7 +51,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, operationalMetrics)
+        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics)
     }
 }
 

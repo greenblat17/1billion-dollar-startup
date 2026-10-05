@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.onboarding import FIRST_QUESTION
 
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -211,6 +212,40 @@ def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
         assert audio.headers["content-type"].startswith(media_type)
         assert audio.content.startswith(prefix)
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
+
+
+def test_clip_failures_are_counted_without_exposing_error_text() -> None:
+    class FailingTts(FakeTts):
+        async def synthesize(self, text: str, speed: float | None = None):
+            raise RuntimeError("provider rejected <audio>: token=sk-secret123456")
+
+    app, _, _, _ = build_app(stt=FakeStt(["hello"]), tts=FailingTts())
+    with _client(app) as client:
+        attempt_id = str(uuid4())
+        session_id = _start_session(client)
+        assert client.post(
+            "/internal/funnel/start", json={"sessionId": session_id, "username": "@alex"},
+        ).status_code == 200
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id, "attemptId": attempt_id},
+            files={"audio": ("voice.ogg", b"voice", "audio/ogg")},
+        )
+        failed = _wait_status(client, created.json()["jobId"])
+        assert failed["status"] == "error"
+        assert failed["error"]["stage"] == "tts"
+        assert failed["error"]["reason"] == "internal"
+        assert failed["timingsMs"]["tts"] >= 0
+        metrics = client.get("/internal/metrics").json()
+        assert metrics["errors"]["today"]["pipelineFailed"] == 1
+        recent = metrics["errors"]["recent"][0]
+        assert recent["username"] == "alex"
+        assert recent["telegramId"] is None
+        assert recent["stage"] == "tts"
+        assert recent["attemptId"] == attempt_id
+        assert recent["jobId"] == created.json()["jobId"]
+        assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
+        assert "secret123456" not in str(metrics["errors"])
 
 
 @pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])

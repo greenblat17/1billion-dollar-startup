@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
@@ -32,6 +33,7 @@ internal class MonitoringDashboard(
     val reminders: ReminderAdmin? = null,
     val campaign: LegacyCampaignAdmin? = null,
     val monitoringPort: Int = 0,
+    val voiceAttempts: VoiceAttemptRecorder? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -71,6 +73,15 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
             log.warn("Monitoring snapshot failed", error)
             metricsUnavailableHtml()
         }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$root/errors") {
+        if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
+        val metrics = try { dashboard.source.load() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Monitoring snapshot failed", error); null }
+        val voice = try { dashboard.voiceAttempts?.report() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Voice attempt snapshot failed", error); null }
+        val html = errorsPageHtml(metrics, voice, summaryRoot = root)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get("$root/onboarding-campaign") {

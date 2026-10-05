@@ -64,7 +64,8 @@ class OpenAiTextToSpeech:
             return parsed, headers
 
         try:
-            response, headers = await once_on_retryable(call)
+            provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
+            response, headers = await once_on_retryable(call, metric_service="tts", metric_provider=provider)
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error("", "tts", "failed")
@@ -95,7 +96,8 @@ class DeepgramTextToSpeech:
         self._ffmpeg_bin = ffmpeg_bin
 
     async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
-        response = await once_on_retryable(lambda: self._request(text, speed))
+        response = await once_on_retryable(lambda: self._request(text, speed), metric_service="tts",
+                                           metric_provider="deepgram")
         if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/mpeg":
             raise RuntimeError("deepgram tts returned an unsupported audio type")
         if not response.content:

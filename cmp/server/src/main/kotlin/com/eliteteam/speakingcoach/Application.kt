@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.app.AppApi
@@ -28,6 +30,13 @@ import com.eliteteam.speakingcoach.telegram.telegramSessionId
 import com.eliteteam.speakingcoach.telegram.legacyCampaignMessage
 import com.eliteteam.speakingcoach.telegram.legacyCampaignKeyboard
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.client.HttpClient
@@ -92,13 +101,14 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val webhookScope = newTelegramWebhookScope()
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
+    val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, telegramMetrics,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, telegramMetrics,
     )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
@@ -158,12 +168,14 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
                 campaign = campaignRunner,
                 onboarding = onboardingAnalytics,
+                voiceAttempts = voiceAttempts,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
                 reminders = RunnerReminderAdmin(reminderRunner, webhookScope),
                 campaign = campaignRunner,
                 monitoringPort = config.monitoringPort,
+                voiceAttempts = voiceAttempts,
             ),
         ) {
             get("/internal/telegram-metrics/prometheus") {
@@ -200,11 +212,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
     try {
         awaitCancellation()
     } finally {
+        server.stop()
+        withContext(NonCancellable) { withTimeoutOrNull(2_000) { voiceAttempts.close() } }
         behaviourContext.cancel()
         webhookScope.cancel()
         aiHttp.close()
         onboardingAnalytics?.close()
-        server.stop()
     }
 }
 
@@ -224,6 +237,12 @@ internal fun Application.module(
         installAppPlugins(appApi)
     }
     val source = metricsSource ?: ownedMetricsSource(config)
+    val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    val voiceAttempts = source?.let { VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), voiceScope) }
+    monitor.subscribe(ApplicationStopped) {
+        runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
+        voiceScope.cancel()
+    }
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
             config,
@@ -232,6 +251,7 @@ internal fun Application.module(
             reminders = reminderAdmin,
             campaign = campaignAdmin,
             onboarding = onboardingAnalytics,
+            voiceAttempts = voiceAttempts,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -239,6 +259,7 @@ internal fun Application.module(
                 reminders = reminderAdmin,
                 campaign = campaignAdmin,
                 monitoringPort = config.monitoringPort,
+                voiceAttempts = voiceAttempts,
             )
         },
     ) {
@@ -266,12 +287,13 @@ private fun Application.metricsDashboard(
     reminders: ReminderAdmin? = null,
     campaign: LegacyCampaignAdmin? = null,
     onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
+    voiceAttempts: VoiceAttemptRecorder? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

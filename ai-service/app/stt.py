@@ -49,7 +49,7 @@ class GroqSpeechToText:
                 timestamp_granularities=["word"],
             )
 
-        response = await once_on_retryable(call)
+        response = await once_on_retryable(call, metric_service="stt", metric_provider="groq")
         payload = _as_dict(response)
         text = str(payload.get("text") or "").strip()
         no_speech_prob = _no_speech_prob(payload)

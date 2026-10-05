@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 
-from typing import Any
+from typing import Any, Callable
 
 from app.dialogue import DialogueStore
 from app.llm import ChatModel, Correction, CorrectionRun
@@ -17,10 +18,24 @@ from app.stt import SpeechToText, SttResult
 from app.tts import TextToSpeech, TtsAudio
 
 logger = logging.getLogger(__name__)
+_job_timings: ContextVar[dict[str, int] | None] = ContextVar("job_timings", default=None)
+
+
+def bind_job_timings(timings: dict[str, int]) -> Token:
+    return _job_timings.set(timings)
+
+
+def reset_job_timings(token: Token) -> None:
+    _job_timings.reset(token)
+
+
+def current_job_timings() -> dict[str, int] | None:
+    return _job_timings.get()
 
 CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
 NOTES_TIMEOUT_SECONDS = 10.0
 CORRECTION_METRICS_TIMEOUT_SECONDS = 0.2
+PARTIAL_METRICS_TIMEOUT_SECONDS = 0.02
 
 
 @dataclass
@@ -113,6 +128,9 @@ class ClipPipeline:
 
         attempts = run.attempts
         elapsed_ms = _elapsed_ms(started)
+        current = _job_timings.get()
+        if current is not None:
+            current["notes"] = elapsed_ms
         logger.info("live correction outcome=%s attempts=%s elapsed_ms=%s", run.outcome, attempts, elapsed_ms)
         try:
             await asyncio.wait_for(
@@ -136,31 +154,44 @@ class ClipPipeline:
         content_type: str,
         filename: str,
         profile_note: str | None = None,
+        on_stage: Callable[[str], None] | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
         bound = bind_metrics(session_id)
         try:
-            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started)
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
         finally:
             reset_metrics(bound)
 
-    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started):
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage):
+        timings = _job_timings.get()
+        if timings is None:
+            timings = {}
+        def stage(name: str) -> None:
+            if on_stage is not None:
+                on_stage(name)
+
         stt_started = time.perf_counter()
+        stage("stt")
         try:
             stt_result = await self._stt.transcribe(audio, content_type, filename)
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error(session_id, "stt", "failed")
             raise
-        stt_ms = _elapsed_ms(stt_started)
+        finally:
+            timings["stt"] = _elapsed_ms(stt_started)
+        stt_ms = timings["stt"]
         if self._v2 is not None:
             await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
 
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
+            stage("tts")
             reply_audio = await self.speech.synthesize(session_id, CLARIFY_TEXT)
-            timings = {"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)}
+            timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
+            stage("metrics")
             await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
             if self._v2 is not None:
                 await self._v2.record_turn(session_id)
@@ -181,15 +212,20 @@ class ClipPipeline:
             )
 
         context_started = time.perf_counter()
+        stage("state")
         history = await self._dialogue.history(session_id)
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
-        timings = {"stt": stt_ms, "context": _elapsed_ms(context_started)}
+        timings.update({"stt": stt_ms, "context": _elapsed_ms(context_started)})
 
         async def measured(name: str, operation):
             step_started = time.perf_counter()
             try:
                 return await operation
+            except Exception as error:
+                operation_stage = "tts" if name == "tts" else "llm" if name in {"reply", "notes"} else "state"
+                error._speaky_stage = operation_stage
+                raise
             finally:
                 timings[name] = _elapsed_ms(step_started)
 
@@ -199,12 +235,15 @@ class ClipPipeline:
                 "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),
             )))
         try:
+            stage("llm")
             reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
             tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
+            stage("state")
             await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
+            stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
             if self.personalization is not None:
                 observation = await tasks[1]
@@ -219,6 +258,7 @@ class ClipPipeline:
 
         timings["llm"] = max(timings["reply"], timings["notes"])
         finalize_started = time.perf_counter()
+        stage("metrics")
         await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
         if self._v2 is not None:
             await self._v2.record_turn(session_id)
@@ -249,8 +289,9 @@ class ClipPipeline:
     async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:
         if self.calls is None:
             return None
+        await self.record_partial("call_turn", "attempted")
         try:
-            return await self.calls.append_turn(
+            result = await self.calls.append_turn(
                 session_id,
                 stt_result.text,
                 reply_text,
@@ -258,25 +299,42 @@ class ClipPipeline:
                 stt_result.duration_seconds,
                 stt_result.words,
             )
-        except Exception:
+            await self.record_partial("call_turn", "succeeded")
+            return result
+        except Exception as error:
+            await self.record_partial("call_turn", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("call turn failed session=%s", session_id)
             return None
 
     async def _call_summary(self, session_id: str) -> dict | None:
         if self.calls is None:
             return None
+        await self.record_partial("call_summary", "attempted")
         try:
-            return await self.calls.summary(session_id)
-        except Exception:
+            result = await self.calls.summary(session_id)
+            await self.record_partial("call_summary", "succeeded")
+            return result
+        except Exception as error:
+            await self.record_partial("call_summary", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("call summary failed session=%s", session_id)
             return None
 
     async def _record_streak(self, session_id: str) -> StreakUpdate | None:
+        await self.record_partial("streak", "attempted")
         try:
-            return await self._streaks.record_activity(session_id)
-        except Exception:
+            result = await self._streaks.record_activity(session_id)
+            await self.record_partial("streak", "succeeded")
+            return result
+        except Exception as error:
+            await self.record_partial("streak", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("streak update failed session=%s", session_id)
             return None
+
+    async def record_partial(self, feature: str, outcome: str, reason: str = "unknown") -> None:
+        try:
+            await asyncio.wait_for(self._metrics.record_partial(feature, outcome, reason=reason), PARTIAL_METRICS_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("failed to record partial feature result feature=%s outcome=%s", feature, outcome)
 
 
 def _should_clarify(result: SttResult) -> bool:
