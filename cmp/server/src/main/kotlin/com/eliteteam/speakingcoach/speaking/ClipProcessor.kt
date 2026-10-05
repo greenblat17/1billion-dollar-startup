@@ -24,6 +24,7 @@ data class CallProgress(
     val todaySeconds: Double,
     val goalSeconds: Double,
     val goalJustCrossed: Boolean,
+    val recognizedSeconds: Double? = null,
 )
 
 data class ClipReply(

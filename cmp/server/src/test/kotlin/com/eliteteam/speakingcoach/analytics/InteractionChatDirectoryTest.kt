@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class InteractionChatDirectoryTest {
     @Test
-    fun backfillsExistingChatsAndFindsNewChatsByNameOrId() = runTest {
+    fun upgradesExistingV10AndFindsChatsByNameOrId() = runTest {
         val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
         val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
         val schema = "history_${UUID.randomUUID().toString().replace("-", "")}"
@@ -27,9 +27,15 @@ class InteractionChatDirectoryTest {
         val audioDir = Files.createTempDirectory("history-audio-")
         try {
             Flyway.configure().dataSource(schemaUrl, null, null)
-                .schemas(schema).target(MigrationVersion.fromVersion("9")).load().migrate()
+                .schemas(schema).target(MigrationVersion.fromVersion("10")).load().migrate()
             val now = Instant.now()
             DriverManager.getConnection(schemaUrl).use { connection ->
+                connection.createStatement().use { statement ->
+                    statement.executeQuery("SELECT checksum FROM flyway_schema_history WHERE version = '10'").use {
+                        assertTrue(it.next())
+                        assertEquals(-1076452082, it.getInt(1))
+                    }
+                }
                 connection.prepareStatement("""
                     INSERT INTO interaction_events
                     (event_id, chat_id, direction, kind, status, occurred_at, received_at)

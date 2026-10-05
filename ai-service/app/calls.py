@@ -41,7 +41,11 @@ class CallStore:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
             day = moscow_day(self._clock())
+            previous = await self._live(session_id)
+            closed_previous = previous if previous is not None and previous.get("day") != day else None
             unseen = await self._seal_previous_day(session_id, day)
+            if closed_previous is not None:
+                closed_previous = await self._read_call(str(closed_previous["id"]))
             call = await self._live(session_id)
             already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
@@ -49,7 +53,13 @@ class CallStore:
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
                 await self._append_day(session_id, day, call["id"])
-            return {**await self._summary(session_id, call, unseen=unseen, crossed=False), "alreadyActive": already_active}
+            return {
+                **await self._summary(session_id, call, unseen=unseen, crossed=False),
+                "alreadyActive": already_active,
+                "startedUnix": call["startedUnix"],
+                "closedPreviousCallId": closed_previous["id"] if closed_previous else None,
+                "closedPreviousUnix": closed_previous.get("endedUnix") if closed_previous else None,
+            }
 
     async def is_open_today(self, session_id: str) -> bool:
         session_id = _session_id(session_id)
@@ -105,13 +115,13 @@ class CallStore:
                 await self._write_day(session_id, call["day"], day)
             return await self._summary(session_id, call, unseen=None, crossed=crossed)
 
-    async def seal(self, session_id: str) -> str | None:
+    async def seal(self, session_id: str, reason: str = "end_button") -> str | None:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
             call = await self._live(session_id)
             if call is None:
                 return None
-            await self._close(session_id, call)
+            await self._close(session_id, call, reason)
             return str(call["id"])
 
     async def note_telegram_voice(self, session_id: str, call_id: str, message_id: int) -> bool:
@@ -208,16 +218,17 @@ class CallStore:
         call = await self._live(session_id)
         if call is None or call.get("day") == day:
             return None
-        await self._close(session_id, call)
+        await self._close(session_id, call, "next_moscow_day")
         if call.get("reviewOffered"):
             return None
         call["reviewOffered"] = True
         await self._write_call(call)
         return str(call["id"])
 
-    async def _close(self, session_id: str, call: dict) -> None:
+    async def _close(self, session_id: str, call: dict, reason: str) -> None:
         call["status"] = "closed"
         call["endedUnix"] = self._clock()
+        call["closeReason"] = reason
         call["todaySeconds"] = await self._today_seconds(session_id, str(call["day"]))
         call["goalSeconds"] = await self._goal_seconds(session_id)
         await self._write_call(call)
@@ -226,6 +237,7 @@ class CallStore:
     async def _summary(self, session_id: str, call: dict, unseen: str | None, crossed: bool) -> dict[str, Any]:
         return {
             "callId": call["id"],
+            "startedUnix": call["startedUnix"],
             "todaySeconds": await self._today_seconds(session_id, str(call["day"])),
             "goalSeconds": await self._goal_seconds(session_id),
             "goalJustCrossed": crossed,

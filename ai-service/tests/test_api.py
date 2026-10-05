@@ -69,20 +69,25 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
         assert client.post("/internal/calls/starter-delivered", json={"callId": body["callId"]}).status_code == 200
         assert client.post("/internal/calls/start", json=payload).json()["status"] == "active"
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": True}
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is True
+        assert status["callId"] == body["callId"]
+        assert status["startedUnix"] == body["startedUnix"]
 
 
 def test_call_status_does_not_open_a_call() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:
         payload = {"sessionId": "tg-1"}
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
         first = client.post("/internal/calls/open", json=payload).json()
         assert first["alreadyActive"] is False
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is False
+        assert status["callId"] == first["callId"]
         assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
         assert client.post("/internal/calls/end", json=payload).status_code == 200
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
 
 
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
@@ -107,9 +112,11 @@ def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None
         voice = {**payload, "callId": call_id, "messageId": 42}
         assert client.post("/internal/calls/telegram-voice", json=voice).json() == {"firstReplyToStarter": False}
         assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": 43}).status_code == 200
-        assert client.post("/internal/calls/end", json=payload).json() == {
-            "callId": call_id, "lastVoiceMessageId": 43,
-        }
+        ended = client.post("/internal/calls/end", json=payload).json()
+        assert ended["callId"] == call_id
+        assert ended["lastVoiceMessageId"] == 43
+        assert ended["reason"] == "end_button"
+        assert ended["endedUnix"] is not None
         assert client.post("/internal/calls/telegram-voice", json=voice).status_code == 409
         assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": -1}).status_code == 400
 

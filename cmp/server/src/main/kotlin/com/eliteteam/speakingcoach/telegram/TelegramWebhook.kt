@@ -44,6 +44,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
     scope: CoroutineScope,
     analytics: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
+    callEvents: com.eliteteam.speakingcoach.analytics.CallEventRecorder? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
 ): BehaviourContext {
@@ -54,7 +55,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit)
+        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents)
     }
 }
 

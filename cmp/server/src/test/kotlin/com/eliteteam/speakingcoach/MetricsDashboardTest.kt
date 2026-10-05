@@ -56,6 +56,23 @@ import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
     @Test
+    fun callDashboardRequiresSessionAndRejectsInvalidCallId() = testApplication {
+        application { module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot())) }
+        val anonymous = client.get(CALLS_PATH)
+        assertTrue(anonymous.bodyAsText().contains("Пароль"))
+        val page = client.get("$CALLS_PATH?days=7") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertEquals("no-store", page.headers[HttpHeaders.CacheControl])
+        assertTrue(page.bodyAsText().contains("Практические звонки"))
+        val invalid = client.get("$CALLS_PATH/not-a-call-id") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.NotFound, invalid.status)
+    }
+
+    @Test
     fun voiceErrorsShowDeliveryImpactAndEscapeUsernames() = runTest {
         val store = MemoryVoiceAttemptStore()
         val now = Instant.now()

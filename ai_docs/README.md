@@ -17,6 +17,8 @@ Voice error observability: `architecture/2026-10-05-voice-error-observability.md
 Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
 Agreed interaction history and service logs: `architecture/2026-10-05-conversation-audit-logging.md`.
 Implementation plan for that system: `plans/2026-10-05-interaction-history-and-service-logs.md`.
+Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
+Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
 
 ## Structure
 
