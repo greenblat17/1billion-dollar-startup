@@ -12,6 +12,7 @@ from uuid import uuid4
 from redis.asyncio import Redis
 
 from app.llm import Correction
+from app.audit_artifacts import record_artifact, recorded_at
 from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.vocabulary_suggestions import select_vocabulary_suggestions
@@ -32,6 +33,27 @@ RESULT_READY_TEXT = "Your results are ready."
 SPEECH_LIMIT_SECONDS = 120
 SPEECH_MILESTONES = (30, 60, 90, 120)
 PROFILE_FIELDS = ("work", "leisure", "goal")
+RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
+
+
+def _expire_raw_turns(state: dict, now: float | None = None) -> dict:
+    """Keep assessment/progress but remove raw turns whose age cannot meet retention."""
+    cutoff = (now if now is not None else time.time()) - RAW_CONTENT_SECONDS
+    original = state.get("turns") or []
+    current = [turn for turn in original if isinstance(turn, dict)
+               and isinstance(turn.get("receivedAt"), (int, float)) and turn["receivedAt"] > cutoff]
+    state["turns"] = current
+    # Questions, review examples and pending assessment can quote a user's answer.
+    # Legacy states have no timestamp, so discard these when no dated turn remains.
+    if not current:
+        for key in ("continueQuestion", "review", "assessment", "resultText"):
+            state.pop(key, None)
+        state["question"] = FIRST_QUESTION
+    if len(current) != len(original) and state.get("status") in {"active", "pending"}:
+        state["status"] = "waiting"
+        state["seconds"] = 0.0
+        state["question"] = FIRST_QUESTION
+    return state
 
 
 class OnboardingSttError(Exception):
@@ -60,10 +82,19 @@ class OnboardingStore:
     async def get(self, session_id: str) -> dict | None:
         if self._redis is not None:
             raw = await self._redis.get(f"onboarding:{session_id}")
-            return json.loads(raw) if raw else None
-        return deepcopy(self._memory.get(session_id))
+            if not raw:
+                return None
+            loaded = json.loads(raw)
+            before = json.dumps(loaded, sort_keys=True)
+            cleaned = _expire_raw_turns(loaded)
+            if json.dumps(cleaned, sort_keys=True) != before:
+                await self._redis.set(f"onboarding:{session_id}", json.dumps(cleaned))
+            return cleaned
+        state = deepcopy(self._memory.get(session_id))
+        return _expire_raw_turns(state) if state else None
 
     async def save(self, session_id: str, state: dict) -> None:
+        state = _expire_raw_turns(state)
         fresh = assessment_summary(state)
         if self._redis is not None:
             stored = _kept_assessment(await self._read_assessment(session_id), fresh)
@@ -77,6 +108,25 @@ class OnboardingStore:
             stored = _kept_assessment(self._assessments.get(session_id), fresh)
             if stored is not None:
                 self._assessments[session_id] = deepcopy(stored)
+
+    async def prune_all(self) -> int:
+        if self._redis is None:
+            for session_id, state in self._memory.items():
+                self._memory[session_id] = _expire_raw_turns(state)
+            return len(self._memory)
+        changed = 0
+        async for key in self._redis.scan_iter(match="onboarding:*", count=100):
+            async with self.lock(key.removeprefix("onboarding:")):
+                raw = await self._redis.get(key)
+                if not raw:
+                    continue
+                loaded = json.loads(raw)
+                before = json.dumps(loaded, sort_keys=True)
+                cleaned = _expire_raw_turns(loaded)
+                if json.dumps(cleaned, sort_keys=True) != before:
+                    await self._redis.set(key, json.dumps(cleaned))
+                    changed += 1
+        return changed
 
     async def save_assessment(self, session_id: str, assessment: dict) -> None:
         if self._redis is not None:
@@ -455,12 +505,14 @@ class OnboardingService:
                             speech_after=float(state["seconds"]),
                         ),
                     )
+                await record_artifact("transcript", stt.text)
                 seconds = stt.duration_seconds if stt.duration_seconds > 0 else duration
                 if not math.isfinite(seconds) or seconds <= 0:
                     raise ValueError("recording duration unavailable")
                 before = float(state["seconds"])
                 turn = {
                     "requestId": request_id, "question": state["question"], "transcript": stt.text,
+                    "receivedAt": recorded_at(),
                     "seconds": seconds, "words": [dict(word) for word in stt.words],
                     "corrections": None, "analysis": None, "delivered": False,
                     "_analytics": _voice_analytics(

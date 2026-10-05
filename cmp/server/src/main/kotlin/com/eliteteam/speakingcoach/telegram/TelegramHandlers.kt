@@ -14,6 +14,8 @@ import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.analytics.AnalyticsWriteBuffer
 import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.InteractionAudit
+import com.eliteteam.speakingcoach.analytics.InteractionEvent
 import com.eliteteam.speakingcoach.analytics.CallEvent
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.voiceAttemptId
@@ -104,8 +106,6 @@ private fun onboardingActionStage(action: String): String = when (action) {
 
 private fun spokenKey(chatId: Any, messageId: MessageId) = "$chatId:${messageId.long}"
 
-private fun oneLine(text: String): String = text.replace(Regex("[\\r\\n]+"), " ")
-
 private suspend fun noteUserAction(
     ai: HttpClipClient,
     log: org.slf4j.Logger,
@@ -190,9 +190,9 @@ internal fun telegramProfile(chat: Chat): ChatProfile {
     )
 }
 
-internal fun speakingCoachTelegramBot(token: String) = telegramBot(token) {
-    logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token)
-}
+internal fun speakingCoachTelegramBot(token: String, audit: InteractionAudit? = null) =
+    telegramBot(token) { logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token) }
+        .let { if (audit == null) it else AuditedTelegramBot(it, audit) }
 
 internal fun BehaviourContext.installSpeakingCoachHandlers(
     ai: HttpClipClient,
@@ -200,6 +200,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     analytics: OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
+    audit: InteractionAudit? = null,
     callEvents: CallEventRecorder? = null,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
@@ -209,6 +210,22 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val progressMessages = ConcurrentHashMap<String, MessageId>()
     val onboardingReminderCards = ConcurrentHashMap<String, Pair<String, MessageId>>()
     val spokenLines = ConcurrentHashMap<String, String>()
+    suspend fun auditGenerated(message: ChatMessage, text: String, kind: String) {
+        val chatId = telegramChatNumber(message.chat.id) ?: return
+        try {
+            audit?.record(InteractionEvent(
+                id = "generated:$chatId:${message.messageId.long}:$kind",
+                chatId = chatId, direction = "internal", kind = kind, status = "generated",
+                messageId = message.messageId.long,
+                receivedAt = audit.receiptTime(chatId, message.messageId.long) ?: Instant.now(),
+                content = text,
+            ))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Could not record generated Telegram text", error)
+        }
+    }
     fun callEvent(event: CallEvent) { callEvents?.record(event) }
     fun callChat(message: ChatMessage): Long? = telegramChatNumber(message.chat.id)
     fun callClosed(message: ChatMessage, callId: String?, at: Instant?, reason: String) {
@@ -541,6 +558,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 },
             )
             log.info("Sending greeting voice")
+            auditGenerated(message, greeting.text, "greeting")
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
         }
     }
@@ -652,6 +670,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         check(opening.status == "ready") { "Unexpected call opening status: ${opening.status}" }
         log.info("Sending call opening")
         val question = requireNotNull(opening.question)
+        auditGenerated(message, question, "call_opening")
         val audio = Base64.getDecoder().decode(requireNotNull(opening.audioBase64))
         clearProgress(message.chat)
         val voice = try {
@@ -803,9 +822,35 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     } catch (error: Throwable) {
                         log.warn("Voice download failed", error)
                         downloadFailed = true
+                        telegramChatNumber(message.chat.id)?.let { chatId ->
+                            try { audit?.record(InteractionEvent(
+                                id = "audio-unavailable:${voiceAttemptId(chatId, message.messageId.long)}",
+                                chatId = chatId, direction = "incoming", kind = "audio", status = "download_failed",
+                                receivedAt = receivedAt, messageId = message.messageId.long,
+                                attemptId = voiceAttemptId(chatId, message.messageId.long),
+                            )) } catch (auditError: Throwable) {
+                                log.warn("Could not record voice download failure", auditError)
+                            }
+                        }
                         throw error
                     }
                     downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
+                    telegramChatNumber(message.chat.id)?.let { chatId ->
+                        try {
+                            if (audit?.saveAudio(chatId, message.messageId.long, receivedAt, bytes) == false) {
+                                audit.record(InteractionEvent(
+                                    id = "audio-unavailable:${voiceAttemptId(chatId, message.messageId.long)}",
+                                    chatId = chatId, direction = "incoming", kind = "audio", status = "not_saved",
+                                    receivedAt = receivedAt, messageId = message.messageId.long,
+                                    attemptId = voiceAttemptId(chatId, message.messageId.long),
+                                ))
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Incoming voice archive failed attempt_id={}", voiceAttemptId(chatId, message.messageId.long), error)
+                        }
+                    }
                     AudioClip(
                         bytes, "audio/ogg", "voice.ogg",
                         onboardingRunId = state.runId.takeIf { state.status == "active" || state.status == "completed" },
@@ -813,6 +858,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         durationSeconds = (content.media.duration ?: 0L).toDouble(),
                         attemptId = telegramChatNumber(message.chat.id)
                             ?.let { voiceAttemptId(it, message.messageId.long) },
+                        receivedAtEpoch = receivedAt.epochSecond.toDouble(),
                     )
                 },
             )
@@ -845,6 +891,25 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             is ClipSubmitResult.Completed -> {
                 replyReady = true
+                telegramChatNumber(message.chat.id)?.let { chatId ->
+                    val attemptId = voiceAttemptId(chatId, message.messageId.long)
+                    try {
+                        if (result.reply.transcript.isNotBlank()) audit?.record(InteractionEvent(
+                            id = "stt:$attemptId", chatId = chatId, direction = "internal", kind = "transcript",
+                            status = "ready", receivedAt = receivedAt, messageId = message.messageId.long,
+                            attemptId = attemptId, jobId = result.reply.jobId, content = result.reply.transcript,
+                        ))
+                        if (result.reply.text.isNotBlank()) audit?.record(InteractionEvent(
+                            id = "generated:$attemptId", chatId = chatId, direction = "internal", kind = "reply",
+                            status = "generated", receivedAt = receivedAt, messageId = message.messageId.long,
+                            attemptId = attemptId, jobId = result.reply.jobId, content = result.reply.text,
+                        ))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        log.warn("Voice content audit failed attempt_id={}", attemptId, error)
+                    }
+                }
                 completedFacts = result.reply.onboarding?.analytics?.withReview(result.reply.onboarding.review)
                 val callId = result.reply.call?.callId ?: practiceCallId
                 val analyticsChatId = callChat(message)
@@ -991,6 +1056,30 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 error is ClipJobFailure -> "ai_failed" to aiFailureStage(error.stage)
                 else -> "other_failed" to "other"
             }
+            telegramChatNumber(message.chat.id)?.let { chatId ->
+                val attemptId = voiceAttemptId(chatId, message.messageId.long)
+                try {
+                    val artifacts = ai.auditAttempt(attemptId)
+                    artifacts["transcript"]?.takeIf { it.isNotBlank() }?.let { transcript ->
+                        audit?.record(InteractionEvent(
+                            id = "stt:$attemptId", chatId = chatId, direction = "internal", kind = "transcript",
+                            status = "ready", receivedAt = receivedAt, messageId = message.messageId.long,
+                            attemptId = attemptId, content = transcript,
+                        ))
+                    }
+                    artifacts["reply"]?.takeIf { it.isNotBlank() }?.let { replyText ->
+                        audit?.record(InteractionEvent(
+                            id = "generated:$attemptId", chatId = chatId, direction = "internal", kind = "reply",
+                            status = "generated", receivedAt = receivedAt, messageId = message.messageId.long,
+                            attemptId = attemptId, content = replyText,
+                        ))
+                    }
+                } catch (artifactError: CancellationException) {
+                    throw artifactError
+                } catch (artifactError: Throwable) {
+                    log.warn("Failed to recover AI audit artifacts attempt_id={}", attemptId, artifactError)
+                }
+            }
             val failureCode = (error as? ClipJobFailure)?.reason?.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
                     ?: (error as? ClipUploadFailure)?.reason
                     ?: if (failedAt.first == "ai_timeout") "timeout" else localFailureReason(error)
@@ -1052,8 +1141,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             is TextContent -> userAction(input.text)
             else -> "other"
         }
-        val text = (input as? TextContent)?.text.orEmpty()
-        log.info("User action {} text={}", action, oneLine(text))
+        log.info("User action {}", action)
         noteUserAction(ai, log, telegramSessionId(message.chat.id), action, "message:${message.messageId.long}")
         try {
             actions.run(
@@ -1257,17 +1345,37 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             session = callbackMessage?.let { telegramSessionId(it.chat.id).value },
             request = "callback:${query.id}",
         ) {
-        log.info("User action {} text={}", callbackAction(query.data), oneLine(query.data))
+        log.info("User action {}", callbackAction(query.data))
         callbackMessage?.let { message ->
             noteUserAction(ai, log, telegramSessionId(message.chat.id), callbackAction(query.data))
         }
         // Stop Telegram's spinner before waiting for synthesis or the per-chat queue.
         try {
             answerCallbackQuery(query)
+            callbackMessage?.let { message ->
+                telegramChatNumber(message.chat.id)?.let { chatId ->
+                    try { audit?.record(InteractionEvent(
+                        id = "callback-answer:${query.id}", chatId = chatId, direction = "outgoing",
+                        kind = "answerCallbackQuery", status = "accepted", messageId = message.messageId.long,
+                    )) } catch (auditError: Throwable) {
+                        log.warn("Could not record callback answer", auditError)
+                    }
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
             log.warn("Failed to answer callback", error)
+            callbackMessage?.let { message ->
+                telegramChatNumber(message.chat.id)?.let { chatId ->
+                    try { audit?.record(InteractionEvent(
+                        id = "callback-answer:${query.id}", chatId = chatId, direction = "outgoing",
+                        kind = "answerCallbackQuery", status = "failed", messageId = message.messageId.long,
+                    )) } catch (auditError: Throwable) {
+                        log.warn("Could not record callback answer failure", auditError)
+                    }
+                }
+            }
         }
         if (query.data == LEGACY_ONBOARDING_CALLBACK) {
             log.info("Starting legacy onboarding")
@@ -1578,7 +1686,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     onCommand("start", requireOnlyCommandInMessage = false) { message ->
         if (isStartCommand(message.content.text)) {
-            val receivedAt = Instant.now()
+            val receivedAt = telegramChatNumber(message.chat.id)?.let { audit?.receiptTime(it, message.messageId.long) }
+                ?: Instant.now()
             handle(message, receivedAt = receivedAt) { greet(message, message.content.text, receivedAt = receivedAt) }
         }
     }
@@ -1598,7 +1707,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (isSpeedCommand(message.content.text)) handle(message) { sendSpeed(message) }
     }
     onContentMessage { message ->
-        val receivedAt = Instant.now()
+        val receivedAt = telegramChatNumber(message.chat.id)?.let { audit?.receiptTime(it, message.messageId.long) }
+            ?: Instant.now()
         val receivedNs = System.nanoTime()
         val chatQueueNs = AtomicLong(0)
         val terminalOutcome = AtomicBoolean(false)

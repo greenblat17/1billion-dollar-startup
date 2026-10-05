@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from redis.asyncio import Redis
 
 from app.call_review import CallReviews
+from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
 from app.calls import CallStore, moscow_day
 from app.config import Settings
@@ -91,17 +92,32 @@ def create_app(
     greeting_audio: dict[float, TtsAudio] = {}
     greeting_lock = asyncio.Lock()
     campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
+    audit_artifacts = AuditArtifacts(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
     tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await streaks.backfill()
         intro_warmup = asyncio.create_task(onboarding.warm_intro(settings.pipeline_timeout_seconds))
+        async def prune_raw_content() -> None:
+            while True:
+                try:
+                    for store in (sessions, onboarding.store, calls):
+                        prune = getattr(store, "prune_all", None)
+                        if prune is not None:
+                            await prune()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("raw conversation retention sweep failed")
+                await asyncio.sleep(60 * 60)
+        retention_task = asyncio.create_task(prune_raw_content())
         try:
             yield
         finally:
             intro_warmup.cancel()
-            await asyncio.gather(intro_warmup, return_exceptions=True)
+            retention_task.cancel()
+            await asyncio.gather(intro_warmup, retention_task, return_exceptions=True)
         await onboarding.store.aclose()
         if owns_calls:
             await calls.aclose()
@@ -110,6 +126,7 @@ def create_app(
         await clip_pipeline.metrics.aclose()
         if campaign_redis is not None:
             await campaign_redis.aclose()
+        await audit_artifacts.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
             await close_tts()
@@ -460,6 +477,7 @@ def create_app(
         onboardingRunId: str | None = Form(default=None),
         requestId: str | None = Form(default=None),
         attemptId: str | None = Form(default=None),
+        receivedAtEpoch: float | None = Form(default=None),
         durationSeconds: float = Form(default=0),
     ) -> dict[str, str]:
         if not await sessions.exists(sessionId):
@@ -475,12 +493,14 @@ def create_app(
                 attemptId = str(UUID(attemptId))
             except ValueError:
                 raise HTTPException(status_code=400, detail="invalid attemptId") from None
+        if receivedAtEpoch is not None and not (0 < receivedAtEpoch <= time.time() + 60):
+            raise HTTPException(status_code=400, detail="invalid receivedAtEpoch")
         job = jobs.create(sessionId, attemptId)
         content_type = audio.content_type or "audio/ogg"
         filename = audio.filename or "voice.ogg"
         task = asyncio.create_task(
             _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
-                     onboarding, onboardingRunId, requestId, durationSeconds),
+                     onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -492,6 +512,15 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="unknown job")
         return JSONResponse(job.to_status())
+
+    @app.get("/internal/audit/attempt/{attempt_id}")
+    async def audit_attempt(attempt_id: str) -> dict[str, str]:
+        from uuid import UUID
+        try:
+            normalized = str(UUID(attempt_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid attempt ID") from None
+        return await audit_artifacts.get(normalized)
 
     @app.get("/v1/clips/{job_id}/audio")
     def get_audio(job_id: str) -> Response:
@@ -684,11 +713,22 @@ async def _run_job(
     run_id: str | None = None,
     request_id: str | None = None,
     duration: float = 0.0,
+    audit_artifacts: AuditArtifacts | None = None,
+    received_at_epoch: float | None = None,
 ) -> None:
     started = time.perf_counter()
     provider_metrics_token = bind_provider_metrics(pipeline.metrics)
     job_timings: dict[str, int] = {}
     timings_token = bind_job_timings(job_timings)
+    async def audit_stage(field: str, value: str) -> None:
+        if field == "transcript":
+            job.transcript = value
+        elif field == "reply":
+            job.reply_text = value
+        if job.attempt_id and audit_artifacts is not None:
+            await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
+    audit_token = bind_writer(audit_stage if job.attempt_id else None)
+    receipt_token = bind_receipt_time(received_at_epoch)
     stage = "onboarding" if onboarding is not None and run_id else "stt"
 
     def set_stage(value: str) -> None:
@@ -701,6 +741,10 @@ async def _run_job(
             if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename, on_stage=set_stage),
             timeout=timeout_seconds,
         )
+        if result.transcript and job.transcript is None:
+            await audit_stage("transcript", result.transcript)
+        if result.reply_text:
+            await audit_stage("reply", result.reply_text)
         _complete_job(job, result)
         await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
         logger.info(
@@ -719,6 +763,8 @@ async def _run_job(
         await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id,
                                   job_id=job.job_id, attempt_id=job.attempt_id, reason=reason)
     finally:
+        reset_writer(audit_token)
+        reset_receipt_time(receipt_token)
         reset_job_timings(timings_token)
         reset_provider_metrics(provider_metrics_token)
 

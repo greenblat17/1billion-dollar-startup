@@ -13,6 +13,7 @@ data class AppConfig(
     val databaseUrl: String?,
     val metricsPassword: String? = null,
     val monitoringPort: Int = 0,
+    val auditAudioDir: String = "/opt/speaking-coach/audit-audio",
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
@@ -21,6 +22,9 @@ data class AppConfig(
         if (!telegramBotToken.isNullOrBlank()) {
             require(!telegramWebhookUrl.isNullOrBlank()) {
                 "TELEGRAM_WEBHOOK_URL is required when TELEGRAM_BOT_TOKEN is set"
+            }
+            require(!databaseUrl.isNullOrBlank()) {
+                "DATABASE_URL is required for durable Telegram interaction history"
             }
         }
         if (usesWebhook) {
@@ -55,6 +59,7 @@ data class AppConfig(
             databaseUrl = env("DATABASE_URL")?.takeIf { it.isNotBlank() },
             metricsPassword = env("METRICS_PASSWORD")?.takeIf { it.isNotBlank() },
             monitoringPort = env("MONITORING_PORT")?.toIntOrNull() ?: 8081,
+            auditAudioDir = env("AUDIT_AUDIO_DIR")?.takeIf { it.isNotBlank() } ?: "/opt/speaking-coach/audit-audio",
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

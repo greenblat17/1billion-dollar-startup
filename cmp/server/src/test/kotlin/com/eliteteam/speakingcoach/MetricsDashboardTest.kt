@@ -496,6 +496,8 @@ class MetricsDashboardTest {
 
         assertTrue(html.contains("<a href=\"/admin/metrics\" aria-current=\"page\">Сводка</a>"))
         assertTrue(html.contains("<a href=\"/admin/metrics/reminders\">Напоминания</a>"))
+        assertTrue(html.contains("<a href=\"#\" id=\"history-tab\">История</a>"))
+        assertTrue(html.contains("window.location.hostname + ':8443/admin/monitoring/history'"))
         assertFalse(html.contains("Отправить всем сейчас"))
         assertTrue(html.contains("<th>Игнор подряд</th>"))
         assertTrue(anonymous.contains("type=\"password\""))

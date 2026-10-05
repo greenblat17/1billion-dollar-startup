@@ -633,16 +633,27 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         add(root to "Сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
+        if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")
         add("$root/reminders" to "Напоминания")
         add("$root/streaks" to "Стрики")
         add("$root/errors" to "Ошибки")
+        if (root == MONITORING_PATH) add("$root/history" to "История")
         add("$root/onboarding-campaign" to "Onboarding рассылка")
     }
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
-        "<a href=\"$path\"$current>$label</a>"
+        val historyLink = root == METRICS_PATH && path == "$MONITORING_PATH/history"
+        val href = if (historyLink) "#" else path
+        val id = if (historyLink) " id=\"history-tab\"" else ""
+        "<a href=\"$href\"$id$current>$label</a>"
     }
-    return "<nav class=\"tabs\">$links</nav>"
+    val historyTarget = if (root == METRICS_PATH) """
+        <script type="text/javascript">
+          document.getElementById('history-tab').href =
+            'https://' + window.location.hostname + ':8443$MONITORING_PATH/history';
+        </script>
+    """.trimIndent() else ""
+    return "<nav class=\"tabs\">$links</nav>$historyTarget"
 }
 
 internal fun pageStyle(): String = """

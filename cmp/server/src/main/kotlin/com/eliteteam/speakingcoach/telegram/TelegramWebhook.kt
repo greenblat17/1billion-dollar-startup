@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.TelegramOperationalMetrics
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import dev.inmo.tgbotapi.bot.TelegramBot
@@ -25,6 +26,7 @@ import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.util.concurrent.Executors
@@ -44,15 +46,16 @@ internal suspend fun buildTelegramWebhookBehaviour(
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: com.eliteteam.speakingcoach.analytics.CallEventRecorder? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
+    audit: InteractionAudit? = null,
 ): BehaviourContext {
-    val bot = speakingCoachTelegramBot(token)
+    val bot = speakingCoachTelegramBot(token, audit)
     return bot.buildBehaviour(
         scope = scope,
         defaultExceptionsHandler = { error ->
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, callEvents)
+        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents)
     }
 }
 
@@ -61,6 +64,7 @@ internal fun Route.installSpeakingCoachWebhook(
     secret: String,
     behaviourContext: BehaviourContext,
     webhookScope: CoroutineScope,
+    audit: InteractionAudit? = null,
 ) {
     val transformer = webhookScope.updateHandlerWithMediaGroupsAdaptation(
         behaviourContext.asUpdateReceiver,
@@ -73,10 +77,15 @@ internal fun Route.installSpeakingCoachWebhook(
         }
         log.info("Accepted Telegram webhook")
         try {
+            val raw = call.receiveText()
             val update = telegramUpdateJson.decodeFromString(
                 UpdateDeserializationStrategy,
-                call.receiveText(),
+                raw,
             )
+            if (audit?.recordInbound(telegramUpdateJson.parseToJsonElement(raw).jsonObject) == false) {
+                call.respond(HttpStatusCode.OK)
+                return@post
+            }
             log.info("Accepted Telegram update {}", update.updateId)
             transformer(update)
             call.respond(HttpStatusCode.OK)

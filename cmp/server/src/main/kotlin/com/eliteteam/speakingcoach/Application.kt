@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.createCallEventStore
 import com.eliteteam.speakingcoach.ai.HttpClipClient
@@ -62,10 +63,13 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.io.File
+import java.nio.file.Path
 
 private val tlsStorePassword = "ktor".toCharArray()
 
@@ -104,6 +108,42 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
+    val audit = config.databaseUrl?.let { InteractionAudit(it, Path.of(config.auditAudioDir)) }
+    if (audit == null) log.warn("Interaction audit disabled: DATABASE_URL is not configured")
+    else webhookScope.launch {
+        while (true) {
+            try {
+                audit.prune()
+                for (voice in audit.pendingArtifacts()) {
+                    val attemptId = voice.attemptId ?: continue
+                    try {
+                        val artifacts = ai.auditAttempt(attemptId)
+                        for ((field, kind, status, prefix) in listOf(
+                            listOf("transcript", "transcript", "ready", "stt"),
+                            listOf("reply", "reply", "generated", "generated"),
+                        )) {
+                            val value = artifacts[field]?.takeIf { it.isNotBlank() } ?: continue
+                            audit.record(com.eliteteam.speakingcoach.analytics.InteractionEvent(
+                                id = "$prefix:$attemptId", chatId = voice.chatId,
+                                direction = "internal", kind = kind, status = status,
+                                receivedAt = voice.receivedAt, messageId = voice.messageId,
+                                attemptId = attemptId, content = value,
+                            ))
+                        }
+                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        log.warn("AI audit artifact reconciliation failed attempt_id={}", attemptId, error)
+                    } finally {
+                        audit.markReconciled(voice.id)
+                    }
+                }
+            }
+            catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Interaction audit pruning failed", error) }
+            delay(60 * 60 * 1_000L)
+        }
+    }
     val callEvents = CallEventRecorder(createCallEventStore(config.databaseUrl), webhookScope)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
@@ -111,7 +151,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, telegramMetrics,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, telegramMetrics, audit,
     )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
@@ -180,6 +220,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 campaign = campaignRunner,
                 monitoringPort = config.monitoringPort,
                 voiceAttempts = voiceAttempts,
+                audit = audit,
             ),
         ) {
             get("/internal/telegram-metrics/prometheus") {
@@ -190,7 +231,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 }
             }.hide()
             route("/telegram/webhook") {
-                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope)
+                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit)
             }.hide()
             if (appApi != null) {
                 installAppRoutes(ktorApp, appApi)
@@ -223,6 +264,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         webhookScope.cancel()
         aiHttp.close()
         onboardingAnalytics?.close()
+        audit?.close()
     }
 }
 

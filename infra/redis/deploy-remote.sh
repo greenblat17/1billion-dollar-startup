@@ -13,6 +13,7 @@ if docker inspect redis >/dev/null 2>&1; then
 fi
 
 docker run -d --name redis --restart unless-stopped \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   --network "$NETWORK" \
   -p 127.0.0.1:6379:6379 \
   -v speaking-coach-redis:/data \
