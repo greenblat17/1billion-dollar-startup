@@ -232,7 +232,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 }
             }.hide()
             route("/telegram/webhook") {
-                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit)
+                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics)
             }.hide()
             if (appApi != null) {
                 installAppRoutes(ktorApp, appApi)

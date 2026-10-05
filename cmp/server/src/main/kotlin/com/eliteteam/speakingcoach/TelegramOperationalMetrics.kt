@@ -15,8 +15,13 @@ internal class TelegramOperationalMetrics {
     private var responseSum = 0.0
     private var queueCount = 0L
     private var queueSum = 0.0
+    private var webhookRequests = 0L
     private val outcomes = mutableMapOf("delivered" to 0L, "failed" to 0L, "queue_full" to 0L)
     private val delivery = mutableMapOf("success" to 0L, "failure" to 0L)
+
+    fun recordWebhookRequest() = synchronized(lock) {
+        webhookRequests++
+    }
 
     fun recordDelivered(responseSeconds: Double, queueSeconds: Double) = synchronized(lock) {
         observe(responseSeconds, responseBuckets)
@@ -42,6 +47,8 @@ internal class TelegramOperationalMetrics {
         buildString {
             histogram("telegram_voice_response_duration_seconds", responseBuckets, responseCount, responseSum)
             histogram("telegram_voice_queue_wait_seconds", queueBuckets, queueCount, queueSum)
+            appendLine("# TYPE telegram_webhook_requests_total counter")
+            appendLine("telegram_webhook_requests_total{client=\"telegram\"} $webhookRequests")
             appendLine("# TYPE telegram_voice_requests_total counter")
             for ((outcome, value) in outcomes) {
                 appendLine("telegram_voice_requests_total{client=\"telegram\",outcome=\"$outcome\"} $value")

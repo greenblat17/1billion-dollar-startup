@@ -21,6 +21,8 @@ class TelegramOperationalMetricsTest {
         metrics.recordDelivery(false)
         metrics.recordOutcome("failed")
         metrics.recordOutcome("queue_full")
+        metrics.recordWebhookRequest()
+        metrics.recordWebhookRequest()
 
         val output = metrics.prometheus()
         assertContains(output, "telegram_voice_response_duration_seconds_bucket{client=\"telegram\",le=\"3.0\"} 1")
@@ -29,6 +31,7 @@ class TelegramOperationalMetricsTest {
         assertContains(output, "telegram_voice_response_duration_seconds_count{client=\"telegram\"} 2")
         assertContains(output, "speaking_stage_attempts_total{client=\"telegram\",stage=\"delivery\",outcome=\"failure\"} 1")
         assertContains(output, "telegram_voice_requests_total{client=\"telegram\",outcome=\"queue_full\"} 1")
+        assertContains(output, "telegram_webhook_requests_total{client=\"telegram\"} 2")
         assertEquals(false, output.contains("session="))
     }
 }

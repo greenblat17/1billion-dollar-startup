@@ -65,6 +65,7 @@ internal fun Route.installSpeakingCoachWebhook(
     behaviourContext: BehaviourContext,
     webhookScope: CoroutineScope,
     audit: InteractionAudit? = null,
+    operationalMetrics: TelegramOperationalMetrics,
 ) {
     val transformer = webhookScope.updateHandlerWithMediaGroupsAdaptation(
         behaviourContext.asUpdateReceiver,
@@ -75,6 +76,7 @@ internal fun Route.installSpeakingCoachWebhook(
             call.respond(HttpStatusCode.Forbidden)
             return@post
         }
+        operationalMetrics.recordWebhookRequest()
         log.info("Accepted Telegram webhook")
         try {
             val raw = call.receiveText()
