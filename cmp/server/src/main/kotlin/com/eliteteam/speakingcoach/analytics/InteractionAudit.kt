@@ -23,6 +23,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.contentOrNull
 import org.flywaydb.core.Flyway
 import org.slf4j.LoggerFactory
 
@@ -49,6 +50,15 @@ internal data class InteractionEvent(
     val voiceOutcome: String? = null,
     val voiceStage: String? = null,
     val voiceReason: String? = null,
+    val telegramUsername: String? = null,
+    val telegramName: String? = null,
+)
+
+internal data class InteractionChat(
+    val chatId: Long,
+    val username: String?,
+    val displayName: String?,
+    val lastIncomingAt: Instant,
 )
 
 /** Metadata lives for 30 days; content and original audio are readable for seven days. */
@@ -121,6 +131,26 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
                 statement.setTimestamp(10, Timestamp.from(event.occurredAt))
                 statement.setTimestamp(11, Timestamp.from(event.receivedAt))
                 val inserted = statement.executeUpdate() > 0
+                if (inserted && event.direction == "incoming" && event.chatId != null) {
+                    connection.prepareStatement("""
+                        INSERT INTO interaction_chats (chat_id, username, display_name, last_incoming_at)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT (chat_id) DO UPDATE SET
+                            username = CASE WHEN EXCLUDED.last_incoming_at >= interaction_chats.last_incoming_at
+                                AND (EXCLUDED.username IS NOT NULL OR EXCLUDED.display_name IS NOT NULL)
+                                THEN EXCLUDED.username ELSE interaction_chats.username END,
+                            display_name = CASE WHEN EXCLUDED.last_incoming_at >= interaction_chats.last_incoming_at
+                                AND (EXCLUDED.username IS NOT NULL OR EXCLUDED.display_name IS NOT NULL)
+                                THEN EXCLUDED.display_name ELSE interaction_chats.display_name END,
+                            last_incoming_at = GREATEST(interaction_chats.last_incoming_at, EXCLUDED.last_incoming_at)
+                    """.trimIndent()).use { chat ->
+                        chat.setLong(1, event.chatId)
+                        chat.setString(2, event.telegramUsername)
+                        chat.setString(3, event.telegramName)
+                        chat.setTimestamp(4, Timestamp.from(event.occurredAt))
+                        chat.executeUpdate()
+                    }
+                }
                 val unexpired = event.receivedAt.plusSeconds(CONTENT_SECONDS).isAfter(Instant.now())
                 if (inserted && unexpired && (event.content != null || event.audioFile != null)) {
                     connection.prepareStatement("""
@@ -153,6 +183,7 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
         val callback = update["callback_query"] as? JsonObject
         val message = (update["message"] ?: update["edited_message"] ?: callback?.get("message")) as? JsonObject
         val chat = message?.get("chat") as? JsonObject
+        val sender = (callback?.get("from") ?: message?.get("from")) as? JsonObject
         val chatId = chat?.get("id")?.jsonPrimitive?.longOrNull
         val messageId = message?.get("message_id")?.jsonPrimitive?.longOrNull
         val text = if (callback != null) callback["data"]?.jsonPrimitive?.content
@@ -171,7 +202,67 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
             attemptId = if (kind == "voice" && chatId != null && messageId != null)
                 voiceAttemptId(chatId, messageId) else null,
             content = text,
+            telegramUsername = safeOnboardingUsername(sender?.get("username")?.jsonPrimitive?.contentOrNull),
+            telegramName = listOfNotNull(
+                sender?.get("first_name")?.jsonPrimitive?.contentOrNull,
+                sender?.get("last_name")?.jsonPrimitive?.contentOrNull,
+            ).joinToString(" ").trim().filterNot { it.isISOControl() }.take(120).ifBlank { null },
         ))
+    }
+
+    suspend fun recentChats(
+        search: String? = null, before: Instant? = null, beforeId: Long? = null, limit: Int = 51,
+    ): List<InteractionChat> = withContext(Dispatchers.IO) {
+        val rows = mutableListOf<InteractionChat>()
+        val term = search?.trim()?.removePrefix("@")?.takeIf { it.isNotEmpty() }?.take(80)
+        val paged = before != null && beforeId != null
+        val conditions = buildList {
+            add("last_incoming_at > ?")
+            if (term != null) add("(strpos(lower(coalesce(username, '')), lower(?)) > 0 " +
+                "OR strpos(lower(coalesce(display_name, '')), lower(?)) > 0 OR strpos(chat_id::text, ?) > 0)")
+            if (paged) add("(last_incoming_at, chat_id) < (?, ?)")
+        }
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                SELECT chat_id, username, display_name, last_incoming_at
+                FROM interaction_chats
+                WHERE ${conditions.joinToString(" AND ")}
+                ORDER BY last_incoming_at DESC, chat_id DESC
+                LIMIT ?
+            """.trimIndent()).use { statement ->
+                var index = 1
+                statement.setTimestamp(index++, Timestamp.from(Instant.now().minusSeconds(EVENT_SECONDS)))
+                if (term != null) repeat(3) { statement.setString(index++, term) }
+                if (before != null && beforeId != null) {
+                    statement.setTimestamp(index++, Timestamp.from(before))
+                    statement.setLong(index++, beforeId)
+                }
+                statement.setInt(index, limit.coerceIn(1, 101))
+                statement.executeQuery().use { result ->
+                    while (result.next()) rows += InteractionChat(
+                        result.getLong(1), result.getString(2), result.getString(3), result.getTimestamp(4).toInstant(),
+                    )
+                }
+            }
+        }
+        rows
+    }
+
+    suspend fun findChat(chatId: Long): InteractionChat? = withContext(Dispatchers.IO) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                SELECT chat_id, username, display_name, last_incoming_at
+                FROM interaction_chats WHERE chat_id = ? AND last_incoming_at > ?
+            """.trimIndent()).use { statement ->
+                statement.setLong(1, chatId)
+                statement.setTimestamp(2, Timestamp.from(Instant.now().minusSeconds(EVENT_SECONDS)))
+                statement.executeQuery().use { result ->
+                    if (result.next()) InteractionChat(
+                        result.getLong(1), result.getString(2), result.getString(3), result.getTimestamp(4).toInstant(),
+                    ) else null
+                }
+            }
+        }
     }
 
     suspend fun receiptTime(chatId: Long, messageId: Long): Instant? = withContext(Dispatchers.IO) {
@@ -375,6 +466,10 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
                     deleted = statement.executeUpdate()
                 }
             } while (deleted == 500)
+            connection.prepareStatement("DELETE FROM interaction_chats WHERE last_incoming_at <= ?").use {
+                it.setTimestamp(1, Timestamp.from(now.minusSeconds(EVENT_SECONDS)))
+                it.executeUpdate()
+            }
             val referenced = mutableSetOf<String>()
             connection.prepareStatement("SELECT audio_file FROM interaction_content WHERE audio_file IS NOT NULL").use {
                 it.executeQuery().use { result -> while (result.next()) referenced += result.getString(1) }

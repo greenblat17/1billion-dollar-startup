@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
+import com.eliteteam.speakingcoach.analytics.InteractionChat
 import com.eliteteam.speakingcoach.analytics.InteractionEvent
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
@@ -28,6 +29,8 @@ import java.util.Locale
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import kotlinx.serialization.json.Json
 
@@ -105,13 +108,23 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
         val to = call.request.queryParameters["to"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val before = call.request.queryParameters["before"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
         val beforeId = call.request.queryParameters["beforeId"]?.takeIf { it.length <= 160 }
+        val browsing = chatId == null && attemptId == null && jobId == null
+        val search = call.request.queryParameters["q"]?.trim()?.take(80).orEmpty()
+        val beforeChatAt = call.request.queryParameters["beforeChatAt"]?.let { runCatching { Instant.parse(it) }.getOrNull() }
+        val beforeChatId = call.request.queryParameters["beforeChatId"]?.toLongOrNull()
         var historyError = false
-        val rows = try { dashboard.audit?.list(chatId, attemptId, jobId, from, to, before, beforeId, 101).orEmpty() }
+        val rows = try { if (browsing) emptyList() else dashboard.audit?.list(chatId, attemptId, jobId, from, to, before, beforeId, 101).orEmpty() }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Interaction history read failed", error); historyError = true; emptyList() }
+        val chats = try { if (browsing) dashboard.audit?.recentChats(search, beforeChatAt, beforeChatId).orEmpty() else emptyList() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Recent chats read failed", error); historyError = true; emptyList() }
+        val selectedChat = try { chatId?.let { dashboard.audit?.findChat(it) } }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Chat identity read failed", error); null }
         call.respondText(interactionHistoryHtml(chatId, attemptId, jobId, from, to, rows,
             dashboard.audit != null && !historyError, dashboard.audit?.writeFailures?.get() ?: 0,
-            dashboard.audit?.pendingWrites?.get() ?: 0), ContentType.Text.Html)
+            dashboard.audit?.pendingWrites?.get() ?: 0, chats, selectedChat, search, browsing), ContentType.Text.Html)
     }.hide()
     get("$root/history/audio/{attemptId}") {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
@@ -239,6 +252,7 @@ internal fun parseAudioRange(header: String?, size: Int): IntRange? {
 private fun interactionHistoryHtml(
     chatId: Long?, attemptId: String?, jobId: String?, from: Instant?, to: Instant?,
     rows: List<InteractionEvent>, enabled: Boolean, writeFailures: Long, pendingWrites: Long,
+    chats: List<InteractionChat>, selectedChat: InteractionChat?, search: String, browsing: Boolean,
 ): String {
     val page = rows.take(100)
     val items = page.joinToString("\n") { event ->
@@ -275,10 +289,18 @@ private fun interactionHistoryHtml(
         ).joinToString("&") { (key, value) -> "$key=${URLEncoder.encode(value, StandardCharsets.UTF_8)}" }
         "<p><a href=\"$MONITORING_PATH/history?$query\">Следующие события</a></p>"
     } else ""
+    val chatList = if (browsing && enabled) recentChatsHtml(chats, search) else ""
+    val chatTitle = selectedChat?.let { chat ->
+        val name = chat.displayName?.let(::escapeHtml) ?: chat.username?.let { "@${escapeHtml(it)}" } ?: "Чат"
+        "<h2>$name · ${chat.chatId}</h2>"
+    }.orEmpty()
     return """
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="robots" content="noindex">
         <title>Speaky · история</title>${pageStyle()}</head><body>
         <h1>История взаимодействий</h1>${adminTabs("$MONITORING_PATH/history", MONITORING_PATH)}
+        $chatList
+        ${if (browsing) "<h2>Поиск по идентификатору</h2>" else "<p><a href=\"$MONITORING_PATH/history\">← Все чаты</a></p>"}
+        $chatTitle
         <form method="get" action="$MONITORING_PATH/history"><label>Telegram chat ID
         <input name="chatId" type="number" value="${chatId ?: ""}"></label>
         <label>Attempt ID <input name="attemptId" value="${escapeHtml(attemptId.orEmpty())}"></label>
@@ -291,7 +313,39 @@ private fun interactionHistoryHtml(
         ${if (writeFailures > 0) "<p>Ошибок записи журнала с последнего запуска: $writeFailures. История может быть неполной.</p>" else ""}
         ${if (pendingWrites > 0) "<p>Событий в очереди записи: $pendingWrites.</p>" else ""}
         ${if (!enabled) "<p>Хранилище истории недоступно.</p>" else if (chatId != null && rows.isEmpty()) "<p>Событий нет.</p>" else ""}
-        <ol>$items</ol>$next</body></html>
+        ${if (browsing) "" else "<ol>$items</ol>$next"}</body></html>
+    """.trimIndent()
+}
+
+private val chatTimeFormat = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm")
+    .withZone(ZoneId.of("Europe/Moscow"))
+
+private fun recentChatsHtml(chats: List<InteractionChat>, search: String): String {
+    val page = chats.take(50)
+    val rows = page.joinToString("\n") { chat ->
+        val label = chat.displayName?.let(::escapeHtml) ?: "Без имени"
+        val username = chat.username?.let { "@${escapeHtml(it)}" } ?: "—"
+        "<tr><td><a href=\"$MONITORING_PATH/history?chatId=${chat.chatId}\">$label</a></td>" +
+            "<td>$username</td><td><a href=\"$MONITORING_PATH/history?chatId=${chat.chatId}\">${chat.chatId}</a></td>" +
+            "<td>${chatTimeFormat.format(chat.lastIncomingAt)} МСК</td></tr>"
+    }.ifEmpty { "<tr><td colspan=\"4\">${if (search.isBlank()) "Чатов пока нет." else "По запросу чаты не найдены."}</td></tr>" }
+    val next = if (chats.size > 50) page.last().let { last ->
+        val query = listOf(
+            "q" to search,
+            "beforeChatAt" to last.lastIncomingAt.toString(),
+            "beforeChatId" to last.chatId.toString(),
+        ).joinToString("&") { (key, value) -> "$key=${URLEncoder.encode(value, StandardCharsets.UTF_8)}" }
+        "<p><a href=\"$MONITORING_PATH/history?$query\">Следующие чаты</a></p>"
+    } else ""
+    return """
+        <h2>Последние чаты</h2>
+        <form method="get" action="$MONITORING_PATH/history" class="inline">
+          <label>Имя, @username или ID <input name="q" value="${escapeHtml(search)}"></label>
+          <button type="submit">Найти чат</button>
+        </form>
+        <p class="meta">Чаты с входящими сообщениями за последние 30 дней. Последнее обращение — по Москве.</p>
+        <table><thead><tr><th>Имя</th><th>Username</th><th>Chat ID</th><th>Последнее обращение</th></tr></thead>
+        <tbody>$rows</tbody></table>$next
     """.trimIndent()
 }
 
