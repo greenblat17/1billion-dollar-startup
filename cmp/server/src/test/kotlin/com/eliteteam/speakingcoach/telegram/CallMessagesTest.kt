@@ -27,6 +27,9 @@ class CallMessagesTest {
         assertEquals("End call", end.text)
         assertEquals(KeyboardButtonStyle.Danger, end.style)
         assertEquals(CallCallback("end", ""), parseCallCallback(end.callbackData))
+        val linkedEnd = callKeyboard(90.0, 600.0, spoken = true, callId = "a".repeat(32))
+            .keyboard.last().single() as CallbackDataInlineKeyboardButton
+        assertEquals(CallCallback("end", "a".repeat(32)), parseCallCallback(linkedEnd.callbackData))
         assertTrue(end.callbackData.encodeToByteArray().size <= 64)
     }
 

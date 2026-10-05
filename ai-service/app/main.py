@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 
 from app.call_review import CallReviews
 from app.call_start import CallStarter
-from app.calls import CallStore
+from app.calls import CallStore, moscow_day
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -342,9 +342,17 @@ def create_app(
         return await calls.open(_call_session_id(payload))
 
     @app.post("/internal/calls/status")
-    async def calls_status(request: Request) -> dict[str, bool]:
+    async def calls_status(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return {"active": await calls.is_open_today(_call_session_id(payload))}
+        session_id = _call_session_id(payload)
+        summary = await calls.summary(session_id)
+        current = await calls.get(summary["callId"]) if summary else None
+        if current is not None and current.get("day") != moscow_day():
+            summary = None
+        return {"active": await calls.is_open_today(session_id),
+                "callId": summary.get("callId") if summary else None,
+                "startedUnix": summary.get("startedUnix") if summary else None,
+                "goalSeconds": summary.get("goalSeconds") if summary else None}
 
     @app.post("/internal/calls/start")
     async def calls_start(request: Request) -> dict[str, Any]:
@@ -368,9 +376,13 @@ def create_app(
     @app.post("/internal/calls/end")
     async def calls_end(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        call_id = await calls.seal(_call_session_id(payload))
+        reason = str(payload.get("reason") or "end_button")
+        if reason not in {"end_button", "onboarding_reset"}:
+            raise HTTPException(status_code=400, detail="invalid call close reason")
+        call_id = await calls.seal(_call_session_id(payload), reason)
         call = await calls.get(call_id) if call_id else None
-        return {"callId": call_id, "lastVoiceMessageId": call.get("lastTelegramVoiceId") if call else None}
+        return {"callId": call_id, "lastVoiceMessageId": call.get("lastTelegramVoiceId") if call else None,
+                "endedUnix": call.get("endedUnix") if call else None, "reason": reason}
 
     @app.post("/internal/calls/telegram-voice")
     async def calls_telegram_voice(request: Request) -> dict[str, bool]:

@@ -3,6 +3,8 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.CallEventRecorder
+import com.eliteteam.speakingcoach.analytics.createCallEventStore
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.app.AppApi
@@ -102,13 +104,14 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
+    val callEvents = CallEventRecorder(createCallEventStore(config.databaseUrl), webhookScope)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, telegramMetrics,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, telegramMetrics,
     )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
@@ -169,6 +172,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 campaign = campaignRunner,
                 onboarding = onboardingAnalytics,
                 voiceAttempts = voiceAttempts,
+                callEvents = callEvents,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -214,6 +218,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     } finally {
         server.stop()
         withContext(NonCancellable) { withTimeoutOrNull(2_000) { voiceAttempts.close() } }
+        withContext(NonCancellable) { withTimeoutOrNull(2_000) { callEvents.close() } }
         behaviourContext.cancel()
         webhookScope.cancel()
         aiHttp.close()
@@ -239,8 +244,10 @@ internal fun Application.module(
     val source = metricsSource ?: ownedMetricsSource(config)
     val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val voiceAttempts = source?.let { VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), voiceScope) }
+    val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
+        runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
         voiceScope.cancel()
     }
     installSpeakingCoachHttp(
@@ -252,6 +259,7 @@ internal fun Application.module(
             campaign = campaignAdmin,
             onboarding = onboardingAnalytics,
             voiceAttempts = voiceAttempts,
+            callEvents = callEvents,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -288,12 +296,13 @@ private fun Application.metricsDashboard(
     campaign: LegacyCampaignAdmin? = null,
     onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
+    callEvents: CallEventRecorder? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

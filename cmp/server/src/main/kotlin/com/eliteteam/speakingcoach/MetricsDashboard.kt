@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.JourneyMode
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
@@ -72,6 +73,7 @@ internal class MetricsDashboard(
     val campaign: LegacyCampaignAdmin? = null,
     val onboarding: OnboardingAnalytics? = null,
     val voiceAttempts: VoiceAttemptRecorder? = null,
+    val callEvents: CallEventRecorder? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -141,6 +143,58 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             catch (error: Throwable) { log.warn("Voice attempt snapshot failed", error); null }
         val html = errorsPageHtml(metrics, voice)
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(CALLS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val query = call.request.queryParameters
+        val days = query["days"]?.toIntOrNull()?.takeIf { it in setOf(1, 7, 30) } ?: 7
+        val filter = CallDashboardFilter(
+            days = days,
+            source = query["source"]?.takeIf { it in setOf("button", "voice") },
+            status = query["status"]?.takeIf { it in setOf("open", "closed") },
+            failed = query["failed"]?.toBooleanStrictOrNull(),
+            offset = query["offset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0,
+        )
+        val html = try {
+            val firstDay = LocalDate.now(ZoneId.of("Europe/Moscow")).minusDays(29)
+            val snapshot = dashboard.callEvents?.snapshot(firstDay.atStartOfDay(ZoneId.of("Europe/Moscow")).toInstant())
+            if (snapshot == null) metricsUnavailableHtml() else
+                callDashboardPage(snapshot, filter, memoryOnly = dashboard.callEvents.memoryOnly)
+        } catch (error: CancellationException) { throw error }
+          catch (error: Throwable) { log.warn("Call dashboard unavailable", error); metricsUnavailableHtml() }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$CALLS_PATH/{callId}") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val callId = call.parameters["callId"].orEmpty()
+        if (!Regex("[a-f0-9]{32}").matches(callId)) {
+            call.respond(HttpStatusCode.NotFound)
+            return@get
+        }
+        try {
+            val events = dashboard.callEvents?.byCall(callId).orEmpty()
+            val row = callDashboardRows(com.eliteteam.speakingcoach.analytics.CallEventsSnapshot(events, false, 0))
+                .firstOrNull()
+            if (row == null) call.respond(HttpStatusCode.NotFound)
+            else {
+                val zone = ZoneId.of("Europe/Moscow")
+                val date = row.opened.at.atZone(zone).toLocalDate()
+                val all = dashboard.callEvents?.snapshot(date.atStartOfDay(zone).toInstant())
+                val daySpeech = all?.let { callDashboardRows(it).filter { other ->
+                    other.opened.chatId == row.opened.chatId && other.opened.at.atZone(zone).toLocalDate() == date
+                }.sumOf { it.recognizedSeconds } } ?: row.recognizedSeconds
+                call.respondText(callDetailPage(row, daySpeech, truncated = events.size >= 1000), ContentType.Text.Html)
+            }
+        } catch (error: CancellationException) { throw error }
+          catch (error: Throwable) { log.warn("Call detail unavailable", error); call.respondText(metricsUnavailableHtml(), ContentType.Text.Html) }
     }.hide()
     get(LEGACY_CAMPAIGN_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {
@@ -578,6 +632,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
     val tabs = buildList {
         add(root to "Сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
+        if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
         add("$root/reminders" to "Напоминания")
         add("$root/streaks" to "Стрики")
         add("$root/errors" to "Ошибки")

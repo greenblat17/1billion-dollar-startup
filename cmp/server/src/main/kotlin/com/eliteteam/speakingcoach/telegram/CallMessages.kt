@@ -34,7 +34,7 @@ internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persiste
 
 internal data class CallCallback(val action: String, val callId: String)
 
-private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review")
+private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review", "end")
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
@@ -57,12 +57,14 @@ internal fun callGoalReached(goalSeconds: Double): String {
     return "That's your $minutes minutes today."
 }
 
-internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boolean): InlineKeyboardMarkup = inlineKeyboard {
+internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boolean,
+                          callId: String? = null): InlineKeyboardMarkup = inlineKeyboard {
     row {
         dataButton(callClockLabel(todaySeconds, goalSeconds), CALL_CLOCK_CALLBACK)
         if (spoken) dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
     }
-    row { dataButton("End call", CALL_END_CALLBACK, style = KeyboardButtonStyle.Danger) }
+    row { dataButton("End call", callId?.let { "call:end:$it" } ?: CALL_END_CALLBACK,
+        style = KeyboardButtonStyle.Danger) }
 }
 
 internal fun parseCallCallback(data: String): CallCallback? = when (data) {

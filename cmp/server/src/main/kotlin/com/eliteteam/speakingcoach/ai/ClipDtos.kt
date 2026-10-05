@@ -548,11 +548,13 @@ data class CallClipResponse(
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
     val goalJustCrossed: Boolean = false,
+    val recognizedSeconds: Double? = null,
 )
 
 @Serializable
 data class CallSessionRequest(
     val sessionId: String,
+    val reason: String? = null,
 )
 
 @Serializable
@@ -569,10 +571,18 @@ data class OpenCallResponse(
     val goalSeconds: Double = 0.0,
     val goalJustCrossed: Boolean = false,
     val unseenCallId: String? = null,
+    val startedUnix: Double? = null,
+    val closedPreviousCallId: String? = null,
+    val closedPreviousUnix: Double? = null,
 )
 
 @Serializable
-data class CallStatusResponse(val active: Boolean = false)
+data class CallStatusResponse(
+    val active: Boolean = false,
+    val callId: String? = null,
+    val startedUnix: Double? = null,
+    val goalSeconds: Double? = null,
+)
 
 @Serializable
 data class StartCallResponse(
@@ -581,6 +591,9 @@ data class StartCallResponse(
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
     val unseenCallId: String? = null,
+    val startedUnix: Double? = null,
+    val closedPreviousCallId: String? = null,
+    val closedPreviousUnix: Double? = null,
     val question: String? = null,
     val audioBase64: String? = null,
     val audioContentType: String? = null,
@@ -590,6 +603,8 @@ data class StartCallResponse(
 data class EndCallResponse(
     val callId: String? = null,
     val lastVoiceMessageId: Long? = null,
+    val endedUnix: Double? = null,
+    val reason: String? = null,
 )
 
 @Serializable

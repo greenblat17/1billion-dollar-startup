@@ -15,6 +15,8 @@ these files, not only in chat.
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
 Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
 Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
+Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
+Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
 
 ## Structure
 

@@ -270,11 +270,11 @@ class HttpClipClient(
         check(response.status.isSuccess()) { "ai-service call starter delivery returned ${response.status}" }
     }
 
-    suspend fun endCall(sessionId: SessionId): EndCallResponse {
+    suspend fun endCall(sessionId: SessionId, reason: String = "end_button"): EndCallResponse {
         val response = http.post("$root/internal/calls/end") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(CallSessionRequest(sessionId.value))
+            setBody(CallSessionRequest(sessionId.value, reason))
         }
         check(response.status.isSuccess()) { "ai-service end call returned ${response.status}" }
         return response.body()
@@ -412,7 +412,8 @@ class HttpClipClient(
                         transcript = status.transcript,
                         streak = status.streak,
                         call = status.call?.let {
-                            CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
+                            CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed,
+                                it.recognizedSeconds)
                         },
                         jobId = jobId,
                         timingsMs = status.timingsMs,

@@ -300,7 +300,7 @@ class ClipPipeline:
                 stt_result.words,
             )
             await self.record_partial("call_turn", "succeeded")
-            return result
+            return {**result, "recognizedSeconds": stt_result.duration_seconds} if result is not None else None
         except Exception as error:
             await self.record_partial("call_turn", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("call turn failed session=%s", session_id)
