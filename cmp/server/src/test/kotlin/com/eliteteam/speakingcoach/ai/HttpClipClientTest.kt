@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
+import com.eliteteam.speakingcoach.LlmRange
+import java.time.LocalDate
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
@@ -124,6 +126,27 @@ class HttpClipClientTest {
         val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
         assertEquals(0.9, ai.speechSpeed(SessionId("tg-7")))
         assertEquals(0.8, ai.setSpeechSpeed(SessionId("tg-7"), 0.8))
+        http.close()
+    }
+
+    @Test
+    fun loadsLlmRequestsForSelectedPeriod() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("/internal/metrics/llm", request.url.encodedPath)
+            assertEquals("2026-09-23", request.url.parameters["from"])
+            assertEquals("2026-09-24", request.url.parameters["to"])
+            assertEquals("test-internal-token", request.headers["X-Internal-Token"])
+            respond(
+                content = """{"from":"2026-09-23","to":"2026-09-24","timezone":"Europe/Moscow","requests":8,"failures":1,"byPurpose":{"onboarding":3}}""",
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val http = client(engine)
+        val range = LlmRange(LocalDate.parse("2026-09-23"), LocalDate.parse("2026-09-24"))
+        val summary = HttpClipClient("http://ai.local", http, internalToken = "test-internal-token").loadLlmRange(range)
+        assertEquals(8, summary.requests)
+        assertEquals(3, summary.byPurpose["onboarding"])
         http.close()
     }
 

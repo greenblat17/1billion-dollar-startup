@@ -1,10 +1,12 @@
 package com.eliteteam.speakingcoach.ai
 
 import com.eliteteam.speakingcoach.MetricsSource
+import com.eliteteam.speakingcoach.LlmRange
 import com.eliteteam.speakingcoach.speaking.CallProgress
 import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
+import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
@@ -28,6 +30,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
@@ -162,6 +165,12 @@ class HttpClipClient(
         return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
     }
 
+    suspend fun reminderSummary(): ReminderClockSummary {
+        val response = http.get("$root/internal/reminders/summary") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service reminder summary returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun scheduleReminder(
         sessionId: SessionId,
         requestId: String,
@@ -261,11 +270,11 @@ class HttpClipClient(
         check(response.status.isSuccess()) { "ai-service call starter delivery returned ${response.status}" }
     }
 
-    suspend fun endCall(sessionId: SessionId): EndCallResponse {
+    suspend fun endCall(sessionId: SessionId, reason: String = "end_button"): EndCallResponse {
         val response = http.post("$root/internal/calls/end") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(CallSessionRequest(sessionId.value))
+            setBody(CallSessionRequest(sessionId.value, reason))
         }
         check(response.status.isSuccess()) { "ai-service end call returned ${response.status}" }
         return response.body()
@@ -291,6 +300,25 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun callFeedback(
+        sessionId: SessionId, action: String, callId: String = "", choice: String = "", text: String = "",
+        username: String = "",
+    ): CallFeedbackResponse {
+        val response = http.post("$root/internal/calls/feedback") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallFeedbackRequest(sessionId.value, action, callId, choice, text, username))
+        }
+        check(response.status.isSuccess()) { "ai-service call feedback returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun callFeedbackList(offset: Int = 0, limit: Int = 25): CallFeedbackList {
+        val response = http.get("$root/internal/calls/feedback?offset=$offset&limit=$limit") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service call feedback list returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
         val response = http.post("$root/internal/onboarding/actions") {
             applyInternalToken()
@@ -311,6 +339,32 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun recordUserAction(sessionId: SessionId, action: String, platform: String? = null, eventId: String? = null) {
+        val response = http.post("$root/internal/metrics/action") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(MetricsActionRequest(sessionId.value, action, platform, eventId))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/metrics/action returned ${response.status}")
+        }
+    }
+
+    suspend fun auditAttempt(attemptId: String): Map<String, String> {
+        val response = http.get("$root/internal/audit/attempt/$attemptId") { applyInternalToken() }
+        return if (response.status.isSuccess()) response.body() else emptyMap()
+    }
+
+    internal suspend fun loadLlmRange(range: LlmRange): LlmRequestPeriod {
+        val response = http.get("$root/internal/metrics/llm?from=${range.from}&to=${range.to}") {
+            applyInternalToken()
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service GET /internal/metrics/llm returned ${response.status}")
+        }
+        return response.body()
+    }
+
     private suspend fun createSession(sessionId: SessionId?): SessionCreatedResponse {
         val response = http.post("$root/v1/sessions") {
             applyInternalToken()
@@ -327,7 +381,15 @@ class HttpClipClient(
 
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
         val started = TimeSource.Monotonic.markNow()
-        val jobId = submit(sessionId, clip)
+        log.info("Submitting clip")
+        val jobId = try {
+            submit(sessionId, clip)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Clip submit failed", error)
+            throw error
+        }
         val submitMs = started.elapsedNow().inWholeMilliseconds
         val reply = awaitJob(jobId)
         log.info(
@@ -339,10 +401,19 @@ class HttpClipClient(
     }
 
     private suspend fun awaitJob(jobId: String): ClipReply {
+        log.info("Polling clip job {}", jobId)
         val started = TimeSource.Monotonic.markNow()
         val deadline = TimeSource.Monotonic.markNow() + timeout
         while (deadline.hasNotPassedNow()) {
-            when (val status = poll(jobId)) {
+            val status = try {
+                poll(jobId)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Clip poll failed for job {}", jobId, error)
+                throw error
+            }
+            when (status) {
                 ClipJobStatus.Pending -> delay(pollInterval)
                 is ClipJobStatus.Ok -> {
                     val pollMs = started.elapsedNow().inWholeMilliseconds
@@ -359,29 +430,39 @@ class HttpClipClient(
                         onboarding = status.onboarding?.let {
                             OnboardingStatus(
                                 it.runId, it.status, it.seconds, it.cefr, it.review,
-                                it.overallScore, it.nextBand, it.pointsToNext,
+                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
                             )
                         },
                         transcript = status.transcript,
                         streak = status.streak,
                         call = status.call?.let {
-                            CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed)
+                            CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed,
+                                it.recognizedSeconds)
                         },
+                        jobId = jobId,
+                        timingsMs = status.timingsMs,
                     )
                 }
-                is ClipJobStatus.Failed -> error("ai-service job $jobId failed: ${status.message}")
+                is ClipJobStatus.Failed -> {
+                    log.warn("Clip job {} failed", jobId)
+                    throw ClipJobFailure(status.code, jobId, status.stage, status.reason, status.timingsMs,
+                        "ai-service job $jobId failed: ${status.message}")
+                }
             }
         }
-        error("ai-service job $jobId timed out after $timeout")
+        log.warn("Clip job {} timed out after {}", jobId, timeout)
+        throw ClipPollingTimeout(jobId)
     }
 
     private suspend fun submit(sessionId: SessionId, clip: AudioClip): String {
-        val response = http.submitFormWithBinaryData(
+        val response = try { http.submitFormWithBinaryData(
             url = "$root/v1/clips",
             formData = formData {
                 append("sessionId", sessionId.value)
                 clip.onboardingRunId?.let { append("onboardingRunId", it) }
                 clip.requestId?.let { append("requestId", it) }
+                clip.attemptId?.let { append("attemptId", it) }
+                clip.receivedAtEpoch?.let { append("receivedAtEpoch", it.toString()) }
                 append("durationSeconds", clip.durationSeconds.toString())
                 append(
                     "audio",
@@ -394,9 +475,13 @@ class HttpClipClient(
             },
         ) {
             applyInternalToken()
-        }
+        } } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { throw ClipUploadFailure(
+                if (error.javaClass.simpleName.contains("timeout", ignoreCase = true)) "timeout" else "network",
+                "ai-service upload failed", error) }
         if (response.status != HttpStatusCode.Accepted) {
-            error("ai-service POST /v1/clips returned ${response.status}")
+            throw ClipUploadFailure(if (response.status.value in 400..499) "invalid_input" else "internal",
+                "ai-service POST /v1/clips returned ${response.status}")
         }
         return response.body<ClipAcceptedResponse>().jobId
     }
@@ -406,7 +491,7 @@ class HttpClipClient(
             applyInternalToken()
         }
         if (response.status == HttpStatusCode.NotFound) {
-            return ClipJobStatus.Failed("unknown job")
+            return ClipJobStatus.Failed("unknown_job", "unknown job")
         }
         if (!response.status.isSuccess()) {
             error("ai-service GET /v1/clips/$jobId returned ${response.status}")
@@ -422,17 +507,21 @@ class HttpClipClient(
                 audioAvailable = body.result?.audioAvailable ?: true,
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
+                timingsMs = body.timingsMs,
             )
-            "error" -> ClipJobStatus.Failed(body.error?.message ?: "unknown error")
-            else -> ClipJobStatus.Failed("unexpected status ${body.status}")
+            "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error",
+                body.error?.stage ?: "other", body.error?.reason ?: "unknown", body.timingsMs)
+            else -> ClipJobStatus.Failed("unknown", "unexpected status ${body.status}")
         }
     }
 
     private suspend fun downloadAudio(jobId: String): AudioClip {
+        log.info("Downloading clip audio for job {}", jobId)
         val response = http.get("$root/v1/clips/$jobId/audio") {
             applyInternalToken()
         }
         if (!response.status.isSuccess()) {
+            log.warn("Clip audio download failed for job {} status {}", jobId, response.status)
             error("ai-service GET /v1/clips/$jobId/audio returned ${response.status}")
         }
         val contentType = response.headers[HttpHeaders.ContentType] ?: "audio/ogg"
@@ -466,6 +555,9 @@ internal class HttpMetricsSource(
     private val clips: HttpClipClient,
 ) : MetricsSource {
     override suspend fun load(): MetricsSnapshot = clips.loadMetrics()
+    override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = clips.loadLlmRange(range)
+    override suspend fun reminderSummary(): ReminderClockSummary = clips.reminderSummary()
+    override suspend fun callFeedback(offset: Int, limit: Int): CallFeedbackList = clips.callFeedbackList(offset, limit)
 }
 
 private sealed interface ClipJobStatus {
@@ -478,9 +570,32 @@ private sealed interface ClipJobStatus {
         val audioAvailable: Boolean,
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
+        val timingsMs: Map<String, Long>,
     ) : ClipJobStatus
-    data class Failed(val message: String) : ClipJobStatus
+    data class Failed(val code: String, val message: String, val stage: String = "other",
+                      val reason: String = "unknown", val timingsMs: Map<String, Long> = emptyMap()) : ClipJobStatus
 }
+
+internal class ClipJobFailure(val code: String, val jobId: String, val stage: String,
+                              val reason: String, val timingsMs: Map<String, Long>, message: String) : IllegalStateException(message)
+internal class ClipUploadFailure(val reason: String, message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+internal class ClipPollingTimeout(val jobId: String) : IllegalStateException("ai-service job $jobId timed out")
+
+private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
+    voiceIndex = voiceIndex,
+    telegramDurationSec = telegramDurationSec,
+    recognizedDurationSec = recognizedDurationSec,
+    recognized = recognized,
+    failureReason = failureReason,
+    milestones = milestones,
+    completedNow = completedNow,
+    assessmentFailed = assessmentFailed,
+    cefr = cefr,
+    overallScore = overallScore,
+    scoreAvailable = scoreAvailable,
+    speechBeforeSec = speechBeforeSec,
+    speechAfterSec = speechAfterSec,
+)
 
 private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(
     current = streak.current,

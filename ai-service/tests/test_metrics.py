@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from unittest.mock import AsyncMock
+import httpx
+from openai import APIStatusError
 from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 
@@ -26,11 +29,60 @@ from app.metrics import (
     metrics_day,
 )
 from app.pipeline import CLARIFY_TEXT, ClipPipeline
+from app.retry import bind_provider_metrics, reset_provider_metrics, once_on_retryable
+from app.review import OpenAiSessionReviewer
 from app.stt import SttResult, duration_seconds
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts
 from tests.conftest import test_settings as make_settings
 
 AUTH = {"X-Internal-Token": "test-internal-token"}
+
+
+@pytest.mark.asyncio
+async def test_provider_retry_counts_attempts_and_final_operation_separately() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    token = bind_provider_metrics(store)
+    calls = 0
+
+    async def request() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ValueError("bad first attempt")
+        return "ok"
+
+    try:
+        assert await once_on_retryable(request, delay_seconds=0, retry_if=lambda _: True,
+                                       metric_service="stt") == "ok"
+    finally:
+        reset_provider_metrics(token)
+    counters = (await store.snapshot())["providerOutcomes"]
+    assert counters == {"stt:unknown:attempt:invalid_input": 1, "stt:unknown:attempt:ok": 1,
+                        "stt:unknown:operation:ok": 1}
+
+
+@pytest.mark.asyncio
+async def test_partial_and_error_reason_snapshots_match_memory_and_redis() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        for store in opened.stores:
+            await store.record_partial("streak", "attempted")
+            await store.record_partial("streak", "failed")
+            await store.record_provider("tts", "attempt", "rate_limit")
+            await store.record_provider("tts", "operation", "ok")
+            await store.record_clip_result("pipeline_failed", stage="tts", reason="rate_limit",
+                                           job_id="job-1", attempt_id="attempt-1")
+            snapshot = await store.snapshot()
+            assert snapshot["partialFailures"] == {"streak:attempted": 1, "streak:failed": 1}
+            assert snapshot["partialRecent"][0]["feature"] == "streak"
+            assert snapshot["partialRecent"][0]["reason"] == "unknown"
+            assert snapshot["providerOutcomes"] == {"tts:unknown:attempt:rate_limit": 1,
+                                                    "tts:unknown:operation:ok": 1}
+            assert snapshot["errors"]["reasons"][0] == {"stage": "tts", "reason": "rate_limit", "count": 1}
+            assert snapshot["errors"]["recent"][0]["jobId"] == "job-1"
+            assert snapshot["errors"]["recent"][0]["attemptId"] == "attempt-1"
+    finally:
+        await opened.aclose()
 FULL_RATES = MetricRates(
     prompt_rub_per_million=2,
     completion_rub_per_million=4,
@@ -87,6 +139,53 @@ class _Stores:
 
 
 @pytest.mark.asyncio
+async def test_clip_error_dashboard_counts_and_moscow_days() -> None:
+    opened = _Stores(MetricRates())
+    moment = datetime(2026, 9, 24, 21, 30, tzinfo=timezone.utc).timestamp()
+    try:
+        for store in opened.stores:
+            await store.record_profile("tg-1", "@alex", "Alex")
+            await store.record_clip_result(None, now=moment)
+            await store.record_clip_result(
+                "timeout", session_id="tg-1", stage="stt",
+                message="Provider failed: token=sk-secret123456", now=moment,
+            )
+            await store.record_clip_result("pipeline_failed", session_id="tg-ChatId(chatId=-100)", now=moment - 86400)
+            snapshot = await store.snapshot(now=moment)
+            assert snapshot["errors"]["today"] == {
+                "day": "2026-09-25", "ok": 1, "timeout": 1, "pipelineFailed": 0,
+            }
+            assert snapshot["errors"]["days"][1]["pipelineFailed"] == 1
+            assert len(snapshot["errors"]["days"]) == 14
+            assert snapshot["errors"]["recent"][0]["stage"] == "stt"
+            assert snapshot["errors"]["recent"][0]["code"] == "timeout"
+            assert snapshot["errors"]["recent"][0]["username"] == "alex"
+            assert snapshot["errors"]["recent"][0]["telegramId"] == 1
+            assert snapshot["errors"]["recent"][1]["username"] == ""
+            assert snapshot["errors"]["recent"][1]["telegramId"] == -100
+            assert "secret123456" not in snapshot["errors"]["recent"][0]["message"]
+            assert "[redacted]" in snapshot["errors"]["recent"][0]["message"]
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_recent_clip_errors_keep_only_last_fifteen() -> None:
+    opened = _Stores(MetricRates())
+    moment = datetime(2026, 9, 25, tzinfo=timezone.utc).timestamp()
+    try:
+        for store in opened.stores:
+            for offset in range(17):
+                await store.record_clip_result("pipeline_failed", message=f"failure {offset}", now=moment + offset)
+            recent = (await store.snapshot(now=moment + 16))["errors"]["recent"]
+            assert len(recent) == 15
+            assert recent[0]["message"] == "failure 16"
+            assert recent[-1]["message"] == "failure 2"
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
 async def test_day_counters_window_and_moscow_date() -> None:
     opened = _Stores(MetricRates())
     moment = datetime(2026, 9, 24, 21, 30, tzinfo=timezone.utc).timestamp()
@@ -126,6 +225,94 @@ async def test_correction_outcome_counts_and_duration_match_memory_and_redis() -
                 await store.record_correction("unbounded-field", 1, now=moment)
     finally:
         await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_llm_attempt_counts_include_failures_without_inflating_tokens() -> None:
+    opened = _Stores(MetricRates())
+    moment = 1_800_000_000.0
+    try:
+        for store in opened.stores:
+            await store.record_llm(999, 999, 100, purpose="onboarding", success=False, now=moment)
+            await store.record_llm(12, 3, 200, purpose="onboarding", now=moment)
+            await store.record_llm(5, 2, 100, purpose="session_review", now=moment)
+            snap = await store.snapshot(now=moment)
+            assert snap["llmRequests"] == 3
+            assert snap["llmFailures"] == 1
+            assert snap["llmRequestsByPurpose"]["onboarding"] == 2
+            assert snap["llmRequestsByPurpose"]["session_review"] == 1
+            assert snap["promptTokens"] == 17
+            assert snap["completionTokens"] == 5
+            assert snap["tpm"] == 22
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_llm_range_aggregates_inclusive_moscow_days_in_both_stores() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        for store in opened.stores:
+            await store.record_llm(1, 1, 10, purpose="onboarding", now=_moscow(22))
+            await store.record_llm(0, 0, 10, purpose="onboarding", success=False, now=_moscow(23))
+            await store.record_llm(1, 1, 10, purpose="reply", now=_moscow(24))
+            await store.record_llm(1, 1, 10, purpose="notes", now=_moscow(25))
+            summary = await store.llm_range(date(2026, 9, 23), date(2026, 9, 24))
+            assert summary == {
+                "from": "2026-09-23", "to": "2026-09-24", "timezone": "Europe/Moscow",
+                "requests": 2, "failures": 1,
+                "byPurpose": {"reply": 1, "notes": 0, "onboarding": 1, "session_review": 0},
+            }
+            assert (await store.llm_range(date(2026, 9, 26), date(2026, 9, 26)))["requests"] == 0
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_provider_retries_and_session_review_are_counted() -> None:
+    store = MemoryMetricsStore(MetricRates())
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"reply":"Hello"}'))],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2),
+    )
+    rate_limit = APIStatusError(
+        "rate limited", response=httpx.Response(429, request=httpx.Request("POST", "https://example.test/llm")), body=None,
+    )
+    create = AsyncMock(side_effect=[rate_limit, response])
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    model = OpenAiChatModel(client, "test", metrics=store)
+    assert await model.complete_reply([], "Hi") == "Hello"
+    snap = await store.snapshot()
+    assert create.await_count == 2
+    assert snap["llmRequests"] == 2
+    assert snap["llmFailures"] == 1
+    assert snap["llmRequestsByPurpose"]["reply"] == 2
+    assert snap["promptTokens"] == 10
+    assert snap["completionTokens"] == 2
+
+    create.side_effect = RuntimeError("provider down")
+    reviewer = OpenAiSessionReviewer(client, "test", metrics=store)
+    with pytest.raises(RuntimeError, match="provider down"):
+        await reviewer.review([{"role": "user", "text": "Hello"}])
+    snap = await store.snapshot()
+    assert snap["llmRequests"] == 3
+    assert snap["llmFailures"] == 2
+    assert snap["llmRequestsByPurpose"]["session_review"] == 1
+
+
+@pytest.mark.asyncio
+async def test_metrics_outage_does_not_fail_a_successful_llm_reply() -> None:
+    class BrokenMetrics(MemoryMetricsStore):
+        async def record_llm(self, *args, **kwargs) -> None:
+            raise RuntimeError("redis unavailable")
+
+    response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"reply":"Hello"}'))],
+        usage=None,
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(return_value=response))))
+    model = OpenAiChatModel(client, "test", metrics=BrokenMetrics(MetricRates()))
+    assert await model.complete_reply([], "Hi") == "Hello"
 
 
 @pytest.mark.asyncio
@@ -518,8 +705,8 @@ async def test_reminders_claim_route_requires_token() -> None:
     assert first.status_code == 200
     assert first.json() == {
         "targets": [
-            {"sessionId": "tg-7", "name": "Alex", "streak": 0},
-            {"sessionId": "tg-8", "name": None, "streak": 0},
+                {"sessionId": "tg-7", "name": "Alex", "streak": 0, "hour": "08"},
+                {"sessionId": "tg-8", "name": None, "streak": 0, "hour": "13"},
         ],
     }
     assert second.json() == {"targets": []}

@@ -11,10 +11,12 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
+from app.audit_artifacts import recorded_at
 
 from app.metrics import METRICS_TIMEZONE
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
+RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
 GoalLookup = Callable[[str], Awaitable[int | None]]
 
 
@@ -39,7 +41,11 @@ class CallStore:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
             day = moscow_day(self._clock())
+            previous = await self._live(session_id)
+            closed_previous = previous if previous is not None and previous.get("day") != day else None
             unseen = await self._seal_previous_day(session_id, day)
+            if closed_previous is not None:
+                closed_previous = await self._read_call(str(closed_previous["id"]))
             call = await self._live(session_id)
             already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
@@ -47,7 +53,13 @@ class CallStore:
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
                 await self._append_day(session_id, day, call["id"])
-            return {**await self._summary(session_id, call, unseen=unseen, crossed=False), "alreadyActive": already_active}
+            return {
+                **await self._summary(session_id, call, unseen=unseen, crossed=False),
+                "alreadyActive": already_active,
+                "startedUnix": call["startedUnix"],
+                "closedPreviousCallId": closed_previous["id"] if closed_previous else None,
+                "closedPreviousUnix": closed_previous.get("endedUnix") if closed_previous else None,
+            }
 
     async def is_open_today(self, session_id: str) -> bool:
         session_id = _session_id(session_id)
@@ -87,6 +99,7 @@ class CallStore:
             call["turns"].append({
                 "transcript": text,
                 "reply": reply,
+                "receivedAt": recorded_at(self._clock()),
                 "corrections": [dict(item) for item in corrections if isinstance(item, dict)],
                 "seconds": seconds,
                 "words": [dict(word) for word in words if isinstance(word, dict)],
@@ -102,13 +115,13 @@ class CallStore:
                 await self._write_day(session_id, call["day"], day)
             return await self._summary(session_id, call, unseen=None, crossed=crossed)
 
-    async def seal(self, session_id: str) -> str | None:
+    async def seal(self, session_id: str, reason: str = "end_button") -> str | None:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
             call = await self._live(session_id)
             if call is None:
                 return None
-            await self._close(session_id, call)
+            await self._close(session_id, call, reason)
             return str(call["id"])
 
     async def note_telegram_voice(self, session_id: str, call_id: str, message_id: int) -> bool:
@@ -174,20 +187,48 @@ class CallStore:
         if self._redis is not None:
             await self._redis.aclose()
 
+    async def prune_all(self) -> int:
+        if self._redis is None:
+            for call in self._calls.values():
+                _expire_call_content(call, self._clock())
+            return len(self._calls)
+        changed = 0
+        async for key in self._redis.scan_iter(match="call:*", count=100):
+            if key.startswith(("call:open:", "call:day:")):
+                continue
+            raw = await self._redis.get(key)
+            if not raw:
+                continue
+            call = json.loads(raw)
+            if not isinstance(call, dict) or "turns" not in call:
+                continue
+            async with self.lock(str(call["sessionId"])):
+                raw = await self._redis.get(key)
+                if not raw:
+                    continue
+                call = json.loads(raw)
+                before = json.dumps(call, sort_keys=True)
+                _expire_call_content(call, self._clock())
+                if json.dumps(call, sort_keys=True) != before:
+                    await self._redis.set(key, json.dumps(call))
+                    changed += 1
+        return changed
+
     async def _seal_previous_day(self, session_id: str, day: str) -> str | None:
         call = await self._live(session_id)
         if call is None or call.get("day") == day:
             return None
-        await self._close(session_id, call)
+        await self._close(session_id, call, "next_moscow_day")
         if call.get("reviewOffered"):
             return None
         call["reviewOffered"] = True
         await self._write_call(call)
         return str(call["id"])
 
-    async def _close(self, session_id: str, call: dict) -> None:
+    async def _close(self, session_id: str, call: dict, reason: str) -> None:
         call["status"] = "closed"
         call["endedUnix"] = self._clock()
+        call["closeReason"] = reason
         call["todaySeconds"] = await self._today_seconds(session_id, str(call["day"]))
         call["goalSeconds"] = await self._goal_seconds(session_id)
         await self._write_call(call)
@@ -196,6 +237,7 @@ class CallStore:
     async def _summary(self, session_id: str, call: dict, unseen: str | None, crossed: bool) -> dict[str, Any]:
         return {
             "callId": call["id"],
+            "startedUnix": call["startedUnix"],
             "todaySeconds": await self._today_seconds(session_id, str(call["day"])),
             "goalSeconds": await self._goal_seconds(session_id),
             "goalJustCrossed": crossed,
@@ -275,9 +317,10 @@ class CallStore:
             loaded = json.loads(raw) if raw else None
         else:
             loaded = self._calls.get(call_id)
-        return deepcopy(loaded) if isinstance(loaded, dict) else None
+        return _expire_call_content(deepcopy(loaded), self._clock()) if isinstance(loaded, dict) else None
 
     async def _write_call(self, call: dict) -> None:
+        call = _expire_call_content(call, self._clock())
         if self._redis is not None:
             await self._redis.set(_call_key(str(call["id"])), json.dumps(call))
         else:
@@ -301,6 +344,17 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "todaySeconds": 0.0,
         "goalSeconds": 0.0,
     }
+
+
+def _expire_call_content(call: dict, now: float) -> dict:
+    cutoff = now - RAW_CONTENT_SECONDS
+    call["turns"] = [turn for turn in call.get("turns") or [] if isinstance(turn, dict)
+                     and isinstance(turn.get("receivedAt"), (int, float)) and turn["receivedAt"] > cutoff]
+    if float(call.get("startedUnix") or 0) <= cutoff:
+        call["openingQuestion"] = None
+    if not call["turns"]:
+        call["review"] = None
+    return call
 
 
 def _session_id(value: str) -> str:

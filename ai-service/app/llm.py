@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 import httpx
 import openai
@@ -15,6 +15,8 @@ from openai import AsyncOpenAI
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
 from app.metrics import MetricsStore
+from app.metrics_v2 import read_provider_cost
+from app.operational_metrics import telegram_stage
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
 
@@ -183,6 +185,7 @@ class OpenAiChatModel:
         self._notes_temperature = notes_temperature
         self._max_tokens = max_tokens
         self._metrics = metrics
+        self._v2 = None
 
     async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str:
         messages = [{"role": "system", "content": REPLY_SYSTEM}]
@@ -190,7 +193,7 @@ class OpenAiChatModel:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
-        text = await self._complete(messages, self._reply_temperature)
+        text = await self._complete(messages, self._reply_temperature, purpose="reply")
         return parse_reply(text)
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
@@ -213,6 +216,7 @@ class OpenAiChatModel:
                 text = await self._complete(
                     messages, self._notes_temperature, NOTES_MAX_TOKENS, self._notes_model, retry=False,
                     reasoning_effort="none" if self._notes_model == "openai/gpt-5.6-luna" else None,
+                    purpose="notes",
                 )
                 payload = _load_json(text)
                 notes = payload.get("notes")
@@ -246,43 +250,60 @@ class OpenAiChatModel:
             max_tokens if max_tokens is not None else self._max_tokens,
             model=model,
             response_format=response_format,
+            purpose="onboarding",
         )
 
+    @telegram_stage("llm")
     async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
                         model: str | None = None, response_format: dict | None = None,
-                        retry: bool = True, reasoning_effort: str | None = None) -> str:
+                        retry: bool = True, reasoning_effort: str | None = None,
+                        purpose: str = "reply") -> str:
         async def call() -> Any:
             extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else {}
             if reasoning_effort is not None:
                 extra_body["reasoning"] = {"effort": reasoning_effort}
-            return await self._client.chat.completions.create(
-                model=model or self._model,
-                messages=messages,
-                temperature=temperature,
-                max_completion_tokens=self._max_tokens if max_tokens is None else max_tokens,
-                response_format=response_format or {"type": "json_object"},
-                extra_body=extra_body or None,
-            )
+            started = time.perf_counter()
+            try:
+                response = await self._client.chat.completions.create(
+                    model=model or self._model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_completion_tokens=self._max_tokens if max_tokens is None else max_tokens,
+                    response_format=response_format or {"type": "json_object"},
+                    extra_body=extra_body or None,
+                )
+            except Exception:
+                await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
+                raise
+            prompt_tokens, completion_tokens = read_usage(response)
+            await record_attempt(self._metrics, prompt_tokens, completion_tokens, started, purpose, success=True)
+            if self._v2 is not None:
+                try:
+                    await self._v2.record_llm(
+                        "", purpose, model or self._model, prompt_tokens, completion_tokens, read_provider_cost(response),
+                    )
+                except Exception:
+                    logger.warning("failed to record provider cost", exc_info=True)
+            return response
 
-        started = time.perf_counter()
         async def call_with_choices() -> Any:
             response = await call()
             if not (getattr(response, "choices", None) or []):
                 raise EmptyCompletionError("llm returned no choices")
             return response
 
-        response = (
-            await once_on_retryable(
-                call_with_choices, retry_if=lambda error: is_retryable(error) or isinstance(error, EmptyCompletionError),
-            ) if retry else await call_with_choices()
-        )
-        if self._metrics is not None:
-            prompt_tokens, completion_tokens = read_usage(response)
-            await self._metrics.record_llm(
-                prompt_tokens,
-                completion_tokens,
-                int((time.perf_counter() - started) * 1000),
+        try:
+            response = (
+                await once_on_retryable(
+                    call_with_choices, retry_if=lambda error: is_retryable(error) or isinstance(error, EmptyCompletionError),
+                    metric_service="reply_llm" if purpose == "reply" else None,
+                    metric_provider="openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai",
+                ) if retry else await call_with_choices()
             )
+        except Exception:
+            if self._v2 is not None and purpose != "notes":
+                await self._v2.record_error("", "llm", "failed")
+            raise
         choices = getattr(response, "choices", None) or []
         if getattr(choices[0], "finish_reason", None) == "length":
             raise ValueError("llm response reached completion token limit")
@@ -314,6 +335,38 @@ def correction_error_outcome(error: Exception) -> str:
     if isinstance(error, RuntimeError) and "json was not an object" in str(error):
         return "invalid_schema"
     return "other_error"
+
+
+async def metered_completion(
+    call: Callable[[], Awaitable[Any]], metrics: MetricsStore | None, purpose: str,
+) -> Any:
+    async def attempt() -> Any:
+        started = time.perf_counter()
+        try:
+            response = await call()
+        except Exception:
+            await record_attempt(metrics, 0, 0, started, purpose, success=False)
+            raise
+        prompt_tokens, completion_tokens = read_usage(response)
+        await record_attempt(metrics, prompt_tokens, completion_tokens, started, purpose, success=True)
+        return response
+
+    return await once_on_retryable(attempt)
+
+
+async def record_attempt(
+    metrics: MetricsStore | None, prompt_tokens: int, completion_tokens: int,
+    started: float, purpose: str, *, success: bool,
+) -> None:
+    if metrics is None:
+        return
+    try:
+        await metrics.record_llm(
+            prompt_tokens, completion_tokens, int((time.perf_counter() - started) * 1000),
+            purpose=purpose, success=success,
+        )
+    except Exception:
+        logger.warning("failed to record LLM metrics", exc_info=True)
 
 
 def read_usage(response: Any) -> tuple[int, int]:

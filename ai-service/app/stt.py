@@ -8,6 +8,7 @@ from openai import AsyncOpenAI, BadRequestError
 
 from app.audio import to_wav_mono_16k
 from app.retry import once_on_retryable
+from app.operational_metrics import telegram_stage
 
 
 @dataclass
@@ -30,6 +31,7 @@ class GroqSpeechToText:
         self._model = model
         self._ffmpeg_bin = ffmpeg_bin
 
+    @telegram_stage("stt")
     async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         try:
             return await self._transcribe_file(audio, filename, content_type, language)
@@ -47,7 +49,7 @@ class GroqSpeechToText:
                 timestamp_granularities=["word"],
             )
 
-        response = await once_on_retryable(call)
+        response = await once_on_retryable(call, metric_service="stt", metric_provider="groq")
         payload = _as_dict(response)
         text = str(payload.get("text") or "").strip()
         no_speech_prob = _no_speech_prob(payload)

@@ -1,7 +1,9 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.analytics.AnalyticsWriteBuffer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import kotlin.test.Test
@@ -61,6 +63,30 @@ class TelegramChatActionsTest {
     }
 
     @Test
+    fun recordsWaitUntilActionActuallyStarts() = runTest {
+        val actions = TelegramChatActions()
+        val release = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        val first = async {
+            actions.run("chat", "first", voice = true) {
+                started.complete(Unit)
+                release.await()
+            }
+        }
+        started.await()
+        var waitNanos = -1L
+        val second = async {
+            actions.run("chat", "second", voice = true, onActionStart = { waitNanos = it }) {}
+        }
+        yield()
+        assertEquals(-1L, waitNanos)
+        release.complete(Unit)
+        first.await()
+        second.await()
+        assertEquals(true, waitNanos >= 0)
+    }
+
+    @Test
     fun duplicateDeliveryDoesNotRunTwiceAndFailureAllowsRetry() = runTest {
         val actions = TelegramChatActions()
         var calls = 0
@@ -72,5 +98,62 @@ class TelegramChatActionsTest {
         }
         actions.run("chat", "callback") { calls++ }
         assertEquals(2, calls)
+    }
+
+    @Test
+    fun analyticsWriteDoesNotHoldUpTheNextDeliveredReply() = runTest {
+        val actions = TelegramChatActions()
+        val startedWriting = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        val first = async {
+            actions.run("chat", "one") {
+                events += "reply one"
+                currentCoroutineContext()[AnalyticsWriteBuffer]!!.add {
+                    startedWriting.complete(Unit)
+                    releaseWrite.await()
+                    events += "write one"
+                }
+            }
+        }
+        startedWriting.await()
+        val second = async {
+            actions.run("chat", "two") {
+                events += "reply two"
+                currentCoroutineContext()[AnalyticsWriteBuffer]!!.add { events += "write two" }
+            }
+        }
+        yield()
+        assertEquals(listOf("reply one", "reply two"), events)
+        releaseWrite.complete(Unit)
+        first.await()
+        second.await()
+        assertEquals(listOf("reply one", "reply two", "write one", "write two"), events)
+    }
+
+    @Test
+    fun slowAnalyticsDoesNotOccupyVoiceSlotsOrBlockLaterReplies() = runTest {
+        val actions = TelegramChatActions()
+        val startedWriting = CompletableDeferred<Unit>()
+        val releaseWrite = CompletableDeferred<Unit>()
+        val replies = mutableListOf<String>()
+        val first = async {
+            actions.run("chat", "one", voice = true) {
+                replies += "one"
+                currentCoroutineContext()[AnalyticsWriteBuffer]!!.add {
+                    startedWriting.complete(Unit)
+                    releaseWrite.await()
+                }
+            }
+        }
+        startedWriting.await()
+        val later = (2..4).map { index ->
+            async { actions.run("chat", "$index", voice = true) { replies += "$index" } }
+        }
+        yield()
+        assertEquals(listOf("one", "2", "3", "4"), replies)
+        releaseWrite.complete(Unit)
+        first.await()
+        later.forEach { it.await() }
     }
 }

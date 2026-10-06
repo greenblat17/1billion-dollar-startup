@@ -7,6 +7,7 @@ import httpx
 from openai import AsyncOpenAI
 
 from app.audio import to_ogg_opus
+from app.metrics_v2 import cost_micro
 from app.retry import once_on_retryable
 
 TTS_INSTRUCTIONS = (
@@ -39,6 +40,7 @@ class OpenAiTextToSpeech:
         self._voice = voice
         self._response_format = response_format
         self._ffmpeg_bin = ffmpeg_bin
+        self._v2 = None
 
     async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
         kwargs: dict[str, Any] = {
@@ -50,11 +52,27 @@ class OpenAiTextToSpeech:
         if self._model.startswith("openai/"):
             kwargs["instructions"] = TTS_INSTRUCTIONS
 
-        async def call() -> Any:
-            return await self._client.audio.speech.create(**kwargs)
+        async def call() -> tuple[Any, dict[str, str]]:
+            raw_create = getattr(getattr(self._client.audio.speech, "with_raw_response", None), "create", None)
+            if raw_create is None:
+                return await self._client.audio.speech.create(**kwargs), {}
+            raw = await raw_create(**kwargs)
+            headers = {str(key).lower(): value for key, value in dict(raw.headers).items()}
+            parsed = raw.parse()
+            if hasattr(parsed, "__await__"):
+                parsed = await parsed
+            return parsed, headers
 
-        response = await once_on_retryable(call)
+        try:
+            provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
+            response, headers = await once_on_retryable(call, metric_service="tts", metric_provider=provider)
+        except Exception:
+            if self._v2 is not None:
+                await self._v2.record_error("", "tts", "failed")
+            raise
         payload = await _audio_bytes(response)
+        if self._v2 is not None:
+            await self._v2.record_tts("", self._model, len(text), await _openrouter_cost(self._client, headers))
         suffix = ".opus" if self._response_format == "opus" else f".{self._response_format}"
         return TtsAudio(await to_ogg_opus(self._ffmpeg_bin, payload, suffix=suffix), "audio/ogg")
 
@@ -78,7 +96,8 @@ class DeepgramTextToSpeech:
         self._ffmpeg_bin = ffmpeg_bin
 
     async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
-        response = await once_on_retryable(lambda: self._request(text, speed))
+        response = await once_on_retryable(lambda: self._request(text, speed), metric_service="tts",
+                                           metric_provider="deepgram")
         if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/mpeg":
             raise RuntimeError("deepgram tts returned an unsupported audio type")
         if not response.content:
@@ -114,3 +133,20 @@ async def _audio_bytes(response: Any) -> bytes:
     if isinstance(content, (bytes, bytearray)):
         return bytes(content)
     raise RuntimeError("tts response had no audio bytes")
+
+
+async def _openrouter_cost(client: AsyncOpenAI, headers: dict[str, str]) -> int | None:
+    base = str(client.base_url)
+    generation_id = headers.get("generation-id") or headers.get("x-generation-id")
+    if "openrouter.ai" not in base or not generation_id:
+        return None
+    token = client.api_key
+    url = base.rstrip("/") + "/generation?id=" + generation_id
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            response = await http.get(url, headers={"Authorization": f"Bearer {token}"})
+        if response.status_code != 200:
+            return None
+        return cost_micro((response.json().get("data") or {}).get("total_cost"))
+    except (httpx.HTTPError, ValueError):
+        return None

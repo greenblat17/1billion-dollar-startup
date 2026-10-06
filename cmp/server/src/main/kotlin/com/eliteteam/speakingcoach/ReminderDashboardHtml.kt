@@ -1,23 +1,31 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.telegram.REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.STREAK_REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import com.eliteteam.speakingcoach.telegram.renderReminder
 import java.time.Duration
 import java.time.OffsetDateTime
+import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 import java.util.Locale
 
 private const val SEGMENT_NEW = "new"
 
 internal fun remindersPageHtml(
-    snapshot: MetricsSnapshot,
+    snapshot: MetricsSnapshot?,
     notice: String?,
     controls: Boolean,
+    summaryRoot: String = "/admin/metrics",
+    clock: ReminderClockSummary? = null,
+    offers: ReminderOfferSummary? = null,
+    days: Int = 7,
 ): String = """
     <!doctype html>
     <html lang="ru">
@@ -29,17 +37,92 @@ internal fun remindersPageHtml(
     </head>
     <body>
     <h1>Speaky</h1>
-    ${adminTabs(REMINDERS_PATH)}
-    <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Ежедневно в 19:00.</p>
-    ${remindersSectionHtml(snapshot.reminders, notice, controls)}
+    ${adminTabs("$summaryRoot/reminders", summaryRoot)}
+    <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow. Время отправки задаёт пользователь.</p>
+    ${reminderAnalyticsHtml(snapshot?.reminders, clock, offers, days, summaryRoot)}
+    ${remindersSectionHtml(snapshot?.reminders, notice, controls, summaryRoot)}
     </body>
     </html>
 """.trimIndent()
+
+private fun reminderAnalyticsHtml(
+    reminders: RemindersSnapshot?, clock: ReminderClockSummary?, offers: ReminderOfferSummary?,
+    days: Int, summaryRoot: String,
+): String {
+    val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+    val period = if (days == 30) 30 else 7
+    val from = today.minusDays(period.toLong() - 1)
+    val maturedTo = today.minusDays(2)
+    val maturedFrom = maturedTo.minusDays(period.toLong() - 1)
+    val trackingSince = reminders?.trackingSince?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+    val trackingNote = trackingSince?.let { " Учёт новых событий с $it; более ранние дни недоступны." }.orEmpty()
+    val selector = "<p class=\"meta\">Период: " + listOf(7, 30).joinToString(" · ") { choice ->
+        if (choice == period) "$choice дней" else "<a href=\"$summaryRoot/reminders?days=$choice\">$choice дней</a>"
+    } + "</p>"
+    val distribution = if (clock == null) "<p class=\"meta\">Текущие настройки недоступны.</p>" else {
+        val rows = (0..23).joinToString("") { hour ->
+            val key = "%02d".format(hour)
+            val count = clock.hours[key] ?: 0
+            val value = if (clock.active > 0) count * 100.0 / clock.active else 0.0
+            val percent = if (clock.active > 0) String.format(Locale.US, "%.1f%%", value) else "—"
+            val meter = String.format(Locale.US, "%.1f", value)
+            "<tr><th scope=\"row\">$key:00–$key:59</th><td>$count</td>" +
+                "<td><meter min=\"0\" max=\"100\" value=\"$meter\"></meter> $percent</td></tr>"
+        }
+        "<p class=\"meta\">Активных настроек: ${clock.active}. Все пользователи; время по Москве. " +
+            "Текущий срез, без фильтра по датам.</p><table><thead><tr><th>Выбрали время</th>" +
+            "<th>Пользователи</th><th>Доля от ${clock.active}</th></tr></thead><tbody>$rows</tbody></table>"
+    }
+    val offered = if (offers == null) "<p class=\"meta\">Данные о предложениях онбординга недоступны.</p>" else
+        "<p>${offers.saved} / ${offers.offered} · ${rate(offers.saved.toLong(), offers.offered.toLong())} сохранили время " +
+            "после предложения в онбординге</p><p class=\"meta\">Уникальные пользователи с предложением " +
+            "с $from по $today. Историческая конверсия; поздний /remind и отключения в неё не входят.</p>"
+    val efficiency = if (reminders == null) "<p class=\"meta\">Данные об отправках недоступны.</p>" else if (
+        trackingSince != null && trackingSince.isAfter(maturedTo)
+    ) "<p class=\"meta\">Ещё нет автоматических отправок с завершённым окном ответа.</p>" else {
+        val selected = reminders.analyticsDays.filter { row ->
+            LocalDate.parse(row.day) in maturedFrom..maturedTo &&
+                (trackingSince == null || !LocalDate.parse(row.day).isBefore(trackingSince))
+        }
+        val rows = (0..23).joinToString("") { hour ->
+            val key = "%02d".format(hour)
+            val sent = selected.sumOf { it.hours[key]?.sent ?: 0 }
+            val returned = selected.sumOf { it.hours[key]?.returned ?: 0 }
+            "<tr><th scope=\"row\">$key:00–$key:59</th><td>$sent</td><td>$returned</td><td>${rate(returned, sent)}</td></tr>"
+        }
+        "<p class=\"meta\">Автоматические отправки с $maturedFrom по $maturedTo; полные 24 часа для ответа.$trackingNote " +
+            "Час сохранён при отправке. Связь с ответом не доказывает влияние времени.</p>" +
+            "<table><thead><tr><th>Выбранный час</th><th>Отправлено</th><th>Ответили</th><th>Доля</th></tr></thead><tbody>$rows</tbody></table>"
+    }
+    val outcomes = if (reminders == null) "<p class=\"meta\">Исходы недоступны.</p>" else {
+        val rows = reminders.analyticsDays.filter {
+            LocalDate.parse(it.day) in from..today && (trackingSince == null || !LocalDate.parse(it.day).isBefore(trackingSince))
+        }
+            .joinToString("") { row ->
+                val unknown = (row.claimedAuto - row.autoSent - row.autoBlocked - row.autoFailed).coerceAtLeast(0)
+                "<tr><td>${escapeHtml(row.day)}</td><td>${row.skippedActive}</td><td>${row.autoSent}</td>" +
+                    "<td>${row.autoBlocked}</td><td>${row.autoFailed}</td><td>$unknown</td></tr>"
+            }
+        "<p class=\"meta\">Авторассылка с $from по $today.$trackingNote «Практиковались» — пропущены до отправки; " +
+            "«Неизвестно» — адресат получен, но отчёт об отправке не записан.</p>" +
+            "<table><thead><tr><th>День</th><th>Практиковались</th><th>Отправлено</th>" +
+            "<th>Блок</th><th>Ошибка</th><th>Неизвестно</th></tr></thead><tbody>$rows</tbody></table>"
+    }
+    val changes = reminders?.settingUsers?.get(period.toString())?.let { users ->
+        "<p>Установили после отсутствия настройки: ${users.setFromEmpty} · Сменили время: ${users.changed} · " +
+            "Отключили: ${users.cleared}</p><p class=\"meta\">Уникальные пользователи в каждом действии с $from по $today. " +
+            "Один пользователь может входить в несколько действий.$trackingNote</p>"
+    } ?: "<p class=\"meta\">Изменения настроек недоступны.</p>"
+    return "$selector<h2>Выбранное время</h2>$distribution<h2>Конверсия предложения</h2>$offered" +
+        "<h2>Ответы по выбранному часу</h2>$efficiency<h2>Исходы по дням</h2>$outcomes" +
+        "<h2>Изменения настроек</h2>$changes"
+}
 
 private fun remindersSectionHtml(
     reminders: RemindersSnapshot?,
     notice: String?,
     controls: Boolean,
+    summaryRoot: String,
 ): String {
     val body = if (reminders == null) {
         "<p class=\"meta\">Нет данных о напоминаниях.</p>"
@@ -53,7 +136,7 @@ private fun remindersSectionHtml(
         ${card("Прогноз на сегодня", reminders.forecast.toString())}
         ${card("Авто-рассылка сегодня", autoTodayLabel(reminders.autoToday))}
         </dl>
-        ${controlsHtml(reminders.forecast, controls)}
+        ${controlsHtml(reminders.forecast, controls, summaryRoot)}
         <h2>Рассылки</h2>
         <table>
         <thead><tr><th>Начало</th><th>Режим</th><th>Claimed</th><th>Отправлено</th><th>Блок</th><th>Ошибки</th><th>Длительность</th></tr></thead>
@@ -96,7 +179,7 @@ private fun noticeHtml(notice: String?): String = when (notice) {
     else -> ""
 }
 
-private fun controlsHtml(forecast: Long, controls: Boolean): String {
+private fun controlsHtml(forecast: Long, controls: Boolean, summaryRoot: String): String {
     if (!controls) {
         return "<p class=\"meta\">Ручной запуск доступен только в webhook-режиме.</p>"
     }
@@ -104,14 +187,14 @@ private fun controlsHtml(forecast: Long, controls: Boolean): String {
         "<option value=\"${escapeHtml(template.id)}\">${escapeHtml(template.id)}</option>"
     }
     return """
-        <form class="inline" method="post" action="/admin/metrics/reminders/test">
+        <form class="inline" method="post" action="$summaryRoot/reminders/test">
         <label>Chat id <input name="chatId" inputmode="numeric" required></label>
         <label>Шаблон <select name="template"><option value="today">Сегодняшний</option>
         $options
         </select></label>
         <button type="submit">Отправить на себя</button>
         </form>
-        <form class="inline" method="post" action="/admin/metrics/reminders/send" onsubmit="return confirm('Отправить напоминание примерно $forecast людям?')">
+        <form class="inline" method="post" action="$summaryRoot/reminders/send" onsubmit="return confirm('Отправить напоминание примерно $forecast людям?')">
         <button type="submit">Отправить всем сейчас</button>
         </form>
     """.trimIndent()

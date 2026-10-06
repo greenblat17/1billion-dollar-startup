@@ -56,6 +56,7 @@ class ReminderResult:
     session_id: str
     template_id: str
     status: str
+    hour: str | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +66,7 @@ class ReminderReport:
     finished_at: str
     claimed: int
     results: list[ReminderResult] = field(default_factory=list)
+    report_id: str = ""
 
 
 @dataclass
@@ -76,6 +78,8 @@ class LastReminder:
     answered: bool = False
     replied: bool = False
     streak_bucket: str = "0"
+    hour: str | None = None
+    mode: str = "auto"
 
 
 class ReminderLedger(Protocol):
@@ -111,6 +115,7 @@ def parse_report(payload: dict[str, Any]) -> ReminderReport:
                 session_id=session,
                 template_id=normalize_template(item.get("templateId")),
                 status=normalize_status(item.get("status")),
+                hour=normalize_hour(item.get("hour")),
             ),
         )
     mode = str(payload.get("mode") or "")
@@ -120,7 +125,13 @@ def parse_report(payload: dict[str, Any]) -> ReminderReport:
         finished_at=str(payload.get("finishedAt") or "")[:_TIME_MAX_CHARS],
         claimed=nonneg_int(payload.get("claimed")),
         results=results,
+        report_id=str(payload.get("reportId") or "")[:64],
     )
+
+
+def normalize_hour(value: Any) -> str | None:
+    text = str(value or "")
+    return text if len(text) == 2 and text.isdigit() and 0 <= int(text) <= 23 else None
 
 
 def normalize_status(value: Any) -> str:
@@ -159,7 +170,7 @@ def reminder_view(
     reply_seconds: list[int],
     runs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    days = recent_days(now, FUNNEL_WINDOW_DAYS)
+    days = recent_days(now, 32)
     rows = [{"day": day, **{name: day_counts.get(day, {}).get(name, 0) for name in DAY_FIELDS}} for day in days]
     week_rows = rows[:FUNNEL_WEEK_DAYS]
     week = {name: sum(int(row[name]) for row in week_rows) for name in DAY_FIELDS}
@@ -174,7 +185,15 @@ def reminder_view(
     return {
         "today": {name: rows[0][name] for name in ("sent", "blocked", "failed", "returned")},
         "week": {name: week[name] for name in ("sent", "blocked", "failed", "returned")},
-        "days": [{name: row[name] for name in ("day", "sent", "blocked", "failed", "returned")} for row in rows],
+        "days": [{name: row[name] for name in ("day", "sent", "blocked", "failed", "returned")} for row in rows[:FUNNEL_WINDOW_DAYS]],
+        "analyticsDays": [
+            {"day": day, "autoSent": counts.get("auto_sent", 0),
+             "autoBlocked": counts.get("auto_blocked", 0), "autoFailed": counts.get("auto_failed", 0),
+             "hours": {f"{hour:02d}": {"sent": counts.get(f"auto_sent_{hour:02d}", 0),
+                                      "returned": counts.get(f"auto_returned_{hour:02d}", 0)}
+                       for hour in range(24) if counts.get(f"auto_sent_{hour:02d}", 0) or counts.get(f"auto_returned_{hour:02d}", 0)}}
+            for day in days for counts in [day_counts.get(day, {})]
+        ],
         "segments": [
             {"segment": SEGMENT_NEW, "sent": week["sent_new"], "returned": week["returned_new"]},
             {"segment": SEGMENT_ACTIVE, "sent": week["sent_active"], "returned": week["returned_active"]},
@@ -199,6 +218,14 @@ def _iso(moment: float) -> str:
     return datetime.fromtimestamp(moment, _TZ).isoformat(timespec="seconds")
 
 
+def _report_day(report: ReminderReport, received_at: float) -> str:
+    try:
+        started = datetime.fromisoformat(report.started_at).timestamp()
+    except ValueError:
+        return metrics_day(received_at)
+    return metrics_day(started) if 0 <= received_at - started <= 86400 else metrics_day(received_at)
+
+
 class MemoryReminderLedger:
     def __init__(self, metrics: MetricsStore, streaks: StreakStore | None = None) -> None:
         self._metrics = metrics
@@ -209,11 +236,12 @@ class MemoryReminderLedger:
         self._templates: dict[str, dict[str, int]] = {}
         self._replies: dict[str, list[int]] = {}
         self._runs: list[dict[str, Any]] = []
+        self._reports_seen: dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     async def record_report(self, report: ReminderReport, *, now: float | None = None) -> None:
         moment = _moment(now)
-        day = metrics_day(moment)
+        day = _report_day(report, moment)
         segments = {
             result.session_id: await self._segment(result.session_id)
             for result in report.results
@@ -225,8 +253,17 @@ class MemoryReminderLedger:
             if result.status == "sent"
         }
         async with self._lock:
+            self._reports_seen = {key: ts for key, ts in self._reports_seen.items() if moment - ts < 40 * 86400}
+            if report.report_id and report.report_id in self._reports_seen:
+                return
+            if report.report_id:
+                self._reports_seen[report.report_id] = moment
             for result in report.results:
                 self._bump(self._days, day, result.status)
+                if report.mode == "auto":
+                    self._bump(self._days, day, f"auto_{result.status}")
+                    if result.status == "sent" and result.hour is not None:
+                        self._bump(self._days, day, f"auto_sent_{result.hour}")
                 if result.status != "failed":
                     self._bump(self._templates, result.template_id, result.status)
                 if result.status != "sent":
@@ -244,6 +281,8 @@ class MemoryReminderLedger:
                     result.template_id,
                     segment,
                     streak_bucket=streak_bucket,
+                    hour=result.hour,
+                    mode=report.mode,
                 )
             self._runs.insert(0, run_row(report, day))
             del self._runs[RUN_LIMIT:]
@@ -260,6 +299,8 @@ class MemoryReminderLedger:
                 return
             last.answered = True
             self._bump(self._days, last.day, "returned")
+            if last.mode == "auto" and last.hour is not None:
+                self._bump(self._days, last.day, f"auto_returned_{last.hour}")
             self._bump(self._days, last.day, f"returned_{last.segment}")
             self._bump(self._days, last.day, f"returned_streak_{last.streak_bucket}")
             self._bump(self._templates, last.template, "returned")
@@ -312,10 +353,18 @@ class RedisReminderLedger:
 
     async def record_report(self, report: ReminderReport, *, now: float | None = None) -> None:
         moment = _moment(now)
-        day = metrics_day(moment)
+        day = _report_day(report, moment)
         pipe = self._redis.pipeline()
+        if report.report_id:
+            accepted = await self._redis.set(_report_key(report.report_id), "1", nx=True, ex=40 * 86400)
+            if not accepted:
+                return
         for result in report.results:
             pipe.hincrby(_day_key(day), result.status, 1)
+            if report.mode == "auto":
+                pipe.hincrby(_analytics_day_key(day), f"auto_{result.status}", 1)
+                if result.status == "sent" and result.hour is not None:
+                    pipe.hincrby(_analytics_day_key(day), f"auto_sent_{result.hour}", 1)
             if result.status != "failed":
                 pipe.hincrby(_template_key(result.template_id), result.status, 1)
                 pipe.sadd(_TEMPLATES_KEY, result.template_id)
@@ -339,10 +388,14 @@ class RedisReminderLedger:
                     "answered": "0",
                     "replied": "0",
                     "streak_bucket": streak_bucket,
+                    "hour": result.hour or "",
+                    "mode": report.mode,
                 },
             )
         pipe.lpush(_RUNS_KEY, json.dumps(run_row(report, day)))
         pipe.ltrim(_RUNS_KEY, 0, RUN_LIMIT - 1)
+        if report.mode == "auto":
+            pipe.expire(_analytics_day_key(day), 40 * 86400)
         await pipe.execute()
 
     async def record_reply(self, session_id: str, *, now: float | None = None) -> None:
@@ -361,6 +414,9 @@ class RedisReminderLedger:
             return
         pipe = self._redis.pipeline()
         pipe.hincrby(_day_key(last.day), "returned", 1)
+        if last.mode == "auto" and last.hour is not None:
+            pipe.hincrby(_analytics_day_key(last.day), f"auto_returned_{last.hour}", 1)
+            pipe.expire(_analytics_day_key(last.day), 40 * 86400)
         pipe.hincrby(_day_key(last.day), f"returned_{last.segment}", 1)
         pipe.hincrby(_day_key(last.day), f"returned_streak_{last.streak_bucket}", 1)
         pipe.hincrby(_template_key(last.template), "returned", 1)
@@ -371,24 +427,28 @@ class RedisReminderLedger:
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]:
         moment = _moment(now)
-        days = recent_days(moment, FUNNEL_WINDOW_DAYS)
+        days = recent_days(moment, 32)
         week = days[:FUNNEL_WEEK_DAYS]
         templates = sorted(str(item) for item in await self._redis.smembers(_TEMPLATES_KEY))
         pipe = self._redis.pipeline()
         for day in days:
             pipe.hgetall(_day_key(day))
+        for day in days:
+            pipe.hgetall(_analytics_day_key(day))
         for template in templates:
             pipe.hgetall(_template_key(template))
         for day in week:
             pipe.lrange(_reply_key(day), 0, -1)
         pipe.lrange(_RUNS_KEY, 0, -1)
         raw = await pipe.execute()
-        day_raw = raw[: len(days)]
-        template_raw = raw[len(days) : len(days) + len(templates)]
-        reply_raw = raw[len(days) + len(templates) : -1]
+        day_raw = raw[:len(days)]
+        analytics_raw = raw[len(days):2 * len(days)]
+        template_raw = raw[2 * len(days):2 * len(days) + len(templates)]
+        reply_raw = raw[2 * len(days) + len(templates):-1]
         return reminder_view(
             now=moment,
-            day_counts={day: _counts(item) for day, item in zip(days, day_raw, strict=True)},
+            day_counts={day: {**_counts(item), **_counts(analytics)}
+                        for day, item, analytics in zip(days, day_raw, analytics_raw, strict=True)},
             template_counts={name: _counts(item) for name, item in zip(templates, template_raw, strict=True)},
             reply_seconds=[nonneg_int(value) for values in reply_raw for value in values],
             runs=[run for item in raw[-1] if (run := _parse_run(item)) is not None],
@@ -455,6 +515,8 @@ def _last_reminder(raw: Any) -> LastReminder | None:
         answered=nonneg_int(data.get("answered")) > 0,
         replied=data.get("replied") == "1",
         streak_bucket=_streak_bucket(data.get("streak_bucket")),
+        hour=normalize_hour(data.get("hour")),
+        mode="manual" if data.get("mode") == "manual" else "auto",
     )
 
 
@@ -473,6 +535,14 @@ def _streak_bucket(value: Any) -> str:
 
 def _day_key(day: str) -> str:
     return f"reminder:day:{day}"
+
+
+def _analytics_day_key(day: str) -> str:
+    return f"reminder:analytics:day:{day}"
+
+
+def _report_key(report_id: str) -> str:
+    return f"reminder:report:{report_id}"
 
 
 def _template_key(template: str) -> str:

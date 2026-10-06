@@ -140,10 +140,13 @@ async def test_goal_nudge_happens_once_and_a_new_day_seals_the_old_call():
     nxt = await store.open("tg-1")
     assert nxt["alreadyActive"] is False
     assert nxt["unseenCallId"] == first["callId"]
+    assert nxt["closedPreviousCallId"] == first["callId"]
+    assert nxt["closedPreviousUnix"] == clock.moment.timestamp()
     assert nxt["callId"] != first["callId"]
     assert nxt["todaySeconds"] == 0
     sealed = await store.get(first["callId"])
     assert sealed["status"] == "closed"
+    assert sealed["closeReason"] == "next_moscow_day"
     repeat = await store.open("tg-1")
     assert repeat["alreadyActive"] is False
     assert repeat["unseenCallId"] is None
@@ -298,6 +301,7 @@ async def test_pipeline_appends_only_an_open_call():
     pipeline._stt = SpeakingStt("I build software", 6)
     heard = await pipeline.run("tg-1", b"audio", "audio/ogg", "voice.ogg")
     assert heard.call["todaySeconds"] == 6
+    assert heard.call["recognizedSeconds"] == 6
     pipeline._stt = SpeakingStt("", 0)
     quiet = await pipeline.run("tg-1", b"audio", "audio/ogg", "voice.ogg")
     assert quiet.call["todaySeconds"] == 6

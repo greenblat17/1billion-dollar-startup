@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.speaking
 
+import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 
 fun interface ClipSource {
@@ -23,6 +24,7 @@ data class CallProgress(
     val todaySeconds: Double,
     val goalSeconds: Double,
     val goalJustCrossed: Boolean,
+    val recognizedSeconds: Double? = null,
 )
 
 data class ClipReply(
@@ -33,6 +35,8 @@ data class ClipReply(
     val transcript: String = "",
     val streak: TurnStreak? = null,
     val call: CallProgress? = null,
+    val jobId: String? = null,
+    val timingsMs: Map<String, Long> = emptyMap(),
 )
 
 enum class CorrectionKind(val wire: String) {
@@ -92,4 +96,5 @@ data class OnboardingStatus(
     val overallScore: Int? = null,
     val nextBand: String? = null,
     val pointsToNext: Int? = null,
+    val analytics: OnboardingVoiceFacts? = null,
 )

@@ -34,7 +34,7 @@ internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persiste
 
 internal data class CallCallback(val action: String, val callId: String)
 
-private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review")
+private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review", "end")
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
@@ -57,12 +57,14 @@ internal fun callGoalReached(goalSeconds: Double): String {
     return "That's your $minutes minutes today."
 }
 
-internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boolean): InlineKeyboardMarkup = inlineKeyboard {
+internal fun callKeyboard(todaySeconds: Double, goalSeconds: Double, spoken: Boolean,
+                          callId: String? = null): InlineKeyboardMarkup = inlineKeyboard {
     row {
         dataButton(callClockLabel(todaySeconds, goalSeconds), CALL_CLOCK_CALLBACK)
         if (spoken) dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
     }
-    row { dataButton("End call", CALL_END_CALLBACK, style = KeyboardButtonStyle.Danger) }
+    row { dataButton("End call", callId?.let { "call:end:$it" } ?: CALL_END_CALLBACK,
+        style = KeyboardButtonStyle.Danger) }
 }
 
 internal fun parseCallCallback(data: String): CallCallback? = when (data) {
@@ -96,6 +98,36 @@ internal fun callSlideKeyboard(action: String, callId: String): InlineKeyboardMa
 
 internal fun callRetryKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton("Retry", "call:retry:$callId") }
+}
+
+internal const val FIRST_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор со Speaky?"
+internal const val FIRST_CALL_FEEDBACK_LIKED_QUESTION = "Что тебе особенно понравилось?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
+internal const val FIRST_CALL_FEEDBACK_IMPROVE_QUESTION = "Что можно улучшить?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
+internal const val FIRST_CALL_FEEDBACK_THANKS = "Спасибо за отзыв 💙"
+
+internal data class CallFeedbackCallback(val action: String, val callId: String, val choice: String = "")
+
+internal fun parseCallFeedbackCallback(data: String): CallFeedbackCallback? {
+    val parts = data.split(':')
+    if (parts.size !in 3..4 || parts[0] != "callfb" || !Regex("[a-f0-9]{32}").matches(parts[2])) return null
+    return when {
+        parts.size == 4 && parts[1] == "rate" && parts[3] in setOf("liked", "neutral", "disliked") ->
+            CallFeedbackCallback("rate", parts[2], parts[3])
+        parts.size == 3 && parts[1] == "skip" -> CallFeedbackCallback("skip", parts[2])
+        else -> null
+    }
+}
+
+internal fun firstCallFeedbackKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("👍 Понравился", "callfb:rate:$callId:liked")
+        dataButton("😐 Так себе", "callfb:rate:$callId:neutral")
+        dataButton("👎 Не понравился", "callfb:rate:$callId:disliked")
+    }
+}
+
+internal fun firstCallFeedbackSkipKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("Пропустить", "callfb:skip:$callId") }
 }
 
 internal fun callYesterdayKeyboard(callId: String): InlineKeyboardMarkup = inlineKeyboard {

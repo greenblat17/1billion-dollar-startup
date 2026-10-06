@@ -11,6 +11,29 @@ import kotlin.test.assertTrue
 
 class CallMessagesTest {
     @Test
+    fun followUpQuestionsExplainHowToAnswerOrSkip() {
+        for (question in listOf(FIRST_CALL_FEEDBACK_LIKED_QUESTION, FIRST_CALL_FEEDBACK_IMPROVE_QUESTION)) {
+            assertTrue(question.contains("Напиши ответ текстом в чат"))
+            assertTrue(question.contains("Пропустить"))
+        }
+    }
+
+    @Test
+    fun firstCallFeedbackUsesExpectedChoicesAndBoundedCallbacks() {
+        val callId = "a".repeat(32)
+        val buttons = firstCallFeedbackKeyboard(callId).keyboard.single()
+            .map { it as CallbackDataInlineKeyboardButton }
+        assertEquals(listOf("👍 Понравился", "😐 Так себе", "👎 Не понравился"), buttons.map { it.text })
+        assertEquals(listOf("liked", "neutral", "disliked"),
+            buttons.map { parseCallFeedbackCallback(it.callbackData)?.choice })
+        assertTrue(buttons.all { it.callbackData.encodeToByteArray().size <= 64 })
+        val skip = firstCallFeedbackSkipKeyboard(callId).keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals(CallFeedbackCallback("skip", callId), parseCallFeedbackCallback(skip.callbackData))
+        assertNull(parseCallFeedbackCallback("callfb:rate:$callId:unknown"))
+        assertNull(parseCallFeedbackCallback("callfb:skip:short"))
+    }
+
+    @Test
     fun clockShowsTodayAgainstTheDailyGoal() {
         assertEquals("🎯 8:24 / 10:00", callClockLabel(504.0, 600.0))
         assertEquals("🎯 8:24 today", callClockLabel(504.0, 0.0))
@@ -27,6 +50,9 @@ class CallMessagesTest {
         assertEquals("End call", end.text)
         assertEquals(KeyboardButtonStyle.Danger, end.style)
         assertEquals(CallCallback("end", ""), parseCallCallback(end.callbackData))
+        val linkedEnd = callKeyboard(90.0, 600.0, spoken = true, callId = "a".repeat(32))
+            .keyboard.last().single() as CallbackDataInlineKeyboardButton
+        assertEquals(CallCallback("end", "a".repeat(32)), parseCallCallback(linkedEnd.callbackData))
         assertTrue(end.callbackData.encodeToByteArray().size <= 64)
     }
 

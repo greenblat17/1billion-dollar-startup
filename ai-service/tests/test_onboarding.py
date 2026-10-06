@@ -12,7 +12,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
-from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingStore, RETRY_TEXT
+from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore, RETRY_TEXT
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
@@ -140,8 +140,8 @@ async def begin(s, session="tg-test"):
     return state["runId"]
 
 
-async def turn(s, run, request="v1", session="tg-test"):
-    return await s.turn(session, run, request, b"voice", "audio/ogg", "voice.ogg")
+async def turn(s, run, request="v1", session="tg-test", duration=0.0):
+    return await s.turn(session, run, request, b"voice", "audio/ogg", "voice.ogg", duration)
 
 
 @pytest.mark.asyncio
@@ -663,7 +663,7 @@ async def test_stt_failure_never_counts_the_recording():
 
     s = service(stt=BrokenStt())
     run = await begin(s)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(OnboardingSttError):
         await turn(s, run)
     state = await s.resolve("tg-test", "check")
     assert state["seconds"] == 0
@@ -980,3 +980,49 @@ async def test_failed_intro_warmup_does_not_cache_failure_or_prevent_begin():
     assert (await s.store.get("tg-test"))["status"] == "active"
     assert run
     assert s.pipeline.tts.texts == [FIRST_QUESTION]
+
+
+@pytest.mark.asyncio
+async def test_voice_analytics_reports_milestones_without_the_transcript():
+    s = service(stt=Stt(40))
+    run = await begin(s)
+    first = await turn(s, run, duration=37)
+    facts = first.onboarding["analytics"]
+    assert facts["voiceIndex"] == 1
+    assert facts["recognized"] is True
+    assert facts["recognizedDurationSec"] == 40
+    assert facts["telegramDurationSec"] == 37
+    assert facts["milestones"] == [30]
+    assert facts["speechBeforeSec"] == 0
+    assert facts["speechAfterSec"] == 40
+    assert facts["completedNow"] is False
+    assert "transcript" not in facts
+    assert "I build software" not in str(facts)
+
+    closing = service(stt=Stt(120))
+    closing_run = await begin(closing, "tg-close")
+    closed = await turn(closing, closing_run, session="tg-close", duration=130)
+    assert closed.onboarding["analytics"]["milestones"] == [30, 60, 90, 120]
+    assert closed.onboarding["analytics"]["speechAfterSec"] == 120
+    assert closed.onboarding["analytics"]["completedNow"] is True
+    assert closed.onboarding["analytics"]["scoreAvailable"] is True
+    assert isinstance(closed.onboarding["analytics"]["overallScore"], int)
+    assert closed.onboarding["analytics"]["telegramDurationSec"] == 130
+    assert "I build software" not in str(closed.onboarding["analytics"])
+
+    silent = service(stt=Stt(12, ""))
+    silent_run = await begin(silent, "tg-silent")
+    missed = await turn(silent, silent_run, session="tg-silent", duration=12)
+    assert missed.onboarding["analytics"]["recognized"] is False
+    assert missed.onboarding["analytics"]["failureReason"] == "no_speech"
+    assert missed.onboarding["analytics"]["milestones"] == []
+    assert missed.onboarding["analytics"]["speechBeforeSec"] == 0
+
+    model = Model()
+    model.fail = True
+    failing = service(stt=Stt(120), model=model)
+    failing_run = await begin(failing, "tg-fail")
+    failed = await turn(failing, failing_run, session="tg-fail")
+    assert failed.onboarding["analytics"]["assessmentFailed"] is True
+    assert failed.onboarding["analytics"]["completedNow"] is False
+    assert "provider unavailable" not in str(failed.onboarding["analytics"])

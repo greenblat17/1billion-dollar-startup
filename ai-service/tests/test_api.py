@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.onboarding import FIRST_QUESTION
 
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -68,20 +69,25 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
         assert client.post("/internal/calls/starter-delivered", json={"callId": body["callId"]}).status_code == 200
         assert client.post("/internal/calls/start", json=payload).json()["status"] == "active"
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": True}
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is True
+        assert status["callId"] == body["callId"]
+        assert status["startedUnix"] == body["startedUnix"]
 
 
 def test_call_status_does_not_open_a_call() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:
         payload = {"sessionId": "tg-1"}
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
         first = client.post("/internal/calls/open", json=payload).json()
         assert first["alreadyActive"] is False
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is False
+        assert status["callId"] == first["callId"]
         assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
         assert client.post("/internal/calls/end", json=payload).status_code == 200
-        assert client.post("/internal/calls/status", json=payload).json() == {"active": False}
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
 
 
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
@@ -106,9 +112,11 @@ def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None
         voice = {**payload, "callId": call_id, "messageId": 42}
         assert client.post("/internal/calls/telegram-voice", json=voice).json() == {"firstReplyToStarter": False}
         assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": 43}).status_code == 200
-        assert client.post("/internal/calls/end", json=payload).json() == {
-            "callId": call_id, "lastVoiceMessageId": 43,
-        }
+        ended = client.post("/internal/calls/end", json=payload).json()
+        assert ended["callId"] == call_id
+        assert ended["lastVoiceMessageId"] == 43
+        assert ended["reason"] == "end_button"
+        assert ended["endedUnix"] is not None
         assert client.post("/internal/calls/telegram-voice", json=voice).status_code == 409
         assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": -1}).status_code == 400
 
@@ -137,6 +145,18 @@ def test_clips_with_wrong_internal_token_are_401() -> None:
     app, _, _, _ = build_app()
     with TestClient(app, headers={"X-Internal-Token": "nope"}) as client:
         assert client.post("/v1/sessions").status_code == 401
+
+
+def test_prometheus_scrape_accepts_bearer_token() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-token"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 200
+
+
+def test_wrong_bearer_token_is_401() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer nope"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 401
 
 
 def test_unknown_job_is_404() -> None:
@@ -199,6 +219,40 @@ def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
         assert audio.headers["content-type"].startswith(media_type)
         assert audio.content.startswith(prefix)
         assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
+
+
+def test_clip_failures_are_counted_without_exposing_error_text() -> None:
+    class FailingTts(FakeTts):
+        async def synthesize(self, text: str, speed: float | None = None):
+            raise RuntimeError("provider rejected <audio>: token=sk-secret123456")
+
+    app, _, _, _ = build_app(stt=FakeStt(["hello"]), tts=FailingTts())
+    with _client(app) as client:
+        attempt_id = str(uuid4())
+        session_id = _start_session(client)
+        assert client.post(
+            "/internal/funnel/start", json={"sessionId": session_id, "username": "@alex"},
+        ).status_code == 200
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id, "attemptId": attempt_id},
+            files={"audio": ("voice.ogg", b"voice", "audio/ogg")},
+        )
+        failed = _wait_status(client, created.json()["jobId"])
+        assert failed["status"] == "error"
+        assert failed["error"]["stage"] == "tts"
+        assert failed["error"]["reason"] == "internal"
+        assert failed["timingsMs"]["tts"] >= 0
+        metrics = client.get("/internal/metrics").json()
+        assert metrics["errors"]["today"]["pipelineFailed"] == 1
+        recent = metrics["errors"]["recent"][0]
+        assert recent["username"] == "alex"
+        assert recent["telegramId"] is None
+        assert recent["stage"] == "tts"
+        assert recent["attemptId"] == attempt_id
+        assert recent["jobId"] == created.json()["jobId"]
+        assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
+        assert "secret123456" not in str(metrics["errors"])
 
 
 @pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])

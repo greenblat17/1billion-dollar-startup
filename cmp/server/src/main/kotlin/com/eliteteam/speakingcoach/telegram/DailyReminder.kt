@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.withRequestLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -31,12 +32,14 @@ internal fun CoroutineScope.launchDailyReminder(
 ): Job = launch {
     while (isActive) {
         val now = clock().withZoneSameInstant(REMINDER_ZONE)
-        try {
-            runner.runRound(ReminderMode.AUTO)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            log.error("Daily reminder round failed for {}", now.toLocalDate(), error)
+        withRequestLog(request = "reminder:auto") {
+            try {
+                runner.runRound(ReminderMode.AUTO)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Daily reminder round failed for {}", now.toLocalDate(), error)
+            }
         }
         delay(tick)
     }
