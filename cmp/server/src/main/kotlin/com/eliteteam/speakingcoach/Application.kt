@@ -13,6 +13,7 @@ import com.eliteteam.speakingcoach.app.createAppApi
 import com.eliteteam.speakingcoach.app.installAppPlugins
 import com.eliteteam.speakingcoach.app.installAppRoutes
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
+import com.eliteteam.speakingcoach.speaking.SessionId
 import com.eliteteam.speakingcoach.telegram.TELEGRAM_WEBHOOK_SECRET_HEADER
 import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
@@ -22,6 +23,10 @@ import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignRunner
 import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
 import com.eliteteam.speakingcoach.telegram.launchDailyReminder
+import com.eliteteam.speakingcoach.telegram.OnboardingNudgeRunner
+import com.eliteteam.speakingcoach.telegram.launchOnboardingNudges
+import com.eliteteam.speakingcoach.telegram.nudgeText
+import com.eliteteam.speakingcoach.telegram.onboardingKeyboard
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.types.ChatId
@@ -168,6 +173,22 @@ private suspend fun startWebhookServer(config: AppConfig) {
             }
         },
     )
+    val nudgeRunner = onboardingAnalytics?.let { analytics ->
+        OnboardingNudgeRunner(
+            candidates = analytics::nudgeCandidates,
+            state = { candidate ->
+                val current = ai.onboardingState(SessionId(candidate.sessionId), "nudge:check:${candidate.runId}")
+                current.runId to current.status
+            },
+            claim = analytics::claimNudge,
+            send = { candidate, action ->
+                behaviourContext.sendMessage(
+                    ChatId(RawChatId(candidate.chatId)), nudgeText(action),
+                    replyMarkup = if (action == "voice") null else onboardingKeyboard(action, candidate.runId),
+                )
+            },
+        )
+    }
     val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
         behaviourContext.sendMessage(
             ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
@@ -255,6 +276,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         log.error("Failed to register bot commands", error)
     }
     webhookScope.launchDailyReminder(reminderRunner)
+    if (nudgeRunner != null) webhookScope.launchOnboardingNudges(nudgeRunner)
     try {
         awaitCancellation()
     } finally {

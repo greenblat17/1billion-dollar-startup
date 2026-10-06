@@ -21,6 +21,7 @@ Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard
 Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
+Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.
 
 ## Structure
 

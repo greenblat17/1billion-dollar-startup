@@ -13,6 +13,46 @@ import kotlin.test.assertTrue
 /** Set TEST_POSTGRES_URL to a disposable Postgres database to exercise Flyway and JDBC writes. */
 class PostgresOnboardingAnalyticsTest {
     @Test
+    fun nudgeClaimsOnlyInactiveCurrentIncompleteAttempt() = runTest {
+        val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
+        val schema = "nudges_${UUID.randomUUID().toString().replace("-", "")}"
+        val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
+        DriverManager.getConnection(jdbcUrl).use { connection ->
+            connection.createStatement().use { it.execute("CREATE SCHEMA $schema") }
+        }
+        val schemaUrl = jdbcUrl + (if ('?' in jdbcUrl) "&" else "?") + "currentSchema=$schema"
+        try {
+            val analytics = PostgresOnboardingAnalytics(schemaUrl)
+            try {
+                val started = Instant.parse("2026-10-04T12:00:00Z")
+                val cutoff = Instant.parse("2026-10-05T17:00:00Z")
+                val now = Instant.parse("2026-10-06T17:00:00Z")
+                val day = java.time.LocalDate.parse("2026-10-06")
+                analytics.startAttempt("tg-123", "run-old", "start", started,
+                    chatId = 123, invitationAt = started)
+                assertEquals(listOf("run-old"), analytics.nudgeCandidates(day, cutoff).map { it.runId })
+                analytics.startAttempt("tg-123", "run-new", "start", now.minusSeconds(60),
+                    chatId = 123, invitationAt = now.minusSeconds(60))
+                assertEquals(emptyList(), analytics.nudgeCandidates(day, cutoff))
+                val nextCutoff = now.plusSeconds(86_400)
+                assertEquals(listOf("run-new"), analytics.nudgeCandidates(day, nextCutoff).map { it.runId })
+                assertEquals(false, analytics.claimNudge("run-old", day, nextCutoff, now))
+                assertEquals(true, analytics.claimNudge("run-new", day, nextCutoff, now))
+                assertEquals(false, analytics.claimNudge("run-new", day, nextCutoff, now))
+                assertEquals(emptyList(), analytics.nudgeCandidates(day, nextCutoff))
+                analytics.mark("run-new", AttemptMark.RESULT_DELIVERED, now)
+                assertEquals(emptyList(), analytics.nudgeCandidates(day.plusDays(1), nextCutoff))
+            } finally {
+                analytics.close()
+            }
+        } finally {
+            DriverManager.getConnection(jdbcUrl).use { connection ->
+                connection.createStatement().use { it.execute("DROP SCHEMA $schema CASCADE") }
+            }
+        }
+    }
+
+    @Test
     fun reminderOfferAggregateCountsUsersAcrossAttempts() = runTest {
         val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
         val schema = "reminders_${UUID.randomUUID().toString().replace("-", "")}"

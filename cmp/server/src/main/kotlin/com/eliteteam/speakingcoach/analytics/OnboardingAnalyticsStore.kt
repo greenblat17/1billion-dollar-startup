@@ -87,6 +87,13 @@ data class OnboardingVoiceFacts(
 
 internal data class ReminderOfferSummary(val offered: Int, val saved: Int)
 
+internal data class OnboardingNudgeCandidate(
+    val sessionId: String,
+    val runId: String,
+    val chatId: Long,
+    val began: Boolean,
+)
+
 internal interface OnboardingAnalytics {
     suspend fun recordEntry(sessionId: String, entryKey: String, at: Instant, eligible: Boolean,
                             trigger: String, reason: String?, source: String?, runId: String?, invitationAt: Instant? = null,
@@ -112,6 +119,8 @@ internal interface OnboardingAnalytics {
     suspend fun recordReturn(sessionId: String, at: Instant)
     suspend fun report(now: Instant = Instant.now(), filter: OnboardingFilter = OnboardingFilter()): OnboardingReport
     suspend fun reminderOffers(days: Int, now: Instant = Instant.now()): ReminderOfferSummary? = null
+    suspend fun nudgeCandidates(day: LocalDate, inactiveSince: Instant): List<OnboardingNudgeCandidate> = emptyList()
+    suspend fun claimNudge(runId: String, day: LocalDate, inactiveSince: Instant, now: Instant): Boolean = false
     fun close() {}
 }
 
@@ -389,6 +398,29 @@ private fun voiceOutcome(facts: OnboardingVoiceFacts): String = when {
 internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnalytics {
     private val dataSource: DataSource = hikari(databaseUrl)
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val nudgeEligibleSql = """
+        SELECT a.session_id, a.run_id, a.telegram_chat_id, (a.begin_pressed_at IS NOT NULL) AS began
+        FROM (
+            SELECT DISTINCT ON (session_id) * FROM onboarding_attempts
+            WHERE session_id LIKE 'tg-%'
+            ORDER BY session_id, started_at DESC, attempt_number DESC
+        ) a
+        LEFT JOIN LATERAL (
+            SELECT MAX(received_at) AS last_voice FROM onboarding_voices WHERE attempt_id = a.run_id
+        ) v ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT MAX(created_at) AS last_event FROM onboarding_events WHERE attempt_id = a.run_id
+        ) e ON TRUE
+        WHERE a.telegram_chat_id IS NOT NULL
+          AND (a.invitation_delivered_at IS NOT NULL OR a.begin_pressed_at IS NOT NULL)
+          AND a.result_delivered_at IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM onboarding_attempts done
+              WHERE done.session_id = a.session_id AND done.result_delivered_at IS NOT NULL
+          )
+          AND GREATEST(a.started_at, a.begin_pressed_at, a.first_question_delivered_at,
+                       v.last_voice, e.last_event) <= ?
+    """.trimIndent()
 
     init {
         Flyway.configure().dataSource(dataSource).load().migrate()
@@ -407,6 +439,47 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
             }
         }
     }
+
+    override suspend fun nudgeCandidates(day: LocalDate, inactiveSince: Instant): List<OnboardingNudgeCandidate> =
+        withContext(Dispatchers.IO) {
+            dataSource.connection.use { connection ->
+                connection.prepareStatement("""
+                    $nudgeEligibleSql
+                    AND NOT EXISTS (SELECT 1 FROM onboarding_nudges n WHERE n.session_id = a.session_id AND n.day = ?)
+                    ORDER BY a.started_at, a.run_id
+                """.trimIndent()).use { statement ->
+                    statement.setTimestamp(1, Timestamp.from(inactiveSince))
+                    statement.setObject(2, day)
+                    statement.executeQuery().use { rows ->
+                        buildList {
+                            while (rows.next()) add(OnboardingNudgeCandidate(
+                                rows.getString("session_id"), rows.getString("run_id"),
+                                rows.getLong("telegram_chat_id"), rows.getBoolean("began"),
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+
+    override suspend fun claimNudge(runId: String, day: LocalDate, inactiveSince: Instant, now: Instant): Boolean =
+        withContext(Dispatchers.IO) {
+            dataSource.connection.use { connection ->
+                connection.prepareStatement("""
+                    INSERT INTO onboarding_nudges (session_id, day, run_id, claimed_at)
+                    SELECT eligible.session_id, ?, eligible.run_id, ?
+                    FROM ($nudgeEligibleSql AND a.run_id = ?) eligible
+                    WHERE TRUE
+                    ON CONFLICT (session_id, day) DO NOTHING
+                """.trimIndent()).use { statement ->
+                    statement.setObject(1, day)
+                    statement.setTimestamp(2, Timestamp.from(now))
+                    statement.setTimestamp(3, Timestamp.from(inactiveSince))
+                    statement.setString(4, runId)
+                    statement.executeUpdate() == 1
+                }
+            }
+        }
 
     override suspend fun reminderOffers(days: Int, now: Instant): ReminderOfferSummary = withContext(Dispatchers.IO) {
         val since = now.atZone(ONBOARDING_ZONE).toLocalDate().minusDays(days.toLong() - 1)
