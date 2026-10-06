@@ -57,7 +57,37 @@ async def test_admin_claim_and_report_use_only_frozen_audience():
         "audience": 2,
         "remaining": 0,
         "sent": 1,
+        "excluded": 0,
         "blocked": 0,
         "failed": 1,
         "uncertain": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_completed_users_are_excluded_from_frozen_audience_before_send():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    await redis.sadd(AUDIENCE_KEY, "101", "202", "303")
+    await redis.set(READY_KEY, "1")
+    await redis.set("onboarding:tg-101", '{"status":"completed"}')
+    await redis.set("assessment:tg-ChatId(chatId=202)", '{"cefr":"B1"}')
+
+    status = await campaign_status(redis)
+    assert status["audience"] == 3
+    assert status["excluded"] == 2
+    assert status["remaining"] == 1
+    assert await claim_batch(redis, limit=3) == [303]
+    assert await redis.hget(STATUS_KEY, "101") == "skipped_completed"
+    assert await redis.hget(STATUS_KEY, "202") == "skipped_completed"
+
+
+@pytest.mark.asyncio
+async def test_user_completing_after_snapshot_is_excluded_at_claim():
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    await redis.sadd(AUDIENCE_KEY, "101", "202")
+    await redis.set(READY_KEY, "1")
+    assert (await campaign_status(redis))["remaining"] == 2
+    await redis.set("assessment:tg-101", '{"cefr":"B1"}')
+
+    assert await claim_batch(redis, limit=2) == [202]
+    assert (await campaign_status(redis))["excluded"] == 1

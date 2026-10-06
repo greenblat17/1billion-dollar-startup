@@ -36,6 +36,7 @@ data class LegacyCampaignStatus(
     val audience: Int = 0,
     val remaining: Int = 0,
     val sent: Int = 0,
+    val excluded: Int = 0,
     val blocked: Int = 0,
     val failed: Int = 0,
     val uncertain: Int = 0,

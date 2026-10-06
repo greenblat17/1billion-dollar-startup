@@ -194,6 +194,8 @@ class MetricsDashboardTest {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(page.contains("Отправить выбранным пользователям"))
+        assertTrue(page.contains("Исключены: прошли onboarding</dt><dd>1</dd>"))
+        assertTrue(page.contains("Отправить сообщение 2 пользователям"))
         assertTrue(page.contains("<b>именно для тебя, очень важно пройти новый onboarding"))
         assertTrue(page.contains("🎙 Пройти onboarding"))
         assertEquals(0, admin.started)
@@ -682,7 +684,7 @@ class MetricsDashboardTest {
     }
 
     private class FakeCampaignAdmin : LegacyCampaignAdmin {
-        var current = LegacyCampaignStatus(ready = true, audience = 3, remaining = 3)
+        var current = LegacyCampaignStatus(ready = true, audience = 3, remaining = 2, excluded = 1)
         var started = 0
         val tests = mutableListOf<Long>()
 

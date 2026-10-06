@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import re
 from collections import Counter
@@ -18,6 +19,7 @@ CAMPAIGN = "campaign:2026-10-01-legacy-onboarding"
 AUDIENCE_KEY = f"{CAMPAIGN}:audience"
 READY_KEY = f"{CAMPAIGN}:ready"
 STATUS_KEY = f"{CAMPAIGN}:status"
+SKIPPED_COMPLETED = "skipped_completed"
 TELEGRAM_SESSION = re.compile(r"tg-(?:ChatId\(chatId=([1-9]\d*)\)|([1-9]\d*))\Z")
 
 
@@ -50,12 +52,15 @@ async def snapshot(redis: Redis) -> None:
 async def campaign_status(redis: Redis) -> dict[str, int | bool]:
     ready = bool(await redis.exists(READY_KEY))
     audience = await redis.scard(AUDIENCE_KEY) if ready else 0
+    if ready:
+        await exclude_completed(redis)
     statuses = Counter((await redis.hgetall(STATUS_KEY)).values())
     return {
         "ready": ready,
         "audience": audience,
         "remaining": max(0, audience - sum(statuses.values())),
         "sent": statuses["sent"],
+        "excluded": statuses[SKIPPED_COMPLETED],
         "blocked": statuses["blocked"],
         "failed": sum(
             count for state, count in statuses.items()
@@ -68,6 +73,7 @@ async def campaign_status(redis: Redis) -> dict[str, int | bool]:
 async def claim_batch(redis: Redis, limit: int = 50) -> list[int]:
     if not await redis.exists(READY_KEY):
         return []
+    await exclude_completed(redis)
     claimed = []
     for raw in sorted(await redis.smembers(AUDIENCE_KEY), key=int):
         if await redis.hsetnx(STATUS_KEY, raw, "pending"):
@@ -75,6 +81,33 @@ async def claim_batch(redis: Redis, limit: int = 50) -> list[int]:
             if len(claimed) == limit:
                 break
     return claimed
+
+
+async def exclude_completed(redis: Redis) -> None:
+    """Reconcile the frozen audience, including users who finished after the snapshot."""
+    statuses = await redis.hgetall(STATUS_KEY)
+    unclaimed = [raw for raw in await redis.smembers(AUDIENCE_KEY) if raw not in statuses]
+    if not unclaimed:
+        return
+    keys = [key for raw in unclaimed for key in _completion_keys(raw)]
+    values = await redis.mget(*keys)
+    for index, raw in enumerate(unclaimed):
+        if _completed_onboarding(values[index * 4:(index + 1) * 4]):
+            await redis.hsetnx(STATUS_KEY, raw, SKIPPED_COMPLETED)
+
+
+def _completion_keys(chat_id: str) -> tuple[str, str, str, str]:
+    sessions = (f"tg-{chat_id}", f"tg-ChatId(chatId={chat_id})")
+    return (
+        *(f"assessment:{session}" for session in sessions),
+        *(f"onboarding:{session}" for session in sessions),
+    )
+
+
+def _completed_onboarding(values: list[str | None]) -> bool:
+    if any(values[:2]):
+        return True
+    return any(raw and json.loads(raw).get("status") == "completed" for raw in values[2:])
 
 
 async def report_delivery(redis: Redis, recipient: int, status: str) -> bool:

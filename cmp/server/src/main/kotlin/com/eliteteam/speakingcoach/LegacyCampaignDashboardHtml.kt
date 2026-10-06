@@ -64,8 +64,9 @@ internal fun legacyCampaignPageHtml(
         <p class="meta">$readiness</p>
         $note
         <dl>
-        ${card("В списке", status.audience.toString())}
+        ${card("Зафиксировано", status.audience.toString())}
         ${card("Осталось", status.remaining.toString())}
+        ${card("Исключены: прошли onboarding", status.excluded.toString())}
         ${card("Отправлено", status.sent.toString())}
         ${card("Заблокировали бота", status.blocked.toString())}
         ${card("Ошибки", status.failed.toString())}
