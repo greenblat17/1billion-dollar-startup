@@ -388,6 +388,44 @@ async def test_memory_chats_follow_the_same_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_only_chat_is_listed_and_loses_label_after_voice() -> None:
+    opened = _Stores(MetricRates())
+    moment = 1_800_000_000.0
+    try:
+        for store in opened.stores:
+            await store.record_profile("tg-new", "new_user", "New User")
+            await store.record_start("tg-new", now=moment)
+            first = next(chat for chat in (await store.snapshot(now=moment))["chats"] if chat["sessionId"] == "tg-new")
+            assert first["turns"] == 0
+            assert first["startOnly"] is True
+            assert first["username"] == "new_user"
+            await store.record_voice("tg-new", now=moment + 10)
+            voiced = next(chat for chat in (await store.snapshot(now=moment + 10))["chats"] if chat["sessionId"] == "tg-new")
+            assert voiced["startOnly"] is False
+            await store.record_turn("tg-new", 1, 1, now=moment + 20)
+            completed = next(chat for chat in (await store.snapshot(now=moment + 20))["chats"] if chat["sessionId"] == "tg-new")
+            assert completed["turns"] == 1
+            assert completed["startOnly"] is False
+            await store.record_start("tg-new", now=moment + 30)
+            repeated = next(chat for chat in (await store.snapshot(now=moment + 30))["chats"] if chat["sessionId"] == "tg-new")
+            assert repeated["lastAt"] == completed["lastAt"]
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_existing_start_only_user_is_backfilled_from_funnel() -> None:
+    opened = _Stores(MetricRates())
+    try:
+        await opened.redis.hset("metrics:funnel:user:tg-old", mapping={"start_day": "2026-10-05"})
+        store = opened.stores[1]
+        chats = (await store.snapshot(now=1_800_000_000.0))["chats"]
+        assert any(chat["sessionId"] == "tg-old" and chat["startOnly"] and chat["lastAt"] == "2026-10-05" for chat in chats)
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
 async def test_chats_show_the_latest_telegram_profile() -> None:
     opened = _Stores(MetricRates())
     moment = 1_800_000_000.0

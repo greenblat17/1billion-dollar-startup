@@ -394,6 +394,7 @@ class MetricsDashboardTest {
         assertEquals(HttpStatusCode.OK, page.status)
         assertTrue(html.contains("tg-9"))
         assertTrue(html.contains("<td>@alex_g · Alex &lt;Green&gt;</td>"))
+        assertTrue(html.contains("<tr><td>tg-start</td><td>@new_user</td><td>Только /start</td><td>0</td>"))
         assertTrue(html.contains("<tr><td>tg-10</td><td>—</td>"))
         assertTrue(html.contains("Activated за 7 дней"))
         assertTrue(html.contains("clubs"))
@@ -738,6 +739,13 @@ class MetricsDashboardTest {
                 sessionId = "tg-10",
                 turns = 1,
                 lastAt = "2026-09-24T11:00:00+03:00",
+            ),
+            MetricsChat(
+                sessionId = "tg-start",
+                turns = 0,
+                lastAt = "2026-09-24T10:00:00+03:00",
+                startOnly = true,
+                username = "new_user",
             ),
         ),
         activated7 = 4,

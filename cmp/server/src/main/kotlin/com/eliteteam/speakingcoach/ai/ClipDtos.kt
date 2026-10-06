@@ -472,6 +472,7 @@ data class MetricsChat(
     val sessionId: String,
     val turns: Long,
     val lastAt: String,
+    val startOnly: Boolean = false,
     val username: String? = null,
     val name: String? = null,
     val lastReminderAt: String? = null,

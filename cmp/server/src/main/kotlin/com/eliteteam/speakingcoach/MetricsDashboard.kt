@@ -531,7 +531,7 @@ internal fun metricsReportHtml(
         </table>
         <h2>Чаты</h2>
         <table>
-        <thead><tr><th>Чат</th><th>Пользователь</th><th>Ходы</th><th>Последний ход</th><th>Напоминание</th><th>Игнор подряд</th></tr></thead>
+        <thead><tr><th>Чат</th><th>Пользователь</th><th>Статус</th><th>Ходы</th><th>Последний ход / первый Start</th><th>Напоминание</th><th>Игнор подряд</th></tr></thead>
         <tbody>
         ${chatRows(snapshot)}
         </tbody>
@@ -619,10 +619,15 @@ internal fun funnelSourceRows(snapshot: MetricsSnapshot): String {
 
 private fun chatRows(snapshot: MetricsSnapshot): String {
     if (snapshot.chats.isEmpty()) {
-        return "<tr><td colspan=\"6\">Пока нет ходов.</td></tr>"
+        return "<tr><td colspan=\"7\">Пока нет чатов.</td></tr>"
     }
     return snapshot.chats.joinToString("\n") { chat ->
-        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${chat.turns}</td>" +
+        val status = when {
+            chat.startOnly -> "Только /start"
+            chat.turns == 0L -> "Без завершённых ходов"
+            else -> "Есть ходы"
+        }
+        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${escapeHtml(status)}</td><td>${chat.turns}</td>" +
             "<td>${escapeHtml(chat.lastAt)}</td><td>${escapeHtml(chat.lastReminderAt?.let(::shortTime) ?: "—")}</td><td>${chat.reminderIgnored}</td></tr>"
     }
 }

@@ -115,6 +115,7 @@ class ChatRow:
     last_unix: float
     username: str = ""
     name: str = ""
+    start_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -379,6 +380,11 @@ class MemoryMetricsStore:
         now: float | None = None,
     ) -> None:
         await self._record_funnel(session_id, "start", source, now)
+        session = session_id.strip()
+        if session:
+            moment = _moment(now)
+            async with self._lock:
+                self._chats.setdefault(session, ChatRow(session_id=session, turns=0, last_unix=moment))
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "voice", None, now)
@@ -400,7 +406,9 @@ class MemoryMetricsStore:
             chats = []
             for row in self._chats.values():
                 profile = self._profiles.get(row.session_id, ChatProfile())
-                chats.append(replace(row, username=profile.username, name=profile.name))
+                user = self._funnel_users.get(row.session_id)
+                chats.append(replace(row, username=profile.username, name=profile.name,
+                                     start_only=bool(user and user.start_day and not user.activated_day and row.turns == 0)))
             payload = build_snapshot(
                 now=moment,
                 day=self._days.get(day_name, DayTotals()),
@@ -701,6 +709,9 @@ class RedisMetricsStore:
         now: float | None = None,
     ) -> None:
         await self._record_funnel(session_id, "start", source, now)
+        session = session_id.strip()
+        if session:
+            await self._redis.zadd(_CHATS_KEY, {session: _moment(now)}, nx=True)
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "voice", None, now)
@@ -722,6 +733,7 @@ class RedisMetricsStore:
         moment = _moment(now)
         day_name = metrics_day(moment)
         async with self._lock:
+            await self._backfill_started_chats()
             totals = await self._redis.hgetall(_day_key(day_name))
             dau = int(await self._redis.scard(_dau_key(day_name)))
             raw_events = await self._redis.lrange(_EVENTS_KEY, 0, -1)
@@ -1030,6 +1042,7 @@ class RedisMetricsStore:
             session = member if isinstance(member, str) else str(member)
             parsed.append((session, float(score)))
             pipe.hmget(_chat_key(session), "turns", "username", "name")
+            pipe.hmget(_funnel_user_key(session), "start_day", "activated_day")
         fields = await pipe.execute()
         return [
             ChatRow(
@@ -1038,9 +1051,28 @@ class RedisMetricsStore:
                 last_unix=score,
                 username=username or "",
                 name=name or "",
+                start_only=bool(start_day and not activated_day and not nonneg_int(turn_count)),
             )
-            for (session, score), (turn_count, username, name) in zip(parsed, fields, strict=True)
+            for (session, score), (turn_count, username, name), (start_day, activated_day) in
+            zip(parsed, fields[::2], fields[1::2], strict=True)
         ]
+
+    async def _backfill_started_chats(self) -> None:
+        if getattr(self, "_started_chats_backfilled", False):
+            return
+        prefix = "metrics:funnel:user:"
+        pipe = self._redis.pipeline()
+        async for key in self._redis.scan_iter(match=f"{prefix}*", count=200):
+            start_day = await self._redis.hget(key, "start_day")
+            if not start_day:
+                continue
+            try:
+                started_at = datetime.combine(date.fromisoformat(start_day), datetime.min.time(), _TZ).timestamp()
+            except ValueError:
+                continue
+            pipe.zadd(_CHATS_KEY, {str(key)[len(prefix):]: started_at}, nx=True)
+        await pipe.execute()
+        self._started_chats_backfilled = True
 
 
 def build_metrics_store(settings: Any, redis: Redis | None = None) -> MetricsStore:
@@ -1512,13 +1544,21 @@ def build_snapshot(
             {
                 "sessionId": row.session_id,
                 "turns": row.turns,
-                "lastAt": datetime.fromtimestamp(row.last_unix, _TZ).isoformat(timespec="seconds"),
+                "lastAt": _chat_last_at(row),
                 "username": row.username or None,
                 "name": row.name or None,
+                "startOnly": row.start_only,
             }
             for row in ordered
         ],
     }
+
+
+def _chat_last_at(row: ChatRow) -> str:
+    moment = datetime.fromtimestamp(row.last_unix, _TZ)
+    if row.turns == 0 and moment.hour == moment.minute == moment.second == 0:
+        return moment.date().isoformat()
+    return moment.isoformat(timespec="seconds")
 
 
 def llm_days(from_day: date, to_day: date) -> list[date]:
