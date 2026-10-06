@@ -18,6 +18,27 @@ import dev.inmo.tgbotapi.utils.row
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n\n" +
         "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going."
+internal fun voiceMessagesForbiddenText(): TextSourcesList = buildEntities {
+    regular("🎙 Пока не могу прислать тебе голосовое.\n\n")
+    regular("Telegram блокирует голосовые от меня. Открой:\n")
+    bold("Настройки")
+    regular("\n→ ")
+    bold("Конфиденциальность")
+    regular("\n→ ")
+    bold("Голосовые сообщения")
+    regular("\nи выбери ")
+    bold("Все")
+    regular(".\n\nПотом нажми кнопку ниже ещё раз.")
+}
+
+internal fun isVoiceMessagesForbidden(error: Throwable): Boolean {
+    var current: Throwable? = error
+    while (current != null) {
+        if (current.message?.contains("VOICE_MESSAGES_FORBIDDEN") == true) return true
+        current = current.cause
+    }
+    return false
+}
 internal const val LEVEL_TITLE = "Your English level"
 internal const val LEVEL_ESTIMATE = "I'll make this more accurate as we talk more."
 internal const val LEVEL_UNKNOWN = "I don't have a clear level from this chat yet."

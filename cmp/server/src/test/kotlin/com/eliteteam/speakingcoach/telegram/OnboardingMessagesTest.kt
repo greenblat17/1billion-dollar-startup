@@ -257,6 +257,16 @@ class OnboardingMessagesTest {
         )
         val begin = onboardingKeyboard("begin", "a".repeat(32)).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("Let’s chat 👋", begin.text)
+        val forbidden = voiceMessagesForbiddenText()
+        assertTrue(forbidden.plain().startsWith("🎙 Пока не могу прислать тебе голосовое."))
+        assertTrue(forbidden.plain().contains("Открой:\nНастройки\n→ Конфиденциальность\n→ Голосовые сообщения\nи выбери Все."))
+        assertEquals(
+            listOf("Настройки", "Конфиденциальность", "Голосовые сообщения", "Все"),
+            forbidden.filterIsInstance<BoldTextSource>().map { it.source },
+        )
+        assertTrue(isVoiceMessagesForbidden(RuntimeException("400: {\"description\":\"Bad Request: VOICE_MESSAGES_FORBIDDEN\"}")))
+        assertTrue(isVoiceMessagesForbidden(RuntimeException("wrapped", RuntimeException("VOICE_MESSAGES_FORBIDDEN"))))
+        assertTrue(!isVoiceMessagesForbidden(RuntimeException("Bad Request: chat not found")))
         assertTrue(isOnboardingCommand("/onboarding@speaky"))
         assertTrue(!isOnboardingCommand("/onboarding_extra"))
     }

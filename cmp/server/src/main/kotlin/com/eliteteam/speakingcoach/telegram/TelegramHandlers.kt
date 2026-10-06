@@ -1729,13 +1729,28 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            log.error("Onboarding callback failed for {}", message.chat.id, error)
+            val voiceForbidden = isVoiceMessagesForbidden(error)
+            if (voiceForbidden) {
+                log.warn("Voice messages are forbidden for {}", message.chat.id)
+            } else {
+                log.error("Onboarding callback failed for {}", message.chat.id, error)
+            }
             analytics.safely { event(callback.runId, "callback:${query.id}:error", "stage_error", Instant.now(),
-                onboardingActionStage(callback.action), localFailureReason(error)) }
-            sendMessage(
-                message.chat.id, "Something went wrong. Please try again.",
-                replyMarkup = onboardingKeyboard(callback.action, callback.runId),
-            )
+                onboardingActionStage(callback.action),
+                if (voiceForbidden) "voice_messages_forbidden" else localFailureReason(error)) }
+            if (voiceForbidden) {
+                sendMessage(
+                    message.chat.id,
+                    voiceMessagesForbiddenText(),
+                    replyMarkup = onboardingKeyboard(callback.action, callback.runId),
+                )
+            } else {
+                sendMessage(
+                    message.chat.id,
+                    "Something went wrong. Please try again.",
+                    replyMarkup = onboardingKeyboard(callback.action, callback.runId),
+                )
+            }
         }
         }
     }
