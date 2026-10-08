@@ -4,9 +4,11 @@ import json
 
 import pytest
 
+from app.llm import CompletionTokenLimitError
 from app.onboarding_model import (
-    CLOSING_CALLBACK_MAX_TOKENS, CLOSING_CALLBACK_SYSTEM, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT,
-    REVIEW_RETRY_MAX_TOKENS, REVIEW_SYSTEM, SYSTEM,
+    ASSESSMENT_MAX_TOKENS, ASSESSMENT_RETRY_MAX_TOKENS, CLOSING_CALLBACK_MAX_TOKENS,
+    CLOSING_CALLBACK_SYSTEM, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT, REVIEW_RETRY_MAX_TOKENS,
+    REVIEW_SYSTEM, SYSTEM,
     OnboardingModel, parse_review, validate_review_response,
 )
 from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
@@ -15,6 +17,81 @@ from app.onboarding_score import (
     SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
 )
 from app.stt import speech_words
+
+
+@pytest.mark.asyncio
+async def test_assessment_uses_own_limit_and_preserves_default_reasoning():
+    class Llm:
+        def __init__(self):
+            self.calls = []
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls.append((system, data, kwargs))
+            return json.dumps({
+                "profile": {"work": "teacher", "leisure": None, "goal": None},
+                "cefr": "A2", "position": "mid", "question": "What do you teach?",
+            })
+
+    llm = Llm()
+    state = {"seconds": 8, "profile": {}, "turns": [{"question": "What do you do?", "transcript": "I teach."}]}
+    result = await OnboardingModel(llm).assess(state)
+    assert result["question"] == "What do you teach?"
+    assert len(llm.calls) == 1
+    assert llm.calls[0][2] == {
+        "temperature": 0.0, "max_tokens": ASSESSMENT_MAX_TOKENS,
+        "operation": "onboarding_assessment",
+    }
+
+
+@pytest.mark.asyncio
+async def test_assessment_retries_only_token_limit_with_same_payload():
+    class Llm:
+        def __init__(self):
+            self.calls = []
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls.append((system, data, kwargs))
+            if len(self.calls) == 1:
+                raise CompletionTokenLimitError("llm response reached completion token limit")
+            return '{"profile":{},"cefr":null,"position":null,"question":"Tell me more."}'
+
+    llm = Llm()
+    result = await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
+    assert result["question"] == "Tell me more."
+    assert [call[2]["max_tokens"] for call in llm.calls] == [
+        ASSESSMENT_MAX_TOKENS, ASSESSMENT_RETRY_MAX_TOKENS,
+    ]
+    assert llm.calls[0][:2] == llm.calls[1][:2]
+
+
+@pytest.mark.asyncio
+async def test_assessment_stops_after_two_token_limit_responses():
+    class Llm:
+        calls = 0
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls += 1
+            raise CompletionTokenLimitError("llm response reached completion token limit")
+
+    llm = Llm()
+    with pytest.raises(CompletionTokenLimitError):
+        await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
+    assert llm.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_assessment_does_not_retry_invalid_json():
+    class Llm:
+        calls = 0
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls += 1
+            return '{'
+
+    llm = Llm()
+    with pytest.raises(ValueError):
+        await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
+    assert llm.calls == 1
 
 
 def test_repeated_mistake_outranks_an_earlier_one_off():

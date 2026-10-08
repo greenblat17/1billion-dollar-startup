@@ -15,7 +15,7 @@ from openai import AsyncOpenAI
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
 from app.metrics import MetricsStore
-from app.metrics_v2 import read_provider_cost
+from app.metrics_v2 import current_session, read_provider_cost
 from app.operational_metrics import telegram_stage
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
@@ -167,6 +167,10 @@ class EmptyCompletionError(RuntimeError):
     pass
 
 
+class CompletionTokenLimitError(ValueError):
+    pass
+
+
 class OpenAiChatModel:
     def __init__(
         self,
@@ -243,7 +247,8 @@ class OpenAiChatModel:
         raise AssertionError("unreachable correction attempt")
 
     async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None,
-                            response_format: dict | None = None, model: str | None = None) -> str:
+                            response_format: dict | None = None, model: str | None = None,
+                            operation: str | None = None) -> str:
         return await self._complete(
             [{"role": "system", "content": system}, {"role": "user", "content": data}],
             temperature,
@@ -251,13 +256,17 @@ class OpenAiChatModel:
             model=model,
             response_format=response_format,
             purpose="onboarding",
+            operation=operation,
         )
 
     @telegram_stage("llm")
     async def _complete(self, messages: list[dict[str, str]], temperature: float, max_tokens: int | None = None,
                         model: str | None = None, response_format: dict | None = None,
                         retry: bool = True, reasoning_effort: str | None = None,
-                        purpose: str = "reply") -> str:
+                        purpose: str = "reply", operation: str | None = None) -> str:
+        model_name = model or self._model
+        token_limit = self._max_tokens if max_tokens is None else max_tokens
+
         async def call() -> Any:
             extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else {}
             if reasoning_effort is not None:
@@ -265,17 +274,33 @@ class OpenAiChatModel:
             started = time.perf_counter()
             try:
                 response = await self._client.chat.completions.create(
-                    model=model or self._model,
+                    model=model_name,
                     messages=messages,
                     temperature=temperature,
-                    max_completion_tokens=self._max_tokens if max_tokens is None else max_tokens,
+                    max_completion_tokens=token_limit,
                     response_format=response_format or {"type": "json_object"},
                     extra_body=extra_body or None,
                 )
-            except Exception:
+            except Exception as error:
+                if operation:
+                    logger.warning(
+                        "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                        "finish_reason=unavailable prompt_tokens=unavailable completion_tokens=unavailable "
+                        "reasoning_tokens=unavailable error_type=%s",
+                        current_session(), operation, model_name, token_limit, type(error).__name__,
+                    )
                 await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
                 raise
             prompt_tokens, completion_tokens = read_usage(response)
+            if operation:
+                choices = getattr(response, "choices", None) or []
+                logger.info(
+                    "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                    "finish_reason=%s prompt_tokens=%d completion_tokens=%d reasoning_tokens=%s",
+                    current_session(), operation, model_name, token_limit,
+                    getattr(choices[0], "finish_reason", None) if choices else None,
+                    prompt_tokens, completion_tokens, read_reasoning_tokens(response),
+                )
             await record_attempt(self._metrics, prompt_tokens, completion_tokens, started, purpose, success=True)
             if self._v2 is not None:
                 try:
@@ -306,7 +331,7 @@ class OpenAiChatModel:
             raise
         choices = getattr(response, "choices", None) or []
         if getattr(choices[0], "finish_reason", None) == "length":
-            raise ValueError("llm response reached completion token limit")
+            raise CompletionTokenLimitError("llm response reached completion token limit")
         text = (choices[0].message.content or "").strip()
         if not text:
             raise RuntimeError("llm returned empty reply")
@@ -380,6 +405,17 @@ def read_usage(response: Any) -> tuple[int, int]:
         prompt = getattr(usage, "prompt_tokens", None)
         completion = getattr(usage, "completion_tokens", None)
     return _nonneg_token(prompt), _nonneg_token(completion)
+
+
+def read_reasoning_tokens(response: Any) -> int | None:
+    usage = getattr(response, "usage", None)
+    details = usage.get("completion_tokens_details") if isinstance(usage, dict) else getattr(
+        usage, "completion_tokens_details", None,
+    )
+    value = details.get("reasoning_tokens") if isinstance(details, dict) else getattr(
+        details, "reasoning_tokens", None,
+    )
+    return _nonneg_token(value) if value is not None else None
 
 
 def _nonneg_token(value: Any) -> int:

@@ -5,7 +5,10 @@ import pytest
 
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
-from app.llm import Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply
+from app.llm import (
+    Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply,
+    read_reasoning_tokens,
+)
 from app.metrics import MemoryMetricsStore, MetricRates
 from app.pipeline import ClipPipeline
 from app.review import parse_review
@@ -312,6 +315,39 @@ async def test_model_rejects_truncated_json_before_parsing():
     client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
     with pytest.raises(ValueError, match="completion token limit"):
         await OpenAiChatModel(client, "test")._complete([{"role": "user", "content": "Hi"}], 0)
+
+
+@pytest.mark.asyncio
+async def test_assessment_completion_log_has_limits_usage_and_no_content(caplog):
+    class Completions:
+        async def create(self, **kwargs):
+            assert kwargs["extra_body"] is None
+            assert kwargs["max_completion_tokens"] == 1200
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="length", message=SimpleNamespace(content="private output"))],
+                usage=SimpleNamespace(prompt_tokens=60, completion_tokens=1200,
+                                      completion_tokens_details=SimpleNamespace(reasoning_tokens=900)),
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    with caplog.at_level("INFO", logger="app.llm"):
+        with pytest.raises(ValueError, match="completion token limit"):
+            await OpenAiChatModel(client, "openai/gpt-5.6-luna").complete_json(
+                "private prompt", "private transcript", max_tokens=1200,
+                operation="onboarding_assessment",
+            )
+    log = caplog.text
+    assert "operation=onboarding_assessment" in log
+    assert "model=openai/gpt-5.6-luna max_completion_tokens=1200" in log
+    assert "finish_reason=length prompt_tokens=60 completion_tokens=1200 reasoning_tokens=900" in log
+    assert "private prompt" not in log
+    assert "private transcript" not in log
+    assert "private output" not in log
+
+
+def test_reasoning_usage_is_optional():
+    assert read_reasoning_tokens(SimpleNamespace(usage=None)) is None
+    assert read_reasoning_tokens(SimpleNamespace(usage={"completion_tokens_details": {"reasoning_tokens": 7}})) == 7
 
 
 @pytest.mark.asyncio

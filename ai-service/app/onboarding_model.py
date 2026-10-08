@@ -6,12 +6,14 @@ from typing import Any
 
 from app.personalization import CONVERSATION_POLICY
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
-from app.llm import OpenAiChatModel, _load_json
+from app.llm import CompletionTokenLimitError, OpenAiChatModel, _load_json
 from app.onboarding_score import SHADES, SKILL_FLAGS
 from app.voice import SPEAKY_MANNER
 from app.vocabulary_suggestions import VOCABULARY_SUGGESTION_POLICY
 
 logger = logging.getLogger(__name__)
+ASSESSMENT_MAX_TOKENS = 1200
+ASSESSMENT_RETRY_MAX_TOKENS = 2000
 REVIEW_MAX_TOKENS = 2400
 REVIEW_RETRY_MAX_TOKENS = 3200
 CLOSING_CALLBACK_MAX_TOKENS = 160
@@ -249,7 +251,18 @@ class OnboardingModel:
             {key: turn.get(key) for key in ("question", "transcript", "corrections")}
             for turn in state["turns"]
         ]
-        raw = await self.llm.complete_json(SYSTEM, json.dumps(data, ensure_ascii=False), temperature=0.0)
+        payload = json.dumps(data, ensure_ascii=False)
+        try:
+            raw = await self.llm.complete_json(
+                SYSTEM, payload, temperature=0.0, max_tokens=ASSESSMENT_MAX_TOKENS,
+                operation="onboarding_assessment",
+            )
+        except CompletionTokenLimitError:
+            logger.warning("onboarding assessment reached completion token limit; retrying once")
+            raw = await self.llm.complete_json(
+                SYSTEM, payload, temperature=0.0, max_tokens=ASSESSMENT_RETRY_MAX_TOKENS,
+                operation="onboarding_assessment",
+            )
         return parse_assessment(raw)
 
     async def closing_callback(self, transcripts: list[str]) -> str | None:
