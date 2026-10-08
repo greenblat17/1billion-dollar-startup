@@ -408,20 +408,28 @@ class OnboardingModel:
         raise RuntimeError("onboarding review unavailable after two attempts") from last_error
 
     async def compose_short_review(self, transcripts: list[str]) -> dict:
-        raw = await self.llm.complete_json(
-            SHORT_REVIEW_SYSTEM,
-            json.dumps({"transcripts": transcripts}, ensure_ascii=False),
-            temperature=0.0, max_tokens=SHORT_REVIEW_MAX_TOKENS,
-            model=self.review_model,
-        )
-        value = _load_json(raw)
-        if not isinstance(value, dict) or set(value) != {"cefr", "position", "levelText"}:
-            raise ValueError("invalid short review fields")
-        band = _band(value["cefr"])
-        position = _position(value["position"])
-        if band not in {"A1", "A2", "B1", "B2", "C1"} or position is None:
-            raise ValueError("invalid short review level")
-        return {"cefr": band, "position": position, "levelText": _review_text(value["levelText"])}
+        data = json.dumps({"transcripts": transcripts}, ensure_ascii=False)
+        models = (self.review_model, self.review_fallback_model or self.review_model)
+        last_error: Exception | None = None
+        for attempt, model in enumerate(models, start=1):
+            try:
+                raw = await self.llm.complete_json(
+                    SHORT_REVIEW_SYSTEM, data,
+                    temperature=0.0, max_tokens=SHORT_REVIEW_MAX_TOKENS,
+                    model=model,
+                )
+                value = _load_json(raw)
+                if not isinstance(value, dict) or set(value) != {"cefr", "position", "levelText"}:
+                    raise ValueError("invalid short review fields")
+                band = _band(value["cefr"])
+                position = _position(value["position"])
+                if band not in {"A1", "A2", "B1", "B2", "C1"} or position is None:
+                    raise ValueError("invalid short review level")
+                return {"cefr": band, "position": position, "levelText": _review_text(value["levelText"])}
+            except Exception as exc:
+                last_error = exc
+                logger.warning("short onboarding review attempt %s failed: %s", attempt, type(exc).__name__)
+        raise RuntimeError("short onboarding review unavailable after two attempts") from last_error
 
 
 def validate_review_response(raw: str) -> None:

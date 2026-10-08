@@ -1,6 +1,6 @@
 # Optional short onboarding result
 
-Status: implemented locally on 2026-10-08. A DEV Telegram check on 2026-10-09 reached the short-result choice but received HTTP 400 because the AI action endpoint omitted `short` from its allowlist. The route and recovery button are fixed in the PR; repeat live acceptance after deployment of the fix.
+Status: implemented locally on 2026-10-08. A DEV Telegram check on 2026-10-09 reached the short-result choice but received HTTP 400 because the AI action endpoint omitted `short` from its allowlist. After that fix was deployed, the primary review provider returned HTTP 403 (`Blocked by Google AI Studio`). The short review now tries the configured review fallback model, as the full review already does. Repeat live acceptance after deployment of the fallback fix.
 
 Related: [current Telegram onboarding](2026-09-28-telegram-onboarding.md), [Telegram contract](../integrations/2026-09-18-telegram.md), [onboarding analytics](../integrations/2026-09-30-onboarding-analytics.md).
 

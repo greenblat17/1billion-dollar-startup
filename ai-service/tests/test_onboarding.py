@@ -13,7 +13,7 @@ from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
 from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore, RETRY_TEXT
-from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
+from app.onboarding_model import OnboardingModel, SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
 from app.pipeline import NOTES_TIMEOUT_SECONDS, ClipPipeline
@@ -305,6 +305,25 @@ async def test_short_result_is_optional_and_preserves_the_full_route():
     assert completed.onboarding["status"] == "completed"
     assert completed.onboarding["preliminary"] is False
     assert completed.onboarding["review"]["grammar"]["score"] is not None
+
+
+@pytest.mark.asyncio
+async def test_short_review_uses_configured_fallback_after_primary_rejection():
+    class RejectingLlm:
+        def __init__(self):
+            self.models = []
+
+        async def complete_json(self, _system, _data, **kwargs):
+            self.models.append(kwargs["model"])
+            if len(self.models) == 1:
+                raise RuntimeError("primary provider rejected the request")
+            return '{"cefr":"B1","position":"mid","levelText":"You explain your work clearly."}'
+
+    llm = RejectingLlm()
+    model = OnboardingModel(llm, "google/gemini-3.5-flash-lite", "openai/gpt-4o-mini")
+    result = await model.compose_short_review(["I build software for my clients."])
+    assert result == {"cefr": "B1", "position": "mid", "levelText": "You explain your work clearly."}
+    assert llm.models == ["google/gemini-3.5-flash-lite", "openai/gpt-4o-mini"]
 
 
 @pytest.mark.asyncio
