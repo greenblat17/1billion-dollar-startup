@@ -431,6 +431,7 @@ class HttpClipClient(
                             OnboardingStatus(
                                 it.runId, it.status, it.seconds, it.cefr, it.review,
                                 it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
+                                it.preliminary, it.shortResultAvailable,
                             )
                         },
                         transcript = status.transcript,

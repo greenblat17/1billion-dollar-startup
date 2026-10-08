@@ -17,7 +17,11 @@ import dev.inmo.tgbotapi.utils.row
 
 internal const val ONBOARDING_VOICE_HINT =
     "🎙 Reply with a voice message in English\n\n" +
-        "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going."
+        "About 30 seconds of voice answers is enough for a first result. " +
+        "You can send a few short messages — I’ll keep the conversation going."
+internal const val SHORT_RESULT_OFFER =
+    "We’ve talked enough for a first estimate 🙌 Keep going to 2 minutes for a fuller review, or see your result now."
+internal const val ONBOARDING_ENGLISH_HINT = "Please answer in English so I can estimate your level."
 internal fun voiceMessagesForbiddenText(): TextSourcesList = buildEntities {
     regular("🎙 Пока не могу прислать тебе голосовое.\n\n")
     regular("Telegram блокирует голосовые от меня. Открой:\n")
@@ -60,18 +64,25 @@ internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val ONBOARDING_PROGRESS_HINT =
-    "🎙 This tracks how much English you've spoken. Around 2 minutes gives me enough to get to know you and estimate your English level."
+    "🎙 This tracks the length of your voice answers. Around 30 seconds gives me a first estimate; 2 minutes gives me more to review."
 
 internal fun onboardingProgressLabel(seconds: Double): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
     if (elapsed >= ONBOARDING_PROGRESS_SECONDS) return "🎯 2:00+"
     val whole = elapsed.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
-    return "🎯 $clock / 2:00"
+    return "🎯 $clock / ${if (elapsed < 30.0) "0:30" else "2:00"}"
 }
 
 internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(onboardingProgressLabel(seconds), ONBOARDING_PROGRESS_CALLBACK) }
+}
+
+internal fun shortResultKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row {
+        dataButton("🎙 Keep talking", "ob:keep:$runId")
+        dataButton("See result", "ob:short:$runId")
+    }
 }
 
 internal fun spokenTextKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
@@ -99,18 +110,19 @@ internal fun onboardingInvitation(firstName: String?): String {
     val name = firstName?.trim().orEmpty()
     val hello = if (name.isEmpty()) "Hey!" else "Hey, $name!"
     return "👋 $hello I’m Speaky, your English practice buddy.\n\n" +
-        "Let’s talk in English for about 2 minutes. I’ll get to know you and see what your English level is."
+        "Let's get to know each other. About 30 seconds of voice answers is enough for a first result. " +
+        "Keep going to 2 minutes for a fuller review."
 }
 
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
     "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
-    "m5", "m10", "m15", "skip", "remind", "later",
+    "m5", "m10", "m15", "skip", "remind", "later", "keep", "short",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
-    "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
+    "retry", "level", "results", "vocab", "fluency", "finish", "profile", "short" -> "callback:$queryId"
     "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
@@ -280,6 +292,30 @@ internal fun levelSlide(
     }
     regularln("")
     regular(LEVEL_ESTIMATE)
+}
+
+internal fun shortResultSlide(cefr: String?, score: Int?, review: OnboardingReview): TextSourcesList = buildEntities {
+    bold("🎯 First impression")
+    regularln("")
+    regularln("")
+    regularln("An early estimate from our short chat:")
+    regularln("")
+    bold("${cefr ?: "—"} · ${score?.let { "$it/100" } ?: "—"}")
+    review.levelText.trim().takeIf { it.isNotEmpty() }?.let {
+        regularln("")
+        regularln("")
+        regularln(it)
+    }
+    if (review.shortExamples.isNotEmpty()) {
+        regularln("")
+        regularln("")
+        bold("What I noticed")
+        review.shortExamples.take(2).forEach { example ->
+            regularln("")
+            regularln("")
+            addAll(inlineCorrection(Correction(example.wrong, example.better)))
+        }
+    }
 }
 
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =

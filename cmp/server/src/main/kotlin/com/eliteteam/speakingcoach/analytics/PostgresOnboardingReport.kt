@@ -86,7 +86,9 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
                COUNT(*) FILTER (WHERE reminder_set_at IS NOT NULL) AS reminder_set,
                COUNT(*) FILTER (WHERE profile_opened_at IS NOT NULL) AS profile_opened,
                COUNT(*) FILTER (WHERE bye_at IS NOT NULL) AS bye,
-               COUNT(*) FILTER (WHERE first_practice_at IS NOT NULL) AS first_practice
+               COUNT(*) FILTER (WHERE first_practice_at IS NOT NULL) AS first_practice,
+               COUNT(*) FILTER (WHERE speech_120_at IS NOT NULL) AS full_speech,
+               COUNT(*) FILTER (WHERE speech_120_at IS NOT NULL AND result_delivered_at IS NOT NULL) AS full_delivered
         FROM selected
     """.trimIndent()) { rows ->
         rows.next()
@@ -107,6 +109,8 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
             profileOpened = rows.getInt("profile_opened"),
             bye = rows.getInt("bye"),
             firstPractice = rows.getInt("first_practice"),
+            fullSpeech = rows.getInt("full_speech"),
+            fullDelivered = rows.getInt("full_delivered"),
         )
     }
     val eventCounts = selector.query(this, """
@@ -258,6 +262,9 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
             retryRecovered = eventCounts["retry_recovered"] ?: 0,
             textHint = eventCounts["text_hint"] ?: 0,
             preBeginVoiceHint = eventCounts["pre_begin_voice_hint"] ?: 0,
+            shortOffers = eventCounts["short_offer_delivered"] ?: 0,
+            shortChoices = eventCounts["short_result_chosen"] ?: 0,
+            shortDelivered = eventCounts["short_result_delivered"] ?: 0,
         ),
         versions = choices.first,
         sources = choices.second,
@@ -270,14 +277,13 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
 private data class DailyAggregate(val day: LocalDate, val primary: Boolean, val funnel: CohortFunnel)
 
 private val FUNNEL_NAMES = listOf(
-    "Приветствие", "Let’s chat", "Первое голосовое", "30 сек", "60 сек", "90 сек", "120 сек",
-    "Результат собран", "Результаты открыты", "Grammar", "Vocabulary", "Fluency", "Выбор минут", "Минуты выбраны",
+    "Приветствие", "Let’s chat", "Первое голосовое", "30 сек",
+    "Результат собран", "Результаты открыты", "Выбор минут", "Минуты выбраны",
 )
 
 private val FUNNEL_COLUMNS = listOf(
-    "started_at", "lets_chat_at", "first_voice_at", "speech_30_at", "speech_60_at", "speech_90_at",
-    "speech_120_at", "completed_at", "results_opened_at", "grammar_viewed_at", "vocabulary_viewed_at",
-    "fluency_viewed_at", "practice_setup_at", "goal_selected_at",
+    "started_at", "lets_chat_at", "first_voice_at", "speech_30_at",
+    "completed_at", "results_opened_at", "practice_setup_at", "goal_selected_at",
 )
 
 private fun validStep(column: String): String =

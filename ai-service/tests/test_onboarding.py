@@ -63,6 +63,7 @@ class Model:
         self.review_calls = 0
         self.review_payloads = []
         self.review_callback: str | None = None
+        self.short_review_calls = 0
         self.continue_calls = 0
         self.asks: list[str] = []
 
@@ -72,6 +73,13 @@ class Model:
         if self.fail:
             raise RuntimeError("provider unavailable")
         return deepcopy(self.assessment)
+
+    async def compose_short_review(self, transcripts):
+        self.short_review_calls += 1
+        if self.review_fail:
+            raise RuntimeError("short review unavailable")
+        return {"cefr": "B1", "position": "mid",
+                "levelText": "You connect your work and your reason for learning English."}
 
     async def closing_callback(self, transcripts):
         if self.review_callback is not None:
@@ -261,6 +269,73 @@ async def test_many_short_answers_stay_open_until_two_minutes():
     unknown_run = await begin(unknown)
     for i in range(10):
         assert (await turn(unknown, unknown_run, f"v{i}")).onboarding["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_short_result_is_optional_and_preserves_the_full_route():
+    model = Model(cefr=None)
+    s = service(stt=Stt(15), model=model)
+    run = await begin(s)
+    first = await turn(s, run, "v1")
+    assert first.onboarding["shortResultAvailable"] is False
+    second = await turn(s, run, "v2")
+    assert second.onboarding["status"] == "active"
+    assert second.onboarding["shortResultAvailable"] is True
+    assert model.short_review_calls == 0
+    result = await s.action("tg-test", run, "short", "short:1")
+    assert result.onboarding["status"] == "completed"
+    assert result.onboarding["preliminary"] is True
+    assert result.onboarding["cefr"] == "B1"
+    assert result.onboarding["overallScore"] == 52
+    assert result.audio is None
+    assert model.short_review_calls == 1
+    assert (await s.progress_profile("tg-test"))["assessment"]["preliminary"] is True
+    assert (await s.progress_profile("tg-test"))["assessment"]["overallScore"] == 52
+    assert (await s.progress_profile("tg-test"))["assessment"]["pointsToNext"] is None
+    shown_again = await s.action("tg-test", run, "short", "short:2")
+    assert shown_again.onboarding["status"] == "completed"
+    assert model.short_review_calls == 1
+
+    full = service(stt=Stt(30))
+    full_run = await begin(full)
+    for index in range(3):
+        partial = await turn(full, full_run, f"full-{index}")
+        assert partial.onboarding["status"] == "active"
+    completed = await turn(full, full_run, "full-3")
+    assert completed.onboarding["status"] == "completed"
+    assert completed.onboarding["preliminary"] is False
+    assert completed.onboarding["review"]["grammar"]["score"] is not None
+
+
+@pytest.mark.asyncio
+async def test_short_result_retry_reuses_accepted_voices():
+    model = Model()
+    stt = Stt(30)
+    s = service(stt=stt, model=model)
+    run = await begin(s)
+    await turn(s, run)
+    model.review_fail = True
+    failed = await s.action("tg-test", run, "short", "short:1")
+    assert failed.onboarding["status"] == "pending"
+    model.review_fail = False
+    recovered = await s.action("tg-test", run, "retry", "retry:1")
+    assert recovered.onboarding["status"] == "completed"
+    assert recovered.onboarding["preliminary"] is True
+    assert stt.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_short_result_is_not_offered_without_english_evidence():
+    class NonEnglishStt(Stt):
+        async def transcribe(self, audio, content_type, filename, language="en"):
+            self.calls += 1
+            return SttResult(text="Hola, me gusta hablar.", raw={"language": "spanish"}, duration_seconds=30)
+
+    s = service(stt=NonEnglishStt())
+    run = await begin(s)
+    result = await turn(s, run)
+    assert result.onboarding["shortResultAvailable"] is False
+    assert (await s.action("tg-test", run, "short")).onboarding["status"] == "ignored"
 
 
 @pytest.mark.asyncio

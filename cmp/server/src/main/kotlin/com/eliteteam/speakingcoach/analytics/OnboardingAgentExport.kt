@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-private const val EXPORT_SCHEMA = "onboarding-analytics.v7"
+private const val EXPORT_SCHEMA = "onboarding-analytics.v8"
 private val exportJson = Json { prettyPrint = true }
 
 /** Aggregated, content-free snapshot that an analyst agent can consume without parsing HTML. */
@@ -47,7 +47,7 @@ internal fun onboardingAgentData(report: OnboardingReport, generatedAt: Instant,
         put("d7", "Recognized ordinary voice on the seventh Moscow calendar day; null until that day ends")
         put("error_window", "Last seven 24-hour periods among attempts selected by the start filters")
         put("recognition_error_denominator", "Selected onboarding voices in the error window, excluding queue_full")
-        put("result_build_error_denominator", "Selected attempts reaching 120 seconds in the error window")
+        put("result_build_error_denominator", "Selected attempts reaching 120 seconds in the error window; short-result failures are measured by short choice-to-delivery")
         put("speech_before_stage", "Cumulative recognized speech before the current voice: 0-30, 30-60, 60-90, 90-120, 120+ seconds")
         put("processing_and_delivery_ms", "Clip processing plus Telegram reply delivery for recognized onboarding voices")
         put("reply_gap_seconds", "From a delivered voice reply to the next received voice; negative gaps are excluded")

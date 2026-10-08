@@ -533,6 +533,7 @@ data class OnboardingReview(
     val grammar: OnboardingSkill = OnboardingSkill(),
     val vocabulary: OnboardingSkill = OnboardingSkill(),
     val fluency: OnboardingFluency = OnboardingFluency(),
+    val shortExamples: List<OnboardingExample> = emptyList(),
 )
 
 @Serializable
@@ -565,6 +566,8 @@ data class OnboardingStateResponse(
     val status: String,
     val legacyUser: Boolean = false,
     val seconds: Double = 0.0,
+    val preliminary: Boolean = false,
+    val shortResultAvailable: Boolean = false,
     val cefr: String? = null,
     val overallScore: Int? = null,
     val nextBand: String? = null,
@@ -712,6 +715,7 @@ data class ProgressAssessment(
     val grammar: Int? = null,
     val vocabulary: Int? = null,
     val fluency: Int? = null,
+    val preliminary: Boolean = false,
 )
 
 @Serializable

@@ -295,7 +295,7 @@ private fun cohortTable(cohorts: List<CohortFunnel>, withReturn: Boolean): Strin
         """
         <tr><th scope="row">${escapeHtml(cohort.day.toString())}</th><td>${cohort.size}</td>
           <td>${step("Let’s chat")}</td><td>${step("Первое голосовое")}</td>
-          <td>${step("120 сек")}</td><td>${step("Результат собран")}</td>
+          <td>${step("30 сек")}</td><td>${step("Результат собран")}</td>
           <td>${step("Минуты выбраны")}</td><td>${if (withReturn) "${cohort.returnedNextDay}/${cohort.size}" else "—"}</td>
           <td>$day7</td></tr>
         <tr class="onb-detail"><td colspan="9"><details><summary>Все шаги и состав результата · ${escapeHtml(cohort.day.toString())}</summary>
@@ -312,7 +312,7 @@ private fun cohortTable(cohorts: List<CohortFunnel>, withReturn: Boolean): Strin
         """.trimIndent()
     }
     return "<div class=\"onb-scroll\"><table class=\"onb-cohorts\"><thead><tr>" +
-        "<th>День</th><th>Начали</th><th>Кнопка</th><th>Голос</th><th>120 с</th><th>Результат</th>" +
+        "<th>День</th><th>Начали</th><th>Кнопка</th><th>Голос</th><th>30 с</th><th>Результат</th>" +
         "<th>Минуты</th><th>D1</th><th>D7</th></tr></thead><tbody>$rows</tbody></table></div>"
 }
 

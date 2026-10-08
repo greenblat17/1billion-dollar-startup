@@ -97,7 +97,8 @@ private fun localFailureReason(error: Throwable): String = when {
 
 private fun onboardingActionStage(action: String): String = when (action) {
     "begin" -> "first_question"
-    "level", "see", "results", "vocab", "fluency", "finish", "profile", "bye" -> "result_card"
+    "level", "see", "results", "vocab", "fluency", "finish", "profile", "bye", "short" -> "result_card"
+    "keep" -> "other"
     "skip", "m5", "m10", "m15" -> "goal"
     "remind", "later" -> "reminder"
     "retry" -> "result_delivery"
@@ -403,10 +404,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val deliveryStarted = TimeSource.Monotonic.markNow()
         val onboarding = result.onboarding?.takeIf { it.status in setOf("active", "pending", "completed") }
         val finished = onboarding?.takeIf { it.status == "completed" && it.review != null }
+        val shortOffer = onboarding?.takeIf { it.status == "active" && it.shortResultAvailable }
         val practice = result.call?.takeIf { onboarding == null }
         val progress = when {
             finished != null -> onboardingKeyboard("level", finished.runId)
             onboarding?.status == "pending" -> null
+            shortOffer != null -> onboardingProgressKeyboard(shortOffer.seconds) + shortResultKeyboard(shortOffer.runId)
             onboarding != null -> onboardingProgressKeyboard(onboarding.seconds)
             else -> null
         }
@@ -447,13 +450,27 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val voice = sendVoice(
                 message.chat.id,
                 audio.bytes.asMultipartFile(audio.fileName),
-                text = if (firstQuestion) ONBOARDING_VOICE_HINT else null,
+                text = when {
+                    firstQuestion -> ONBOARDING_VOICE_HINT
+                    shortOffer?.analytics?.milestones?.contains(30) == true -> SHORT_RESULT_OFFER
+                    onboarding?.status == "active" && onboarding.seconds >= 30.0 &&
+                        !onboarding.shortResultAvailable && onboarding.analytics?.milestones?.contains(30) == true ->
+                        ONBOARDING_ENGLISH_HINT
+                    else -> null
+                },
                 replyMarkup = practice?.let { callKeyboard(it.todaySeconds, it.goalSeconds, spoken, it.callId) }
-                    ?: withSpokenText(progress, spoken),
+                    ?: if (shortOffer != null) {
+                        (withSpokenText(onboardingProgressKeyboard(shortOffer.seconds), spoken)
+                            ?: onboardingProgressKeyboard(shortOffer.seconds)) +
+                            shortResultKeyboard(shortOffer.runId)
+                    } else withSpokenText(progress, spoken),
             )
             onMainDelivered(voice.messageId.long, "audio")
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
             if (progress != null || practice != null) progressMessages[message.chat.id.toString()] = voice.messageId
+            if (shortOffer != null) analytics.safely {
+                event(shortOffer.runId, "short:offer", "short_offer_delivered", Instant.now())
+            }
             if (onboarding?.status == "pending") {
                 optionalCard(message, "retry") {
                     reply(message, "I couldn't prepare your result. Please try again.",
@@ -464,9 +481,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val state = result.onboarding
             val action = state?.takeIf { it.status == "pending" }
                 ?.let { onboardingKeyboard("retry", it.runId) }
+            val fallbackText = when {
+                shortOffer?.analytics?.milestones?.contains(30) == true -> "${result.text}\n\n$SHORT_RESULT_OFFER"
+                onboarding?.status == "active" && onboarding.seconds >= 30.0 &&
+                    !onboarding.shortResultAvailable && onboarding.analytics?.milestones?.contains(30) == true ->
+                    "${result.text}\n\n$ONBOARDING_ENGLISH_HINT"
+                else -> result.text
+            }
             val sent = reply(
                 message,
-                result.text,
+                fallbackText,
                 allowSendingWithoutReply = true,
                 replyMarkup = when {
                     progress != null && action != null -> progress + action
@@ -475,6 +499,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
             onMainDelivered(sent.messageId.long, "text_fallback")
             if (progress != null) progressMessages[message.chat.id.toString()] = sent.messageId
+            if (shortOffer != null) analytics.safely {
+                event(shortOffer.runId, "short:offer", "short_offer_delivered", Instant.now())
+            }
         }
         log.info(
             "Telegram reply delivery session={} request=message:{} before_voice_ms={} voice_or_text_ms={} total_ms={}",
@@ -997,6 +1024,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 if (state.status == "active" && facts != null) {
                     analytics.safely { recordVoice(state.runId, sessionId.value, requestId, facts,
                         processingMillis(started), now, receivedAt) }
+                    if (state.shortResultAvailable && facts.recognized && deliveryOutcome == "delivered") {
+                        analytics.safely { event(state.runId, "$requestId:short-continued",
+                            "short_continued_by_voice", now) }
+                    }
                     if (facts.completedNow) analytics.safely { mark(state.runId, AttemptMark.RESULT_DELIVERED, now) }
                     if (facts.assessmentFailed) analytics.safely {
                         event(state.runId, "$requestId:failed", "result_build_failed", now, "result_build", "internal")
@@ -1603,7 +1634,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "finish:${query.id}",
                         )
                         val ask = if (state.runId == callback.runId) {
-                            practiceAsk(state.cefr, state.overallScore, state.nextBand, state.pointsToNext)
+                            practiceAsk(state.cefr, state.overallScore,
+                                state.nextBand.takeUnless { state.preliminary },
+                                state.pointsToNext.takeUnless { state.preliminary })
                         } else {
                             practiceAsk(null, null, null)
                         }
@@ -1682,6 +1715,41 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         analytics.safely { mark(callback.runId, AttemptMark.BYE, Instant.now()) }
                         sendFounderNote(message.chat, callback.runId)
                     }
+                    "keep" -> {
+                        val state = ai.onboardingState(telegramSessionId(message.chat.id), "keep:${query.id}")
+                        if (state.runId == callback.runId && state.shortResultAvailable) {
+                            reply(message, "Just send your next voice message 🎙", allowSendingWithoutReply = true)
+                            analytics.safely { event(callback.runId, "short:keep:${query.id}",
+                                "short_continue_pressed", Instant.now()) }
+                        }
+                    }
+                    "short" -> {
+                        val result = ai.onboardingAction(
+                            telegramSessionId(message.chat.id), "callback:${query.id}", callback.runId, "short")
+                        val state = result.onboarding
+                        if (state?.status == "completed" && state.preliminary && state.review != null) {
+                            analytics.safely { event(callback.runId, "short:chosen", "short_result_chosen", Instant.now()) }
+                            reply(message, shortResultSlide(state.cefr, state.overallScore, state.review),
+                                allowSendingWithoutReply = true,
+                                replyMarkup = onboardingKeyboard("finish", callback.runId))
+                            clearProgress(message.chat)
+                            val now = Instant.now()
+                            analytics.safely { mark(callback.runId, AttemptMark.RESULT_DELIVERED, now) }
+                            analytics.safely { mark(callback.runId, AttemptMark.RESULTS, now) }
+                            analytics.safely { event(callback.runId, "short:delivered", "short_result_delivered", now) }
+                            analytics.safely { recordOutcome(callback.runId, OnboardingVoiceFacts(
+                                completedNow = true, cefr = state.cefr, overallScore = state.overallScore,
+                                scoreAvailable = state.overallScore != null,
+                            ), now) }
+                        } else if (state?.status == "pending") {
+                            analytics.safely { event(callback.runId, "short:chosen", "short_result_chosen", Instant.now()) }
+                            deliver(message, result)
+                            analytics.safely { recordOutcome(callback.runId,
+                                OnboardingVoiceFacts(assessmentFailed = true), Instant.now()) }
+                            analytics.safely { event(callback.runId, "short:failed:${query.id}",
+                                "result_build_failed", Instant.now(), "result_build", "internal") }
+                        }
+                    }
                     else -> {
                         val result = ai.onboardingAction(
                             telegramSessionId(message.chat.id),
@@ -1692,7 +1760,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         if (callback.action == "begin" && result.onboarding?.status == "active") {
                             analytics.safely { mark(callback.runId, AttemptMark.BEGIN_PRESSED, Instant.now()) }
                         }
-                        deliver(message, result, firstQuestion = callback.action == "begin")
+                        val preliminary = result.onboarding?.takeIf {
+                            callback.action == "retry" && it.status == "completed" && it.preliminary && it.review != null
+                        }
+                        if (preliminary != null) {
+                            val review = preliminary.review ?: return@run
+                            reply(message, shortResultSlide(preliminary.cefr, preliminary.overallScore, review),
+                                allowSendingWithoutReply = true,
+                                replyMarkup = onboardingKeyboard("finish", callback.runId))
+                            clearProgress(message.chat)
+                            analytics.safely { mark(callback.runId, AttemptMark.RESULTS, Instant.now()) }
+                            analytics.safely { event(callback.runId, "short:delivered", "short_result_delivered", Instant.now()) }
+                        } else {
+                            deliver(message, result, firstQuestion = callback.action == "begin")
+                        }
                         if (callback.action == "begin" && result.onboarding?.status == "active" &&
                             (result.audio != null || result.text.isNotBlank())) {
                             analytics.safely { mark(callback.runId, AttemptMark.FIRST_QUESTION_DELIVERED, Instant.now()) }

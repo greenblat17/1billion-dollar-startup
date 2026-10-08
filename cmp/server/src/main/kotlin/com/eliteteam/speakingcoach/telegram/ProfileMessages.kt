@@ -19,7 +19,7 @@ internal fun profileMessage(firstName: String?, profile: ProgressProfileResponse
     if (assessment == null) {
         regularln("Complete /onboarding to get your first assessment.")
     } else {
-        regularln("Latest assessment")
+        regularln(if (assessment.preliminary) "Latest assessment · preliminary" else "Latest assessment")
         val cefr = assessment.cefr
         if (cefr == null) {
             regularln(LEVEL_UNKNOWN)
@@ -28,13 +28,15 @@ internal fun profileMessage(firstName: String?, profile: ProgressProfileResponse
             bold("$cefr$score")
             regularln("")
         }
-        if (assessment.nextBand != null && assessment.pointsToNext != null) {
+        if (!assessment.preliminary && assessment.nextBand != null && assessment.pointsToNext != null) {
             regularln("✨ ${assessment.pointsToNext} points to ${assessment.nextBand}")
         }
-        regularln("")
-        regularln("✍️ Grammar · ${profileScore(assessment.grammar)}")
-        regularln("📚 Vocabulary · ${profileScore(assessment.vocabulary)}")
-        regularln("🎙 Fluency · ${profileScore(assessment.fluency)}")
+        if (!assessment.preliminary) {
+            regularln("")
+            regularln("✍️ Grammar · ${profileScore(assessment.grammar)}")
+            regularln("📚 Vocabulary · ${profileScore(assessment.vocabulary)}")
+            regularln("🎙 Fluency · ${profileScore(assessment.fluency)}")
+        }
     }
     regularln("")
     bold("⏱ Daily goal")

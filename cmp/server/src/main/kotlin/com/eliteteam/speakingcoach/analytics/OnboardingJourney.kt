@@ -14,10 +14,7 @@ internal val JOURNEY_STAGES = listOf(
     JourneyStage("first_question", "Первый вопрос доставлен"),
     JourneyStage("voice_received", "Первый голос получен"),
     JourneyStage("voice_recognized", "Первый голос распознан"),
-    JourneyStage("speech_30", "30 секунд речи"),
-    JourneyStage("speech_60", "60 секунд речи"),
-    JourneyStage("speech_90", "90 секунд речи"),
-    JourneyStage("speech_120", "120 секунд речи"),
+    JourneyStage("speech_30", "30 секунд голосовых ответов"),
     JourneyStage("result_delivered", "Результат доставлен"),
     JourneyStage("result_opened", "Результат открыт"),
     JourneyStage("goal_shown", "Выбор минут показан"),
@@ -102,7 +99,7 @@ private data class JourneyItem(
             a?.beginPressedAt, a?.firstQuestionDeliveredAt,
             voices.minOfOrNull { it.receivedAt },
             voices.filter { it.outcome == "recognized" }.minOfOrNull { it.receivedAt },
-            a?.speech30At, a?.speech60At, a?.speech90At, a?.speech120At,
+            a?.speech30At,
             a?.resultDeliveredAt, a?.resultsOpenedAt, a?.practiceSetupAt, a?.goalSelectedAt,
             a?.reminderOfferedAt, reminderResolved,
         )
@@ -266,9 +263,6 @@ private fun journeyFailures(item: JourneyItem): List<JourneyFailure> = buildList
     }
     item.voices.filter { it.outcome != "recognized" }.forEach { voice ->
         val stageId = when {
-            (voice.speechBeforeSec ?: 0.0) >= 120 -> "speech_120"
-            (voice.speechBeforeSec ?: 0.0) >= 90 -> "speech_90"
-            (voice.speechBeforeSec ?: 0.0) >= 60 -> "speech_60"
             (voice.speechBeforeSec ?: 0.0) >= 30 -> "speech_30"
             else -> "voice_received"
         }

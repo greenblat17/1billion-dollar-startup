@@ -166,7 +166,7 @@ class PostgresOnboardingAnalyticsTest {
             analytics.event(runId, "retry:1", "retry_requested", at.plusSeconds(33))
             analytics.recordReturn(sessionId, Instant.parse("2026-09-29T10:00:00Z"))
             analytics.recordReturn(sessionId, Instant.parse("2026-09-30T10:00:00Z"))
-            val report = analytics.report(Instant.parse("2026-10-01T00:00:00Z"), OnboardingFilter(version = "v2", source = source))
+            val report = analytics.report(Instant.parse("2026-10-01T00:00:00Z"), OnboardingFilter(version = "v3", source = source))
             val cohort = report.closedPrimary.single { it.day.toString() == "2026-09-28" }
             assertEquals(1, cohort.size)
             assertEquals(1, cohort.returnedNextDay)
@@ -177,7 +177,7 @@ class PostgresOnboardingAnalyticsTest {
             assertEquals(1, report.diagnostics.turns.single().voices)
             assertEquals(1, report.diagnostics.lastOutcomes["recognized"])
             val activation = analytics.report(Instant.parse("2026-10-06T00:00:00Z"),
-                OnboardingFilter(version = "v2", source = source)).activation.single()
+                OnboardingFilter(version = "v3", source = source)).activation.single()
             assertEquals(1, activation.eligible)
             assertEquals(1, activation.invitations)
             assertEquals(1, activation.firstQuestions)

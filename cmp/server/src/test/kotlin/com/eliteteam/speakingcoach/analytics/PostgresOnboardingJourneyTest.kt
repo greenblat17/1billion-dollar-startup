@@ -16,6 +16,57 @@ import kotlin.test.assertTrue
 
 class PostgresOnboardingJourneyTest {
     @Test
+    fun shortResultCompletesTheV3JourneyWithoutTwoMinuteSpeech() = runTest {
+        val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
+        val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
+        val schema = "short_${UUID.randomUUID().toString().replace("-", "")}"
+        DriverManager.getConnection(jdbcUrl).use { it.createStatement().execute("CREATE SCHEMA $schema") }
+        val schemaUrl = jdbcUrl + (if ('?' in jdbcUrl) "&" else "?") + "currentSchema=$schema"
+        try {
+            val analytics = PostgresOnboardingAnalytics(schemaUrl)
+            try {
+                val start = Instant.parse("2026-10-08T07:00:00Z")
+                val run = "short-run"
+                analytics.recordEntry("tg-short", "start", start, true, "start", null, null, run,
+                    start.plusSeconds(1))
+                analytics.startAttempt("tg-short", run, "start", start, invitationAt = start.plusSeconds(1))
+                analytics.mark(run, AttemptMark.BEGIN_PRESSED, start.plusSeconds(2))
+                analytics.mark(run, AttemptMark.FIRST_QUESTION_DELIVERED, start.plusSeconds(3))
+                analytics.mark(run, AttemptMark.LETS_CHAT, start.plusSeconds(3))
+                analytics.recordVoice(run, "tg-short", "voice:1", OnboardingVoiceFacts(
+                    recognized = true, outcome = "recognized", milestones = listOf(30),
+                    speechBeforeSec = 0.0, speechAfterSec = 32.0,
+                ), 100, start.plusSeconds(5), start.plusSeconds(4))
+                analytics.event(run, "short:offer", "short_offer_delivered", start.plusSeconds(5))
+                analytics.event(run, "short:chosen", "short_result_chosen", start.plusSeconds(6))
+                analytics.recordOutcome(run, OnboardingVoiceFacts(
+                    completedNow = true, cefr = "B1", overallScore = 52, scoreAvailable = true,
+                ), start.plusSeconds(7))
+                analytics.mark(run, AttemptMark.RESULT_DELIVERED, start.plusSeconds(8))
+                analytics.mark(run, AttemptMark.RESULTS, start.plusSeconds(8))
+                analytics.event(run, "short:delivered", "short_result_delivered", start.plusSeconds(8))
+                analytics.mark(run, AttemptMark.PRACTICE, start.plusSeconds(9))
+                analytics.markGoal(run, 5, start.plusSeconds(10))
+                analytics.mark(run, AttemptMark.REMINDER_OFFERED, start.plusSeconds(11))
+                analytics.markReminderDecision(run, "not_now", start.plusSeconds(12))
+
+                val report = analytics.report(start.plusSeconds(3 * 86_400), OnboardingFilter(version = "v3"))
+                assertEquals(0, report.journey.incomplete)
+                assertEquals(1, report.journey.steps.first { it.stage.id == "result_delivered" }.reached)
+                assertEquals(1, report.decisions.shortOffers)
+                assertEquals(1, report.decisions.shortChoices)
+                assertEquals(1, report.decisions.shortDelivered)
+                assertEquals(0, report.decisions.fullSpeech)
+                assertEquals(0, report.closedPrimary.single().skippedPrevious)
+            } finally {
+                analytics.close()
+            }
+        } finally {
+            DriverManager.getConnection(jdbcUrl).use { it.createStatement().execute("DROP SCHEMA $schema CASCADE") }
+        }
+    }
+
+    @Test
     fun postgresReportKeepsCohortErrorsAndRecentUsersTogether() = runTest {
         val url = System.getenv("TEST_POSTGRES_URL") ?: return@runTest
         val jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
