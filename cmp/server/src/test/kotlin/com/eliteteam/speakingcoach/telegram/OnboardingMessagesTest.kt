@@ -40,11 +40,13 @@ class OnboardingMessagesTest {
     @Test
     fun buttonsCarryTheAttemptAndFitTelegramLimit() {
         val run = "a".repeat(32)
-        for (action in listOf("begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye", "m5", "m10", "m15", "skip")) {
+        for (action in listOf("begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "short", "profile", "bye", "m5", "m10", "m15", "skip")) {
             val button = onboardingKeyboard(action, run).keyboard.single().single() as CallbackDataInlineKeyboardButton
             assertEquals(OnboardingCallback(action, run), parseOnboardingCallback(button.callbackData))
             assertTrue(button.callbackData.encodeToByteArray().size <= 64)
         }
+        val shortRetry = onboardingKeyboard("short", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals("See result", shortRetry.text)
         assertNull(parseOnboardingCallback("ob:reset:$run"))
         assertNull(parseOnboardingCallback("ob:begin:another:chat"))
         assertNull(parseOnboardingCallback("ob:begin:"))

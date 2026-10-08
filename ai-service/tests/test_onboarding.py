@@ -708,6 +708,46 @@ def test_http_assessment_retry_has_no_second_voice():
         assert client.get(f"/v1/clips/{retry_job}/audio", headers=AUTH).status_code == 404
 
 
+def test_http_short_action_returns_preliminary_result():
+    s = service(stt=Stt(30))
+    app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
+    with TestClient(app) as client:
+        def completed(job_id):
+            for _ in range(200):
+                body = client.get(f"/v1/clips/{job_id}", headers=AUTH).json()
+                if body["status"] != "pending":
+                    return body
+                time.sleep(0.005)
+            raise AssertionError("onboarding job did not finish")
+
+        state = client.post("/internal/onboarding/state", headers=AUTH,
+                            json={"sessionId": "tg-short-http", "requestId": "start"}).json()
+        run_id = state["runId"]
+        begin = client.post("/internal/onboarding/actions", headers=AUTH, json={
+            "sessionId": "tg-short-http", "requestId": "begin", "runId": run_id, "action": "begin",
+        })
+        assert begin.status_code == 202
+        assert completed(begin.json()["jobId"])["status"] == "ok"
+        voice = client.post("/v1/clips", headers=AUTH,
+                            data={"sessionId": "tg-short-http", "onboardingRunId": run_id,
+                                  "requestId": "voice", "durationSeconds": "30"},
+                            files={"audio": ("voice.ogg", b"voice", "audio/ogg")})
+        assert voice.status_code == 202
+        active = completed(voice.json()["jobId"])
+        assert active["result"]["onboarding"]["shortResultAvailable"] is True
+
+        short = client.post("/internal/onboarding/actions", headers=AUTH, json={
+            "sessionId": "tg-short-http", "requestId": "short", "runId": run_id, "action": "short",
+        })
+        assert short.status_code == 202
+        result = completed(short.json()["jobId"])
+        assert result["status"] == "ok"
+        assert result["result"]["onboarding"]["status"] == "completed"
+        assert result["result"]["onboarding"]["preliminary"] is True
+        assert result["result"]["onboarding"]["cefr"] == "B1"
+        assert result["result"]["onboarding"]["overallScore"] == 52
+
+
 @pytest.mark.asyncio
 async def test_callback_receipt_survives_restart_and_cannot_repeat_action():
     redis = FakeAsyncRedis(decode_responses=True)

@@ -145,6 +145,7 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
             "fluency" -> "Fluency →"
             "finish" -> "Continue →"
             "talk" -> "Keep talking 🎙"
+            "short" -> "See result"
             "bye" -> "See you tomorrow"
             "m5" -> PRACTICE_5_LABEL
             "m10" -> PRACTICE_10_LABEL
