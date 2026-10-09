@@ -52,12 +52,13 @@ class OnboardingMessagesTest {
         assertNull(parseOnboardingCallback("ob:begin:"))
         assertNull(parseOnboardingCallback(SPOKEN_TEXT_CALLBACK))
         for (action in listOf("level", "results", "vocab", "fluency", "finish", "profile")) {
-            assertEquals("callback:q1", onboardingCallbackRequestId(action, run, "q1"))
-            assertTrue(onboardingCallbackRequestId(action, run, "q1") != onboardingCallbackRequestId(action, run, "q2"))
+            assertEquals("callback:q1", onboardingCallbackRequestId(action, run, "q1", 10))
+            assertTrue(onboardingCallbackRequestId(action, run, "q1", 10) != onboardingCallbackRequestId(action, run, "q2", 10))
         }
-        assertEquals("callback:begin:$run", onboardingCallbackRequestId("begin", run, "q1"))
-        assertEquals("callback:begin:$run", onboardingCallbackRequestId("begin", run, "q2"))
-        assertEquals(onboardingCallbackRequestId("m5", run, "q1"), onboardingCallbackRequestId("skip", run, "q2"))
+        assertEquals("callback:begin:$run", onboardingCallbackRequestId("begin", run, "q1", 10))
+        assertEquals("callback:begin:$run", onboardingCallbackRequestId("begin", run, "q2", 10))
+        assertEquals(onboardingCallbackRequestId("m5", run, "q1", 10), onboardingCallbackRequestId("skip", run, "q2", 10))
+        assertTrue(onboardingCallbackRequestId("m5", run, "q1", 10) != onboardingCallbackRequestId("m5", run, "q3", 11))
         val spoken = spokenTextKeyboard().keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals(SPOKEN_TEXT_BUTTON, spoken.text)
         assertEquals(SPOKEN_TEXT_CALLBACK, spoken.callbackData)

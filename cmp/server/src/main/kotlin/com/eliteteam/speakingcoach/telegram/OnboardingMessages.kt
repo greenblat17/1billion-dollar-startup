@@ -121,9 +121,9 @@ private val onboardingActions = setOf(
     "m5", "m10", "m15", "skip", "remind", "later", "keep", "short",
 )
 
-internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
+internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String, messageId: Long): String = when (action) {
     "retry", "level", "results", "vocab", "fluency", "finish", "profile", "short" -> "callback:$queryId"
-    "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
+    "m5", "m10", "m15", "skip" -> "callback:goal:$runId:$messageId"
     else -> "callback:$action:$runId"
 }
 

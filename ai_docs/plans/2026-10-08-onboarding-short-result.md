@@ -17,6 +17,7 @@ Related: [current Telegram onboarding](2026-09-28-telegram-onboarding.md), [Tele
 - Show one compact card headed as an early estimate. It **always includes a preliminary CEFR and its numeric 0–100 score** for an eligible short result, even when the sample is small. Label both as preliminary. Do not show points to the next level or separate Grammar, Vocabulary and Fluency slides. The model chooses a CEFR band and low/mid/high position; code maps these to the existing score table.
 - Include one or two observations supported by the user's actual English. Show only confidently verified correction examples when available; an empty correction section is valid. Do not invent observations or examples to fill the card.
 - Continue to the existing daily goal and reminder choices. The profile labels this saved assessment as preliminary. Choosing the short result does not silently upgrade it to a full review; the full route is reached by continuing to two minutes before choosing the result.
+- If the saved result is opened again, its new goal card must accept a choice even when another goal card for the same onboarding attempt was used earlier. Accept only one choice per card to prevent duplicate goal and reminder messages.
 
 ## Measurement and boundary
 

@@ -1590,7 +1590,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val callback = parseOnboardingCallback(query.data) ?: return@withRequestLog
         log.info("Handling onboarding callback {}", callback.action)
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
-        val requestId = onboardingCallbackRequestId(callback.action, callback.runId, query.id.toString())
+        val requestId = onboardingCallbackRequestId(
+            callback.action, callback.runId, query.id.toString(), message.messageId.long)
         try {
             actions.run(message.chat.id.toString(), requestId) {
                 analytics.safely { event(callback.runId, "callback:${query.id}:attempt", "action_attempt", Instant.now(),
