@@ -75,6 +75,25 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert status["startedUnix"] == body["startedUnix"]
 
 
+def test_start_call_scenario_contract_validates_and_passes_role() -> None:
+    llm = FakeLlm()
+    class OpeningModel(OnboardingModel):
+        async def start_call_question(self, context):
+            assert context["scenario"] == {"kind": "custom", "description": "Ask for a refund"}
+            return "What seems to be the problem with your purchase?"
+
+    pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
+    app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
+    with _client(app) as client:
+        base = {"sessionId": "tg-role"}
+        assert client.post("/internal/calls/start", json={**base, "scenarioKind": "custom"}).status_code == 400
+        assert client.post("/internal/calls/start", json={**base, "scenarioKind": "unknown"}).status_code == 400
+        result = client.post("/internal/calls/start", json={**base, "scenarioKind": "custom",
+                                                    "scenarioDescription": "  Ask for a refund  "})
+        assert result.status_code == 200
+        assert result.json()["question"] == "What seems to be the problem with your purchase?"
+
+
 def test_call_status_does_not_open_a_call() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:

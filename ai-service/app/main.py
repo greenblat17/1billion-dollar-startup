@@ -386,7 +386,17 @@ def create_app(
     @app.post("/internal/calls/start")
     async def calls_start(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return await call_starter.start(_call_session_id(payload), payload.get("firstName"))
+        kind = payload.get("scenarioKind")
+        description = payload.get("scenarioDescription")
+        if kind is None and description is None:
+            scenario = None
+        elif kind in {"job", "manager"} and description is None:
+            scenario = {"kind": kind, "description": ""}
+        elif kind == "custom" and isinstance(description, str) and 1 <= len(description.strip()) <= 500:
+            scenario = {"kind": kind, "description": description.strip()}
+        else:
+            raise HTTPException(status_code=400, detail="invalid scenario")
+        return await call_starter.start(_call_session_id(payload), payload.get("firstName"), scenario)
 
     @app.post("/internal/calls/starter-delivered")
     async def calls_starter_delivered(request: Request) -> dict[str, bool]:

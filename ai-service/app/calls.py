@@ -17,6 +17,7 @@ from app.metrics import METRICS_TIMEZONE
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
+_SCENARIO_UNSET = object()
 GoalLookup = Callable[[str], Awaitable[int | None]]
 
 
@@ -37,7 +38,7 @@ class CallStore:
     def lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
 
-    async def open(self, session_id: str) -> dict[str, Any]:
+    async def open(self, session_id: str, scenario: dict[str, str] | None | object = _SCENARIO_UNSET) -> dict[str, Any]:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
             day = moscow_day(self._clock())
@@ -50,9 +51,14 @@ class CallStore:
             already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
                 call = _new_call(session_id, day, self._clock())
+                call["scenario"] = None if scenario is _SCENARIO_UNSET else scenario
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
                 await self._append_day(session_id, day, call["id"])
+            elif scenario is not _SCENARIO_UNSET and not already_active and scenario != call.get("scenario"):
+                call["scenario"] = scenario
+                call["openingQuestion"] = None
+                await self._write_call(call)
             return {
                 **await self._summary(session_id, call, unseen=unseen, crossed=False),
                 "alreadyActive": already_active,
@@ -338,6 +344,7 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "seconds": 0.0,
         "turns": [],
         "openingQuestion": None,
+        "scenario": None,
         "openingDelivered": False,
         "review": None,
         "reviewOffered": False,
@@ -352,6 +359,7 @@ def _expire_call_content(call: dict, now: float) -> dict:
                      and isinstance(turn.get("receivedAt"), (int, float)) and turn["receivedAt"] > cutoff]
     if float(call.get("startedUnix") or 0) <= cutoff:
         call["openingQuestion"] = None
+        call["scenario"] = None
     if not call["turns"]:
         call["review"] = None
     return call

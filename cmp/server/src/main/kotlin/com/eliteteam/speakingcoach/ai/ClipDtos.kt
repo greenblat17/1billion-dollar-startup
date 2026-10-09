@@ -595,6 +595,8 @@ data class CallSessionRequest(
 data class StartCallRequest(
     val sessionId: String,
     val firstName: String? = null,
+    val scenarioKind: String? = null,
+    val scenarioDescription: String? = null,
 )
 
 @Serializable

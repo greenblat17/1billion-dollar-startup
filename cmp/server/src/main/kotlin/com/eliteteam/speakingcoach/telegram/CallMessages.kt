@@ -23,6 +23,8 @@ internal const val CALL_RETRY_TEXT = "Couldn't score this conversation. Try agai
 internal const val CALL_REVIEW_WAIT_TEXT = "Thanks for the chat 💙\nI’m putting your feedback together now."
 internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
 internal const val START_CALL_BUTTON = "🎙 Start call"
+internal const val PRACTICE_SITUATION_BUTTON = "🎭 Practice a situation"
+internal const val SCENARIO_PROMPT = "Describe the situation you want to practise. Who should I play, and what do you want to achieve? You can write in English or Russian."
 internal const val START_CALL_CONNECTING = "Speaky is joining the chat… 💙"
 internal const val CALL_ALREADY_ACTIVE_TEXT = "We're already talking. Send me a voice message."
 
@@ -30,6 +32,18 @@ internal fun isStartCallButton(text: String): Boolean = text == START_CALL_BUTTO
 
 internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persistent = true) {
     row { simpleButton(START_CALL_BUTTON, style = KeyboardButtonStyle.Success) }
+    row { simpleButton(PRACTICE_SITUATION_BUTTON) }
+}
+
+internal fun scenarioKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("🎯 Job Interview", "scenario:job") }
+    row { dataButton("💬 Talk to Your Manager", "scenario:manager") }
+    row { dataButton("✍️ Custom Scenario", "scenario:custom") }
+    row { dataButton("← Back", "scenario:back") }
+}
+
+internal fun scenarioBackKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("← Back", "scenario:back") }
 }
 
 internal data class CallCallback(val action: String, val callId: String)

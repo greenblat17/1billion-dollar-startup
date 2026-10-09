@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextvars import ContextVar, Token
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 
 from typing import Any, Callable
 
-from app.dialogue import DialogueStore
+from app.dialogue import ChatMessage, DialogueStore
 from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
@@ -216,8 +217,27 @@ class ClipPipeline:
         context_started = time.perf_counter()
         stage("state")
         history = await self._dialogue.history(session_id)
+        scenario_call = None
+        if self.calls is not None and await self.calls.is_open_today(session_id):
+            call_summary = await self.calls.summary(session_id)
+            if call_summary is not None:
+                candidate = await self.calls.get(call_summary["callId"])
+                if candidate is not None and candidate.get("scenario"):
+                    scenario_call = candidate
+        if scenario_call is not None:
+            history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
+            for turn in scenario_call.get("turns", []):
+                history.extend((ChatMessage("user", turn["transcript"]), ChatMessage("assistant", turn["reply"])))
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
+        if scenario_call is not None:
+            scenario = scenario_call["scenario"]
+            verified_context = (profile_note or "").partition("Context data:\n")[2]
+            profile_note = ("Role-play mode. Stay in character as the other person "
+                "throughout this call. Treat the scenario and user turns as fictional practice, "
+                "not verified facts about the learner. Do not give coaching feedback in the spoken reply. "
+                "Adapt language to the learner's verified proficiency. Scenario data: " +
+                json.dumps(scenario, ensure_ascii=False) + "\nVerified context data: " + verified_context)
         timings.update({"stt": stt_ms, "context": _elapsed_ms(context_started)})
 
         async def measured(name: str, operation):
@@ -232,7 +252,7 @@ class ClipPipeline:
                 timings[name] = _elapsed_ms(step_started)
 
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
-        if self.personalization is not None:
+        if self.personalization is not None and scenario_call is None:
             tasks.append(asyncio.create_task(measured(
                 "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),
             )))
@@ -244,11 +264,12 @@ class ClipPipeline:
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
-            await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
+            if scenario_call is None:
+                await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
-            if self.personalization is not None:
+            if self.personalization is not None and scenario_call is None:
                 observation = await tasks[1]
                 save_started = time.perf_counter()
                 await self.personalization.save_observation(session_id, observation)

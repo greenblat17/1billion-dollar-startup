@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.dialogue import MemoryDialogueStore
+from app.calls import CallStore
 from app.llm import CorrectionRun
 from app.pipeline import NOTES_TIMEOUT_SECONDS, ClipPipeline
 from app.stt import SttResult
@@ -18,8 +19,10 @@ class Llm:
     def __init__(self):
         self.notes_release = asyncio.Event()
         self.notes_cancelled = False
+        self.reply_contexts = []
 
     async def complete_reply(self, history, user_text, profile_note=None):
+        self.reply_contexts.append((history, profile_note))
         return "Tell me more about your work."
 
     async def complete_notes(self, user_text):
@@ -132,3 +135,28 @@ async def test_notes_deadline_returns_ready_audio_and_cancels_correction_request
     assert memory.saved
     snapshot = await service.metrics.snapshot()
     assert snapshot["corrections"]["deadline"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_scenario_turns_stay_in_role_and_out_of_personal_memory():
+    llm, tts, memory = Llm(), Tts(), Personalization()
+    service = pipeline(llm, tts, memory)
+    calls = CallStore()
+    service.calls = calls
+    summary = await calls.open("tg-role", {"kind": "job", "description": ""})
+    await calls.save_opening(summary["callId"], "Tell me about yourself?")
+    await calls.mark_opening_delivered(summary["callId"])
+    llm.notes_release.set()
+    tts.release.set()
+
+    await service.run("tg-role", b"voice", "audio/ogg", "voice.ogg")
+    await service.run("tg-role", b"voice", "audio/ogg", "voice.ogg")
+
+    assert [item.content for item in llm.reply_contexts[0][0]] == ["Tell me about yourself?"]
+    assert [item.content for item in llm.reply_contexts[1][0]] == [
+        "Tell me about yourself?", "I work in design.", "Tell me more about your work.",
+    ]
+    assert "Stay in character" in llm.reply_contexts[0][1]
+    assert not memory.extracted.is_set()
+    assert not memory.saved
+    assert await service.dialogue.history("tg-role") == []

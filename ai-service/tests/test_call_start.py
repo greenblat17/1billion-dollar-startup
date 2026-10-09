@@ -97,5 +97,36 @@ async def test_starter_retries_tts_without_regenerating_question_and_new_call_ge
     assert model.calls == 3
 
 
+@pytest.mark.asyncio
+async def test_scenario_is_persisted_on_call_and_not_added_to_personal_dialogue():
+    redis = FakeAsyncRedis(decode_responses=True)
+    calls = CallStore(redis=redis)
+    dialogue = MemoryDialogueStore(max_messages=40, ttl_seconds=86400)
+    starter = CallStarter(calls, Model(), Personalization(), dialogue, SessionSpeech(FakeTts()))
+    scenario = {"kind": "custom", "description": "I am negotiating rent with a landlord"}
+    opening = await starter.start("tg-2", scenario=scenario)
+    assert (await calls.get(opening["callId"]))["scenario"] == scenario
+    await starter.delivered(opening["callId"])
+    assert await dialogue.history("tg-2") == []
+    await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_switching_undelivered_opening_replaces_scenario_and_question():
+    calls = CallStore()
+    first = await calls.open("tg-3", {"kind": "job", "description": ""})
+    await calls.save_opening(first["callId"], "What are your strengths?")
+    second = await calls.open("tg-3", {"kind": "manager", "description": ""})
+    assert second["callId"] == first["callId"]
+    saved = await calls.get(first["callId"])
+    assert saved["scenario"] == {"kind": "manager", "description": ""}
+    assert saved["openingQuestion"] is None
+    await calls.save_opening(first["callId"], "Can you update me on the project?")
+    await calls.open("tg-3", None)
+    saved = await calls.get(first["callId"])
+    assert saved["scenario"] is None
+    assert saved["openingQuestion"] is None
+
+
 async def _goal():
     return 5

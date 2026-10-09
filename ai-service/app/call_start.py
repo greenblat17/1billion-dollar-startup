@@ -19,16 +19,18 @@ class CallStarter:
         self.speech = speech
         self._locks: dict[str, asyncio.Lock] = {}
 
-    async def start(self, session_id: str, first_name: str | None = None) -> dict:
+    async def start(self, session_id: str, first_name: str | None = None,
+                    scenario: dict[str, str] | None = None) -> dict:
         bound = bind_metrics(session_id)
         try:
-            return await self._start_locked(session_id, first_name)
+            return await self._start_locked(session_id, first_name, scenario)
         finally:
             reset_metrics(bound)
 
-    async def _start_locked(self, session_id: str, first_name: str | None = None) -> dict:
+    async def _start_locked(self, session_id: str, first_name: str | None = None,
+                            scenario: dict[str, str] | None = None) -> dict:
         async with self._locks.setdefault(session_id, asyncio.Lock()):
-            summary = await self.calls.open(session_id)
+            summary = await self.calls.open(session_id, scenario)
             call = await self.calls.get(summary["callId"])
             assert call is not None
             if call["turns"] or call.get("openingDelivered"):
@@ -44,6 +46,7 @@ class CallStarter:
                         {"role": turn.role, "content": turn.content}
                         for turn in history[-8:]
                     ],
+                    "scenario": call.get("scenario"),
                 })
                 await self.calls.save_opening(summary["callId"], question)
             audio = await self.speech.synthesize(session_id, question)
@@ -57,4 +60,6 @@ class CallStarter:
         opening = await self.calls.mark_opening_delivered(call_id)
         if opening is not None:
             session_id, question = opening
-            await self.dialogue.record_turn(session_id, "Let's start a practice conversation.", question)
+            call = await self.calls.get(call_id)
+            if call is not None and not call.get("scenario"):
+                await self.dialogue.record_turn(session_id, "Let's start a practice conversation.", question)

@@ -43,3 +43,14 @@ async def test_call_opening_rejects_extra_questions_in_follow_up():
     llm = Llm("How did it go? What happened next?")
     with pytest.raises(ValueError, match="missing call opening question"):
         await OnboardingModel(llm).start_call_question({})
+
+
+@pytest.mark.asyncio
+async def test_scenario_opening_starts_in_role_without_free_call_greeting():
+    llm = Llm("Tell me about a time you solved a difficult problem?")
+    opening = await OnboardingModel(llm).start_call_question({
+        "scenario": {"kind": "job", "description": ""}, "recentConversation": [],
+    })
+    assert opening == "Tell me about a time you solved a difficult problem?"
+    assert llm.payload == {"scenario": {"kind": "job", "description": ""}}
+    assert "play the interviewer" in llm.prompt

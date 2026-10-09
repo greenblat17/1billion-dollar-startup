@@ -251,11 +251,12 @@ class HttpClipClient(
         return response.body()
     }
 
-    suspend fun startCall(sessionId: SessionId, firstName: String?): StartCallResponse {
+    suspend fun startCall(sessionId: SessionId, firstName: String?, scenarioKind: String? = null,
+                          scenarioDescription: String? = null): StartCallResponse {
         val response = http.post("$root/internal/calls/start") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(StartCallRequest(sessionId.value, firstName))
+            setBody(StartCallRequest(sessionId.value, firstName, scenarioKind, scenarioDescription))
         }
         check(response.status.isSuccess()) { "ai-service start call returned ${response.status}" }
         return response.body()

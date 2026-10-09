@@ -130,6 +130,7 @@ private fun userAction(text: String): String = when {
     isRemindCommand(text) -> "remind"
     isSpeedCommand(text) -> "speed"
     isStartCallButton(text) -> "start-call"
+    text == PRACTICE_SITUATION_BUTTON -> "practice-situation"
     text.startsWith("/") -> "command"
     else -> "text"
 }
@@ -142,6 +143,7 @@ private fun callbackAction(data: String): String = when {
     data == ONBOARDING_PROGRESS_CALLBACK -> "callback:onboarding-progress"
     data == SPOKEN_TEXT_CALLBACK -> "callback:spoken-text"
     data == PROFILE_STREAK_CALLBACK -> "callback:streak"
+    data.startsWith("scenario:") -> "callback:scenario"
     else -> parseCallCallback(data)?.let { "callback:call:${it.action}" }
         ?: parseOnboardingCallback(data)?.let { "callback:${it.action}" }
         ?: "callback"
@@ -211,6 +213,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val progressMessages = ConcurrentHashMap<String, MessageId>()
     val onboardingReminderCards = ConcurrentHashMap<String, Pair<String, MessageId>>()
     val spokenLines = ConcurrentHashMap<String, String>()
+    val scenarioMenus = ConcurrentHashMap<String, MessageId>()
+    val customScenarioPrompts = ConcurrentHashMap<String, MessageId>()
+    suspend fun clearScenarioMenu(chat: Chat) {
+        val menuId = scenarioMenus.remove(chat.id.toString()) ?: return
+        try {
+            editMessageReplyMarkup(chat.id, menuId, replyMarkup = noInlineKeyboard)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Could not close scenario menu for {}", chat.id, error)
+        }
+    }
     suspend fun auditGenerated(message: ChatMessage, text: String, kind: String) {
         val chatId = telegramChatNumber(message.chat.id) ?: return
         try {
@@ -486,6 +500,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false, trigger: String = "start",
                       receivedAt: Instant = Instant.now()) {
+        customScenarioPrompts.remove(message.chat.id.toString())
+        clearScenarioMenu(message.chat)
         val sessionId = telegramSessionId(message.chat.id)
         val requestId = if (force) "force:${message.messageId}" else "message:${message.messageId}"
         if (force) {
@@ -563,7 +579,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
         }
     }
-    suspend fun startCall(message: ChatMessage, receivedAt: Instant) {
+    suspend fun startCall(message: ChatMessage, receivedAt: Instant, scenarioKind: String? = null,
+                          scenarioDescription: String? = null) {
+        val retryHint = if (scenarioKind == null) "🎙 Start call" else PRACTICE_SITUATION_BUTTON
         val sessionId = telegramSessionId(message.chat.id)
         val chatId = callChat(message)
         val startKey = "start:${message.chat.id}:${message.messageId.long}"
@@ -627,7 +645,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         sendMessage(message.chat.id, START_CALL_CONNECTING, replyMarkup = ReplyKeyboardRemove())
         showStatus(message.chat, RecordVoiceAction)
         val opening = try {
-            ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName)
+            ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName,
+                scenarioKind, scenarioDescription)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -644,7 +663,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     chatId, Instant.ofEpochMilli((opened.startedUnix * 1000).toLong()),
                     callId = opened.callId))
             log.warn("Failed to prepare call opening for {}", sessionId.value, error)
-            reply(message, "I couldn't start the conversation. Tap 🎙 Start call to try again.",
+            reply(message, "I couldn't start the conversation. Tap $retryHint to try again.",
                 allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
             return
         }
@@ -684,7 +703,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             if (chatId != null) callEvent(CallEvent(startKey, "start_pressed", chatId, receivedAt,
                 callId = opening.callId, messageId = message.messageId.long, state = "delivery_failed"))
             log.warn("Failed to send call opening for {}", sessionId.value, error)
-            reply(message, "I couldn't start the conversation. Tap 🎙 Start call to try again.",
+            reply(message, "I couldn't start the conversation. Tap $retryHint to try again.",
                 allowSendingWithoutReply = true, replyMarkup = startCallKeyboard())
             return
         }
@@ -1408,6 +1427,45 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data in setOf("scenario:job", "scenario:manager", "scenario:custom", "scenario:back")) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "scenario:${query.id}") {
+                    val key = message.chat.id.toString()
+                    if (scenarioMenus[key] != message.messageId) {
+                        editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                        return@run
+                    }
+                    when (query.data) {
+                        "scenario:back" -> {
+                            customScenarioPrompts.remove(key)
+                            scenarioMenus.remove(key)
+                            editMessageText(message.chat.id, message.messageId,
+                                "Choose how you'd like to practise.", replyMarkup = noInlineKeyboard)
+                        }
+                        "scenario:custom" -> {
+                            customScenarioPrompts[key] = message.messageId
+                            editMessageText(message.chat.id, message.messageId, SCENARIO_PROMPT,
+                                replyMarkup = scenarioBackKeyboard())
+                        }
+                        else -> {
+                            scenarioMenus.remove(key)
+                            customScenarioPrompts.remove(key)
+                            editMessageText(message.chat.id, message.messageId,
+                                if (query.data == "scenario:job") "🎯 Job Interview" else "💬 Talk to Your Manager",
+                                replyMarkup = noInlineKeyboard)
+                            startCall(message, callbackReceivedAt, query.data.removePrefix("scenario:"))
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Scenario selection failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         val selectedSpeed = parseSpeedCallback(query.data)
         if (selectedSpeed != null) {
             log.info("Updating speech speed")
@@ -1785,7 +1843,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         handle(message, isVoice = message.content is VoiceContent, receivedAt = receivedAt,
             onActionStart = { chatQueueNs.set(it) }, terminalOutcome = terminalOutcome) {
             when (val content = message.content) {
-                is VoiceContent -> voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
+                is VoiceContent -> {
+                    customScenarioPrompts.remove(message.chat.id.toString())
+                    clearScenarioMenu(message.chat)
+                    voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
+                }
                 is TextContent -> when {
                     isStartCommand(content.text) -> greet(message, content.text, receivedAt = receivedAt)
                     isOnboardingCommand(content.text) -> greet(message, content.text, force = true, trigger = "onboarding_command")
@@ -1793,8 +1855,41 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
-                    isStartCallButton(content.text) -> startCall(message, receivedAt)
+                    isStartCallButton(content.text) -> {
+                        customScenarioPrompts.remove(message.chat.id.toString())
+                        clearScenarioMenu(message.chat)
+                        startCall(message, receivedAt)
+                    }
+                    content.text == PRACTICE_SITUATION_BUTTON -> {
+                        val key = message.chat.id.toString()
+                        customScenarioPrompts.remove(key)
+                        clearScenarioMenu(message.chat)
+                        val menu = reply(message, "Choose a situation to practise:",
+                            allowSendingWithoutReply = true, replyMarkup = scenarioKeyboard())
+                        scenarioMenus[key] = menu.messageId
+                    }
                     content.text.startsWith("/") -> log.info("Ignoring command")
+                    customScenarioPrompts.containsKey(message.chat.id.toString()) -> {
+                        val key = message.chat.id.toString()
+                        val description = content.text.trim()
+                        if (description.isEmpty() || description.length > 500) {
+                            reply(message, "Please describe the situation in up to 500 characters.",
+                                allowSendingWithoutReply = true)
+                        } else {
+                            customScenarioPrompts.remove(key)
+                            scenarioMenus.remove(key)?.let { menuId ->
+                                try {
+                                    editMessageText(message.chat.id, menuId, "✍️ Custom Scenario",
+                                        replyMarkup = noInlineKeyboard)
+                                } catch (error: CancellationException) {
+                                    throw error
+                                } catch (error: Throwable) {
+                                    log.warn("Could not close custom scenario prompt for {}", key, error)
+                                }
+                            }
+                            startCall(message, receivedAt, "custom", description)
+                        }
+                    }
                     else -> {
                         log.info("Submitting reminder time")
                         val scheduled = ai.scheduleReminder(

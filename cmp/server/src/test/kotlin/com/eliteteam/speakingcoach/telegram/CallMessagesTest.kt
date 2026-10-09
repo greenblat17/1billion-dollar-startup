@@ -114,12 +114,22 @@ class CallMessagesTest {
     @Test
     fun startCallButtonUsesPersistentReplyKeyboardAndExactText() {
         val keyboard = startCallKeyboard()
-        assertEquals(START_CALL_BUTTON, keyboard.keyboard.single().single().text)
-        assertEquals(KeyboardButtonStyle.Success, keyboard.keyboard.single().single().style)
+        assertEquals(listOf(START_CALL_BUTTON, PRACTICE_SITUATION_BUTTON),
+            keyboard.keyboard.map { it.single().text })
+        assertEquals(KeyboardButtonStyle.Success, keyboard.keyboard.first().single().style)
         assertEquals(true, keyboard.persistent)
         assertTrue(isStartCallButton(START_CALL_BUTTON))
         assertTrue(!isStartCallButton("Start call"))
         assertEquals("Speaky is joining the chat… 💙", START_CALL_CONNECTING)
+    }
+
+    @Test
+    fun scenarioMenuHasThreeChoicesAndBack() {
+        val buttons = scenarioKeyboard().keyboard.map { it.single() as CallbackDataInlineKeyboardButton }
+        assertEquals(listOf("🎯 Job Interview", "💬 Talk to Your Manager", "✍️ Custom Scenario", "← Back"),
+            buttons.map { it.text })
+        assertEquals(listOf("scenario:job", "scenario:manager", "scenario:custom", "scenario:back"),
+            buttons.map { it.callbackData })
     }
 
     private fun TextSourcesList.plain(): String = joinToString("") { it.source }

@@ -1,5 +1,9 @@
 # Telegram practice calls
 
+Situation practice extends the same call lifecycle. Its menu, scenario state, fictional
+memory boundary, and MVP scope are recorded in
+[Telegram practice situations](../plans/2026-10-09-telegram-practice-situations.md).
+
 After onboarding, a voice is a practice call with a start and an end. Onboarding stays Session 0. The rolling dialogue and learner memory continue across calls.
 
 ## When a call opens
