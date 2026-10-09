@@ -1,0 +1,146 @@
+[
+  {
+    "id": "plain_correct",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["I work as a software engineer. I like hiking and cooking."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "already_natural",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["After work, I like to unwind with a book. On weekends I catch up with friends."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "worthwhile_idiom",
+    "surface": "onboarding",
+    "expectation": "optional",
+    "transcripts": ["I work on my photography projects in addition to my full-time job. I usually edit pictures after dinner."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "awkward_original",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["In a perfect case scenario, we finish early. Then we can go home."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "grammar_is_not_vocabulary",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["I am agree with you. I do a lot of work each week."],
+    "grammarExamples": [{"wrong": "I am agree with you", "better": "I agree with you"}],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "build_is_not_launch",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["I am building a startup with two friends. We are still testing the first version and have not launched it."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "asr_false_start",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["I, I, uh, make make my project, maybe yesterday maybe tomorrow. I don't know."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "style_only",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["The meeting was very interesting. I liked it a lot."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "vocabulary_error_present",
+    "surface": "onboarding",
+    "expectation": "none",
+    "transcripts": ["I did a decision yesterday. Then I called my friend."],
+    "grammarExamples": [],
+    "vocabularyExamples": [{"wrong": "I did a decision", "better": "I made a decision"}]
+  },
+  {
+    "id": "plain_correct_call",
+    "surface": "call",
+    "expectation": "none",
+    "transcripts": ["I work as a software engineer. I like hiking and cooking."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "worthwhile_idiom_call",
+    "surface": "call",
+    "expectation": "optional",
+    "transcripts": ["I work on my photography projects in addition to my full-time job. I usually edit pictures after dinner."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "build_is_not_launch_call",
+    "surface": "call",
+    "expectation": "none",
+    "transcripts": ["I am building a startup with two friends. We are still testing the first version and have not launched it."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "vocabulary_error_present_call",
+    "surface": "call",
+    "expectation": "none",
+    "transcripts": ["I did a decision yesterday. Then I called my friend."],
+    "grammarExamples": [],
+    "vocabularyExamples": [{"wrong": "I did a decision", "better": "I made a decision"}]
+  },
+  {
+    "id": "switch_off_after_work",
+    "surface": "onboarding",
+    "expectation": "optional",
+    "transcripts": ["I often continue thinking about work after I get home, so it's hard to relax. I usually go for a walk to clear my head."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "make_do_with_tools",
+    "surface": "onboarding",
+    "expectation": "optional",
+    "transcripts": ["When I don't have the right tool, I try to use the tools I already have. I can usually finish the job that way."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "unplug_for_a_while",
+    "surface": "onboarding",
+    "expectation": "optional",
+    "transcripts": ["At the end of the day, I try to spend some time without looking at my phone. It helps me relax before bed."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "dabble_in_hobbies",
+    "surface": "onboarding",
+    "expectation": "optional",
+    "transcripts": ["I don't spend all my free time on one thing. I do a little bit of coding, reading, and running."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  },
+  {
+    "id": "on_the_side_second_job",
+    "surface": "call",
+    "expectation": "optional",
+    "transcripts": ["I have a second job that I do in the evenings besides my main job. It takes a few hours each week."],
+    "grammarExamples": [],
+    "vocabularyExamples": []
+  }
+]

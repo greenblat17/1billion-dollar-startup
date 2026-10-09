@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+from app.onboarding import FIRST_QUESTION
+
 from dataclasses import replace
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.llm import Correction
 from app.main import create_app
+from app.onboarding_model import OnboardingModel
+from app.dialogue import MemoryDialogueStore
+from app.pipeline import ClipPipeline
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
 from tests.conftest import test_settings as make_settings
 
@@ -43,6 +49,97 @@ def test_health() -> None:
         assert response.json() == {"status": "ok"}
 
 
+def test_start_call_internal_contract_and_delivery() -> None:
+    llm = FakeLlm()
+    class OpeningModel(OnboardingModel):
+        async def start_call_question(self, context):
+            assert context["firstName"] == "Alex"
+            return "Hi, Alex! How are you? What made you smile today?"
+
+    pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
+    app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1", "firstName": "Alex"}
+        first = client.post("/internal/calls/start", json=payload)
+        assert first.status_code == 200
+        body = first.json()
+        assert body["status"] == "ready"
+        assert body["question"] == "Hi, Alex! How are you? What made you smile today?"
+        assert body["audioBase64"]
+        assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
+        assert client.post("/internal/calls/starter-delivered", json={"callId": body["callId"]}).status_code == 200
+        assert client.post("/internal/calls/start", json=payload).json()["status"] == "active"
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is True
+        assert status["callId"] == body["callId"]
+        assert status["startedUnix"] == body["startedUnix"]
+
+
+def test_start_call_scenario_contract_validates_and_passes_role() -> None:
+    llm = FakeLlm()
+    class OpeningModel(OnboardingModel):
+        async def start_call_question(self, context):
+            assert context["scenario"] == {"kind": "custom", "description": "Ask for a refund"}
+            return "What seems to be the problem with your purchase?"
+
+    pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
+    app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
+    with _client(app) as client:
+        base = {"sessionId": "tg-role"}
+        assert client.post("/internal/calls/start", json={**base, "scenarioKind": "custom"}).status_code == 400
+        assert client.post("/internal/calls/start", json={**base, "scenarioKind": "unknown"}).status_code == 400
+        result = client.post("/internal/calls/start", json={**base, "scenarioKind": "custom",
+                                                    "scenarioDescription": "  Ask for a refund  "})
+        assert result.status_code == 200
+        assert result.json()["question"] == "What seems to be the problem with your purchase?"
+
+
+def test_call_status_does_not_open_a_call() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
+        first = client.post("/internal/calls/open", json=payload).json()
+        assert first["alreadyActive"] is False
+        status = client.post("/internal/calls/status", json=payload).json()
+        assert status["active"] is False
+        assert status["callId"] == first["callId"]
+        assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
+        assert client.post("/internal/calls/end", json=payload).status_code == 200
+        assert client.post("/internal/calls/status", json=payload).json()["active"] is False
+
+
+def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-123"}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
+        assert client.post("/internal/funnel/start", json=payload).status_code == 200
+        state = client.post("/internal/onboarding/state", json={**payload, "requestId": "voice:1"}).json()
+        assert state["status"] == "exempt"
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
+        assert client.post("/internal/onboarding/legacy-invitation", json={**payload, "action": "release"}).json() == {"ok": True}
+        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
+
+
+def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        call_id = client.post("/internal/calls/open", json=payload).json()["callId"]
+        voice = {**payload, "callId": call_id, "messageId": 42}
+        assert client.post("/internal/calls/telegram-voice", json=voice).json() == {"firstReplyToStarter": False}
+        assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": 43}).status_code == 200
+        ended = client.post("/internal/calls/end", json=payload).json()
+        assert ended["callId"] == call_id
+        assert ended["lastVoiceMessageId"] == 43
+        assert ended["reason"] == "end_button"
+        assert ended["endedUnix"] is not None
+        assert client.post("/internal/calls/telegram-voice", json=voice).status_code == 409
+        assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": -1}).status_code == 400
+
+
 def test_create_app_requires_internal_token() -> None:
     with pytest.raises(RuntimeError, match="AI_INTERNAL_TOKEN"):
         create_app(settings=replace(make_settings(), ai_internal_token=None))
@@ -69,6 +166,18 @@ def test_clips_with_wrong_internal_token_are_401() -> None:
         assert client.post("/v1/sessions").status_code == 401
 
 
+def test_prometheus_scrape_accepts_bearer_token() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer test-internal-token"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 200
+
+
+def test_wrong_bearer_token_is_401() -> None:
+    app, _, _, _ = build_app()
+    with TestClient(app, headers={"Authorization": "Bearer nope"}) as client:
+        assert client.get("/internal/metrics/prometheus").status_code == 401
+
+
 def test_unknown_job_is_404() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:
@@ -87,8 +196,9 @@ def test_unknown_session_clip_is_404() -> None:
         assert created.status_code == 404
 
 
-def test_session_greeting_audio() -> None:
-    tts = FakeTts()
+@pytest.mark.parametrize("media_type,prefix", [("audio/ogg", b"OggS"), ("audio/mpeg", b"ID3")])
+def test_session_greeting_audio(media_type: str, prefix: bytes) -> None:
+    tts = FakeTts(media_type)
     app, _, _, tts = build_app(tts=tts)
     with _client(app) as client:
         response = client.post("/v1/sessions")
@@ -98,13 +208,15 @@ def test_session_greeting_audio() -> None:
         assert "this is actually my voice" not in body["greeting"]["text"]
         audio = client.get(f"/v1/sessions/{session_id}/greeting/audio")
         assert audio.status_code == 200
-        assert audio.content.startswith(b"OggS")
+        assert audio.headers["content-type"].startswith(media_type)
+        assert audio.content.startswith(prefix)
         assert any("this is actually my voice" in text for text in tts.texts)
         assert client.get("/v1/sessions/missing/greeting/audio").status_code == 404
 
 
-def test_clip_contract_returns_audio() -> None:
-    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]))
+@pytest.mark.parametrize("media_type,prefix", [("audio/ogg", b"OggS"), ("audio/mpeg", b"ID3")])
+def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
+    app, _, _, tts = build_app(stt=FakeStt(["I went to the shop"]), tts=FakeTts(media_type))
     with _client(app) as client:
         session_id = _start_session(client)
         created = client.post(
@@ -123,14 +235,49 @@ def test_clip_contract_returns_audio() -> None:
         assert "timingsMs" in body
         audio = client.get(f"/v1/clips/{job_id}/audio")
         assert audio.status_code == 200
-        assert audio.headers["content-type"].startswith("audio/ogg")
-        assert audio.content.startswith(b"OggS")
-        assert tts.texts == ["Got it: I went to the shop"]
+        assert audio.headers["content-type"].startswith(media_type)
+        assert audio.content.startswith(prefix)
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
 
 
-def test_empty_transcript_clarifies_without_llm() -> None:
+def test_clip_failures_are_counted_without_exposing_error_text() -> None:
+    class FailingTts(FakeTts):
+        async def synthesize(self, text: str, speed: float | None = None):
+            raise RuntimeError("provider rejected <audio>: token=sk-secret123456")
+
+    app, _, _, _ = build_app(stt=FakeStt(["hello"]), tts=FailingTts())
+    with _client(app) as client:
+        attempt_id = str(uuid4())
+        session_id = _start_session(client)
+        assert client.post(
+            "/internal/funnel/start", json={"sessionId": session_id, "username": "@alex"},
+        ).status_code == 200
+        created = client.post(
+            "/v1/clips",
+            data={"sessionId": session_id, "attemptId": attempt_id},
+            files={"audio": ("voice.ogg", b"voice", "audio/ogg")},
+        )
+        failed = _wait_status(client, created.json()["jobId"])
+        assert failed["status"] == "error"
+        assert failed["error"]["stage"] == "tts"
+        assert failed["error"]["reason"] == "internal"
+        assert failed["timingsMs"]["tts"] >= 0
+        metrics = client.get("/internal/metrics").json()
+        assert metrics["errors"]["today"]["pipelineFailed"] == 1
+        recent = metrics["errors"]["recent"][0]
+        assert recent["username"] == "alex"
+        assert recent["telegramId"] is None
+        assert recent["stage"] == "tts"
+        assert recent["attemptId"] == attempt_id
+        assert recent["jobId"] == created.json()["jobId"]
+        assert recent["message"].startswith("RuntimeError: provider rejected <audio>")
+        assert "secret123456" not in str(metrics["errors"])
+
+
+@pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])
+def test_empty_transcript_clarifies_without_llm(media_type: str) -> None:
     llm = FakeLlm()
-    tts = FakeTts()
+    tts = FakeTts(media_type)
     app, _, llm, tts = build_app(stt=FakeStt([""]), llm=llm, tts=tts)
     with _client(app) as client:
         session_id = _start_session(client)
@@ -144,9 +291,11 @@ def test_empty_transcript_clarifies_without_llm() -> None:
         assert body["status"] == "ok"
         assert body["replyText"] == "I didn't catch that. Could you say it again?"
         assert body["result"]["notes"] == []
+        audio = client.get(f"/v1/clips/{job_id}/audio")
+        assert audio.headers["content-type"].startswith(media_type)
         assert llm.calls == []
         assert llm.notes_calls == []
-        assert tts.texts == ["I didn't catch that. Could you say it again?"]
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["I didn't catch that. Could you say it again?"]
 
 
 def test_second_clip_includes_dialogue_history() -> None:
@@ -196,7 +345,9 @@ def test_create_session_with_id_is_get_or_create() -> None:
 
 
 def test_clip_includes_coaching_notes() -> None:
-    llm = FakeLlm(notes=[Correction("I was in Turkey", "I went to Turkey", "grammar")])
+    llm = FakeLlm(notes=[Correction(
+        "I was in Turkey", "I went to Turkey", "grammar", "Для поездки здесь нужен глагол went.",
+    )])
     app, _, _, tts = build_app(stt=FakeStt(["I was in Turkey last summer"]), llm=llm)
     with _client(app) as client:
         session_id = _start_session(client)
@@ -209,10 +360,11 @@ def test_clip_includes_coaching_notes() -> None:
         assert body["status"] == "ok"
         assert body["result"]["notes"] == ["I was in Turkey|||I went to Turkey"]
         assert body["result"]["corrections"] == [
-            {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar"},
+            {"wrong": "I was in Turkey", "better": "I went to Turkey", "kind": "grammar",
+             "explanation": "Для поездки здесь нужен глагол went."},
         ]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
-        assert tts.texts == ["Got it: I was in Turkey last summer"]
+        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I was in Turkey last summer"]
 
 
 def test_internal_realtime_and_review() -> None:
@@ -257,5 +409,3 @@ def test_internal_realtime_rejects_bad_topic() -> None:
             json={"sdp": "v=0", "topic": "Random", "tutorVoice": "marin"},
         )
         assert response.status_code == 400
-
-

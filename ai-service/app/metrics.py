@@ -5,33 +5,55 @@ import json
 import math
 import re
 import time
-from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field, replace
+from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from redis.asyncio import Redis
+from redis.exceptions import WatchError
 
 METRICS_TIMEZONE = "Europe/Moscow"
 LLM_WINDOW_SECONDS = 60
 LLM_RETAIN_SECONDS = 120
+LLM_PURPOSES = ("reply", "notes", "onboarding", "session_review")
 CHAT_LIMIT = 200
 FUNNEL_WINDOW_DAYS = 14
 FUNNEL_WEEK_DAYS = 7
+ERROR_WINDOW_DAYS = 14
+ERROR_RETAIN_SECONDS = 30 * 24 * 60 * 60
+RECENT_ERROR_LIMIT = 15
+ERROR_MESSAGE_MAX_CHARS = 240
+ERROR_REASONS = frozenset({"timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal", "unknown"})
 ENGAGED_EXCHANGES = 3
 DIRECT_SOURCE = "direct"
 USERNAME_MAX_CHARS = 64
 NAME_MAX_CHARS = 128
-TELEGRAM_SESSION_PREFIX = "tg-"
 REMINDER_SENT_TTL_SECONDS = 2 * 24 * 60 * 60
+REMINDER_ANALYTICS_TTL_SECONDS = 40 * 24 * 60 * 60
+REMINDER_GRACE = timedelta(hours=2)
+REMINDER_SETTING_EVENTS = ("set_from_empty", "changed", "cleared")
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 _EVENTS_KEY = "metrics:llm:events"
+CORRECTION_OUTCOMES = frozenset({
+    "shown", "empty", "filtered", "deadline", "rate_limit", "provider_5xx",
+    "provider_4xx", "network", "no_choices", "empty_text", "provider_timeout",
+    "invalid_json", "invalid_schema", "token_limit", "other_error",
+})
+PARTIAL_FEATURES = frozenset({"streak", "call_turn", "call_summary", "assessment", "review", "review_verification", "closing_voice", "closing_callback", "follow_up_card"})
+PARTIAL_OUTCOMES = frozenset({"attempted", "succeeded", "failed", "skipped"})
+_PARTIAL_RECENT_KEY = "metrics:partial:recent"
+PROVIDER_SERVICES = frozenset({"stt", "reply_llm", "tts"})
+PROVIDER_NAMES = frozenset({"groq", "deepgram", "openrouter", "openai", "unknown"})
+PROVIDER_RESULTS = frozenset({"ok", "timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal"})
+_RECENT_ERRORS_KEY = "metrics:clip-errors:recent"
 _CHATS_KEY = "metrics:chats"
 _FUNNEL_SOURCES_KEY = "metrics:funnel:sources"
 _SOURCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # Production Ktor builds ids from tgbotapi ChatId.toString(), e.g. "tg-ChatId(chatId=123)".
 _TELEGRAM_SESSION_RE = re.compile(r"tg-(-?\d+)|tg-ChatId\(chatId=(-?\d+)\)")
+_CLOCK_RE = re.compile(r"(\d{1,2}):(\d{2})")
 
 
 @dataclass(frozen=True)
@@ -53,8 +75,8 @@ class MetricRates:
 
 # List prices in USD. The page shows rubles at a fixed rate and does not fetch FX.
 RUB_PER_USD = 90.0
-LLM_PROMPT_USD_PER_MILLION = 0.15  # OpenRouter openai/gpt-4o-mini input
-LLM_COMPLETION_USD_PER_MILLION = 0.60  # OpenRouter openai/gpt-4o-mini output
+LLM_PROMPT_USD_PER_MILLION = 0.20  # OpenRouter openai/gpt-5.6-luna input
+LLM_COMPLETION_USD_PER_MILLION = 1.20  # OpenRouter openai/gpt-5.6-luna output
 STT_USD_PER_HOUR = 0.111  # Groq whisper-large-v3
 TTS_USD_PER_MILLION_CHARS = 0.62  # OpenRouter hexgrad/kokoro-82m
 
@@ -70,6 +92,9 @@ DEFAULT_RATES = MetricRates(
 class DayTotals:
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    llm_requests: int = 0
+    llm_failures: int = 0
+    llm_by_purpose: dict[str, int] = field(default_factory=dict)
     stt_ms: int = 0
     tts_chars: int = 0
     turns: int = 0
@@ -90,6 +115,7 @@ class ChatRow:
     last_unix: float
     username: str = ""
     name: str = ""
+    start_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -102,6 +128,7 @@ class ChatProfile:
 class ReminderTarget:
     session_id: str
     name: str = ""
+    hour: str | None = None
 
 
 @dataclass
@@ -134,12 +161,30 @@ class FunnelDelta:
 
 
 class MetricsStore(Protocol):
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None: ...
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None: ...
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None: ...
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        session_id: str | None = None,
+        stage: str | None = None,
+        message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
+        now: float | None = None,
+    ) -> None: ...
+
     async def record_llm(
         self,
         prompt_tokens: int,
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None: ...
 
@@ -168,9 +213,32 @@ class MetricsStore(Protocol):
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]: ...
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]: ...
+
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]: ...
 
     async def reminder_forecast(self, *, now: float | None = None) -> int: ...
+
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]: ...
+
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]: ...
+
+    async def reminder_time(self, session_id: str) -> str | None: ...
+
+    async def reminder_summary(self) -> dict[str, Any]: ...
+
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]: ...
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]: ...
+    async def reminder_tracking_since(self) -> str: ...
+
+    async def is_known(self, session_id: str) -> bool: ...
 
     async def is_activated(self, session_id: str) -> bool: ...
 
@@ -181,6 +249,13 @@ class MemoryMetricsStore:
     def __init__(self, rates: MetricRates) -> None:
         self._rates = rates
         self._days: dict[str, DayTotals] = {}
+        self._corrections: dict[str, dict[str, dict[str, int]]] = {}
+        self._clip_results: dict[str, dict[str, int]] = {}
+        self._clip_reasons: dict[str, dict[str, int]] = {}
+        self._partial: dict[str, dict[str, int]] = {}
+        self._partial_recent: list[dict[str, Any]] = []
+        self._provider: dict[str, dict[str, int]] = {}
+        self._recent_errors: list[dict[str, Any]] = []
         self._dau: dict[str, set[str]] = {}
         self._samples: list[LlmSample] = []
         self._chats: dict[str, ChatRow] = {}
@@ -189,6 +264,11 @@ class MemoryMetricsStore:
         self._funnel_days: dict[str, FunnelCounts] = {}
         self._funnel_sources: dict[tuple[str, str], FunnelCounts] = {}
         self._reminded: set[tuple[str, str]] = set()
+        self._reminder_times: dict[str, str] = {}
+        self._reminder_pending: dict[str, str] = {}
+        self._reminder_activity: dict[str, dict[str, set[str]]] = {}
+        self._reminder_claimed: dict[str, int] = {}
+        self._reminder_tracking_start = metrics_day(time.time())
         self._lock = asyncio.Lock()
 
     async def record_llm(
@@ -197,21 +277,85 @@ class MemoryMetricsStore:
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None:
+        if purpose not in LLM_PURPOSES:
+            raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
         sample = LlmSample(
             ts=moment,
-            prompt_tokens=nonneg_int(prompt_tokens),
-            completion_tokens=nonneg_int(completion_tokens),
+            prompt_tokens=nonneg_int(prompt_tokens) if success else 0,
+            completion_tokens=nonneg_int(completion_tokens) if success else 0,
             elapsed_ms=nonneg_int(elapsed_ms),
         )
         async with self._lock:
             day = self._days.setdefault(metrics_day(moment), DayTotals())
             day.prompt_tokens += sample.prompt_tokens
             day.completion_tokens += sample.completion_tokens
-            self._samples.append(sample)
-            self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
+            day.llm_requests += 1
+            day.llm_failures += int(not success)
+            day.llm_by_purpose[purpose] = day.llm_by_purpose.get(purpose, 0) + 1
+            if success:
+                self._samples.append(sample)
+                self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
+
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        _check_correction_outcome(outcome)
+        _check_correction_attempts(attempts)
+        async with self._lock:
+            counters = self._corrections.setdefault(metrics_day(_moment(now)), {})
+            item = counters.setdefault(outcome, {"count": 0, "elapsedMs": 0, "secondAttempts": 0})
+            item["count"] += 1
+            item["elapsedMs"] += nonneg_int(elapsed_ms)
+            item["secondAttempts"] += int(attempts == 2)
+
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        session_id: str | None = None,
+        stage: str | None = None,
+        message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
+        now: float | None = None,
+    ) -> None:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
+        field = _clip_result_field(error_code)
+        async with self._lock:
+            counts = self._clip_results.setdefault(day_name, {})
+            counts[field] = counts.get(field, 0) + 1
+            if error_code is not None:
+                reason_key = _clip_reason_key(stage, reason)
+                reasons = self._clip_reasons.setdefault(day_name, {})
+                reasons[reason_key] = reasons.get(reason_key, 0) + 1
+                username = self._profiles.get(session_id or "", ChatProfile()).username
+                telegram_id = telegram_chat_id(session_id or "")
+                self._recent_errors.insert(0, _error_event(moment, error_code, stage, message, username, telegram_id,
+                                                         job_id, attempt_id, reason))
+                self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
+
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        _check_partial(feature, outcome)
+        moment = _moment(now)
+        async with self._lock:
+            counts = self._partial.setdefault(metrics_day(moment), {})
+            key = f"{feature}:{outcome}"
+            counts[key] = counts.get(key, 0) + 1
+            if outcome == "failed":
+                self._partial_recent.insert(0, _partial_event(moment, feature, reason))
+                self._partial_recent = self._partial_recent[:RECENT_ERROR_LIMIT]
+
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        _check_provider(service, kind, result, provider)
+        async with self._lock:
+            counts = self._provider.setdefault(metrics_day(_moment(now)), {})
+            key = f"{service}:{provider}:{kind}:{result}"
+            counts[key] = counts.get(key, 0) + 1
 
     async def record_turn(
         self,
@@ -236,6 +380,11 @@ class MemoryMetricsStore:
         now: float | None = None,
     ) -> None:
         await self._record_funnel(session_id, "start", source, now)
+        session = session_id.strip()
+        if session:
+            moment = _moment(now)
+            async with self._lock:
+                self._chats.setdefault(session, ChatRow(session_id=session, turns=0, last_unix=moment))
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "voice", None, now)
@@ -257,7 +406,9 @@ class MemoryMetricsStore:
             chats = []
             for row in self._chats.values():
                 profile = self._profiles.get(row.session_id, ChatProfile())
-                chats.append(replace(row, username=profile.username, name=profile.name))
+                user = self._funnel_users.get(row.session_id)
+                chats.append(replace(row, username=profile.username, name=profile.name,
+                                     start_only=bool(user and user.start_day and not user.activated_day and row.turns == 0)))
             payload = build_snapshot(
                 now=moment,
                 day=self._days.get(day_name, DayTotals()),
@@ -267,25 +418,121 @@ class MemoryMetricsStore:
                 rates=self._rates,
             )
             payload.update(funnel_view(moment, self._funnel_days, self._funnel_sources))
+            payload["corrections"] = {key: value.copy() for key, value in self._corrections.get(day_name, {}).items()}
+            payload["errors"] = error_view(moment, self._clip_results, self._recent_errors, self._clip_reasons)
+            payload["partialFailures"] = self._partial.get(day_name, {}).copy()
+            payload["partialRecent"] = _partial_recent_view(moment, self._partial_recent)
+            payload["providerOutcomes"] = self._provider.get(day_name, {}).copy()
             return payload
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
-        day_name = metrics_day(_moment(now))
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        async with self._lock:
+            days = [self._days.get(day.isoformat(), DayTotals()) for day in llm_days(from_day, to_day)]
+            return llm_range_snapshot(from_day, to_day, days)
+
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]:
+        session = session_id.strip()
+        if not session:
+            raise ValueError("session id required")
+        async with self._lock:
+            decision = schedule_decision(action, self._reminder_pending.get(session), text, run_id)
+            previous = self._reminder_times.get(session)
+            self._apply_schedule(session, decision)
+            event = reminder_setting_event(previous, decision)
+            if event is not None and telegram_chat_id(session) is not None:
+                self._reminder_activity.setdefault(metrics_day(time.time()), {}).setdefault(event, set()).add(session)
+            return public_schedule(decision)
+
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        async with self._lock:
+            return self._reminder_times.get(session)
+
+    async def reminder_summary(self) -> dict[str, Any]:
+        async with self._lock:
+            hours = empty_reminder_hours()
+            for session, clock in self._reminder_times.items():
+                add_reminder_hour(hours, session, clock)
+            return reminder_summary(hours)
+
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]:
+        async with self._lock:
+            return {
+                day: {**{event: len(self._reminder_activity.get(day, {}).get(event, set())) for event in REMINDER_SETTING_EVENTS},
+                      "skipped_active": len(self._reminder_activity.get(day, {}).get("skipped_active", set())),
+                      "claimed_auto": self._reminder_claimed.get(day, 0)}
+                for day in days
+            }
+
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]:
+        async with self._lock:
+            return {event: len(set().union(*(self._reminder_activity.get(day, {}).get(event, set()) for day in days)))
+                    for event in REMINDER_SETTING_EVENTS}
+
+    async def reminder_tracking_since(self) -> str:
+        return self._reminder_tracking_start
+
+    def _apply_schedule(self, session: str, decision: dict[str, str]) -> None:
+        if "write_pending" in decision:
+            if decision["write_pending"]:
+                self._reminder_pending[session] = decision["write_pending"]
+            else:
+                self._reminder_pending.pop(session, None)
+        if decision.get("clear_time"):
+            self._reminder_times.pop(session, None)
+        elif decision.get("time"):
+            self._reminder_times[session] = decision["time"]
+
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         async with self._lock:
             targets = []
-            for session in self._reminder_candidates(day_name):
+            if mode == "auto":
+                for session, clock in self._reminder_times.items():
+                    if (telegram_chat_id(session) is not None and (day_name, session) not in self._reminded
+                            and session in self._dau.get(day_name, set())
+                            and reminder_is_due(moment, clock)):
+                        self._reminder_activity.setdefault(day_name, {}).setdefault("skipped_active", set()).add(session)
+            for session in self._opted_in(day_name, moment, mode):
                 if (day_name, session) in self._reminded:
                     continue
                 self._reminded.add((day_name, session))
-                targets.append(ReminderTarget(session, self._profiles.get(session, ChatProfile()).name))
+                targets.append(ReminderTarget(session, self._profiles.get(session, ChatProfile()).name,
+                                              self._reminder_times[session][:2]))
+            if mode == "auto":
+                self._reminder_claimed[day_name] = self._reminder_claimed.get(day_name, 0) + len(targets)
             return targets
 
     async def reminder_forecast(self, *, now: float | None = None) -> int:
-        day_name = metrics_day(_moment(now))
+        return int((await self.reminder_overview(now=now))["forecast"])
+
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         async with self._lock:
-            return sum(
-                1 for session in self._reminder_candidates(day_name) if (day_name, session) not in self._reminded
+            hours = empty_reminder_hours()
+            for session, clock in self._reminder_times.items():
+                add_reminder_hour(hours, session, clock)
+            forecast = sum(
+                1
+                for session in self._opted_in(day_name, moment, "manual")
+                if (day_name, session) not in self._reminded
             )
+            return {"forecast": forecast, "clockSummary": reminder_summary(hours)}
+
+    async def is_known(self, session_id: str) -> bool:
+        async with self._lock:
+            return session_id in self._funnel_users or session_id in self._chats
 
     async def is_activated(self, session_id: str) -> bool:
         async with self._lock:
@@ -295,9 +542,13 @@ class MemoryMetricsStore:
     async def aclose(self) -> None:
         return None
 
-    def _reminder_candidates(self, day_name: str) -> list[str]:
-        known = set(self._funnel_users) | set(self._chats)
-        return sorted(reminder_candidates(known, self._dau.get(day_name, set())))
+    def _opted_in(self, day_name: str, moment: float, mode: str) -> list[str]:
+        return opted_reminder_sessions(
+            self._reminder_times,
+            self._dau.get(day_name, set()),
+            moment,
+            mode,
+        )
 
     def _add_turn(self, day_name: str, session: str, stt_ms: int, tts_chars: int, moment: float) -> None:
         day = self._days.setdefault(day_name, DayTotals())
@@ -332,17 +583,71 @@ class RedisMetricsStore:
         self._rates = rates
         self._lock = asyncio.Lock()
 
+    async def record_clip_result(
+        self,
+        error_code: str | None,
+        *,
+        session_id: str | None = None,
+        stage: str | None = None,
+        message: str | None = None,
+        job_id: str | None = None,
+        attempt_id: str | None = None,
+        reason: str | None = None,
+        now: float | None = None,
+    ) -> None:
+        moment = _moment(now)
+        key = _clip_results_key(metrics_day(moment))
+        pipe = self._redis.pipeline()
+        field = _clip_result_field(error_code)
+        pipe.hincrby(key, field, 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
+        if error_code is not None:
+            reasons_key = _clip_reasons_key(metrics_day(moment))
+            pipe.hincrby(reasons_key, _clip_reason_key(stage, reason), 1)
+            pipe.expire(reasons_key, ERROR_RETAIN_SECONDS)
+            username = await self._redis.hget(_chat_key(session_id), "username") if session_id else None
+            telegram_id = telegram_chat_id(session_id or "")
+            pipe.lpush(_RECENT_ERRORS_KEY, json.dumps(_error_event(moment, error_code, stage, message, username,
+                                                                  telegram_id, job_id, attempt_id, reason)))
+            pipe.ltrim(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)
+            pipe.expire(_RECENT_ERRORS_KEY, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
+    async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        _check_partial(feature, outcome)
+        key = _partial_key(metrics_day(_moment(now)))
+        pipe = self._redis.pipeline()
+        pipe.hincrby(key, f"{feature}:{outcome}", 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
+        if outcome == "failed":
+            pipe.lpush(_PARTIAL_RECENT_KEY, json.dumps(_partial_event(_moment(now), feature, reason)))
+            pipe.ltrim(_PARTIAL_RECENT_KEY, 0, RECENT_ERROR_LIMIT - 1)
+            pipe.expire(_PARTIAL_RECENT_KEY, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
+    async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        _check_provider(service, kind, result, provider)
+        key = _provider_key(metrics_day(_moment(now)))
+        pipe = self._redis.pipeline()
+        pipe.hincrby(key, f"{service}:{provider}:{kind}:{result}", 1)
+        pipe.expire(key, ERROR_RETAIN_SECONDS)
+        await pipe.execute()
+
     async def record_llm(
         self,
         prompt_tokens: int,
         completion_tokens: int,
         elapsed_ms: int,
         *,
+        purpose: str = "reply",
+        success: bool = True,
         now: float | None = None,
     ) -> None:
+        if purpose not in LLM_PURPOSES:
+            raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
-        prompt = nonneg_int(prompt_tokens)
-        completion = nonneg_int(completion_tokens)
+        prompt = nonneg_int(prompt_tokens) if success else 0
+        completion = nonneg_int(completion_tokens) if success else 0
         elapsed = nonneg_int(elapsed_ms)
         payload = json.dumps(
             {"ts": moment, "prompt": prompt, "completion": completion, "elapsed_ms": elapsed},
@@ -350,11 +655,27 @@ class RedisMetricsStore:
         async with self._lock:
             pipe = self._redis.pipeline()
             day_key = _day_key(metrics_day(moment))
-            pipe.hincrby(day_key, "prompt_tokens", prompt)
-            pipe.hincrby(day_key, "completion_tokens", completion)
-            pipe.lpush(_EVENTS_KEY, payload)
+            pipe.hincrby(day_key, "llm_requests", 1)
+            pipe.hincrby(day_key, f"llm_{purpose}_requests", 1)
+            if success:
+                pipe.hincrby(day_key, "prompt_tokens", prompt)
+                pipe.hincrby(day_key, "completion_tokens", completion)
+                pipe.lpush(_EVENTS_KEY, payload)
+            else:
+                pipe.hincrby(day_key, "llm_failures", 1)
             await pipe.execute()
-            await self._prune_events(moment)
+            if success:
+                await self._prune_events(moment)
+
+    async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        _check_correction_outcome(outcome)
+        _check_correction_attempts(attempts)
+        pipe = self._redis.pipeline()
+        key = _correction_key(metrics_day(_moment(now)))
+        pipe.hincrby(key, f"{outcome}:count", 1)
+        pipe.hincrby(key, f"{outcome}:elapsed_ms", nonneg_int(elapsed_ms))
+        pipe.hincrby(key, f"{outcome}:second_attempts", int(attempts == 2))
+        await pipe.execute()
 
     async def record_turn(
         self,
@@ -388,6 +709,9 @@ class RedisMetricsStore:
         now: float | None = None,
     ) -> None:
         await self._record_funnel(session_id, "start", source, now)
+        session = session_id.strip()
+        if session:
+            await self._redis.zadd(_CHATS_KEY, {session: _moment(now)}, nx=True)
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
         await self._record_funnel(session_id, "voice", None, now)
@@ -409,6 +733,7 @@ class RedisMetricsStore:
         moment = _moment(now)
         day_name = metrics_day(moment)
         async with self._lock:
+            await self._backfill_started_chats()
             totals = await self._redis.hgetall(_day_key(day_name))
             dau = int(await self._redis.scard(_dau_key(day_name)))
             raw_events = await self._redis.lrange(_EVENTS_KEY, 0, -1)
@@ -423,50 +748,226 @@ class RedisMetricsStore:
             rates=self._rates,
         )
         payload.update(await self._funnel_snapshot(moment))
+        payload["corrections"] = _correction_counts(await self._redis.hgetall(_correction_key(day_name)))
+        payload["partialFailures"] = {
+            key: nonneg_int(value) for key, value in (await self._redis.hgetall(_partial_key(day_name))).items()
+        }
+        recent_partial = [_parse_error_event(item) for item in await self._redis.lrange(_PARTIAL_RECENT_KEY, 0, RECENT_ERROR_LIMIT - 1)]
+        payload["partialRecent"] = _partial_recent_view(moment, [item for item in recent_partial if item is not None])
+        payload["providerOutcomes"] = {
+            key: nonneg_int(value) for key, value in (await self._redis.hgetall(_provider_key(day_name))).items()
+        }
+        days = recent_days(moment, ERROR_WINDOW_DAYS)
+        pipe = self._redis.pipeline()
+        for day in days:
+            pipe.hgetall(_clip_results_key(day))
+            pipe.hgetall(_clip_reasons_key(day))
+        raw = await pipe.execute()
+        daily = dict(zip(days, raw[::2], strict=True))
+        reasons = dict(zip(days, raw[1::2], strict=True))
+        recent = [_parse_error_event(item) for item in await self._redis.lrange(_RECENT_ERRORS_KEY, 0, RECENT_ERROR_LIMIT - 1)]
+        payload["errors"] = error_view(moment, daily, [item for item in recent if item is not None], reasons)
         return payload
+
+    async def llm_range(self, from_day: date, to_day: date) -> dict[str, Any]:
+        pipe = self._redis.pipeline()
+        for day in llm_days(from_day, to_day):
+            pipe.hgetall(_day_key(day.isoformat()))
+        raw_days = await pipe.execute()
+        return llm_range_snapshot(from_day, to_day, [_day_totals(raw) for raw in raw_days])
 
     @property
     def redis(self) -> Redis:
         return self._redis
 
-    async def claim_reminders(self, *, now: float | None = None) -> list[ReminderTarget]:
-        day_name = metrics_day(_moment(now))
+    async def schedule_reminder(
+        self,
+        session_id: str,
+        action: str,
+        *,
+        text: str | None = None,
+        run_id: str = "",
+    ) -> dict[str, str]:
+        session = session_id.strip()
+        if not session:
+            raise ValueError("session id required")
+        time_key = _reminder_time_key(session)
+        pending_key = _reminder_pending_key(session)
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(time_key, pending_key)
+                    previous = await pipe.get(time_key)
+                    pending = await pipe.get(pending_key)
+                    decision = schedule_decision(action, pending, text, run_id)
+                    event = reminder_setting_event(previous, decision)
+                    pipe.multi()
+                    if "write_pending" in decision:
+                        if decision["write_pending"]:
+                            pipe.set(pending_key, decision["write_pending"])
+                        else:
+                            pipe.delete(pending_key)
+                    if decision.get("clear_time"):
+                        pipe.delete(time_key)
+                    elif decision.get("time"):
+                        pipe.set(time_key, decision["time"])
+                    if event is not None and telegram_chat_id(session) is not None:
+                        event_key = _reminder_activity_key(metrics_day(time.time()), event)
+                        pipe.sadd(event_key, session)
+                        pipe.expire(event_key, REMINDER_ANALYTICS_TTL_SECONDS)
+                        pipe.set("reminder:analytics:since", metrics_day(time.time()), nx=True)
+                    await pipe.execute()
+                    return public_schedule(decision)
+                except WatchError:
+                    continue
+
+    async def reminder_time(self, session_id: str) -> str | None:
+        session = session_id.strip()
+        if not session:
+            return None
+        value = await self._redis.get(_reminder_time_key(session))
+        return str(value) if value else None
+
+    async def reminder_summary(self) -> dict[str, Any]:
+        hours = empty_reminder_hours()
+        prefix = _reminder_time_key("")
+        keys: list[str] = []
+        seen: set[str] = set()
+
+        async def count_batch() -> None:
+            if not keys:
+                return
+            values = await self._redis.mget(keys)
+            for key, value in zip(keys, values):
+                if value:
+                    add_reminder_hour(hours, key.removeprefix(prefix), str(value))
+            keys.clear()
+
+        async for key in self._redis.scan_iter(match=f"{prefix}*", count=200):
+            key = str(key)
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+            if len(keys) == 200:
+                await count_batch()
+        await count_batch()
+        return reminder_summary(hours)
+
+    async def reminder_activity(self, days: list[str]) -> dict[str, dict[str, int]]:
+        pipe = self._redis.pipeline()
+        for day in days:
+            for event in (*REMINDER_SETTING_EVENTS, "skipped_active"):
+                pipe.scard(_reminder_activity_key(day, event))
+            pipe.get(_reminder_claimed_key(day))
+        raw = await pipe.execute()
+        width = len(REMINDER_SETTING_EVENTS) + 2
+        return {
+            day: {**{event: nonneg_int(raw[index * width + offset])
+                     for offset, event in enumerate((*REMINDER_SETTING_EVENTS, "skipped_active"))},
+                  "claimed_auto": nonneg_int(raw[index * width + width - 1])}
+            for index, day in enumerate(days)
+        }
+
+    async def reminder_activity_unique(self, days: list[str]) -> dict[str, int]:
+        if not days:
+            return {event: 0 for event in REMINDER_SETTING_EVENTS}
+        return {event: len(await self._redis.sunion(*(_reminder_activity_key(day, event) for day in days)))
+                for event in REMINDER_SETTING_EVENTS}
+
+    async def reminder_tracking_since(self) -> str:
+        today = metrics_day(time.time())
+        await self._redis.set("reminder:analytics:since", today, nx=True)
+        return str(await self._redis.get("reminder:analytics:since") or today)
+
+    async def claim_reminders(self, *, now: float | None = None, mode: str = "auto") -> list[ReminderTarget]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
         targets = []
-        for session in await self._reminder_candidates(day_name):
-            claimed = await self._redis.set(
-                _reminder_sent_key(day_name, session),
-                "1",
-                nx=True,
-                ex=REMINDER_SENT_TTL_SECONDS,
-            )
-            if not claimed:
+        times = await self._reminder_times_map()
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        if mode == "auto":
+            await self._redis.set("reminder:analytics:since", day_name, nx=True)
+            skipped = [session for session, clock in times.items()
+                       if telegram_chat_id(session) is not None and session in active and reminder_is_due(moment, clock)]
+            if skipped:
+                pipe = self._redis.pipeline()
+                for session in skipped:
+                    pipe.exists(_reminder_sent_key(day_name, session))
+                claimed = await pipe.execute()
+                skipped = [session for session, sent in zip(skipped, claimed, strict=True) if not sent]
+            if skipped:
+                key = _reminder_activity_key(day_name, "skipped_active")
+                pipe = self._redis.pipeline()
+                pipe.sadd(key, *skipped)
+                pipe.expire(key, REMINDER_ANALYTICS_TTL_SECONDS)
+                await pipe.execute()
+        for session in opted_reminder_sessions(times, active, moment, mode):
+            if not await self._claim_reminder(day_name, session, mode):
                 continue
             name = await self._redis.hget(_chat_key(session), "name")
-            targets.append(ReminderTarget(session, name or ""))
+            targets.append(ReminderTarget(session, name or "", times[session][:2]))
         return targets
 
+    async def _claim_reminder(self, day_name: str, session: str, mode: str) -> bool:
+        sent_key = _reminder_sent_key(day_name, session)
+        while True:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(sent_key)
+                    if await pipe.exists(sent_key):
+                        return False
+                    pipe.multi()
+                    pipe.set(sent_key, "1", ex=REMINDER_SENT_TTL_SECONDS)
+                    if mode == "auto":
+                        count_key = _reminder_claimed_key(day_name)
+                        pipe.incr(count_key)
+                        pipe.expire(count_key, REMINDER_ANALYTICS_TTL_SECONDS)
+                    await pipe.execute()
+                    return True
+                except WatchError:
+                    continue
+
     async def reminder_forecast(self, *, now: float | None = None) -> int:
-        day_name = metrics_day(_moment(now))
-        sessions = await self._reminder_candidates(day_name)
-        if not sessions:
-            return 0
-        pipe = self._redis.pipeline()
-        for session in sessions:
-            pipe.exists(_reminder_sent_key(day_name, session))
-        return sum(1 for sent in await pipe.execute() if not sent)
+        return int((await self.reminder_overview(now=now))["forecast"])
+
+    async def reminder_overview(self, *, now: float | None = None) -> dict[str, Any]:
+        moment = _moment(now)
+        day_name = metrics_day(moment)
+        times = await self._reminder_times_map()
+        hours = empty_reminder_hours()
+        for session, clock in times.items():
+            add_reminder_hour(hours, session, clock)
+        active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
+        sessions = opted_reminder_sessions(times, active, moment, "manual")
+        forecast = 0
+        if sessions:
+            pipe = self._redis.pipeline()
+            for session in sessions:
+                pipe.exists(_reminder_sent_key(day_name, session))
+            forecast = sum(1 for sent in await pipe.execute() if not sent)
+        return {"forecast": forecast, "clockSummary": reminder_summary(hours)}
+
+    async def is_known(self, session_id: str) -> bool:
+        return bool(await self._redis.exists(_funnel_user_key(session_id))) or await self._redis.zscore(_CHATS_KEY, session_id) is not None
 
     async def is_activated(self, session_id: str) -> bool:
         return bool(await self._redis.hget(_funnel_user_key(session_id), "activated_day"))
 
-    async def _reminder_candidates(self, day_name: str) -> list[str]:
-        prefix = _funnel_user_key(TELEGRAM_SESSION_PREFIX)
-        known = {
-            str(key).removeprefix(_funnel_user_key(""))
-            async for key in self._redis.scan_iter(match=f"{prefix}*")
-        }
-        known.update(str(member) for member in await self._redis.zrange(_CHATS_KEY, 0, -1))
+    async def _opted_in(self, day_name: str, moment: float, mode: str) -> list[str]:
+        times = await self._reminder_times_map()
         active = {str(member) for member in await self._redis.smembers(_dau_key(day_name))}
-        return sorted(reminder_candidates(known, active))
+        return opted_reminder_sessions(times, active, moment, mode)
+
+    async def _reminder_times_map(self) -> dict[str, str]:
+        times: dict[str, str] = {}
+        prefix = _reminder_time_key("")
+        async for key in self._redis.scan_iter(match=f"{prefix}*"):
+            session = str(key).removeprefix(prefix)
+            value = await self._redis.get(key)
+            if value:
+                times[session] = str(value)
+        return times
 
     async def aclose(self) -> None:
         await self._redis.aclose()
@@ -541,6 +1042,7 @@ class RedisMetricsStore:
             session = member if isinstance(member, str) else str(member)
             parsed.append((session, float(score)))
             pipe.hmget(_chat_key(session), "turns", "username", "name")
+            pipe.hmget(_funnel_user_key(session), "start_day", "activated_day")
         fields = await pipe.execute()
         return [
             ChatRow(
@@ -549,9 +1051,28 @@ class RedisMetricsStore:
                 last_unix=score,
                 username=username or "",
                 name=name or "",
+                start_only=bool(start_day and not activated_day and not nonneg_int(turn_count)),
             )
-            for (session, score), (turn_count, username, name) in zip(parsed, fields, strict=True)
+            for (session, score), (turn_count, username, name), (start_day, activated_day) in
+            zip(parsed, fields[::2], fields[1::2], strict=True)
         ]
+
+    async def _backfill_started_chats(self) -> None:
+        if getattr(self, "_started_chats_backfilled", False):
+            return
+        prefix = "metrics:funnel:user:"
+        pipe = self._redis.pipeline()
+        async for key in self._redis.scan_iter(match=f"{prefix}*", count=200):
+            start_day = await self._redis.hget(key, "start_day")
+            if not start_day:
+                continue
+            try:
+                started_at = datetime.combine(date.fromisoformat(start_day), datetime.min.time(), _TZ).timestamp()
+            except ValueError:
+                continue
+            pipe.zadd(_CHATS_KEY, {str(key)[len(prefix):]: started_at}, nx=True)
+        await pipe.execute()
+        self._started_chats_backfilled = True
 
 
 def build_metrics_store(settings: Any, redis: Redis | None = None) -> MetricsStore:
@@ -570,6 +1091,114 @@ def metrics_day(moment: float) -> str:
 def recent_days(moment: float, count: int) -> list[str]:
     current = datetime.fromtimestamp(moment, _TZ).date()
     return [(current - timedelta(days=offset)).isoformat() for offset in range(count)]
+
+
+def _clip_result_field(error_code: str | None) -> str:
+    if error_code is None:
+        return "ok"
+    return error_code if error_code in {"timeout", "pipeline_failed"} else "pipeline_failed"
+
+
+def _clip_reason_key(stage: str | None, reason: str | None) -> str:
+    safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
+    safe_reason = reason if reason in ERROR_REASONS else "unknown"
+    return f"{safe_stage}:{safe_reason}"
+
+
+def _error_event(
+    moment: float,
+    code: str,
+    stage: str | None,
+    message: str | None,
+    username: str | None,
+    telegram_id: int | None,
+    job_id: str | None = None,
+    attempt_id: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    safe_code = code if code in {"timeout", "pipeline_failed", "onboarding_stt_failed"} else "pipeline_failed"
+    safe_stage = stage if stage in {"stt", "llm", "tts", "state", "metrics", "onboarding"} else "unknown"
+    text = " ".join((message or "").split())
+    text = re.sub(r"(?i)\b(bearer\s+)\S+", r"\1[redacted]", text)
+    text = re.sub(r"(?i)\b(?:sk|gsk)[-_][A-Za-z0-9_-]{8,}\b", "[redacted]", text)
+    text = re.sub(
+        r"""(?i)(\b(?:api[_-]?key|access[_-]?token|token|password|secret)\b\s*[:=]\s*["']?)[^\s,;}"']+""",
+        r"\1[redacted]",
+        text,
+    )
+    text = _TELEGRAM_SESSION_RE.sub("[session]", text)
+    return {
+        "ts": moment,
+        "code": safe_code,
+        "stage": safe_stage,
+        "reason": reason if reason in ERROR_REASONS else "unknown",
+        "message": text[:ERROR_MESSAGE_MAX_CHARS] or "—",
+        "username": normalize_profile(username, None).username,
+        "telegramId": telegram_id,
+        "jobId": job_id or "",
+        "attemptId": attempt_id or "",
+    }
+
+
+def _partial_event(moment: float, feature: str, reason: str) -> dict[str, Any]:
+    return {"ts": moment, "feature": feature, "reason": reason if reason in ERROR_REASONS else "unknown"}
+
+
+def _partial_recent_view(moment: float, rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {"at": datetime.fromtimestamp(item["ts"], _TZ).isoformat(timespec="seconds"),
+         "feature": str(item.get("feature") or "unknown"), "reason": str(item.get("reason") or "unknown")}
+        for item in rows if isinstance(item.get("ts"), (int, float)) and 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
+    ]
+
+
+def _parse_error_event(raw: Any) -> dict[str, Any] | None:
+    try:
+        value = json.loads(raw)
+        if not isinstance(value, dict) or not isinstance(value.get("ts"), (int, float)):
+            return None
+        return value
+    except (TypeError, ValueError):
+        return None
+
+
+def error_view(
+    moment: float,
+    daily: dict[str, dict[str, Any]],
+    recent: list[dict[str, Any]] | None = None,
+    reasons: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    rows = []
+    for day in recent_days(moment, ERROR_WINDOW_DAYS):
+        counts = daily.get(day, {})
+        ok = nonneg_int(counts.get("ok"))
+        timeout = nonneg_int(counts.get("timeout"))
+        pipeline_failed = nonneg_int(counts.get("pipeline_failed"))
+        rows.append({"day": day, "ok": ok, "timeout": timeout, "pipelineFailed": pipeline_failed})
+    return {
+        "today": rows[0],
+        "days": rows,
+        "reasons": [
+            {"stage": key.partition(":")[0], "reason": key.partition(":")[2], "count": nonneg_int(value)}
+            for day in recent_days(moment, ERROR_WINDOW_DAYS)
+            for key, value in (reasons or {}).get(day, {}).items()
+        ],
+        "recent": [
+            {
+                "at": datetime.fromtimestamp(item["ts"], _TZ).isoformat(timespec="seconds"),
+                "code": item["code"],
+                "stage": item["stage"],
+                "reason": item.get("reason", "unknown"),
+                "message": item["message"],
+                "username": item.get("username", ""),
+                "telegramId": item.get("telegramId"),
+                "jobId": item.get("jobId", ""),
+                "attemptId": item.get("attemptId", ""),
+            }
+            for item in sorted(recent or [], key=lambda entry: entry["ts"], reverse=True)
+            if 0 <= moment - item["ts"] <= ERROR_RETAIN_SECONDS
+        ],
+    }
 
 
 def normalize_source(value: str | None) -> str | None:
@@ -595,10 +1224,98 @@ def telegram_chat_id(session_id: str) -> int | None:
     return int(match.group(1) or match.group(2))
 
 
-def reminder_candidates(known: set[str], active_today: set[str]) -> set[str]:
-    return {
-        session for session in known if telegram_chat_id(session) is not None and session not in active_today
-    }
+def parse_reminder_clock(text: str) -> str | None:
+    match = _CLOCK_RE.fullmatch(text.strip())
+    if match is None:
+        return None
+    hour = int(match.group(1))
+    minute = int(match.group(2))
+    if hour > 23 or minute > 59:
+        return None
+    return f"{hour:02d}:{minute:02d}"
+
+
+def empty_reminder_hours() -> dict[str, int]:
+    return {f"{hour:02d}": 0 for hour in range(24)}
+
+
+def add_reminder_hour(hours: dict[str, int], session: str, clock: str) -> None:
+    if telegram_chat_id(session) is None:
+        return
+    normalized = parse_reminder_clock(clock)
+    if normalized is not None:
+        hours[normalized[:2]] += 1
+
+
+def reminder_summary(hours: dict[str, int]) -> dict[str, Any]:
+    return {"timezone": METRICS_TIMEZONE, "active": sum(hours.values()), "hours": hours}
+
+
+def reminder_setting_event(previous: str | None, decision: dict[str, str]) -> str | None:
+    valid_previous = parse_reminder_clock(previous or "")
+    if decision.get("clear_time"):
+        return "cleared" if valid_previous else None
+    chosen = decision.get("time")
+    if not chosen or chosen == previous:
+        return None
+    return "changed" if valid_previous else "set_from_empty"
+
+
+def reminder_is_due(moment: float, hhmm: str) -> bool:
+    clock = parse_reminder_clock(hhmm)
+    if clock is None:
+        return False
+    local = datetime.fromtimestamp(moment, _TZ)
+    hour, minute = (int(part) for part in clock.split(":"))
+    start = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return start <= local < start + REMINDER_GRACE
+
+
+def opted_reminder_sessions(
+    times: dict[str, str],
+    active_today: set[str],
+    moment: float,
+    mode: str,
+) -> list[str]:
+    if mode not in {"auto", "manual"}:
+        raise ValueError("invalid reminder mode")
+    chosen = []
+    for session, hhmm in times.items():
+        if telegram_chat_id(session) is None or session in active_today:
+            continue
+        if mode != "manual" and not reminder_is_due(moment, hhmm):
+            continue
+        chosen.append(session)
+    return sorted(chosen)
+
+
+def schedule_decision(action: str, pending: str | None, text: str | None, run_id: str) -> dict[str, str]:
+    if action == "ask":
+        saved = run_id.strip()
+        if not saved:
+            raise ValueError("run id required")
+        return {"status": "asking", "write_pending": saved}
+    if action == "decline":
+        return {"status": "declined", "write_pending": ""}
+    if action == "clear":
+        return {"status": "cleared", "write_pending": "", "clear_time": "1"}
+    if action == "submit":
+        if not pending:
+            return {"status": "ignored"}
+        clock = parse_reminder_clock(text or "")
+        if clock is None:
+            return {"status": "invalid"}
+        return {"status": "saved", "time": clock, "runId": pending, "write_pending": ""}
+    raise ValueError("invalid schedule action")
+
+
+def public_schedule(decision: dict[str, str]) -> dict[str, str]:
+    body = {"status": decision["status"]}
+    if decision.get("time"):
+        body["time"] = decision["time"]
+    if decision.get("runId"):
+        body["runId"] = decision["runId"]
+    return body
 
 
 def _one_line(value: str | None) -> str:
@@ -727,6 +1444,22 @@ def _reminder_sent_key(day_name: str, session_id: str) -> str:
     return f"reminder:sent:{day_name}:{session_id}"
 
 
+def _reminder_activity_key(day_name: str, event: str) -> str:
+    return f"reminder:activity:{day_name}:{event}"
+
+
+def _reminder_claimed_key(day_name: str) -> str:
+    return f"reminder:claimed:auto:{day_name}"
+
+
+def _reminder_time_key(session_id: str) -> str:
+    return f"reminder-time:{session_id}"
+
+
+def _reminder_pending_key(session_id: str) -> str:
+    return f"reminder-pending:{session_id}"
+
+
 def _funnel_day_key(day_name: str) -> str:
     return f"metrics:funnel:{day_name}"
 
@@ -795,6 +1528,9 @@ def build_snapshot(
         "day": metrics_day(now),
         "promptTokens": day.prompt_tokens,
         "completionTokens": day.completion_tokens,
+        "llmRequests": day.llm_requests,
+        "llmFailures": day.llm_failures,
+        "llmRequestsByPurpose": {purpose: day.llm_by_purpose.get(purpose, 0) for purpose in LLM_PURPOSES},
         "tpm": window_prompt + window_completion,
         "tps": (window_completion / (elapsed_ms / 1000)) if elapsed_ms > 0 else 0.0,
         "turns": day.turns,
@@ -808,12 +1544,40 @@ def build_snapshot(
             {
                 "sessionId": row.session_id,
                 "turns": row.turns,
-                "lastAt": datetime.fromtimestamp(row.last_unix, _TZ).isoformat(timespec="seconds"),
+                "lastAt": _chat_last_at(row),
                 "username": row.username or None,
                 "name": row.name or None,
+                "startOnly": row.start_only,
             }
             for row in ordered
         ],
+    }
+
+
+def _chat_last_at(row: ChatRow) -> str:
+    moment = datetime.fromtimestamp(row.last_unix, _TZ)
+    if row.turns == 0 and moment.hour == moment.minute == moment.second == 0:
+        return moment.date().isoformat()
+    return moment.isoformat(timespec="seconds")
+
+
+def llm_days(from_day: date, to_day: date) -> list[date]:
+    if to_day < from_day or (to_day - from_day).days >= 366:
+        raise ValueError("LLM range must be between 1 and 366 days")
+    return [from_day + timedelta(days=offset) for offset in range((to_day - from_day).days + 1)]
+
+
+def llm_range_snapshot(from_day: date, to_day: date, days: list[DayTotals]) -> dict[str, Any]:
+    return {
+        "from": from_day.isoformat(),
+        "to": to_day.isoformat(),
+        "timezone": METRICS_TIMEZONE,
+        "requests": sum(day.llm_requests for day in days),
+        "failures": sum(day.llm_failures for day in days),
+        "byPurpose": {
+            purpose: sum(day.llm_by_purpose.get(purpose, 0) for day in days)
+            for purpose in LLM_PURPOSES
+        },
     }
 
 
@@ -860,6 +1624,57 @@ def _day_key(day_name: str) -> str:
     return f"metrics:day:{day_name}"
 
 
+def _correction_key(day_name: str) -> str:
+    return f"metrics:corrections:{day_name}"
+
+
+def _check_correction_outcome(outcome: str) -> None:
+    if outcome not in CORRECTION_OUTCOMES:
+        raise ValueError("unknown correction outcome")
+
+
+def _check_correction_attempts(attempts: int) -> None:
+    if isinstance(attempts, bool) or attempts not in (0, 1, 2):
+        raise ValueError("correction attempts must be 0, 1, or 2")
+
+
+def _correction_counts(raw: dict[str, Any]) -> dict[str, dict[str, int]]:
+    return {
+        outcome: {
+            "count": nonneg_int(raw.get(f"{outcome}:count")),
+            "elapsedMs": nonneg_int(raw.get(f"{outcome}:elapsed_ms")),
+            "secondAttempts": nonneg_int(raw.get(f"{outcome}:second_attempts")),
+        }
+        for outcome in sorted(CORRECTION_OUTCOMES)
+        if raw.get(f"{outcome}:count") is not None
+    }
+def _clip_results_key(day_name: str) -> str:
+    return f"metrics:clip-results:{day_name}"
+
+
+def _clip_reasons_key(day_name: str) -> str:
+    return f"metrics:clip-reasons:{day_name}"
+
+
+def _partial_key(day_name: str) -> str:
+    return f"metrics:partial:{day_name}"
+
+
+def _check_partial(feature: str, outcome: str) -> None:
+    if feature not in PARTIAL_FEATURES or outcome not in PARTIAL_OUTCOMES:
+        raise ValueError("unknown partial result")
+
+
+def _provider_key(day_name: str) -> str:
+    return f"metrics:provider:{day_name}"
+
+
+def _check_provider(service: str, kind: str, result: str, provider: str) -> None:
+    if (service not in PROVIDER_SERVICES or provider not in PROVIDER_NAMES or
+            kind not in {"attempt", "operation"} or result not in PROVIDER_RESULTS):
+        raise ValueError("unknown provider result")
+
+
 def _dau_key(day_name: str) -> str:
     return f"metrics:dau:{day_name}"
 
@@ -873,6 +1688,9 @@ def _day_totals(raw: Any) -> DayTotals:
     return DayTotals(
         prompt_tokens=nonneg_int(data.get("prompt_tokens")),
         completion_tokens=nonneg_int(data.get("completion_tokens")),
+        llm_requests=nonneg_int(data.get("llm_requests")),
+        llm_failures=nonneg_int(data.get("llm_failures")),
+        llm_by_purpose={purpose: nonneg_int(data.get(f"llm_{purpose}_requests")) for purpose in LLM_PURPOSES},
         stt_ms=nonneg_int(data.get("stt_ms")),
         tts_chars=nonneg_int(data.get("tts_chars")),
         turns=nonneg_int(data.get("turns")),

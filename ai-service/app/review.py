@@ -5,7 +5,8 @@ from typing import Any, Protocol
 
 from openai import AsyncOpenAI
 
-from app.retry import once_on_retryable
+from app.llm import metered_completion
+from app.metrics import MetricsStore
 
 REVIEW_SYSTEM = """You score a spoken English conversation for an on-screen review.
 
@@ -26,10 +27,11 @@ class SessionReviewer(Protocol):
 
 
 class OpenAiSessionReviewer:
-    def __init__(self, client: AsyncOpenAI, model: str, max_tokens: int = 800) -> None:
+    def __init__(self, client: AsyncOpenAI, model: str, max_tokens: int = 800, metrics: MetricsStore | None = None) -> None:
         self._client = client
         self._model = model
         self._max_tokens = max_tokens
+        self._metrics = metrics
 
     async def review(self, turns: list[dict[str, str]]) -> dict[str, Any]:
         transcript = "\n".join(
@@ -48,7 +50,7 @@ class OpenAiSessionReviewer:
                 response_format={"type": "json_object"},
             )
 
-        response = await once_on_retryable(call)
+        response = await metered_completion(call, self._metrics, "session_review")
         text = (response.choices[0].message.content or "").strip()
         if not text:
             raise RuntimeError("review llm returned empty reply")

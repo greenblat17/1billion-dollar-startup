@@ -12,6 +12,19 @@ Agents: start here, then open the linked docs for the current task. Do not skip 
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
 these files, not only in chat.
 
+Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
+Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
+Agreed interaction history and service logs: `architecture/2026-10-05-conversation-audit-logging.md`.
+Implementation plan for that system: `plans/2026-10-05-interaction-history-and-service-logs.md`.
+Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
+Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
+Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
+First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
+Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
+Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.
+Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
+
 ## Structure
 
 - `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.

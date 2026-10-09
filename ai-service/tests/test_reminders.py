@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.dialogue import MemoryDialogueStore
 from app.main import create_app
-from app.metrics import MemoryMetricsStore, MetricRates, RedisMetricsStore
+from app.metrics import MemoryMetricsStore, MetricRates, RedisMetricsStore, metrics_day
 from app.pipeline import ClipPipeline
 from app.reminders import (
     MemoryReminderLedger,
@@ -156,9 +157,66 @@ async def test_forecast_drops_after_claim() -> None:
             await metrics.record_start("tg-1", None, now=moment)
             await metrics.record_start("tg-2", None, now=moment)
             await metrics.record_turn("tg-2", 1, 1, now=moment)
+            await metrics.schedule_reminder("tg-1", "ask", run_id="run")
+            await metrics.schedule_reminder("tg-1", "submit", text="11:00")
+            await metrics.schedule_reminder("tg-2", "ask", run_id="run")
+            await metrics.schedule_reminder("tg-2", "submit", text="11:00")
             assert await metrics.reminder_forecast(now=moment) == 1
+            targets = await metrics.claim_reminders(now=moment)
+            assert targets[0].hour == "11"
             await metrics.claim_reminders(now=moment)
             assert await metrics.reminder_forecast(now=moment) == 0
+            activity = (await metrics.reminder_activity(["2026-09-24"]))["2026-09-24"]
+            assert activity["skipped_active"] == 1
+            assert activity["claimed_auto"] == 1
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reminder_setting_activity_counts_unique_users_and_current_hours() -> None:
+    opened = _Pairs()
+    day = metrics_day(time.time())
+    try:
+        for metrics, _ledger in opened.pairs:
+            await metrics.schedule_reminder("tg-1", "ask", run_id="a")
+            await metrics.schedule_reminder("tg-1", "submit", text="08:15")
+            await metrics.schedule_reminder("tg-1", "ask", run_id="b")
+            await metrics.schedule_reminder("tg-1", "submit", text="09:00")
+            await metrics.schedule_reminder("tg-1", "ask", run_id="c")
+            await metrics.schedule_reminder("tg-1", "submit", text="09:00")
+            await metrics.schedule_reminder("tg-1", "clear")
+            await metrics.schedule_reminder("tg-1", "clear")
+            await metrics.schedule_reminder("tg-1", "ask", run_id="d")
+            await metrics.schedule_reminder("tg-1", "submit", text="10:30")
+            summary = await metrics.reminder_summary()
+            assert summary["active"] == 1
+            assert summary["hours"]["10"] == 1
+            assert await metrics.reminder_activity_unique([day]) == {
+                "set_from_empty": 1, "changed": 1, "cleared": 1,
+            }
+    finally:
+        await opened.aclose()
+
+
+@pytest.mark.asyncio
+async def test_auto_hour_reply_and_report_retry_are_counted_once() -> None:
+    opened = _Pairs()
+    moment = _moscow(24)
+    try:
+        for _metrics, ledger in opened.pairs:
+            report = ReminderReport(
+                mode="auto", started_at="2026-09-24T19:00:00+03:00",
+                finished_at="2026-09-24T19:00:05+03:00", claimed=1,
+                results=[ReminderResult("tg-1", "day_went", "sent", "08")], report_id="round-1",
+            )
+            await ledger.record_report(report, now=moment)
+            await ledger.record_report(report, now=moment)
+            await ledger.record_reply("tg-1", now=moment + 3600)
+            snap = await ledger.snapshot(now=moment + 2 * 86400)
+            day = next(row for row in snap["analyticsDays"] if row["day"] == "2026-09-24")
+            assert day["autoSent"] == 1
+            assert day["hours"]["08"] == {"sent": 1, "returned": 1}
     finally:
         await opened.aclose()
 
@@ -185,6 +243,8 @@ async def test_report_and_metrics_routes() -> None:
     store = MemoryMetricsStore(MetricRates())
     await store.record_start("tg-5", None)
     await store.record_turn("tg-5", 1, 1, now=1_000_000.0)
+    await store.schedule_reminder("tg-5", "ask", run_id="run")
+    await store.schedule_reminder("tg-5", "submit", text="13:00")
     pipeline = ClipPipeline(
         stt=FakeStt(["hi"]),
         llm=FakeLlm(),
