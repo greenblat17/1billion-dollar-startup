@@ -156,7 +156,7 @@ async def test_scenario_turns_stay_in_role_and_out_of_personal_memory():
     assert [item.content for item in llm.reply_contexts[1][0]] == [
         "Tell me about yourself?", "I work in design.", "Tell me more about your work.",
     ]
-    assert "Stay in character" in llm.reply_contexts[0][1]
+    assert llm.reply_contexts[0][1].startswith("Role-play context data:\n")
     assert not memory.extracted.is_set()
     assert not memory.saved
     assert await service.dialogue.history("tg-role") == []

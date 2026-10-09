@@ -53,4 +53,5 @@ async def test_scenario_opening_starts_in_role_without_free_call_greeting():
     })
     assert opening == "Tell me about a time you solved a difficult problem?"
     assert llm.payload == {"scenario": {"kind": "job", "description": ""}}
-    assert "play the interviewer" in llm.prompt
+    assert "you are the employer's interviewer" in llm.prompt
+    assert "You are not Speaky" in llm.prompt

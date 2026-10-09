@@ -20,9 +20,11 @@ The selected scenario is stored on the call record, so a failed opening can be r
 without losing the role and every later turn uses the same role. Scenario descriptions and
 role-play turns are untrusted fictional content. They do not update the learner's personal
 facts or the rolling free-conversation history. The call's own turns supply context during
-role-play. Spoken replies stay in character; the existing correction cards and post-call
-review remain the MVP feedback. Scenario content expires with other raw call content after
-seven days.
+role-play. Spoken replies use a separate in-character persona and never introduce Speaky as a
+teacher. The existing live correction cards and post-call review remain available: they are
+feedback outside the spoken role. A custom situation may make the counterpart a teacher in
+the fictional scene, without turning Speaky into an English tutor. Scenario content expires
+with other raw call content after seven days.
 
 Ktor holds the temporary custom-text prompt in process memory. A restart while waiting for
 that text loses the prompt; the user can tap Practice a situation again. A live Telegram

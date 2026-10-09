@@ -19,6 +19,7 @@ from app.metrics_v2 import current_session, read_provider_cost
 from app.operational_metrics import telegram_stage
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
+from app.roleplay import ROLEPLAY_CONTEXT_PREFIX, ROLEPLAY_IDENTITY
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,12 @@ Open with a reaction to what they just said.
 If they asked you something, answer it before your own question.
 One question, last, and only to continue this same thread.
 Do not put corrections in "reply".
+"""
+
+ROLEPLAY_REPLY_SYSTEM = ROLEPLAY_IDENTITY + """
+Always reply with a JSON object only: {"reply": string}.
+"reply" is your next spoken line as the person in the scene. Keep it concise and natural.
+Do not add stage directions, labels, quotation marks around the spoken line, or commentary.
 """
 
 NOTES_MAX_TOKENS = 1200
@@ -192,7 +199,8 @@ class OpenAiChatModel:
         self._v2 = None
 
     async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str:
-        messages = [{"role": "system", "content": REPLY_SYSTEM}]
+        roleplay = profile_note is not None and profile_note.startswith(ROLEPLAY_CONTEXT_PREFIX)
+        messages = [{"role": "system", "content": ROLEPLAY_REPLY_SYSTEM if roleplay else REPLY_SYSTEM}]
         if profile_note:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)

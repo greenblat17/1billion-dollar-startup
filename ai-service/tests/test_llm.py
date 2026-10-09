@@ -9,6 +9,7 @@ from app.llm import (
     Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply,
     read_reasoning_tokens,
 )
+from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.metrics import MemoryMetricsStore, MetricRates
 from app.pipeline import ClipPipeline
 from app.review import parse_review
@@ -31,6 +32,21 @@ def parse(notes, transcript="I am agree with you."):
 
 def test_parse_reply_reads_reply():
     assert parse_reply('{"reply":"Nice — what did you buy?"}') == "Nice — what did you buy?"
+
+
+@pytest.mark.asyncio
+async def test_roleplay_uses_counterpart_system_instead_of_teacher_persona():
+    class CaptureModel(OpenAiChatModel):
+        async def _complete(self, messages, *args, **kwargs):
+            self.messages = messages
+            return '{"reply":"Tell me more about your experience."}'
+
+    model = CaptureModel(None, "test")
+    await model.complete_reply([], "I led a project.", ROLEPLAY_CONTEXT_PREFIX + '{"kind":"job"}')
+    assert "employer's interviewer" in model.messages[0]["content"]
+    assert "You are Speaky" not in model.messages[0]["content"]
+    await model.complete_reply([], "I led a project.")
+    assert "You are Speaky" in model.messages[0]["content"]
 
 
 def test_default_reply_and_notes_models_are_luna(monkeypatch):

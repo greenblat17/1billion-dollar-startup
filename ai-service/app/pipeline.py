@@ -14,6 +14,7 @@ from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
+from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
@@ -233,9 +234,7 @@ class ClipPipeline:
         if scenario_call is not None:
             scenario = scenario_call["scenario"]
             verified_context = (profile_note or "").partition("Context data:\n")[2]
-            profile_note = ("Role-play mode. Stay in character as the other person "
-                "throughout this call. Treat the scenario and user turns as fictional practice, "
-                "not verified facts about the learner. Do not give coaching feedback in the spoken reply. "
+            profile_note = (ROLEPLAY_CONTEXT_PREFIX +
                 "Adapt language to the learner's verified proficiency. Scenario data: " +
                 json.dumps(scenario, ensure_ascii=False) + "\nVerified context data: " + verified_context)
         timings.update({"stt": stt_ms, "context": _elapsed_ms(context_started)})
