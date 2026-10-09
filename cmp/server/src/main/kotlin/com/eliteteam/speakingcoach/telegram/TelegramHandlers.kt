@@ -586,7 +586,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val chatId = callChat(message)
         val startKey = "start:${message.chat.id}:${message.messageId.long}"
         if (chatId != null) callEvent(CallEvent(startKey, "start_pressed", chatId, receivedAt,
-            messageId = message.messageId.long, state = "received"))
+            messageId = message.messageId.long, state = "received", scenarioKind = scenarioKind ?: "free"))
         log.info("Reading onboarding state")
         val state = ai.onboardingState(sessionId, "message:${message.messageId}")
         log.info("Reading progress")
@@ -657,7 +657,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 "call:${opened.callId}:open", "call_open", chatId, receivedAt,
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opened.callId, messageId = message.messageId.long,
-                seconds = opened.goalSeconds, state = "button"))
+                seconds = opened.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
             if (chatId != null && opened?.callId != null && opened.startedUnix != null)
                 callEvent(CallEvent("call:${opened.callId}:actual-open", "call_actual_open",
                     chatId, Instant.ofEpochMilli((opened.startedUnix * 1000).toLong()),
@@ -674,7 +674,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             callEvent(CallEvent("call:${opening.callId}:open", "call_open", chatId, receivedAt,
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opening.callId, messageId = message.messageId.long,
-                seconds = opening.goalSeconds, state = "button"))
+                seconds = opening.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
             opening.startedUnix?.let { unix -> callEvent(CallEvent(
                 "call:${opening.callId}:actual-open", "call_actual_open", chatId,
                 Instant.ofEpochMilli((unix * 1000).toLong()), callId = opening.callId)) }
@@ -776,7 +776,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         callEvent(CallEvent("call:${opened.callId}:open", "call_open", chatId, receivedAt,
                             username = telegramProfile(message.chat).username.orEmpty(),
                             callId = opened.callId, messageId = message.messageId.long,
-                            seconds = opened.goalSeconds, state = "voice"))
+                            seconds = opened.goalSeconds, state = "voice", scenarioKind = "free"))
                         opened.startedUnix?.let { unix -> callEvent(CallEvent(
                             "call:${opened.callId}:actual-open", "call_actual_open", chatId,
                             Instant.ofEpochMilli((unix * 1000).toLong()), callId = opened.callId)) }
@@ -1436,6 +1436,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
                         return@run
                     }
+                    callChat(message)?.let { chatId -> callEvent(CallEvent(
+                        "scenario:choice:${query.id}",
+                        if (query.data == "scenario:back") "scenario_back" else "scenario_selected",
+                        chatId, callbackReceivedAt, botMessageId = message.messageId.long,
+                        state = query.data.removePrefix("scenario:"),
+                    )) }
                     when (query.data) {
                         "scenario:back" -> {
                             customScenarioPrompts.remove(key)
@@ -1867,11 +1873,23 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         val menu = reply(message, "Choose a situation to practise:",
                             allowSendingWithoutReply = true, replyMarkup = scenarioKeyboard())
                         scenarioMenus[key] = menu.messageId
+                        callChat(message)?.let { chatId -> callEvent(CallEvent(
+                            "scenario:menu:$chatId:${message.messageId.long}", "scenario_menu_opened",
+                            chatId, receivedAt, messageId = message.messageId.long,
+                            botMessageId = menu.messageId.long,
+                        )) }
                     }
                     content.text.startsWith("/") -> log.info("Ignoring command")
                     customScenarioPrompts.containsKey(message.chat.id.toString()) -> {
                         val key = message.chat.id.toString()
                         val description = content.text.trim()
+                        callChat(message)?.let { chatId -> callEvent(CallEvent(
+                            "scenario:description:$chatId:${message.messageId.long}",
+                            if (description.isEmpty() || description.length > 500) "custom_description_invalid"
+                            else "custom_description_submitted",
+                            chatId, receivedAt, messageId = message.messageId.long,
+                            botMessageId = customScenarioPrompts[key]?.long,
+                        )) }
                         if (description.isEmpty() || description.length > 500) {
                             reply(message, "Please describe the situation in up to 500 characters.",
                                 allowSendingWithoutReply = true)

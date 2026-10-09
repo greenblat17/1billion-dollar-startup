@@ -161,6 +161,7 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val filter = CallDashboardFilter(
             days = days,
             source = query["source"]?.takeIf { it in setOf("button", "voice") },
+            mode = query["mode"]?.takeIf { it in setOf("free", "job", "manager", "custom", "unknown") },
             status = query["status"]?.takeIf { it in setOf("open", "closed") },
             failed = query["failed"]?.toBooleanStrictOrNull(),
             offset = query["offset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0,

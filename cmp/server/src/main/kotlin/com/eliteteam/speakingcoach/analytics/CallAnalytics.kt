@@ -36,6 +36,7 @@ internal data class CallEvent(
     val seconds: Double? = null,
     val amount: Int? = null,
     val state: String? = null,
+    val scenarioKind: String? = null,
 ) {
     fun safe(): CallEvent = copy(
         id = id.take(160), kind = kind.take(40), username = username.trim().removePrefix("@").take(64),
@@ -43,6 +44,7 @@ internal data class CallEvent(
         milliseconds = milliseconds?.coerceIn(0, 3_600_000),
         seconds = seconds?.takeIf { it.isFinite() && it >= 0 }?.coerceAtMost(86_400.0),
         amount = amount?.coerceIn(0, 100), state = state?.take(40),
+        scenarioKind = scenarioKind?.takeIf { it in setOf("free", "job", "manager", "custom") },
     )
 }
 
@@ -72,6 +74,8 @@ internal class MemoryCallEventStore : CallEventStore {
             seconds = old.seconds ?: safe.seconds,
             amount = safe.amount ?: old.amount,
             state = if (old.kind == "start_pressed") safe.state ?: old.state else old.state ?: safe.state,
+            scenarioKind = if (safe.scenarioKind == null || safe.scenarioKind == "free")
+                old.scenarioKind ?: safe.scenarioKind else safe.scenarioKind,
         )
         Unit
     }
@@ -111,8 +115,8 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
         pool.connection.use { connection ->
             connection.prepareStatement("""
                 INSERT INTO telegram_call_events
-                  (event_id, call_id, chat_id, username, kind, occurred_at, message_id, bot_message_id, milliseconds, seconds, amount, state)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (event_id, call_id, chat_id, username, kind, occurred_at, message_id, bot_message_id, milliseconds, seconds, amount, state, scenario_kind)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (event_id) DO UPDATE SET
                   call_id = COALESCE(EXCLUDED.call_id, telegram_call_events.call_id),
                   username = CASE WHEN telegram_call_events.username = '' THEN EXCLUDED.username ELSE telegram_call_events.username END,
@@ -122,7 +126,10 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
                   amount = COALESCE(EXCLUDED.amount, telegram_call_events.amount),
                   state = CASE WHEN telegram_call_events.kind = 'start_pressed'
                     THEN COALESCE(EXCLUDED.state, telegram_call_events.state)
-                    ELSE COALESCE(telegram_call_events.state, EXCLUDED.state) END
+                    ELSE COALESCE(telegram_call_events.state, EXCLUDED.state) END,
+                  scenario_kind = CASE WHEN EXCLUDED.scenario_kind IS NULL OR EXCLUDED.scenario_kind = 'free'
+                    THEN COALESCE(telegram_call_events.scenario_kind, EXCLUDED.scenario_kind)
+                    ELSE EXCLUDED.scenario_kind END
             """.trimIndent()).use { statement ->
                 statement.setString(1, safe.id)
                 statement.setString(2, safe.callId)
@@ -136,6 +143,7 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
                 statement.setObject(10, safe.seconds)
                 statement.setObject(11, safe.amount)
                 statement.setString(12, safe.state)
+                statement.setString(13, safe.scenarioKind)
                 statement.executeUpdate()
             }
         }
@@ -146,7 +154,7 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
         val events = pool.connection.use { connection ->
             connection.prepareStatement("""
                 SELECT event_id, call_id, chat_id, username, kind, occurred_at, message_id, bot_message_id,
-                       milliseconds, seconds, amount, state
+                       milliseconds, seconds, amount, state, scenario_kind
                 FROM telegram_call_events WHERE occurred_at >= ? ORDER BY occurred_at DESC LIMIT ?
             """.trimIndent()).use { statement ->
                 statement.setTimestamp(1, Timestamp.from(since))
@@ -163,7 +171,7 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
         pool.connection.use { connection ->
             connection.prepareStatement("""
                 SELECT event_id, call_id, chat_id, username, kind, occurred_at, message_id, bot_message_id,
-                       milliseconds, seconds, amount, state
+                       milliseconds, seconds, amount, state, scenario_kind
                 FROM telegram_call_events WHERE call_id = ? ORDER BY occurred_at LIMIT 1000
             """.trimIndent()).use { statement ->
                 statement.setString(1, callId)
@@ -210,7 +218,7 @@ private fun java.sql.ResultSet.callEvent(): CallEvent = CallEvent(
     botMessageId = getLong(8).takeUnless { wasNull() },
     milliseconds = getLong(9).takeUnless { wasNull() },
     seconds = getDouble(10).takeUnless { wasNull() },
-    amount = getInt(11).takeUnless { wasNull() }, state = getString(12),
+    amount = getInt(11).takeUnless { wasNull() }, state = getString(12), scenarioKind = getString(13),
 )
 
 internal class CallEventRecorder(private val store: CallEventStore, scope: CoroutineScope) {

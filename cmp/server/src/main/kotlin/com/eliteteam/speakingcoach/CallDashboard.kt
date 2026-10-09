@@ -17,6 +17,7 @@ internal const val CALLS_PATH = "/admin/metrics/calls"
 internal data class CallDashboardFilter(
     val days: Int = 7,
     val source: String? = null,
+    val mode: String? = null,
     val status: String? = null,
     val failed: Boolean? = null,
     val offset: Int = 0,
@@ -32,6 +33,7 @@ internal data class CallDashboardRow(val callId: String, val events: List<CallEv
     val cards = events.filter { it.kind == "correction_card" }.distinctBy { it.messageId }
     val subtitles = events.filter { it.kind == "subtitle_click" }.distinctBy { it.id }
     val source: String = opened.state ?: "unknown"
+    val mode: String = opened.scenarioKind ?: "unknown"
     val audioSeconds: Double = voices.sumOf { it.seconds ?: 0.0 }
     val recognizedSeconds: Double = processed.sumOf { it.seconds ?: 0.0 }
     val audioReplies: Int = replies.count { it.state == "audio" }
@@ -63,15 +65,29 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
     val today = LocalDate.now(callZone)
     val from = today.minusDays((filter.days - 1).toLong())
     val allRows = callDashboardRows(snapshot)
-    val rows = allRows.filter { row ->
+    val comparableRows = allRows.filter { row ->
         val day = row.opened.at.atZone(callZone).toLocalDate()
         !day.isBefore(from) && !day.isAfter(today) &&
             (filter.source == null || row.source == filter.source) &&
             (filter.status == null || (if (row.closed == null) "open" else "closed") == filter.status) &&
             (filter.failed == null || row.failed == filter.failed)
     }
+    val rows = comparableRows.filter { filter.mode == null || it.mode == filter.mode }
     val selectedIds = rows.map { it.callId }.toSet()
-    val noCallFilter = filter.source == null && filter.status == null && filter.failed == null
+    val noCallFilter = filter.source == null && filter.mode == null && filter.status == null && filter.failed == null
+    val periodEvents = snapshot.events.filter { event ->
+        val day = event.at.atZone(callZone).toLocalDate()
+        !day.isBefore(from) && !day.isAfter(today)
+    }
+    val periodRows = allRows.filter { row ->
+        val day = row.opened.at.atZone(callZone).toLocalDate()
+        !day.isBefore(from) && !day.isAfter(today)
+    }
+    val modeStats = callModeStats(comparableRows)
+    val scenarioPath = scenarioPathStats(periodEvents, periodRows)
+    val crossModeUsers = comparableRows.groupBy { it.opened.chatId }.values.count { calls ->
+        calls.any { it.mode == "free" } && calls.any { it.mode in setOf("job", "manager", "custom") }
+    }
     val starts = snapshot.events.count { it.kind == "start_pressed" &&
         !it.at.atZone(callZone).toLocalDate().isBefore(from) &&
         !it.at.atZone(callZone).toLocalDate().isAfter(today) &&
@@ -88,12 +104,15 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         goal != null && group.sumOf { it.recognizedSeconds } >= goal
     }
     val sourceLinks = listOf(null to "Все", "button" to "Кнопка", "voice" to "Голосовое")
+    val modeLinks = listOf(null to "Все") + callModes.map { it to callModeLabel(it) }
     val statusLinks = listOf(null to "Все", "open" to "Открытые", "closed" to "Закрытые")
     val filters = buildString {
         append("<form method=\"get\" action=\"$CALLS_PATH\"><label>Период <select name=\"days\">")
         for (days in listOf(1, 7, 30)) append("<option value=\"$days\"${if (filter.days == days) " selected" else ""}>${if (days == 1) "Сегодня" else "$days дней"}</option>")
         append("</select></label> <label>Начало <select name=\"source\">")
         for ((value, label) in sourceLinks) append("<option value=\"${value ?: ""}\"${if (filter.source == value) " selected" else ""}>$label</option>")
+        append("</select></label> <label>Режим <select name=\"mode\">")
+        for ((value, label) in modeLinks) append("<option value=\"${value ?: ""}\"${if (filter.mode == value) " selected" else ""}>$label</option>")
         append("</select></label> <label>Статус <select name=\"status\">")
         for ((value, label) in statusLinks) append("<option value=\"${value ?: ""}\"${if (filter.status == value) " selected" else ""}>$label</option>")
         append("</select></label> <label>Ошибки <select name=\"failed\">")
@@ -104,13 +123,13 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
     val table = rows.drop(filter.offset).take(25).joinToString("") { row ->
         val status = row.closed?.state ?: "открыт"
         "<tr><td><a href=\"$CALLS_PATH/${row.callId}\">${callTime(row.opened.at)}</a></td>" +
-            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(row.source)}</td>" +
+            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(callModeLabel(row.mode))}</td><td>${escapeHtml(row.source)}</td>" +
             "<td>${escapeHtml(status)}</td><td>${row.voices.size}</td>" +
             "<td>${secondsText(row.recognizedSeconds)}</td><td>${row.audioReplies}</td>" +
             "<td>${if (row.failed) "Да" else "Нет"}</td></tr>"
     }
     val next = if (filter.offset + 25 < rows.size) {
-        val query = "days=${filter.days}&source=${filter.source ?: ""}&status=${filter.status ?: ""}&failed=${filter.failed ?: ""}&offset=${filter.offset + 25}"
+        val query = "days=${filter.days}&source=${filter.source ?: ""}&mode=${filter.mode ?: ""}&status=${filter.status ?: ""}&failed=${filter.failed ?: ""}&offset=${filter.offset + 25}"
         "<p><a href=\"$CALLS_PATH?$query\">Следующие 25 →</a></p>"
     } else ""
     val daily = rows.groupBy { it.opened.at.atZone(callZone).toLocalDate() }
@@ -119,6 +138,31 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
                 "<td>${group.sumOf { it.voices.size }}</td><td>${secondsText(group.sumOf { it.recognizedSeconds })}</td>" +
                 "<td>${group.sumOf { it.audioReplies }}</td></tr>"
         }
+    val modeRows = modeStats.joinToString("") { stat ->
+        val share = if (comparableRows.isEmpty()) "—" else
+            "${"%.1f".format(java.util.Locale.ROOT, stat.calls * 100.0 / comparableRows.size)}%"
+        "<tr><td>${callModeLabel(stat.mode)}</td><td>${stat.users}</td><td>${stat.calls}</td>" +
+            "<td>$share</td><td>${stat.repeatUsers}</td><td>${stat.dialogues} / ${stat.calls - stat.dialogues}</td>" +
+            "<td>${stat.voiceTurns}</td><td>${secondsText(stat.speechSeconds)}</td>" +
+            "<td>${speechPercentiles(stat.speechSample)}</td></tr>"
+    }
+    val modeQualityRows = modeStats.joinToString("") { stat ->
+        "<tr><td>${callModeLabel(stat.mode)}</td><td>${stat.calls}</td><td>${stat.audioReplies}</td>" +
+            "<td>${stat.failedCalls}</td><td>${stat.deliveredCorrections}</td>" +
+            "<td>${stat.subtitleClicks}</td><td>${stat.deliveredReviews}</td></tr>"
+    }
+    val modeDaily = comparableRows.groupBy { it.opened.at.atZone(callZone).toLocalDate() to it.mode }
+        .entries.sortedWith(compareByDescending<Map.Entry<Pair<LocalDate, String>, List<CallDashboardRow>>> { it.key.first }
+            .thenBy { callModes.indexOf(it.key.second) }).joinToString("") { (key, group) ->
+            "<tr><td>${key.first}</td><td>${callModeLabel(key.second)}</td><td>${group.map { it.opened.chatId }.distinct().size}</td>" +
+                "<td>${group.size}</td><td>${group.sumOf { it.voices.size }}</td>" +
+                "<td>${secondsText(group.sumOf { it.recognizedSeconds })}</td></tr>"
+        }
+    val choiceRows = scenarioPath.choices.joinToString("") { choice ->
+        "<tr><td>${callModeLabel(choice.kind)}</td><td>${choice.users}</td><td>${choice.selections}</td>" +
+            "<td>${if (choice.kind == "custom") choice.validDescriptions else "—"}</td>" +
+            "<td>${choice.callsOpened}</td><td>${choice.startersDelivered}</td><td>${choice.dialogues}</td></tr>"
+    }
     val feedbackRows = feedback?.items?.joinToString("") { item ->
         val username = item.username.takeIf { it.isNotBlank() }?.let { "@${escapeHtml(it)}" }
             ?: "— (${escapeHtml(item.sessionId)})"
@@ -135,7 +179,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         feedback == null -> "<p class=\"meta\">Отзывы сейчас недоступны.</p>"
         feedback.total == 0 -> "<p class=\"meta\">Пока нет ответов.</p>"
         else -> {
-            val base = "days=${filter.days}&source=${filter.source ?: ""}&status=${filter.status ?: ""}&failed=${filter.failed ?: ""}&offset=${filter.offset}"
+            val base = "days=${filter.days}&source=${filter.source ?: ""}&mode=${filter.mode ?: ""}&status=${filter.status ?: ""}&failed=${filter.failed ?: ""}&offset=${filter.offset}"
             val previous = if (feedbackOffset > 0) "<a href=\"$CALLS_PATH?$base&feedbackOffset=${(feedbackOffset - 25).coerceAtLeast(0)}\">← Предыдущие</a>" else ""
             val nextFeedback = if (feedbackOffset + feedback.items.size < feedback.total)
                 "<a href=\"$CALLS_PATH?$base&feedbackOffset=${feedbackOffset + 25}\">Следующие →</a>" else ""
@@ -164,8 +208,21 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         ${card("Review сформирован / доставлен", "${rows.count { it.reviewGenerated }} / ${rows.count { it.reviewDelivered }}")}
         ${card("Дней с достигнутой целью", goalDays.toString())}
         </dl>
+        <h2>Обычный разговор и ситуации</h2>
+        <p class="meta">Тот же период, способ начала, статус и фильтр ошибок; фильтр режима здесь не применяется, чтобы сравнение оставалось полным. Речь — распознанные секунды пользователя, p50/p95 только среди звонков с голосом (указано n). «Неизвестно» — звонки до добавления признака режима.</p>
+        <p class="meta">Людей, попробовавших и обычный разговор, и ситуации: $crossModeUsers</p>
+        <div style="overflow-x:auto"><table style="min-width:950px"><thead><tr><th>Режим</th><th>Людей</th><th>Звонков</th><th>Доля звонков</th><th>Людей с 2+ звонками</th><th>С голосом / без</th><th>Голосовых</th><th>Всего речи</th><th>Речь p50/p95</th></tr></thead><tbody>$modeRows</tbody></table></div>
+        <h3>Ответы и качество по режимам</h3>
+        <table><thead><tr><th>Режим</th><th>Звонков</th><th>Аудиоответов</th><th>Со сбоями</th><th>Карточек доставлено</th><th>Subtitles</th><th>Review доставлен</th></tr></thead><tbody>$modeQualityRows</tbody></table>
+        <h2>Выбор ситуации</h2>
+        <p class="meta">Все события выбора за период, независимо от фильтров списка. Меню и сообщения приняты Telegram — это не доказывает просмотр. Выбор на границе периода может привести к звонку в другой день.</p>
+        <dl>${card("Меню принято / людей", "${scenarioPath.menus} / ${scenarioPath.menuUsers}")}
+        ${card("Меню с выбором / Back", "${scenarioPath.menusWithSelection} / ${scenarioPath.backs}")}
+        ${card("Неверных описаний Custom", scenarioPath.invalidDescriptions.toString())}</dl>
+        <table><thead><tr><th>Ситуация</th><th>Людей выбрали</th><th>Выборов</th><th>Описаний</th><th>Звонков открыто</th><th>Вступление отправлено</th><th>Начат диалог</th></tr></thead><tbody>$choiceRows</tbody></table>
+        <h2>Режимы по дням</h2><table><thead><tr><th>Дата начала</th><th>Режим</th><th>Людей</th><th>Звонков</th><th>Голосовых</th><th>Речь</th></tr></thead><tbody>$modeDaily</tbody></table>
         <h2>По дням</h2><table><thead><tr><th>Дата начала</th><th>Звонки</th><th>Закрыто</th><th>Голоса</th><th>Речь</th><th>Аудиоответы</th></tr></thead><tbody>$daily</tbody></table>
-        <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
+        <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Режим</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
         <h2>Отзывы после первого разговора (${feedback?.total ?: "—"})</h2>$feedbackSection
         </body></html>
     """.trimIndent()
@@ -176,7 +233,7 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
     val lastVoiceUnanswered = if (row.lastVoiceUnanswered) " (последнее голосовое без ответа)" else ""
     val events = row.events.joinToString("") { event ->
         val label = when (event.kind) {
-            "start_pressed" -> "Нажат Start call: ${event.state ?: "—"}"
+            "start_pressed" -> "Нажат ${if (event.scenarioKind in setOf("job", "manager", "custom")) "сценарий ${callModeLabel(event.scenarioKind!!)}" else "Start call"}: ${event.state ?: "—"}"
             "call_open" -> "Получено начало: ${event.state ?: "—"}"
             "call_actual_open" -> "Звонок открыт в AI-service"
             "starter_delivered" -> "Вступительный ответ бота доставлен"
@@ -206,7 +263,7 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
     return """
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Звонок ${row.callId} · Speaky</title>${pageStyle()}</head><body>
         ${adminTabs(CALLS_PATH)}<p><a href="$CALLS_PATH">← Все звонки</a></p><h1>Звонок ${row.callId}</h1>
-        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
+        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${callModeLabel(row.mode)} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
         ${if (truncated) "<p>Достигнут лимит 1000 событий: хронология может быть неполной.</p>" else ""}
         <dl>${card("Старт", callTime(row.opened.at))}${card("Конец звонка", row.closed?.at?.let(::callTime) ?: "—")}
         ${card("Начало диалога", row.firstVoice?.let(::callTime) ?: "—")}
