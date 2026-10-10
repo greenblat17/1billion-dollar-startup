@@ -166,11 +166,21 @@ internal data class DecisionMetrics(
     val retryRecovered: Int = 0,
     val textHint: Int = 0,
     val preBeginVoiceHint: Int = 0,
+    val shortOffers: Int = 0,
+    val shortChoices: Int = 0,
+    val shortDelivered: Int = 0,
+    val fullSpeech: Int = 0,
+    val fullDelivered: Int = 0,
 )
 
 internal data class DecisionCount(val id: String, val label: String, val count: Int, val denominator: Int)
 
 internal fun decisionCounts(d: DecisionMetrics, primaryAttempts: Int): List<DecisionCount> = listOf(
+    DecisionCount("short_offer", "Предложен короткий результат", d.shortOffers, d.attempts),
+    DecisionCount("short_choice", "Выбран короткий результат", d.shortChoices, d.shortOffers),
+    DecisionCount("short_delivered", "Короткий результат доставлен", d.shortDelivered, d.shortChoices),
+    DecisionCount("full_speech", "Дошли до 2 минут", d.fullSpeech, d.attempts),
+    DecisionCount("full_delivered", "Полный результат доставлен", d.fullDelivered, d.attempts),
     DecisionCount("result_built", "Результат собран", d.resultBuilt, d.attempts),
     DecisionCount("result_delivered", "Результат доставлен", d.resultDelivered, d.resultBuilt),
     DecisionCount("scored", "Есть балл", d.scored, d.resultDelivered),
@@ -404,6 +414,11 @@ private fun decisionMetrics(attempts: List<OnboardingAttemptRow>, events: List<O
         retryRecovered = types["retry_recovered"] ?: 0,
         textHint = types["text_hint"] ?: 0,
         preBeginVoiceHint = types["pre_begin_voice_hint"] ?: 0,
+        shortOffers = types["short_offer_delivered"] ?: 0,
+        shortChoices = types["short_result_chosen"] ?: 0,
+        shortDelivered = types["short_result_delivered"] ?: 0,
+        fullSpeech = attempts.count { it.speech120At != null },
+        fullDelivered = attempts.count { it.speech120At != null && it.resultDeliveredAt != null },
     )
 }
 
@@ -412,21 +427,15 @@ private val FUNNEL: List<Pair<String, (OnboardingAttemptRow) -> Instant?>> = lis
     "Let’s chat" to { it.letsChatAt },
     "Первое голосовое" to { it.firstVoiceAt },
     "30 сек" to { it.speech30At },
-    "60 сек" to { it.speech60At },
-    "90 сек" to { it.speech90At },
-    "120 сек" to { it.speech120At },
     "Результат собран" to { it.completedAt },
     "Результаты открыты" to { it.resultsOpenedAt },
-    "Grammar" to { it.grammarViewedAt },
-    "Vocabulary" to { it.vocabularyViewedAt },
-    "Fluency" to { it.fluencyViewedAt },
     "Выбор минут" to { it.practiceSetupAt },
     "Минуты выбраны" to { it.goalSelectedAt },
 )
 
 internal val FUNNEL_STEP_IDS = listOf(
-    "started", "lets_chat", "first_voice", "speech_30", "speech_60", "speech_90", "speech_120",
-    "result_built", "result_opened", "grammar_viewed", "vocabulary_viewed", "fluency_viewed",
+    "started", "lets_chat", "first_voice", "speech_30",
+    "result_built", "result_opened",
     "goal_shown", "goal_selected",
 )
 

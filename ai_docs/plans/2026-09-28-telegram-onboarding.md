@@ -2,6 +2,8 @@
 
 Status: implemented on `feature/telegram-onboarding`; automated verification below. Live DEV acceptance is still required before production deployment.
 
+The original 120-second-only completion rule below is superseded for new attempts by the [optional 30-second result](2026-10-08-onboarding-short-result.md). The two-minute full route remains available.
+
 Card copy in this historical plan was updated by [short correction explanations](2026-10-01-telegram-correction-explanations.md): current live cards omit the type heading and may show one short Russian explanation under the inline edit.
 
 ## Agreed experience

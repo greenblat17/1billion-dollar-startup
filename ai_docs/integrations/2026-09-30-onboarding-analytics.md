@@ -10,6 +10,8 @@ The schema stores timestamps, categorical statuses, numeric durations and counts
 
 ## Event contract
 
+**2026-10-08 update:** New optional short-result attempts use analytics version `v3`; the agent JSON schema is `onboarding-analytics.v8`. Events record `short_offer_delivered`, `short_result_chosen`, `short_result_delivered`, `short_continue_pressed`, and `short_continued_by_voice`. The required journey reaches a result after 30 seconds; 60/90/120-second milestones are optional diagnostics. The decision block reports the number reaching 120 seconds and receiving a full result separately from the short choice/delivery counts. The older 120-second-only funnel definition below is historical. The result-build error rate below still covers attempts reaching 120 seconds; short-result failures appear in callback errors and in the short choice-to-delivery gap. See [the optional short-result plan](../plans/2026-10-08-onboarding-short-result.md).
+
 | Fact | Occurs when | Idempotency |
 | --- | --- | --- |
 | Attempt start | Ktor has accepted a new onboarding run | `run_id` |

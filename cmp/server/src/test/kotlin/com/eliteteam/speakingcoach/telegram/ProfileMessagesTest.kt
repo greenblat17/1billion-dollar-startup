@@ -38,6 +38,16 @@ class ProfileMessagesTest {
     }
 
     @Test
+    fun preliminaryProfileShowsOverallScoreWithoutEmptySkillRows() {
+        val text = profileMessage("Alex", ProgressProfileResponse(
+            assessment = ProgressAssessment(cefr = "B1", overallScore = 52, preliminary = true),
+        )).plain()
+        assertTrue(text.contains("Latest assessment · preliminary\nB1 · 52/100"))
+        assertFalse(text.contains("Grammar"))
+        assertFalse(text.contains("points to"))
+    }
+
+    @Test
     fun unknownSkillsAndC2DoNotBecomeZeroOrInventNextBand() {
         val unknown = profileMessage("Alex", ProgressProfileResponse(assessment = ProgressAssessment())).plain()
         assertTrue(unknown.contains(LEVEL_UNKNOWN))

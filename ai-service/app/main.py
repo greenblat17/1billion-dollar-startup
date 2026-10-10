@@ -497,7 +497,7 @@ def create_app(
         session_id, request_id = _onboarding_identity(payload)
         run_id = str(payload.get("runId") or "")
         action = str(payload.get("action") or "")
-        if not run_id or action not in {"begin", "retry", "continue"}:
+        if not run_id or action not in {"begin", "retry", "continue", "short"}:
             raise HTTPException(status_code=400, detail="invalid action")
         await sessions.create(session_id)
         job = jobs.create(session_id)

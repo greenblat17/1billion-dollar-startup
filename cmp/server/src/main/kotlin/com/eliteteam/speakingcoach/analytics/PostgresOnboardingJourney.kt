@@ -230,8 +230,8 @@ internal fun Connection.onboardingJourneyReport(now: Instant, filter: Onboarding
 
 private val journeyColumns = listOf(
     "start_at", "invitation_at", "begin_pressed_at", "first_question_delivered_at",
-    "first_voice_received_at", "first_recognized_at", "speech_30_at", "speech_60_at",
-    "speech_90_at", "speech_120_at", "result_delivered_at", "results_opened_at",
+    "first_voice_received_at", "first_recognized_at", "speech_30_at",
+    "result_delivered_at", "results_opened_at",
     "practice_setup_at", "goal_selected_at", "reminder_offered_at", "reminder_resolved_at",
 )
 
@@ -244,16 +244,13 @@ private fun journeyGapSql(): String = JOURNEY_STAGES.indices.drop(1)
     .joinToString(" OR ") { "(s$it AND NOT s${it - 1})" }
 
 private fun voiceJourneyStageSql(alias: String): String = """CASE
-    WHEN COALESCE($alias.speech_before_sec, 0) >= 120 THEN 'speech_120'
-    WHEN COALESCE($alias.speech_before_sec, 0) >= 90 THEN 'speech_90'
-    WHEN COALESCE($alias.speech_before_sec, 0) >= 60 THEN 'speech_60'
     WHEN COALESCE($alias.speech_before_sec, 0) >= 30 THEN 'speech_30'
     ELSE 'voice_received' END"""
 
 private fun eventJourneyStageSql(alias: String): String = """CASE $alias.failure_stage
     WHEN 'first_question' THEN 'begin'
-    WHEN 'result_build' THEN 'speech_120'
-    WHEN 'result_delivery' THEN 'speech_120'
+    WHEN 'result_build' THEN 'speech_30'
+    WHEN 'result_delivery' THEN 'speech_30'
     WHEN 'result_card' THEN 'result_delivered'
     WHEN 'goal' THEN 'goal_shown'
     WHEN 'reminder' THEN 'reminder_offered'

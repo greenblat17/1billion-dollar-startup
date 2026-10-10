@@ -101,6 +101,17 @@ class TelegramChatActionsTest {
     }
 
     @Test
+    fun newGoalCardCanAcceptAChoiceAfterEarlierCardWasUsed() = runTest {
+        val actions = TelegramChatActions()
+        val runId = "a".repeat(32)
+        val choices = mutableListOf<Int>()
+        actions.run("chat", onboardingCallbackRequestId("m5", runId, "q1", 10)) { choices += 5 }
+        actions.run("chat", onboardingCallbackRequestId("skip", runId, "q2", 10)) { choices += 0 }
+        actions.run("chat", onboardingCallbackRequestId("m15", runId, "q3", 11)) { choices += 15 }
+        assertEquals(listOf(5, 15), choices)
+    }
+
+    @Test
     fun analyticsWriteDoesNotHoldUpTheNextDeliveredReply() = runTest {
         val actions = TelegramChatActions()
         val startedWriting = CompletableDeferred<Unit>()

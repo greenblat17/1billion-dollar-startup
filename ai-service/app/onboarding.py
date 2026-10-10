@@ -31,6 +31,7 @@ FIRST_QUESTION = (
 RETRY_TEXT = "I couldn't prepare your result. Please try again."
 RESULT_READY_TEXT = "Your results are ready."
 SPEECH_LIMIT_SECONDS = 120
+SHORT_RESULT_SECONDS = 30
 SPEECH_MILESTONES = (30, 60, 90, 120)
 PROFILE_FIELDS = ("work", "leisure", "goal")
 RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
@@ -52,6 +53,8 @@ def _expire_raw_turns(state: dict, now: float | None = None) -> dict:
     if len(current) != len(original) and state.get("status") in {"active", "pending"}:
         state["status"] = "waiting"
         state["seconds"] = 0.0
+        state["englishEvidence"] = False
+        state.pop("shortRequested", None)
         state["question"] = FIRST_QUESTION
     return state
 
@@ -213,6 +216,7 @@ def assessment_summary(state: dict | None) -> dict | None:
         return None
     return {
         "runId": state.get("runId"),
+        "preliminary": bool(state.get("preliminary")),
         "cefr": state.get("cefr"),
         "position": state.get("position"),
         "shade": _stored_shade(state),
@@ -225,10 +229,15 @@ def assessment_summary(state: dict | None) -> dict | None:
 def public_assessment(assessment: dict | None) -> dict | None:
     if not isinstance(assessment, dict):
         return None
-    return {
+    result = {
         key: assessment.get(key)
         for key in ("cefr", "overallScore", "nextBand", "pointsToNext", "grammar", "vocabulary", "fluency")
     }
+    if assessment.get("preliminary"):
+        result["preliminary"] = True
+        result["nextBand"] = None
+        result["pointsToNext"] = None
+    return result
 
 
 def _kept_assessment(existing: dict | None, fresh: dict | None) -> dict | None:
@@ -252,6 +261,9 @@ def _kept_assessment(existing: dict | None, fresh: dict | None) -> dict | None:
 def public_state(state: dict) -> dict:
     payload = {
         **{key: state.get(key) for key in ("runId", "status", "seconds", "cefr", "resultText")},
+        "preliminary": bool(state.get("preliminary")),
+        "shortResultAvailable": state["status"] == "active" and state["seconds"] >= SHORT_RESULT_SECONDS
+            and bool(state.get("englishEvidence")),
         "legacyUser": bool(state.get("legacyUser") or state.get("status") == "exempt"),
         **overall_progress(state.get("cefr"), state.get("position"), _stored_shade(state)),
         "retryAvailable": state["status"] == "pending" or (state["status"] == "active" and bool(state["turns"])),
@@ -273,6 +285,7 @@ def _stored_shade(state: dict) -> str:
 def _public_review(review: dict) -> dict:
     return {
         "levelText": review.get("levelText") or "",
+        "shortExamples": review.get("shortExamples") or [],
         "grammar": _public_skill(review.get("grammar") or {}),
         "vocabulary": _public_skill(review.get("vocabulary") or {}),
         "fluency": _public_fluency(review.get("fluency") or {}),
@@ -313,6 +326,8 @@ def _attempt(receipts: list[str] | None = None, legacy_user: bool = False) -> di
         "question": FIRST_QUESTION,
         "receipts": receipts or [],
         "continued": False,
+        "englishEvidence": False,
+        "preliminary": False,
     }
 
 
@@ -430,6 +445,14 @@ class OnboardingService:
                     question = turn["reply"]
                     return self._result(state, question, await self.pipeline.speech.synthesize(session_id, question), turn)
                 return await self._advance_turn(session_id, state, turn)
+        if action == "short" and state["status"] == "completed" and state.get("preliminary"):
+            return self._result(state, RESULT_READY_TEXT)
+        if action == "short" and state["status"] == "active" and state["seconds"] >= SHORT_RESULT_SECONDS \
+                and state.get("englishEvidence"):
+            state["shortRequested"] = True
+            state["status"] = "pending"
+            await self.store.save(session_id, state)
+            return await self._finish_short(session_id, state)
         if action == "continue" and state["status"] == "completed":
             if not state.get("continueQuestion"):
                 state["continueQuestion"] = await self.model.continue_question({
@@ -527,6 +550,9 @@ class OnboardingService:
                 }
                 state["turns"].append(turn)
                 state["seconds"] += seconds
+                language = str(stt.raw.get("language") or "").lower()
+                if language in {"english", "en"} or (not language and any(char.isascii() and char.isalpha() for char in stt.text)):
+                    state["englishEvidence"] = True
                 await self.store.save(session_id, state)
             return await self._advance_turn(session_id, state, turn)
 
@@ -664,6 +690,8 @@ class OnboardingService:
         self, session_id: str, state: dict, turn: dict | None = None,
         closing_task: asyncio.Task | None = None,
     ) -> PipelineResult:
+        if state.get("shortRequested"):
+            return await self._finish_short(session_id, state)
         turn = turn or state["turns"][-1]
         try:
             assessment = state.get("assessment")
@@ -723,6 +751,47 @@ class OnboardingService:
                 "scoreAvailable": progress["overallScore"] is not None,
             },
         )
+
+    async def _finish_short(self, session_id: str, state: dict) -> PipelineResult:
+        try:
+            if state.get("review") is None:
+                transcripts = [str(turn.get("transcript") or "").strip() for turn in state["turns"]]
+                transcripts = [item for item in transcripts if item]
+                estimate = await self.model.compose_short_review(transcripts)
+                if overall_progress(estimate["cefr"], estimate["position"])["overallScore"] is None:
+                    raise ValueError("short review has no numeric score")
+                candidates = correction_candidates(state["turns"])
+                accepted: set[str] = set()
+                if candidates:
+                    try:
+                        accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
+                    except Exception:
+                        logger.exception("short onboarding correction verification failed; omitting examples")
+                examples = select_examples(candidates, accepted)
+                state["cefr"] = estimate["cefr"]
+                state["position"] = estimate["position"]
+                state["review"] = {
+                    "levelText": estimate["levelText"],
+                    "shade": "0",
+                    "shortExamples": (examples["grammar"] + examples["vocabulary"])[:2],
+                }
+                await self.store.save(session_id, state)
+            state["preliminary"] = True
+            state["status"] = "completed"
+            await self._remember(session_id, state)
+            await self.store.save(session_id, state)
+            await self.personalization.seed(session_id, state)
+            return self._result(state, RESULT_READY_TEXT, analytics={
+                "completedNow": True,
+                "cefr": state["cefr"],
+                "overallScore": overall_progress(state["cefr"], state["position"])["overallScore"],
+                "scoreAvailable": True,
+            })
+        except Exception:
+            logger.exception("short onboarding result failed session=%s", session_id)
+            state["status"] = "pending"
+            await self.store.save(session_id, state)
+            return self._result(state, RETRY_TEXT, analytics={"assessmentFailed": True})
 
     async def progress_profile(self, session_id: str) -> dict:
         async with self.store.lock(session_id):

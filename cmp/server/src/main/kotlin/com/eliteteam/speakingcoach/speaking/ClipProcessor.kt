@@ -97,4 +97,6 @@ data class OnboardingStatus(
     val nextBand: String? = null,
     val pointsToNext: Int? = null,
     val analytics: OnboardingVoiceFacts? = null,
+    val preliminary: Boolean = false,
+    val shortResultAvailable: Boolean = false,
 )
