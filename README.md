@@ -20,4 +20,15 @@ Speaky — бот в Telegram, с которым человек говорит �
 
 Карта того, что уже работает, потолок провайдеров и размер машин: `ai_docs/architecture/2026-10-11-telegram-mvp-acceptance.md`.
 
+## Метрики задания
+
+Доска Grafana Speaky, файл `infra/monitoring/grafana/dashboards/speaky.json`. Только Telegram, московский день. Стоимость на человека — usage.cost за день / DAU: распознавание, ответ, заметки и озвучка.
+
+| Метрика | Панель | Ряд |
+| --- | --- | --- |
+| DAU | DAU: сколько человек сегодня договорили ход | `speaking_dau{client="telegram"}` |
+| Частотность взаимодействия | Частотность: сколько ходов на человека сегодня | `speaking_turns{client="telegram"} / speaking_dau{client="telegram"}` |
+| Ошибки сервисов | Ошибки сервисов за сегодня | `speaking_errors{client="telegram"}` |
+| Стоимость на человека | Стоимость на человека сегодня, $ | `(speaking_cost_micro{client="telegram"} / 1000000) / speaking_dau{client="telegram"}` при DAU > 0 |
+
 Инженерные решения лежат в `ai_docs/`, не в этом файле.
