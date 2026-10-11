@@ -929,6 +929,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     } catch (error: Throwable) {
                         log.warn("Voice content audit failed attempt_id={}", attemptId, error)
                     }
+                    result.reply.audio?.let { replyAudio ->
+                        try {
+                            if (audit?.saveReplyAudio(
+                                    chatId, message.messageId.long, receivedAt, replyAudio.bytes, replyAudio.contentType,
+                                ) == false
+                            ) {
+                                log.warn("Model voice was not archived attempt_id={}", attemptId)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Model voice archive failed attempt_id={}", attemptId, error)
+                        }
+                    }
                 }
                 completedFacts = result.reply.onboarding?.analytics?.withReview(result.reply.onboarding.review)
                 val callId = result.reply.call?.callId ?: practiceCallId

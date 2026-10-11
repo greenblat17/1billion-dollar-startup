@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
@@ -23,6 +23,7 @@ from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
+from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
 from app.llm import OpenAiChatModel
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import build_metrics_v2
@@ -533,6 +534,7 @@ def create_app(
         attemptId: str | None = Form(default=None),
         receivedAtEpoch: float | None = Form(default=None),
         durationSeconds: float = Form(default=0),
+        x_speaky_load_test: str | None = Header(default=None),
     ) -> dict[str, str]:
         if not await sessions.exists(sessionId):
             raise HTTPException(status_code=404, detail="unknown session")
@@ -554,7 +556,8 @@ def create_app(
         filename = audio.filename or "voice.ogg"
         task = asyncio.create_task(
             _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
-                     onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch),
+                     onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch,
+                     load_test_requested(x_speaky_load_test)),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -769,8 +772,10 @@ async def _run_job(
     duration: float = 0.0,
     audit_artifacts: AuditArtifacts | None = None,
     received_at_epoch: float | None = None,
+    load_test: bool = False,
 ) -> None:
     started = time.perf_counter()
+    load_test_token = bind_load_test(load_test)
     provider_metrics_token = bind_provider_metrics(pipeline.metrics)
     job_timings: dict[str, int] = {}
     timings_token = bind_job_timings(job_timings)
@@ -779,9 +784,10 @@ async def _run_job(
             job.transcript = value
         elif field == "reply":
             job.reply_text = value
-        if job.attempt_id and audit_artifacts is not None:
-            await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
-    audit_token = bind_writer(audit_stage if job.attempt_id else None)
+        if load_test_active() or not job.attempt_id or audit_artifacts is None:
+            return
+        await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
+    audit_token = bind_writer(None if load_test else audit_stage if job.attempt_id else None)
     receipt_token = bind_receipt_time(received_at_epoch)
     stage = "onboarding" if onboarding is not None and run_id else "stt"
 
@@ -821,6 +827,7 @@ async def _run_job(
         reset_receipt_time(receipt_token)
         reset_job_timings(timings_token)
         reset_provider_metrics(provider_metrics_token)
+        reset_load_test(load_test_token)
 
 
 async def _record_clip_result(

@@ -8,6 +8,7 @@ from typing import Any
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
+from app.load_test import load_test_active
 from app.metrics import metrics_day
 
 _EVENTS_KEY = "metrics:v2:events"
@@ -132,31 +133,43 @@ class MemoryMetricsV2(MetricsV2):
         self._telegram_since = ""
 
     async def record_llm(self, session_id, kind, model, prompt_tokens, completion_tokens, cost, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "llm", kind, model, {
             "prompt": prompt_tokens, "completion": completion_tokens, "calls": 1,
             **({} if cost is None else {"cost": cost}),
         }, cost is not None)
 
     async def record_tts(self, session_id, model, chars, cost, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "tts", "tts", model, {
             "chars": chars, "calls": 1, **({} if cost is None else {"cost": cost}),
         }, cost is not None)
 
     async def record_stt(self, session_id, model, seconds, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "stt", "stt", model, {
             "ms": int(round(max(seconds, 0) * 1000)), "calls": 1,
         }, False)
 
     async def record_realtime(self, session_id, model, counts, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "rt", "realtime", model, {key: int(counts.get(key) or 0) for key in (
             "in_text", "in_audio", "out_text", "out_audio", "cached_text", "cached_audio",
         )} | {"calls": 1}, False)
         await self.record_turn(session_id, platform=platform, now=now)
 
     async def record_transcript(self, session_id, model, amount, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "transcript", "stt", model, {"amount": amount, "calls": 1}, False)
 
     async def record_turn(self, session_id, *, platform=None, now=None):
+        if load_test_active():
+            return
         client, day = await self._scope(session_id, platform, now)
         if client is None:
             return
@@ -168,10 +181,14 @@ class MemoryMetricsV2(MetricsV2):
         self._event(day, client, "turn", "", "")
 
     async def record_action(self, session_id, action, *, platform=None, now=None):
+        if load_test_active():
+            return
         name = _token(action) or "other"
         await self._add(session_id, platform, now, "action", name, "", {"count": 1}, False)
 
     async def record_telegram_message(self, session_id, action, event_id, *, now=None):
+        if load_test_active():
+            return
         if not _telegram_journey_event(session_id, action, event_id):
             return
         receipt = (session_id, event_id)
@@ -190,9 +207,13 @@ class MemoryMetricsV2(MetricsV2):
                 self._telegram_milestones[count] += 1
 
     async def record_error(self, session_id, service, outcome, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "error", _token(service), _token(outcome), {"count": 1}, False)
 
     async def remember_platform(self, session_id, platform):
+        if load_test_active():
+            return
         name = (platform or "").strip().lower()
         if session_id.strip().startswith("app-") and name in _MOBILE:
             self.platforms[session_id.strip()] = name
@@ -256,31 +277,43 @@ class RedisMetricsV2(MetricsV2):
         self._redis = redis
 
     async def record_llm(self, session_id, kind, model, prompt_tokens, completion_tokens, cost, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "llm", kind, model, {
             "prompt": prompt_tokens, "completion": completion_tokens, "calls": 1,
             **({} if cost is None else {"cost": cost}),
         }, cost is not None)
 
     async def record_tts(self, session_id, model, chars, cost, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "tts", "tts", model, {
             "chars": chars, "calls": 1, **({} if cost is None else {"cost": cost}),
         }, cost is not None)
 
     async def record_stt(self, session_id, model, seconds, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "stt", "stt", model, {
             "ms": int(round(max(seconds, 0) * 1000)), "calls": 1,
         }, False)
 
     async def record_realtime(self, session_id, model, counts, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "rt", "realtime", model, {key: int(counts.get(key) or 0) for key in (
             "in_text", "in_audio", "out_text", "out_audio", "cached_text", "cached_audio",
         )} | {"calls": 1}, False)
         await self.record_turn(session_id, platform=platform, now=now)
 
     async def record_transcript(self, session_id, model, amount, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "transcript", "stt", model, {"amount": amount, "calls": 1}, False)
 
     async def record_turn(self, session_id, *, platform=None, now=None):
+        if load_test_active():
+            return
         client, day, session = await self._scope(session_id, platform, now)
         if client is None:
             return
@@ -297,9 +330,13 @@ class RedisMetricsV2(MetricsV2):
         await pipe.execute()
 
     async def record_action(self, session_id, action, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "action", _token(action) or "other", "", {"count": 1}, False)
 
     async def record_telegram_message(self, session_id, action, event_id, *, now=None):
+        if load_test_active():
+            return
         if not _telegram_journey_event(session_id, action, event_id):
             return
         user_key = f"metrics:v2:telegram:journey:user:{session_id}"
@@ -335,9 +372,13 @@ class RedisMetricsV2(MetricsV2):
         raise RuntimeError("could not record Telegram voice milestone after concurrent updates")
 
     async def record_error(self, session_id, service, outcome, *, platform=None, now=None):
+        if load_test_active():
+            return
         await self._add(session_id, platform, now, "error", _token(service), _token(outcome), {"count": 1}, False)
 
     async def remember_platform(self, session_id, platform):
+        if load_test_active():
+            return
         name = (platform or "").strip().lower()
         session = session_id.strip()
         if session.startswith("app-") and name in _MOBILE:

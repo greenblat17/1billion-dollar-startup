@@ -136,10 +136,12 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
         call.response.headers.append("Cache-Control", "no-store")
         val attemptId = call.parameters["attemptId"].orEmpty()
-        val bytes = dashboard.audit?.readAudio(attemptId)
-        if (bytes == null) {
+        val reply = call.request.queryParameters["role"] == "reply"
+        val stored = dashboard.audit?.readAudio(attemptId, reply)
+        if (stored == null) {
             call.respond(HttpStatusCode.NotFound)
         } else {
+            val (bytes, contentType) = stored
             call.response.headers.append("Accept-Ranges", "bytes")
             val range = call.request.headers["Range"]
             val slice = parseAudioRange(range, bytes.size)
@@ -151,9 +153,9 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
                 slice != null -> {
                     call.response.headers.append("Content-Range", "bytes ${slice.first}-${slice.last}/${bytes.size}")
                     call.respondBytes(bytes.copyOfRange(slice.first, slice.last + 1),
-                        ContentType.parse("audio/ogg"), HttpStatusCode.PartialContent)
+                        ContentType.parse(contentType), HttpStatusCode.PartialContent)
                 }
-                else -> call.respondBytes(bytes, ContentType.parse("audio/ogg"))
+                else -> call.respondBytes(bytes, ContentType.parse(contentType))
             }
         }
     }.hide()
@@ -266,9 +268,10 @@ private fun interactionHistoryHtml(
             ?: if (event.receivedAt.isBefore(java.time.Instant.now().minusSeconds(7L * 86_400L)))
                 "<p>Содержимое удалено по сроку хранения</p>" else ""
         val audio = if (event.kind == "audio" && event.audioFile != null &&
-            event.receivedAt.isAfter(java.time.Instant.now().minusSeconds(7L * 86_400L)))
-            "<audio controls preload=\"none\" src=\"$MONITORING_PATH/history/audio/${escapeHtml(event.attemptId.orEmpty())}\"></audio>"
-            else ""
+            event.receivedAt.isAfter(java.time.Instant.now().minusSeconds(7L * 86_400L))) {
+            val role = if (event.audioFile.contains("-reply.")) "?role=reply" else ""
+            "<audio controls preload=\"none\" src=\"$MONITORING_PATH/history/audio/${escapeHtml(event.attemptId.orEmpty())}$role\"></audio>"
+        } else ""
         val voice = if (event.kind == "voice") {
             "<small> · итог: ${escapeHtml(event.voiceOutcome ?: "ещё обрабатывается или итог не записан")}" +
                 " · этап: ${escapeHtml(event.voiceStage.orEmpty())}" +
