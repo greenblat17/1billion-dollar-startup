@@ -2,7 +2,7 @@
 
 Python FastAPI service that turns a Telegram voice clip into a spoken English reply:
 
-`STT (Groq) → LLM (OpenRouter / OpenAI models) → TTS (OpenRouter)`
+`STT (Groq) → LLM (OpenRouter / OpenAI models) → TTS (OpenRouter or direct Deepgram)`
 
 Clip contract (`HttpClipClient` / `ClipDtos`):
 
@@ -23,6 +23,8 @@ export GROQ_API_KEY=...
 export OPENAI_API_KEY=...
 export AI_INTERNAL_TOKEN=...
 # OpenRouter, default in the app: OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# For direct Aura-2 Thalia TTS: TTS_PROVIDER=deepgram DEEPGRAM_API_KEY=...
+# After Ktor supports MP3: TTS_OUTPUT_FORMAT=mp3 (default ogg for staged rollout)
 uvicorn app.main:create_app --factory --host 127.0.0.1 --port 8090
 ```
 

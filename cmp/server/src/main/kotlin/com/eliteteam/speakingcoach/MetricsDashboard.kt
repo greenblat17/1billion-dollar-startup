@@ -1,15 +1,30 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
+import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.CallEventRecorder
+import com.eliteteam.speakingcoach.analytics.OnboardingFilter
+import com.eliteteam.speakingcoach.analytics.JourneyMode
+import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
+import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
+import io.ktor.http.Parameters
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.server.response.header
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -20,6 +35,9 @@ import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CancellationException
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -28,6 +46,9 @@ internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
+internal const val ERRORS_PATH = "/admin/metrics/errors"
+internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
+internal const val ONBOARDING_AGENT_PATH = "$ONBOARDING_ANALYTICS_PATH/agent.json"
 internal const val NOTICE_STARTED = "started"
 internal const val NOTICE_BUSY = "busy"
 internal const val NOTICE_TEST_SENT = "test-sent"
@@ -39,13 +60,22 @@ private const val METRICS_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60
 
 internal fun interface MetricsSource {
     suspend fun load(): MetricsSnapshot
+    suspend fun llmRange(range: LlmRange): LlmRequestPeriod? = null
+    suspend fun reminderSummary(): ReminderClockSummary? = null
+    suspend fun callFeedback(offset: Int, limit: Int): com.eliteteam.speakingcoach.ai.CallFeedbackList? = null
 }
+
+internal data class LlmRange(val from: LocalDate, val to: LocalDate)
 
 internal class MetricsDashboard(
     val password: String,
     val source: MetricsSource,
     val secureCookie: Boolean,
     val reminders: ReminderAdmin? = null,
+    val campaign: LegacyCampaignAdmin? = null,
+    val onboarding: OnboardingAnalytics? = null,
+    val voiceAttempts: VoiceAttemptRecorder? = null,
+    val callEvents: CallEventRecorder? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -56,8 +86,18 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
         }
+        val range = call.llmRangeOrRespond() ?: return@get
         val html = try {
-            metricsReportHtml(dashboard.source.load())
+            val snapshot = dashboard.source.load()
+            val llm = try {
+                dashboard.source.llmRange(range)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("LLM range unavailable", error)
+                null
+            }
+            metricsReportHtml(snapshot, llm, range)
         } catch (error: Throwable) {
             log.warn("Metrics snapshot failed", error)
             metricsUnavailableHtml()
@@ -65,20 +105,24 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(REMINDERS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
         if (!call.hasMetricsSession(dashboard.password)) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
         }
-        val html = try {
-            remindersPageHtml(
-                dashboard.source.load(),
-                notice = call.request.queryParameters["notice"],
-                controls = dashboard.reminders != null,
-            )
-        } catch (error: Throwable) {
-            log.warn("Metrics snapshot failed", error)
-            metricsUnavailableHtml()
-        }
+        val days = call.request.queryParameters["days"]?.toIntOrNull()?.takeIf { it == 7 || it == 30 } ?: 7
+        val snapshot = try { dashboard.source.load() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder metrics unavailable", error); null }
+        val clock = snapshot?.reminders?.clockSummary ?: try { dashboard.source.reminderSummary() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder clock summary unavailable", error); null }
+        val offers: ReminderOfferSummary? = try { dashboard.onboarding?.reminderOffers(days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder offers unavailable", error); null }
+        val html = remindersPageHtml(snapshot,
+            notice = call.request.queryParameters["notice"], controls = dashboard.reminders != null,
+            clock = clock, offers = offers, days = days)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(STREAKS_PATH) {
@@ -93,6 +137,164 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             metricsUnavailableHtml()
         }
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ERRORS_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val metrics = try { dashboard.source.load() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Metrics snapshot failed", error); null }
+        val voice = try { dashboard.voiceAttempts?.report() } catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Voice attempt snapshot failed", error); null }
+        val html = errorsPageHtml(metrics, voice)
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(CALLS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val query = call.request.queryParameters
+        val days = query["days"]?.toIntOrNull()?.takeIf { it in setOf(1, 7, 30) } ?: 7
+        val filter = CallDashboardFilter(
+            days = days,
+            source = query["source"]?.takeIf { it in setOf("button", "voice") },
+            mode = query["mode"]?.takeIf { it in setOf("free", "job", "manager", "custom", "unknown") },
+            status = query["status"]?.takeIf { it in setOf("open", "closed") },
+            failed = query["failed"]?.toBooleanStrictOrNull(),
+            offset = query["offset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0,
+        )
+        val feedbackOffset = query["feedbackOffset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0
+        val html = try {
+            val firstDay = LocalDate.now(ZoneId.of("Europe/Moscow")).minusDays(29)
+            val snapshot = dashboard.callEvents?.snapshot(firstDay.atStartOfDay(ZoneId.of("Europe/Moscow")).toInstant())
+            val feedback = try { dashboard.source.callFeedback(feedbackOffset, 25) }
+                catch (error: CancellationException) { throw error }
+                catch (error: Throwable) { log.warn("First-call feedback unavailable", error); null }
+            if (snapshot == null) metricsUnavailableHtml() else
+                callDashboardPage(snapshot, filter, memoryOnly = dashboard.callEvents.memoryOnly,
+                    feedback = feedback, feedbackOffset = feedbackOffset)
+        } catch (error: CancellationException) { throw error }
+          catch (error: Throwable) { log.warn("Call dashboard unavailable", error); metricsUnavailableHtml() }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$CALLS_PATH/{callId}") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val callId = call.parameters["callId"].orEmpty()
+        if (!Regex("[a-f0-9]{32}").matches(callId)) {
+            call.respond(HttpStatusCode.NotFound)
+            return@get
+        }
+        try {
+            val events = dashboard.callEvents?.byCall(callId).orEmpty()
+            val row = callDashboardRows(com.eliteteam.speakingcoach.analytics.CallEventsSnapshot(events, false, 0))
+                .firstOrNull()
+            if (row == null) call.respond(HttpStatusCode.NotFound)
+            else {
+                val zone = ZoneId.of("Europe/Moscow")
+                val date = row.opened.at.atZone(zone).toLocalDate()
+                val all = dashboard.callEvents?.snapshot(date.atStartOfDay(zone).toInstant())
+                val daySpeech = all?.let { callDashboardRows(it).filter { other ->
+                    other.opened.chatId == row.opened.chatId && other.opened.at.atZone(zone).toLocalDate() == date
+                }.sumOf { it.recognizedSeconds } } ?: row.recognizedSeconds
+                call.respondText(callDetailPage(row, daySpeech, truncated = events.size >= 1000), ContentType.Text.Html)
+            }
+        } catch (error: CancellationException) { throw error }
+          catch (error: Throwable) { log.warn("Call detail unavailable", error); call.respondText(metricsUnavailableHtml(), ContentType.Text.Html) }
+    }.hide()
+    get(LEGACY_CAMPAIGN_PATH) {
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val html = try {
+            legacyCampaignPageHtml(
+                dashboard.campaign?.status() ?: LegacyCampaignStatus(),
+                call.request.queryParameters["notice"], controls = dashboard.campaign != null,
+            )
+        } catch (error: Throwable) {
+            log.warn("Campaign status failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ONBOARDING_ANALYTICS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val range = call.llmRangeOrRespond() ?: return@get
+        val html = try {
+            val report = dashboard.onboarding?.report(filter = onboardingFilter(call.request.queryParameters))
+            val reminders = if (report == null) null else try {
+                dashboard.source.reminderSummary()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Reminder summary unavailable", error)
+                null
+            }
+            val llm = if (report == null) null else try {
+                dashboard.source.llmRange(range)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("LLM summary unavailable", error)
+                null
+            }
+            onboardingReportHtml(report, reminders, llm, range)
+        } catch (error: Throwable) {
+            log.warn("Onboarding analytics failed", error)
+            metricsUnavailableHtml()
+        }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(ONBOARDING_AGENT_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respond(HttpStatusCode.Unauthorized)
+            return@get
+        }
+        val range = call.llmRangeOrRespond() ?: return@get
+        val analytics = dashboard.onboarding
+        if (analytics == null) {
+            call.respondText("{\"error\":\"analytics_unavailable\"}", ContentType.Application.Json, HttpStatusCode.ServiceUnavailable)
+            return@get
+        }
+        try {
+            val now = Instant.now()
+            val report = analytics.report(now, onboardingFilter(call.request.queryParameters))
+            val reminders = try {
+                dashboard.source.reminderSummary()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Reminder summary unavailable", error)
+                null
+            }
+            val llm = try {
+                dashboard.source.llmRange(range)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("LLM summary unavailable", error)
+                null
+            }
+            call.response.header(HttpHeaders.ContentDisposition, "attachment; filename=onboarding-analytics.json")
+            call.respondText(onboardingAgentJson(report, now, reminders, llm, range), ContentType.Application.Json)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Onboarding agent export failed", error)
+            call.respondText("{\"error\":\"analytics_unavailable\"}", ContentType.Application.Json, HttpStatusCode.ServiceUnavailable)
+        }
     }.hide()
     post("/admin/metrics/login") {
         val provided = call.receiveParameters()["password"].orEmpty()
@@ -135,6 +337,65 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         }
         call.respondRedirect("$REMINDERS_PATH?notice=${if (sent) NOTICE_TEST_SENT else NOTICE_TEST_FAILED}")
     }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/send") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val status = admin.status()
+        val notice = when {
+            !status.ready -> "not-ready"
+            status.remaining == 0 -> "busy"
+            admin.startAll() -> "started"
+            else -> "busy"
+        }
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=$notice")
+    }.hide()
+    post("$LEGACY_CAMPAIGN_PATH/test") {
+        val admin = dashboard.campaign
+        if (!call.hasMetricsSession(dashboard.password) || admin == null) {
+            call.respond(HttpStatusCode.Forbidden)
+            return@post
+        }
+        val chatId = call.receiveParameters()["chatId"]?.trim()?.toLongOrNull()
+        if (chatId == null || chatId <= 0) {
+            call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=test-invalid")
+            return@post
+        }
+        val sent = admin.sendTest(chatId)
+        call.respondRedirect("$LEGACY_CAMPAIGN_PATH?notice=${if (sent) "test-sent" else "test-failed"}")
+    }.hide()
+}
+
+private fun onboardingFilter(query: Parameters): OnboardingFilter = OnboardingFilter(
+    days = query["days"]?.toIntOrNull()?.takeIf { it in 1..90 } ?: 30,
+    version = query["version"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+    source = query["source"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,64}")) },
+    trigger = query["trigger"]?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,32}")) },
+    journeyMode = if (query["journey"] == "repeats") JourneyMode.REPEATS else JourneyMode.PRIMARY,
+)
+
+private suspend fun ApplicationCall.llmRangeOrRespond(): LlmRange? {
+    val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+    val fromText = request.queryParameters["llmFrom"]
+    val toText = request.queryParameters["llmTo"]
+    val range = try {
+        if (fromText == null && toText == null) {
+            LlmRange(today, today)
+        } else {
+            LlmRange(LocalDate.parse(requireNotNull(fromText)), LocalDate.parse(requireNotNull(toText)))
+        }
+    } catch (_: Exception) {
+        null
+    }
+    if (range == null || range.to < range.from || range.to > today ||
+        java.time.temporal.ChronoUnit.DAYS.between(range.from, range.to) >= 366
+    ) {
+        respondText("Неверный период LLM", status = HttpStatusCode.BadRequest)
+        return null
+    }
+    return range
 }
 
 internal fun metricsSessionToken(password: String): String {
@@ -192,7 +453,7 @@ private fun metricsLoginHtml(rejected: Boolean = false): String {
     """.trimIndent()
 }
 
-private fun metricsUnavailableHtml(): String = """
+internal fun metricsUnavailableHtml(): String = """
     <!doctype html>
     <html lang="ru">
     <head>
@@ -208,7 +469,10 @@ private fun metricsUnavailableHtml(): String = """
     </html>
 """.trimIndent()
 
-internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
+internal fun metricsReportHtml(
+    snapshot: MetricsSnapshot, llm: LlmRequestPeriod? = null,
+    range: LlmRange = LlmRange(LocalDate.parse(snapshot.day), LocalDate.parse(snapshot.day)),
+): String {
     val rubPerTurn = if (snapshot.ratesConfigured) formatRub(snapshot.rubPerTurn) else "—"
     val rubPerDau = if (snapshot.ratesConfigured) formatRub(snapshot.rubPerDau) else "—"
     return """
@@ -223,6 +487,19 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         <body>
         <h1>Speaky</h1>
         ${adminTabs(METRICS_PATH)}
+        <h2>Запросы к LLM</h2>
+        ${llmRangeForm(METRICS_PATH, range)}
+        <p class="meta">${range.from} — ${range.to} включительно · Europe/Moscow · все пользователи.</p>
+        <dl>
+        ${card("Запросы к LLM", llm?.requests?.toString() ?: "—")}
+        ${card("Ошибки LLM", llm?.failures?.toString() ?: "—")}
+        ${card("LLM · онбординг", llm?.byPurpose?.get("onboarding")?.toString() ?: "—")}
+        ${card("LLM · ответы", llm?.byPurpose?.get("reply")?.toString() ?: "—")}
+        ${card("LLM · исправления", llm?.byPurpose?.get("notes")?.toString() ?: "—")}
+        ${card("LLM · review", llm?.byPurpose?.get("session_review")?.toString() ?: "—")}
+        </dl>
+        <p class="meta">Попытки вызова модели, включая ошибки и повторы приложения. Внутренние повторы SDK могут не учитываться. Вызовы до внедрения счётчика не восстановлены.</p>
+        <h2>Остальные метрики сегодня</h2>
         <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. Счёт с момента выкладки.</p>
         <dl>
         ${card("Токены prompt", snapshot.promptTokens.toString())}
@@ -236,6 +513,8 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         ${card("₽ на ход", rubPerTurn)}
         ${card("₽ на DAU", rubPerDau)}
         </dl>
+        <h2>Исправления</h2>
+        ${correctionReport(snapshot)}
         <h2>Воронка</h2>
         <p class="meta">Activated за 7 дней: ${snapshot.activated7}</p>
         <table>
@@ -253,7 +532,7 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
         </table>
         <h2>Чаты</h2>
         <table>
-        <thead><tr><th>Чат</th><th>Пользователь</th><th>Ходы</th><th>Последний ход</th><th>Напоминание</th><th>Игнор подряд</th></tr></thead>
+        <thead><tr><th>Чат</th><th>Пользователь</th><th>Статус</th><th>Ходы</th><th>Последний ход / первый Start</th><th>Напоминание</th><th>Игнор подряд</th></tr></thead>
         <tbody>
         ${chatRows(snapshot)}
         </tbody>
@@ -263,7 +542,65 @@ internal fun metricsReportHtml(snapshot: MetricsSnapshot): String {
     """.trimIndent()
 }
 
-private fun funnelDayRows(snapshot: MetricsSnapshot): String {
+private val correctionLabels = linkedMapOf(
+    "shown" to "Показано исправление",
+    "empty" to "Ошибок не найдено",
+    "filtered" to "Отклонено проверкой",
+    "deadline" to "Превышен лимит 8 с",
+    "provider_timeout" to "Таймаут провайдера",
+    "rate_limit" to "Лимит запросов провайдера",
+    "provider_5xx" to "Ошибка провайдера 5xx",
+    "provider_4xx" to "Ошибка провайдера 4xx",
+    "network" to "Сетевая ошибка",
+    "no_choices" to "Ответ без choices",
+    "empty_text" to "Пустой текст ответа",
+    "invalid_json" to "Невалидный JSON",
+    "invalid_schema" to "Неверная структура JSON",
+    "token_limit" to "Лимит токенов ответа",
+    "other_error" to "Другая ошибка",
+)
+
+private val nonfailureCorrectionOutcomes = setOf("shown", "empty", "filtered")
+
+internal fun correctionReport(snapshot: MetricsSnapshot): String {
+    val rows = correctionLabels.mapNotNull { (key, label) ->
+        snapshot.corrections[key]?.takeIf { it.count > 0 }?.let { Triple(key, label, it) }
+    }
+    if (rows.isEmpty()) return "<p class=\"meta\">Пока нет данных.</p>"
+    val total = rows.sumOf { it.third.count }
+    val failures = rows.filter { it.first !in nonfailureCorrectionOutcomes }.sumOf { it.third.count }
+    val secondAttempts = rows.sumOf { it.third.secondAttempts }
+    val failureRate = String.format(Locale.US, "%.1f%%", failures * 100.0 / total)
+    val tableRows = rows.joinToString("\n") { (_, label, metrics) ->
+        "<tr><td>${escapeHtml(label)}</td><td>${metrics.count}</td><td>${averageCorrectionMs(metrics)}</td></tr>"
+    }
+    return """
+        <dl>
+        ${card("Запросы исправлений", total.toString())}
+        ${card("Сбои", failures.toString())}
+        ${card("Доля сбоев", failureRate)}
+        ${card("Повторная попытка", secondAttempts.toString())}
+        </dl>
+        <table>
+        <thead><tr><th>Исход</th><th>Количество</th><th>Среднее время, мс</th></tr></thead>
+        <tbody>$tableRows</tbody>
+        </table>
+    """.trimIndent()
+}
+
+private fun averageCorrectionMs(metrics: CorrectionMetrics): String =
+    String.format(Locale.US, "%.0f", metrics.elapsedMs.toDouble() / metrics.count)
+
+internal fun llmRangeForm(action: String, range: LlmRange, hidden: String = ""): String = """
+    <form class="inline" method="get" action="$action">
+    $hidden
+    <label>LLM с <input type="date" name="llmFrom" value="${range.from}" max="${LocalDate.now(ZoneId.of("Europe/Moscow"))}" required></label>
+    <label>по <input type="date" name="llmTo" value="${range.to}" max="${LocalDate.now(ZoneId.of("Europe/Moscow"))}" required></label>
+    <button type="submit">Показать</button>
+    </form>
+""".trimIndent()
+
+internal fun funnelDayRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelDays.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
@@ -272,7 +609,7 @@ private fun funnelDayRows(snapshot: MetricsSnapshot): String {
     }
 }
 
-private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
+internal fun funnelSourceRows(snapshot: MetricsSnapshot): String {
     if (snapshot.funnelSources.isEmpty()) {
         return "<tr><td colspan=\"5\">Пока нет источников.</td></tr>"
     }
@@ -283,10 +620,15 @@ private fun funnelSourceRows(snapshot: MetricsSnapshot): String {
 
 private fun chatRows(snapshot: MetricsSnapshot): String {
     if (snapshot.chats.isEmpty()) {
-        return "<tr><td colspan=\"6\">Пока нет ходов.</td></tr>"
+        return "<tr><td colspan=\"7\">Пока нет чатов.</td></tr>"
     }
     return snapshot.chats.joinToString("\n") { chat ->
-        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${chat.turns}</td>" +
+        val status = when {
+            chat.startOnly -> "Только /start"
+            chat.turns == 0L -> "Без завершённых ходов"
+            else -> "Есть ходы"
+        }
+        "<tr><td>${escapeHtml(chat.sessionId)}</td><td>${escapeHtml(chatUser(chat))}</td><td>${escapeHtml(status)}</td><td>${chat.turns}</td>" +
             "<td>${escapeHtml(chat.lastAt)}</td><td>${escapeHtml(chat.lastReminderAt?.let(::shortTime) ?: "—")}</td><td>${chat.reminderIgnored}</td></tr>"
     }
 }
@@ -303,13 +645,32 @@ internal fun card(label: String, value: String): String {
     return "<div class=\"card\"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>"
 }
 
-internal fun adminTabs(active: String): String {
-    val tabs = listOf(METRICS_PATH to "Сводка", REMINDERS_PATH to "Напоминания", STREAKS_PATH to "Стрики")
+internal fun adminTabs(active: String, root: String = "/admin/metrics"): String {
+    val tabs = buildList {
+        add(root to "Сводка")
+        if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
+        if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
+        if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")
+        add("$root/reminders" to "Напоминания")
+        add("$root/streaks" to "Стрики")
+        add("$root/errors" to "Ошибки")
+        if (root == MONITORING_PATH) add("$root/history" to "История")
+        add("$root/onboarding-campaign" to "Onboarding рассылка")
+    }
     val links = tabs.joinToString("") { (path, label) ->
         val current = if (path == active) " aria-current=\"page\"" else ""
-        "<a href=\"$path\"$current>$label</a>"
+        val historyLink = root == METRICS_PATH && path == "$MONITORING_PATH/history"
+        val href = if (historyLink) "#" else path
+        val id = if (historyLink) " id=\"history-tab\"" else ""
+        "<a href=\"$href\"$id$current>$label</a>"
     }
-    return "<nav class=\"tabs\">$links</nav>"
+    val historyTarget = if (root == METRICS_PATH) """
+        <script type="text/javascript">
+          document.getElementById('history-tab').href =
+            'https://' + window.location.hostname + ':8443$MONITORING_PATH/history';
+        </script>
+    """.trimIndent() else ""
+    return "<nav class=\"tabs\">$links</nav>$historyTarget"
 }
 
 internal fun pageStyle(): String = """
@@ -348,9 +709,9 @@ internal fun escapeHtml(text: String): String = buildString {
     }
 }
 
-private fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatTps(value: Double): String = String.format(Locale.US, "%.1f", value)
 
-private fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
+internal fun formatSeconds(value: Double): String = String.format(Locale.US, "%.1f", value)
 
 private fun formatRub(value: Double?): String {
     if (value == null) {

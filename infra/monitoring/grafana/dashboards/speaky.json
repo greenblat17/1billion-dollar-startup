@@ -1,0 +1,846 @@
+{
+  "title": "Speaky",
+  "uid": "speaky-v2",
+  "schemaVersion": 39,
+  "timezone": "Europe/Moscow",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Бот отвечает на проверку",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-ktor\"}",
+          "legendFormat": "бот",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      },
+      "description": "Проверка, отвечает ли сервер Telegram-бота. Зелёный — отвечает, красный — нет."
+    },
+    {
+      "type": "stat",
+      "title": "Сервис модели и голоса жив",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "probe_success{job=\"blackbox-ai\"}",
+          "legendFormat": "сервис голоса",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      },
+      "description": "Проверка сервиса, который распознаёт речь, готовит ответ и озвучивает его. Зелёный — отвечает, красный — нет."
+    },
+    {
+      "type": "stat",
+      "title": "Метрики бота и модели приходят",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "up{job=~\"speaking-v2|speaking-telegram\"}",
+          "legendFormat": "{{job}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "speaking-v2"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "метрики модели"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "speaking-telegram"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "метрики бота"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value"
+      },
+      "description": "Единица — метрики доходят, ноль — сбор остановился. «метрики модели» — сервис голоса (speaking-v2), «метрики бота» — сервер бота (speaking-telegram)."
+    },
+    {
+      "type": "stat",
+      "title": "Как давно обновились метрики бота",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "time() - timestamp(speaking_dau{client=\"telegram\"})",
+          "legendFormat": "секунд с обновления",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value"
+      },
+      "description": "Сколько секунд прошло с последнего успешного сбора метрик бота (speaking_dau). Это не время с последнего сообщения человека."
+    },
+    {
+      "type": "timeseries",
+      "title": "Входящие запросы Telegram в секунду",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(telegram_webhook_requests_total{client=\"telegram\"}[5m]))",
+          "legendFormat": "запросов в секунду",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "axisLabel": "запросов в секунду"
+          }
+        },
+        "overrides": []
+      },
+      "description": "Среднее число входящих запросов, которые Telegram присылает боту, за 5 минут; повторы тоже считаются. Это не скорость обработки голосового: после перезапуска сервера бота счёт начинается заново."
+    },
+    {
+      "type": "stat",
+      "title": "DAU: сколько человек сегодня договорили ход",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "speaking_dau{client=\"telegram\"}",
+          "legendFormat": "человек, {{day}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Один человек, который сегодня довёл хотя бы один голосовой ход до конца (speaking_dau). Тестовый клип с заголовком нагрузки сюда не входит."
+    },
+    {
+      "type": "stat",
+      "title": "Частотность: сколько ходов на человека сегодня",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "targets": [
+        {
+          "expr": "(speaking_turns{client=\"telegram\"} / speaking_dau{client=\"telegram\"}) and on(client, day) (speaking_dau{client=\"telegram\"} > 0)",
+          "legendFormat": "ходов на человека, {{day}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Среднее число завершённых голосовых ходов на такого человека (speaking_turns / speaking_dau). Это частотность взаимодействия, не распределение."
+    },
+    {
+      "type": "timeseries",
+      "title": "За сколько секунд человек получил ответ",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "половина ответов быстрее",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "95 из 100 быстрее",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "axisLabel": "секунды"
+          }
+        },
+        "overrides": []
+      },
+      "description": "Секунды от голосового сообщения до подтверждения, что Telegram принял ответ, за 15 минут и только для доставленных (telegram_voice_response_duration_seconds). Первая линия — половина ответов быстрее, вторая — 95 из 100 быстрее; если точек мало, оценка грубая, нагрузочный прогон линию не двигает."
+    },
+    {
+      "type": "timeseries",
+      "title": "Сколько секунд ход ждал в нашей очереди",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "половина ответов быстрее",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+          "legendFormat": "95 из 100 быстрее",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "axisLabel": "секунды"
+          }
+        },
+        "overrides": []
+      },
+      "description": "Сколько секунд доставленный ход простоял в очереди чата и в очереди обработки голосового вместе, за 15 минут (telegram_voice_queue_wait_seconds). Линия «половина ответов быстрее» — половина ходов ждала меньше, «95 из 100 быстрее» — 95 из 100 ждали меньше."
+    },
+    {
+      "type": "stat",
+      "title": "Сколько ответов вошло в задержку за 15 минут",
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "increase(telegram_voice_response_duration_seconds_count{client=\"telegram\"}[15m])",
+          "legendFormat": "ответов в расчёте",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "blue",
+                "value": 20
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Сколько доставленных ответов вошло в расчёт задержки за 15 минут (telegram_voice_response_duration_seconds). Оранжевый — меньше 20 ответов: тогда «половина ответов быстрее» и «95 из 100 быстрее» грубые, нагрузочный прогон это число не увеличивает."
+    },
+    {
+      "type": "stat",
+      "title": "Ошибки сервисов за сегодня",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "expr": "sum by (client, day) (speaking_errors{client=\"telegram\"}) or (speaking_dau{client=\"telegram\"} * 0)",
+          "legendFormat": "ошибок, {{day}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Дневной счётчик ошибок сервиса по Telegram, не разбор по этапам (сумма speaking_errors). Если ошибок не было, а метрики приходят, показано ноль."
+    },
+    {
+      "type": "timeseries",
+      "title": "Ошибки сервисов по этапам за 15 минут",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "(100 * sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m])) / sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=~\"success|failure\"}[15m]))) and on(stage) (sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=~\"success|failure\"}[15m])) > 0)",
+          "legendFormat": "{{stage}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "custom": {
+            "axisLabel": "доля неудач"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "stt"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "распознавание"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "llm"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ответ модели"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "tts"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "озвучка"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delivery"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "доставка в Telegram"
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Разбор ошибок сервисов по этапам за 15 минут: доля неудач на распознавании, ответе модели, озвучке и доставке в Telegram (speaking_stage_attempts_total). Если попыток не было, линия не рисуется — это не ноль."
+    },
+    {
+      "type": "timeseries",
+      "title": "Чем закончились голосовые за 15 минут",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "increase(telegram_voice_requests_total{client=\"telegram\",outcome=~\"delivered|failed|queue_full\"}[15m])",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "axisLabel": "сколько за 15 минут"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "delivered"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ответ доставлен"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "ход сломался"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "queue_full"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "очередь переполнена"
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Сколько голосовых за 15 минут закончились доставленным ответом, сломанным ходом или переполненной очередью (telegram_voice_requests_total)."
+    },
+    {
+      "type": "timeseries",
+      "title": "Сколько провайдеры списали за сегодня, $",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 6,
+          "min": 0,
+          "custom": {
+            "axisLabel": "доллары"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "expr": "speaking_cost_micro{client=\"telegram\"} / 1000000",
+          "legendFormat": "доллары, {{day}}",
+          "refId": "A"
+        }
+      ],
+      "description": "Сумма usage.cost, которую провайдеры списали за московский день (speaking_cost_micro). Секунды Groq в неё не входят, рубли не считаются; пока суммы нет, линия пустая."
+    },
+    {
+      "type": "stat",
+      "title": "Стоимость на человека сегодня, $",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "targets": [
+        {
+          "expr": "((sum by (client, day) (speaking_cost_micro{client=\"telegram\"}) / 1000000) / speaking_dau{client=\"telegram\"}) and on(client, day) (speaking_dau{client=\"telegram\"} > 0)",
+          "legendFormat": "$, {{day}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 6,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "usage.cost за день, делённый на DAU (speaking_cost_micro / speaking_dau). Это Core Product Loop: распознавание, ответ, заметки и озвучка. Секунды Groq в сумму не входят, если провайдер их не отдал в usage.cost. Рубли не считать. Константу kokoro не применять."
+    },
+    {
+      "type": "timeseries",
+      "title": "Секунды речи человека за сегодня",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "speaking_stt_seconds{client=\"telegram\"}",
+          "legendFormat": "речь человека, {{day}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {
+            "axisLabel": "секунды речи"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Сколько секунд речи человека накопилось за московский день (speaking_stt_seconds). Это длина аудио, не задержка Groq и не деньги."
+    },
+    {
+      "type": "timeseries",
+      "title": "Символы озвученного ответа за сегодня",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "speaking_tts_chars{client=\"telegram\"}",
+          "legendFormat": "озвучка, {{day}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "axisLabel": "символы"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Сколько символов озвученного ответа накопилось за московский день (speaking_tts_chars). Это объём озвучки, не деньги."
+    },
+    {
+      "type": "timeseries",
+      "title": "Токены запроса и ответа за сегодня",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "speaking_prompt_tokens{client=\"telegram\"}",
+          "legendFormat": "Токены запроса за {{day}}",
+          "refId": "A"
+        },
+        {
+          "expr": "speaking_completion_tokens{client=\"telegram\"}",
+          "legendFormat": "Токены ответа модели за {{day}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "decimals": 0,
+          "custom": {
+            "axisLabel": "токены"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "description": "Токены, которые ушли в запрос, и токены ответа модели за московский день (speaking_prompt_tokens, speaking_completion_tokens). Это объём для модели, не деньги."
+    }
+  ]
+}

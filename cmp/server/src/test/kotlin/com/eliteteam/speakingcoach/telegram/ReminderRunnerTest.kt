@@ -42,7 +42,7 @@ class ReminderRunnerTest {
         val sent = mutableListOf<Pair<Long, String>>()
         var limitedOnce = false
         val runner = ReminderRunner(
-            claim = {
+            claim = { _ ->
                 listOf(
                     ReminderTarget("tg-1", "Alex Green"),
                     ReminderTarget("tg-2"),
@@ -92,7 +92,7 @@ class ReminderRunnerTest {
     fun secondRetryAfterGivesUp() = runTest {
         var attempts = 0
         val runner = ReminderRunner(
-            claim = { listOf(ReminderTarget("tg-1")) },
+            claim = { _ -> listOf(ReminderTarget("tg-1")) },
             report = {},
             send = { _, _ ->
                 attempts += 1
@@ -111,7 +111,7 @@ class ReminderRunnerTest {
     fun busyRunnerReturnsNull() = runTest {
         val gate = CompletableDeferred<Unit>()
         val runner = ReminderRunner(
-            claim = {
+            claim = { _ ->
                 gate.await()
                 emptyList()
             },
@@ -131,10 +131,27 @@ class ReminderRunnerTest {
     }
 
     @Test
+    fun emptyAutoRoundIsNotReported() = runTest {
+        val reports = mutableListOf<ReminderReport>()
+        val runner = ReminderRunner(
+            claim = { _ -> emptyList() },
+            report = { reports += it },
+            send = { _, _ -> },
+            clock = clock,
+            pause = Duration.ZERO,
+        )
+
+        assertEquals(RoundOutcome(0, 0, 0, 0), runner.runRound(ReminderMode.AUTO))
+        assertEquals(emptyList(), reports)
+        assertEquals(RoundOutcome(0, 0, 0, 0), runner.runRound(ReminderMode.MANUAL))
+        assertEquals(1, reports.size)
+    }
+
+    @Test
     fun testSendSkipsClaimAndReport() = runTest {
         val sent = mutableListOf<Pair<Long, String>>()
         val runner = ReminderRunner(
-            claim = { error("claim must not run") },
+            claim = { _ -> error("claim must not run") },
             report = { error("report must not run") },
             send = { chatId, text -> sent += chatId to text },
             clock = clock,
@@ -157,7 +174,7 @@ class ReminderRunnerTest {
     fun testSendUsesTheStreakPoolWhenTheChatHasTwoDays() = runTest {
         val sent = mutableListOf<String>()
         val runner = ReminderRunner(
-            claim = { listOf(ReminderTarget("tg-7", streak = 4)) },
+            claim = { _ -> listOf(ReminderTarget("tg-7", streak = 4)) },
             report = {},
             send = { _, text -> sent += text },
             clock = clock,

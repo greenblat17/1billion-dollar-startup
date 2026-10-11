@@ -23,7 +23,7 @@ Telegram voice
   → Ktor POST /telegram/webhook (TLS, secret header)
   → SessionClipQueue (max 3 in-flight per session)
   → HttpClipClient → FastAPI ai-service
-       STT Groq → LLM OpenRouter JSON → TTS → ffmpeg OGG
+       STT Groq → LLM OpenRouter JSON → TTS OpenRouter OGG or direct Deepgram OGG/MP3
        Redis key session:{id} (or in-memory if REDIS_URL unset)
   → Telegram text quote (corrections) + sendVoice
 ```
@@ -42,5 +42,6 @@ Gradle root is **`cmp/`**. Before `./gradlew`, `GRADLE_USER_HOME=$HOME/.gradle`.
 - Wider mobile backend backlog: `ai_docs/plans/2026-09-19-mobile-mvp-backend.md`
 - Telegram + notes: `ai_docs/integrations/2026-09-18-telegram.md`
 - Run / env / CI: `ai_docs/integrations/2026-09-18-run-and-ci.md`
+- Env catalog (blobs, key roles, what kind of value each key holds): `ai_docs/integrations/2026-10-11-env.md`
 
 `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md` is **stale** (mentions polling bot, empty `ai-service/`, old DTO). Prefer current files above.
