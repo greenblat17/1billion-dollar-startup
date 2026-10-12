@@ -18,7 +18,7 @@ Do this **before** implementing. Do not start refactors, deploys, or speculative
 Read these with the file tool (do not skim only titles):
 
 1. `ai_docs/summaries/2026-09-18-agent-start-here.md`
-2. `ai_docs/architecture.md`
+2. `architecture.md`
 3. `ai_docs/deploy.md`
 4. `ai_docs/product.md` — **intent**, not shipped scope
 5. `ai_docs/architecture/2026-09-18-agent-guardrails.md`
