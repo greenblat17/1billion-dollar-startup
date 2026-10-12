@@ -26,9 +26,9 @@ Speaky — бот в Telegram, с которым человек говорит �
 
 | Метрика | Панель | Ряд |
 | --- | --- | --- |
-| DAU | DAU: сколько человек сегодня договорили ход | `speaking_dau{client="telegram"}` |
-| Частотность взаимодействия | Частотность: сколько ходов на человека сегодня | `speaking_turns{client="telegram"} / speaking_dau{client="telegram"}` |
-| Ошибки сервисов | Ошибки сервисов за сегодня | `speaking_errors{client="telegram"}` |
-| Стоимость на человека | Стоимость на человека сегодня, $ | `(speaking_cost_micro{client="telegram"} / 1000000) / speaking_dau{client="telegram"}` при DAU > 0 |
+| DAU | DAU по дням | `speaking_dau{client="telegram"}` |
+| Частотность взаимодействия | Частотность: ходов на человека по дням | `speaking_turns{client="telegram"} / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
+| Ошибки сервисов | Ошибки сервисов по дням | `speaking_errors{client="telegram"}` |
+| Стоимость на человека | LLM-cost / DAU по дням, $ | `(speaking_cost_micro{client="telegram"} / 1000000) / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
 
 Инженерные решения лежат в `ai_docs/`, не в этом файле.

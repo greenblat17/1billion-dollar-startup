@@ -49,7 +49,7 @@ global:
   scrape_interval: 60s
 scrape_configs:
   - job_name: speaking-v2
-    scrape_interval: 60s
+    scrape_interval: 15s
     metrics_path: /internal/metrics/prometheus
     scheme: ${AI_SCHEME}
     bearer_token_file: /etc/prometheus/ai_token

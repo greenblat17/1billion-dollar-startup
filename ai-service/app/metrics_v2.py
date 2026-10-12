@@ -9,11 +9,12 @@ from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
 from app.load_test import load_test_active
-from app.metrics import metrics_day
+from app.metrics import metrics_day, recent_days
 
 _EVENTS_KEY = "metrics:v2:events"
 _EVENTS_LIMIT = 10_000
 _EVENTS_TTL_SECONDS = 30 * 24 * 60 * 60
+_LLM_REQUEST_DAYS = 15
 _CLIENTS = ("telegram", "android", "ios", "desktop", "unknown")
 _MOBILE = {"android", "ios", "desktop"}
 _TELEGRAM_VOICE_MILESTONES = (1, 3, 5, 10, 20)
@@ -236,6 +237,7 @@ class MemoryMetricsV2(MetricsV2):
             "telegramJourney": _telegram_journey_snapshot(
                 self._telegram_since, len(self._telegram_only_start), self._telegram_milestones,
             ),
+            "llmRequestsByDay": _llm_requests_from_memory(self.days, now if now is not None else time.time()),
         }
 
     def prometheus(self, snapshot):
@@ -413,6 +415,7 @@ class RedisMetricsV2(MetricsV2):
             "telegramJourney": _telegram_journey_snapshot(
                 since or "", int(only_start), {int(key): int(value) for key, value in milestones.items()},
             ),
+            "llmRequestsByDay": await self._llm_requests_history(now if now is not None else time.time()),
         }
 
     def prometheus(self, snapshot):
@@ -441,6 +444,24 @@ class RedisMetricsV2(MetricsV2):
         pipe.expire(_EVENTS_KEY, _EVENTS_TTL_SECONDS)
         await pipe.execute()
 
+    async def _llm_requests_history(self, now: float) -> list[dict[str, Any]]:
+        days = recent_days(now, _LLM_REQUEST_DAYS)
+        async with self._redis.pipeline() as pipe:
+            for day in days:
+                for client in _CLIENTS:
+                    pipe.hgetall(_day_key(day, client))
+            raws = await pipe.execute()
+        buckets = {}
+        index = 0
+        for day in days:
+            for client in _CLIENTS:
+                raw = raws[index]
+                index += 1
+                buckets[(day, client)] = {
+                    str(key): int(value) for key, value in raw.items() if str(key) != "currency"
+                }
+        return _llm_request_rows(days, buckets)
+
 
 def build_metrics_v2(settings: Any, redis: Redis | None = None) -> MetricsV2:
     if redis is not None:
@@ -465,6 +486,27 @@ def _telegram_journey_snapshot(since: str, only_start: int, milestones: dict[int
         "onlyStart": only_start,
         "atLeast": {str(threshold): milestones.get(threshold, 0) for threshold in _TELEGRAM_VOICE_MILESTONES},
     }
+
+
+def _llm_calls(bucket: dict[str, int]) -> int:
+    return sum(value for key, value in bucket.items() if key.startswith("llm|") and key.endswith("|calls"))
+
+
+def _llm_requests_from_memory(days: dict[tuple[str, str], dict[str, int]], now: float) -> list[dict[str, Any]]:
+    return _llm_request_rows(recent_days(now, _LLM_REQUEST_DAYS), days)
+
+
+def _llm_request_rows(
+    days: list[str], buckets: dict[tuple[str, str], dict[str, int]],
+) -> list[dict[str, Any]]:
+    rows = []
+    for day in days:
+        for client in _CLIENTS:
+            bucket = buckets.get((day, client), {})
+            if client == "unknown" and not bucket:
+                continue
+            rows.append({"day": day, "client": client, "calls": _llm_calls(bucket)})
+    return rows
 
 
 def _column(client: str, bucket: dict[str, int], dau: int) -> dict[str, Any]:
@@ -503,6 +545,7 @@ def _column(client: str, bucket: dict[str, int], dau: int) -> dict[str, Any]:
         "dau": dau,
         "turns": bucket.get("turns", 0),
         "calls": calls,
+        "llmCalls": _llm_calls(bucket),
         "costMicro": cost,
         "costCurrency": "USD" if cost else "",
         "promptTokens": prompt,
@@ -543,6 +586,7 @@ def _prometheus(snapshot: dict[str, Any]) -> str:
             )
         lines.append(f"speaking_prompt_tokens{{{labels}}} {column['promptTokens']}")
         lines.append(f"speaking_completion_tokens{{{labels}}} {column['completionTokens']}")
+        lines.append(f"speaking_llm_requests{{{labels}}} {column['llmCalls']}")
         lines.append(f"speaking_stt_seconds{{{labels}}} {column['sttSeconds']}")
         lines.append(f"speaking_tts_chars{{{labels}}} {column['ttsChars']}")
         for part, key in (
@@ -555,6 +599,13 @@ def _prometheus(snapshot: dict[str, Any]) -> str:
             lines.append(f'speaking_actions{{{labels},action="{name}"}} {value}')
         for name, value in column["errors"].items():
             lines.append(f'speaking_errors{{{labels},outcome="{name}"}} {value}')
+    seen = {(snapshot.get("day", ""), column["client"]) for column in snapshot.get("clients", [])}
+    for row in snapshot.get("llmRequestsByDay", []):
+        if (row["day"], row["client"]) in seen:
+            continue
+        seen.add((row["day"], row["client"]))
+        labels = f'client="{row["client"]}",day="{row["day"]}"'
+        lines.append(f"speaking_llm_requests{{{labels}}} {row['calls']}")
     return "\n".join(lines) + ("\n" if lines else "")
 
 

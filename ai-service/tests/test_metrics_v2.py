@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from fakeredis import FakeAsyncRedis
 from fastapi.testclient import TestClient
@@ -47,6 +50,7 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
     assert telegram["promptTokens"] == 13
     assert telegram["completionTokens"] == 5
     assert telegram["calls"] == 3
+    assert telegram["llmCalls"] == 2
     assert telegram["ttsChars"] == 20
     assert telegram["sttSeconds"] == 1.5
     assert telegram["dau"] == 1
@@ -65,6 +69,21 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
     assert "speaking_cost_micro" in text
     assert 'client="ios"' in text
     assert "speaking_cost_micro{client=\"ios\"" not in text
+    assert 'speaking_llm_requests{client="telegram",day="2026-10-02"} 2' in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    moscow = ZoneInfo("Europe/Moscow")
+    past = datetime(2025, 10, 5, 12, tzinfo=moscow).timestamp()
+    later = datetime(2025, 10, 18, 12, tzinfo=moscow).timestamp()
+    await store.record_llm("tg-1", "reply", "openai/gpt", 8, 2, None, now=past)
+    await store.record_llm("tg-1", "notes", "openai/gpt", 3, 1, None, now=past)
+    snap = await store.snapshot(now=later)
+    text = store.prometheus({**snap, "day": "2025-10-18"})
+    assert 'speaking_llm_requests{client="telegram",day="2025-10-05"} 2' in text
 
 
 @pytest.mark.asyncio
