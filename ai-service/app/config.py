@@ -53,6 +53,7 @@ class Settings:
     deepgram_api_key: str | None = None
     tts_output_format: str = "ogg"
     tts_speed: float = 0.9
+    log_file: str = ""
 
     @staticmethod
     def from_env() -> Settings:
@@ -82,4 +83,5 @@ class Settings:
             deepgram_api_key=_env("DEEPGRAM_API_KEY"),
             tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
             tts_speed=_float_env("TTS_SPEED", 0.9),
+            log_file=_env("LOG_FILE", "") or "",
         )

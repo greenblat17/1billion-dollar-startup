@@ -20,12 +20,27 @@ docker build -t ai-service:local "$BUILD"
 rm -rf "$BUILD"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
 docker rm -f ai-service >/dev/null 2>&1 || true
+mkdir -p "$APP/logs"
+cat > /etc/logrotate.d/ai-service <<'EOF'
+/opt/ai-service/logs/app.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    copytruncate
+    dateext
+    missingok
+    notifempty
+}
+EOF
 PUBLISH_PORT="$(ai_service_port_from_env "$APP/.env")"
 docker run -d --name ai-service --restart unless-stopped \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   --network "$NETWORK" \
   -p "${PUBLISH_PORT}:8090" \
   --env-file "$APP/.env" \
+  -e LOG_FILE=/var/log/ai-service/app.log \
+  -v "$APP/logs:/var/log/ai-service" \
   ai-service:local
 
 # Freeze this one-time campaign cohort on its first deployment. Later deploys

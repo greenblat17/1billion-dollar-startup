@@ -6,10 +6,17 @@ docker network create "$NETWORK" >/dev/null 2>&1 || true
 docker volume create speaking-coach-redis >/dev/null 2>&1 || true
 
 if docker inspect redis >/dev/null 2>&1; then
-  docker start redis >/dev/null
-  docker network connect "$NETWORK" redis >/dev/null 2>&1 || true
-  echo "redis already present; left running."
-  exit 0
+  driver=$(docker inspect -f '{{.HostConfig.LogConfig.Type}}' redis)
+  size=$(docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' redis)
+  if [ "$driver" = "local" ] && [ "$size" = "10m" ]; then
+    docker start redis >/dev/null
+    docker network connect "$NETWORK" redis >/dev/null 2>&1 || true
+    echo "redis already present; left running."
+    exit 0
+  fi
+  echo "recreating redis container to cap logs; data volume stays" >&2
+  docker stop redis >/dev/null
+  docker rm redis >/dev/null
 fi
 
 docker run -d --name redis --restart unless-stopped \

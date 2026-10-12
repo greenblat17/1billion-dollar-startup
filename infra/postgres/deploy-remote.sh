@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Create-if-missing Postgres on the Ktor host. Listen on loopback only.
-# Never docker rm postgres: volume speaking-coach-postgres keeps users.
+# Never remove volume speaking-coach-postgres. The container may be recreated
+# so its log files stay capped; the data directory is the volume.
 
 APP=/opt/speaking-coach
 ENV_FILE="$APP/.env"
@@ -45,9 +46,16 @@ fi
 docker volume create speaking-coach-postgres >/dev/null 2>&1 || true
 
 if docker inspect "$NAME" >/dev/null 2>&1; then
-  docker start "$NAME" >/dev/null
-  echo "postgres already present; left running."
-  exit 0
+  driver=$(docker inspect -f '{{.HostConfig.LogConfig.Type}}' "$NAME")
+  size=$(docker inspect -f '{{index .HostConfig.LogConfig.Config "max-size"}}' "$NAME")
+  if [ "$driver" = "local" ] && [ "$size" = "10m" ]; then
+    docker start "$NAME" >/dev/null
+    echo "postgres already present; left running."
+    exit 0
+  fi
+  echo "recreating postgres container to cap logs; data volume stays" >&2
+  docker stop "$NAME" >/dev/null
+  docker rm "$NAME" >/dev/null
 fi
 
 docker run -d --name "$NAME" --restart unless-stopped \

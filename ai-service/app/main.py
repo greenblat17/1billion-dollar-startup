@@ -25,6 +25,7 @@ from app.jobs import ClipJob, JobStore
 from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
 from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
 from app.llm import OpenAiChatModel
+from app.logging_setup import configure_process_logging
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import build_metrics_v2
 from app.operational_metrics import STAGE_METRICS
@@ -68,7 +69,7 @@ def create_app(
     settings = settings or Settings.from_env()
     if not settings.ai_internal_token:
         raise RuntimeError("AI_INTERNAL_TOKEN is required")
-    logging.basicConfig(level=settings.log_level)
+    configure_process_logging(settings.log_level, settings.log_file)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
     onboarding = OnboardingService(

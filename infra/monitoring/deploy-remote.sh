@@ -167,7 +167,8 @@ else
   fi
   HASH=$(printf '%s' "$INGEST_PASSWORD" | openssl passwd -apr1 -stdin)
   printf 'alloy:%s\n' "$HASH" > "$MON/loki.htpasswd"
-  chmod 600 "$MON/loki.htpasswd"
+  # nginx in the proxy container runs as a non-root user and must read this hash file.
+  chmod 644 "$MON/loki.htpasswd"
   cat > "$MON/nginx.conf" <<EOF
 server {
   listen 8443 ssl;
