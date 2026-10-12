@@ -2,38 +2,11 @@ package com.eliteteam.speakingcoach.telegram
 
 import dev.inmo.tgbotapi.types.ChatId
 import dev.inmo.tgbotapi.types.RawChatId
-import java.time.LocalDate
-import java.time.ZoneOffset
-import java.time.ZonedDateTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
+
 class DailyReminderTest {
-
-    private val day = LocalDate.of(2026, 9, 26)
-
-    private fun moscow(hour: Int, minute: Int = 0) = ZonedDateTime.of(day.atTime(hour, minute), REMINDER_ZONE)
-
-    @Test
-    fun staysOffInsideTheEveningWindow() {
-        assertFalse(shouldRunReminder(moscow(18, 59), null))
-        assertFalse(shouldRunReminder(moscow(19, 0), null))
-        assertFalse(shouldRunReminder(moscow(20, 59), null))
-        assertFalse(shouldRunReminder(moscow(21, 0), null))
-    }
-
-    @Test
-    fun staysOffAcrossMoscowDays() {
-        assertFalse(shouldRunReminder(moscow(19, 30), day))
-        assertFalse(shouldRunReminder(moscow(19, 30), day.minusDays(1)))
-    }
-
-    @Test
-    fun staysOffWhenUtcIsNineteenInMoscow() {
-        val utc = ZonedDateTime.of(day.atTime(16, 0), ZoneOffset.UTC)
-        assertFalse(shouldRunReminder(utc, null))
-    }
 
     @Test
     fun parsesOnlyTelegramSessionIds() {

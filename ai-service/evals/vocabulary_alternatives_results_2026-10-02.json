@@ -1,0 +1,284 @@
+{
+  "model": "openai/gpt-5.6-luna",
+  "date": "2026-10-02",
+  "strict": [
+    {
+      "id": "plain_correct",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12295,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "already_natural",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 10466,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "worthwhile_idiom",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 10947,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "awkward_original",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 10717,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "grammar_is_not_vocabulary",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12997,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "build_is_not_launch",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 9989,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "asr_false_start",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 8703,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "style_only",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 11603,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "vocabulary_error_present",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 14008,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "plain_correct_call",
+      "surface": "call",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 8429,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "worthwhile_idiom_call",
+      "surface": "call",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 6559,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "build_is_not_launch_call",
+      "surface": "call",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12872,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "vocabulary_error_present_call",
+      "surface": "call",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 7881,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "switch_off_after_work",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 13367,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "make_do_with_tools",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [
+        {
+          "original": "finish the job",
+          "alternative": "get the job done",
+          "explanation": "“Get the job done” is a natural conversational idiom for completing work successfully."
+        }
+      ],
+      "selected": [
+        {
+          "original": "finish the job",
+          "alternative": "get the job done",
+          "explanation": "“Get the job done” is a natural conversational idiom for completing work successfully."
+        }
+      ],
+      "latency_ms": 15890,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "unplug_for_a_while",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 8451,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "dabble_in_hobbies",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 10756,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "on_the_side_second_job",
+      "surface": "call",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 4874,
+      "finish_reason": "stop"
+    }
+  ],
+  "softer": [
+    {
+      "id": "already_natural",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 14966,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "worthwhile_idiom",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [
+        {
+          "original": "in addition to my full-time job",
+          "alternative": "alongside my full-time job",
+          "explanation": "This gives you another natural way to describe doing one activity while also working."
+        }
+      ],
+      "selected": [
+        {
+          "original": "in addition to my full-time job",
+          "alternative": "alongside my full-time job",
+          "explanation": "This gives you another natural way to describe doing one activity while also working."
+        }
+      ],
+      "latency_ms": 14134,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "awkward_original",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 16197,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "build_is_not_launch",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12326,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "style_only",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12643,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "vocabulary_error_present",
+      "surface": "onboarding",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 12340,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "worthwhile_idiom_call",
+      "surface": "call",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 5594,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "build_is_not_launch_call",
+      "surface": "call",
+      "expectation": "none",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 3868,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "make_do",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 13016,
+      "finish_reason": "stop"
+    },
+    {
+      "id": "in_charge",
+      "surface": "onboarding",
+      "expectation": "optional",
+      "raw": [],
+      "selected": [],
+      "latency_ms": 11633,
+      "finish_reason": "stop"
+    }
+  ]
+}

@@ -15,7 +15,7 @@ private val BUCKET_LABELS = listOf(
     "14_plus" to "14+",
 )
 
-internal fun streaksPageHtml(snapshot: MetricsSnapshot): String = """
+internal fun streaksPageHtml(snapshot: MetricsSnapshot, summaryRoot: String = "/admin/metrics"): String = """
     <!doctype html>
     <html lang="ru">
     <head>
@@ -26,7 +26,7 @@ internal fun streaksPageHtml(snapshot: MetricsSnapshot): String = """
     </head>
     <body>
     <h1>Speaky</h1>
-    ${adminTabs(STREAKS_PATH)}
+    ${adminTabs("$summaryRoot/streaks", summaryRoot)}
     <p class="meta">${escapeHtml(snapshot.day)} · ${escapeHtml(snapshot.timezone)}. День считается по Москве.</p>
     ${streaksSectionHtml(snapshot.streaks)}
     </body>

@@ -51,6 +51,7 @@ if docker inspect "$NAME" >/dev/null 2>&1; then
 fi
 
 docker run -d --name "$NAME" --restart unless-stopped \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   -p 127.0.0.1:5432:5432 \
   -e POSTGRES_USER="$USER_NAME" \
   -e POSTGRES_PASSWORD="$PASSWORD" \

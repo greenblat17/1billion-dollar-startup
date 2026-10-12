@@ -16,13 +16,17 @@ Response:
 
 Telegram always sends the chat-scoped id so Redis history sticks to one chat.
 
-## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or 404
+## `GET /v1/sessions/{sessionId}/greeting/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
 
-Synthesizes `GREETING_VOICE_TEXT` once (cached in process).
+Synthesizes `GREETING_VOICE_TEXT` once per selected speed (cached in process).
 
 ## `POST /v1/clips` multipart → 202 `{ "jobId" }`
 
 Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio.
+
+## Speech speed (internal, token required)
+
+`GET /internal/speech-speed/{sessionId}` returns `{ "speed": 0.9 }` when no chat override exists. `POST /internal/speech-speed` accepts `{ "sessionId": "tg-123", "speed": 0.8 }` and returns the selected speed. Only `0.8`, `0.9`, and `1.0` are accepted. The override is stored without TTL in Redis as `speech-speed:{sessionId}` (in memory without Redis). It controls future synthesis by direct Deepgram for this session; OpenRouter ignores it. Cached greeting and onboarding intro audio are separated by speed. Deploy AI before Ktor so `/speed` can call these endpoints.
 
 ## `GET /v1/clips/{jobId}` → 200 or 404
 
@@ -30,7 +34,7 @@ Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio
 
 On `ok`, Kotlin reads `result.corrections` (falls back to `result.notes` when `corrections` is empty or absent), `result.transcript`, fallback top-level `transcript`. Extra fields `replyText`, `timingsMs` are ignored by Ktor (`ignoreUnknownKeys`).
 
-`corrections` is the typed list (`kind`: `grammar` | `word` | `natural`, max 3, sorted by that priority). `notes` is the same list as `wrong|||better` strings, kept so an older Ktor still works when `ai-server` is redeployed first. Either deploy order is safe.
+`corrections` is the typed list (`kind`: `grammar` | `word` | `natural`, optional `explanation`, max 3, sorted by that priority). `explanation` is a short Russian sentence for the Telegram card; old records and clients can omit it. `notes` is the same list as `wrong|||better` strings, kept so an older Ktor still works when `ai-server` is redeployed first. Either deploy order is safe.
 
 Notes on `ok`:
 
@@ -45,15 +49,21 @@ Notes on `ok`:
   },
   "transcript": "...",
   "replyText": "...",
-  "timingsMs": { "stt": 1, "llm": 2, "tts": 3, "total": 6 }
+  "timingsMs": { "stt": 1, "context": 1, "reply": 2, "notes": 2, "memoryExtract": 2, "dialogue": 1, "tts": 3, "memorySave": 1, "finalize": 1, "llm": 2, "total": 8 }
 }
 ```
 
 On `error`: `{ "code": "timeout"|"pipeline_failed", "message": "..." }` (message truncated to 240 chars).
 
-## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or 404
+`timingsMs` is diagnostic and backward compatible: existing `stt`, `llm`, `tts`, and `total` remain. The additional keys describe parallel stages and can be absent on clarify turns. Stage values overlap; they must not be summed. `total` now ends after memory, metrics, streak and call updates, immediately before the successful pipeline result. The AI-service completion log includes the job id. Ktor logs clip submission, polling, audio download, Telegram download, queue time, and reply delivery. These logs contain identifiers and timings, not transcripts or personal facts. Compare the Telegram handler's elapsed time for end-to-end user-facing latency.
 
-Ktor saves as `reply.ogg` / `greeting.ogg`.
+`notes` is capped at 8 seconds from correction request start (fixed in `pipeline.py`) in ordinary and onboarding voice turns; the voice reply succeeds with empty corrections when the deadline expires. `/internal/metrics` includes Moscow-day `corrections` outcome counters with counts, summed elapsed milliseconds, and second-attempt counts. The existing `/admin/metrics` page renders these counters; see the spoken-corrections integration note for outcome definitions.
+
+For onboarding voice turns, correction generation starts alongside the next-question assessment after STT. When the question is ready, synthesis starts without waiting for corrections; the result waits for both the audio and the bounded correction task. The final onboarding review still waits for saved correction candidates before verifying examples and composing the report. An assessment failure cancels unfinished correction work, and an audio failure keeps the saved assessment and corrections for retry.
+
+## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
+
+Ktor uses `reply.ogg` / `greeting.ogg` for OGG and `reply.mp3` / `greeting.mp3` for MP3 when calling Telegram `sendVoice`. Unsupported media types fail instead of being sent with a misleading extension. Audio bytes and `Content-Type` must agree. The OpenRouter TTS path produces OGG; direct Deepgram can produce OGG for the first rollout phase or pass MP3 through without ffmpeg. Deploy Ktor MP3 support before enabling MP3 output on AI.
 
 ## Session ids
 
@@ -67,3 +77,15 @@ Kotlin: `SessionId` inline value. Telegram: `"tg-$chatId"` (`telegramSessionId`)
 - JSON value: `{ "messages": [ { "role", "content" } ] }` — **assistant content is spoken reply only**, not notes.
 
 Stored history is what the next LLM call sees (plus system prompt). `/start` creates/refreshes the session; it does not wipe Redis history if the key already exists.
+
+## Optional onboarding contract (2026-09-28)
+
+All operations below require the existing `X-Internal-Token`. They are internal AI-service endpoints, not public Ktor APIs.
+
+- `POST /internal/onboarding/state`: `{sessionId, requestId, reset?: ""|"start"|"force"}` → `{runId, status, seconds, cefr, resultText, retryAvailable}`. Resolves new/existing eligibility and persists the choice. Call before funnel events. `start` resets incomplete onboarding; `force` also restarts completed/exempt users. Duplicate recent request ids do not reset again.
+- `POST /internal/onboarding/actions`: `{sessionId, requestId, runId, action: "begin"|"retry"|"continue"}` → 202 `{jobId}`. Uses the existing status/audio polling endpoints. Stale run ids and duplicate callbacks produce an ignored result.
+- `POST /v1/clips` accepts optional `onboardingRunId`, `requestId` and `durationSeconds` multipart fields. A run id requires a request id. Without a run id, the existing clip flow is unchanged. Telegram duration is a fallback when STT duration is absent.
+- Onboarding jobs add `result.onboarding` with state and `result.audioAvailable`. Default `audioAvailable` for legacy jobs is true. `replyText` carries the result/error text. `pending` onboarding state means the user can retry result generation; it is distinct from the job's `pending` processing status.
+- On the final voice turn, Speaky prepares a personalized closing voice independently of the assessment and memory branch. The response waits for both branches. If assessment fails, the first result can have `status=pending` **and** audio: Telegram sends the closing voice once, followed by the Retry prompt. Retry reruns only the saved assessment branch; its successful result has `status=completed`, `audioAvailable=false`, and a short text with the results button. A stale Retry on a completed run returns `ignored`. Clients **must not** download audio when `audioAvailable` is false. `onboarding.status == "ignored"` means no Telegram response should be sent. `resultText` is empty on completion; the level stays in `cefr` for the coach and is not a chat message.
+
+Deployment order: AI-service then Ktor. New AI-service does not enroll old clients automatically; enrollment is explicitly resolved by the updated Telegram client.

@@ -1,15 +1,34 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
+import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
+import com.eliteteam.speakingcoach.analytics.MemoryVoiceAttemptStore
+import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.ai.FunnelDay
+import com.eliteteam.speakingcoach.ai.ErrorDay
+import com.eliteteam.speakingcoach.ai.ErrorsSnapshot
+import com.eliteteam.speakingcoach.ai.RecentError
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.MetricsV2Chat
+import com.eliteteam.speakingcoach.ai.MetricsV2Client
+import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
+import com.eliteteam.speakingcoach.ai.TelegramJourneySnapshot
+import com.eliteteam.speakingcoach.ai.CorrectionMetrics
+import com.eliteteam.speakingcoach.ai.CallFeedbackEntry
+import com.eliteteam.speakingcoach.ai.CallFeedbackList
+import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.ReminderDay
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.ReminderSegment
 import com.eliteteam.speakingcoach.ai.ReminderTemplateStats
 import com.eliteteam.speakingcoach.ai.ReminderTotals
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
+import com.eliteteam.speakingcoach.ai.ReminderClockSummary
+import com.eliteteam.speakingcoach.ai.ReminderAnalyticsDay
+import com.eliteteam.speakingcoach.ai.ReminderHourOutcome
+import com.eliteteam.speakingcoach.ai.ReminderSettingUsers
 import com.eliteteam.speakingcoach.ai.RetentionCohort
 import com.eliteteam.speakingcoach.ai.RetentionSlice
 import com.eliteteam.speakingcoach.ai.RetentionSnapshot
@@ -17,6 +36,7 @@ import com.eliteteam.speakingcoach.ai.StreakBucket
 import com.eliteteam.speakingcoach.ai.StreakReminderBucket
 import com.eliteteam.speakingcoach.ai.StreaksSnapshot
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
+import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import io.ktor.client.request.cookie
 import io.ktor.client.request.get
 import io.ktor.client.request.post
@@ -27,12 +47,310 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.server.testing.testApplication
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlinx.serialization.json.Json
+import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
+import java.time.Instant
+import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
+    @Test
+    fun callDashboardDisplaysSavedFeedbackOnlyWithAdminSession() = testApplication {
+        val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry("tg-42", "alex", "liked", "Great chat")))
+        application {
+            module(dashboardConfig(password = PASSWORD),
+                metricsSource = FixedMetricsSource(sampleSnapshot(), feedback))
+        }
+        val anonymous = client.get(CALLS_PATH)
+        assertFalse(anonymous.bodyAsText().contains("Great chat"))
+        val page = client.get(CALLS_PATH) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertTrue(page.bodyAsText().contains("@alex"))
+        assertTrue(page.bodyAsText().contains("👍 Понравился"))
+        assertTrue(page.bodyAsText().contains("Great chat"))
+    }
+
+    @Test
+    fun callDashboardRequiresSessionAndRejectsInvalidCallId() = testApplication {
+        application { module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot())) }
+        val anonymous = client.get(CALLS_PATH)
+        assertTrue(anonymous.bodyAsText().contains("Пароль"))
+        val page = client.get("$CALLS_PATH?days=7") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertEquals("no-store", page.headers[HttpHeaders.CacheControl])
+        assertTrue(page.bodyAsText().contains("Практические звонки"))
+        val invalid = client.get("$CALLS_PATH/not-a-call-id") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.NotFound, invalid.status)
+    }
+
+    @Test
+    fun voiceErrorsShowDeliveryImpactAndEscapeUsernames() = runTest {
+        val store = MemoryVoiceAttemptStore()
+        val now = Instant.now()
+        store.record(VoiceAttempt(123, 1, now.minusSeconds(10), username = "<script>", eligible = true,
+            outcome = "ai_failed", stage = "stt", reason = "network", totalMs = 120, sttMs = 80))
+        val html = errorsPageHtml(sampleSnapshot(), store.report(now))
+        assertTrue(html.contains("Результат голосового сообщения в Telegram"))
+        assertTrue(html.contains("Затронуто чатов за 14 дней"))
+        assertTrue(html.contains("network"))
+        assertTrue(html.contains("p95"))
+        assertTrue(html.contains("&lt;script&gt;"))
+        assertFalse(html.contains("<script>"))
+        assertTrue(html.contains("ID попытки"))
+        assertTrue(errorsPageHtml(null, store.report(now)).contains("Метрики AI service недоступны"))
+    }
+
+    @Test
+    fun errorDashboardRequiresSessionAndShowsCounts() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            errors = ErrorsSnapshot(
+                today = ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1),
+                days = listOf(ErrorDay("2026-09-24", ok = 8, timeout = 1, pipelineFailed = 1)),
+                recent = listOf(
+                    RecentError("2026-09-24T12:00:00+03:00", "pipeline_failed", "tts", "Provider <failed>", "alex<script>", 123),
+                    RecentError("2026-09-24T11:00:00+03:00", "timeout", "stt", "TimeoutError"),
+                ),
+            ),
+        )
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
+        }
+        val anonymous = client.get(ERRORS_PATH)
+        assertTrue(anonymous.bodyAsText().contains("Пароль"))
+        assertFalse(anonymous.bodyAsText().contains("Доля ошибок"))
+        val page = client.get(ERRORS_PATH) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+        assertEquals(HttpStatusCode.OK, page.status)
+        assertTrue(page.bodyAsText().contains("20.0%"))
+        assertTrue(page.bodyAsText().contains("<td>2026-09-24</td><td>8</td><td>1</td><td>1</td><td>2</td>"))
+        assertTrue(page.bodyAsText().contains("Provider &lt;failed&gt;"))
+        assertFalse(page.bodyAsText().contains("Provider <failed>"))
+        assertTrue(page.bodyAsText().contains("@alex&lt;script&gt;"))
+        assertTrue(page.bodyAsText().contains("<td>@alex&lt;script&gt;</td><td>123</td><td>tts</td>"))
+        assertFalse(page.bodyAsText().contains("@alex<script>"))
+        assertTrue(page.bodyAsText().contains("<td>—</td><td>—</td><td>stt</td>"))
+    }
+
+    @Test
+    fun correctionsSectionShowsFailuresLatencyAndRetries() = testApplication {
+        val snapshot = sampleSnapshot().copy(corrections = mapOf(
+            "shown" to CorrectionMetrics(count = 2, elapsedMs = 500, secondAttempts = 1),
+            "empty" to CorrectionMetrics(count = 1, elapsedMs = 200),
+            "deadline" to CorrectionMetrics(count = 1, elapsedMs = 8000, secondAttempts = 1),
+            "invalid_json" to CorrectionMetrics(count = 1, elapsedMs = 1000),
+            "<script>alert(1)</script>" to CorrectionMetrics(count = 100),
+        ))
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
+        }
+        val html = client.get("/admin/metrics") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(html.contains("<h2>Исправления</h2>"))
+        assertTrue(html.contains("<dt>Запросы исправлений</dt><dd>5</dd>"))
+        assertTrue(html.contains("<dt>Сбои</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Доля сбоев</dt><dd>40.0%</dd>"))
+        assertTrue(html.contains("<dt>Повторная попытка</dt><dd>2</dd>"))
+        assertTrue(html.contains("<tr><td>Показано исправление</td><td>2</td><td>250</td></tr>"))
+        assertTrue(html.contains("<tr><td>Превышен лимит 8 с</td><td>1</td><td>8000</td></tr>"))
+        assertFalse(html.contains("<script>alert(1)</script>"))
+    }
+
+    @Test
+    fun correctionsSectionAcceptsOlderMetricsResponseWithoutCorrections() {
+        val oldResponse = """{
+            "timezone":"Europe/Moscow","day":"2026-09-24","promptTokens":0,
+            "completionTokens":0,"tpm":0,"tps":0.0,"turns":0,"dau":0,
+            "sttSeconds":0.0,"ttsChars":0
+        }"""
+        val snapshot = Json.decodeFromString<MetricsSnapshot>(oldResponse)
+        assertTrue(snapshot.corrections.isEmpty())
+        val section = metricsReportHtml(snapshot).substringAfter("<h2>Исправления</h2>").substringBefore("<h2>Воронка</h2>")
+        assertTrue(section.contains("Пока нет данных."))
+        assertFalse(section.contains("Доля сбоев"))
+    }
+
+    @Test
+    fun campaignPageRequiresLoginAndSendsOnlyOnExplicitPost() = testApplication {
+        val admin = FakeCampaignAdmin()
+        application {
+            module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot()), campaignAdmin = admin)
+        }
+        val browser = createClient { followRedirects = false }
+        assertEquals(HttpStatusCode.Forbidden, browser.post("$LEGACY_CAMPAIGN_PATH/send").status)
+        assertEquals(0, admin.started)
+        val page = browser.get(LEGACY_CAMPAIGN_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Отправить выбранным пользователям"))
+        assertTrue(page.contains("Исключены: прошли onboarding</dt><dd>1</dd>"))
+        assertTrue(page.contains("Отправить сообщение 2 пользователям"))
+        assertTrue(page.contains("<b>именно для тебя, очень важно пройти новый onboarding"))
+        assertTrue(page.contains("🎙 Пройти onboarding"))
+        assertEquals(0, admin.started)
+
+        suspend fun post(path: String, body: String = "") = browser.post(path) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+            contentType(ContentType.Application.FormUrlEncoded)
+            setBody(body)
+        }.headers[HttpHeaders.Location]
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-invalid", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=abc"))
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=test-sent", post("$LEGACY_CAMPAIGN_PATH/test", "chatId=42"))
+        assertEquals(listOf(42L), admin.tests)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=started", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+        admin.current = admin.current.copy(ready = false)
+        assertEquals("$LEGACY_CAMPAIGN_PATH?notice=not-ready", post("$LEGACY_CAMPAIGN_PATH/send"))
+        assertEquals(1, admin.started)
+    }
+
+    @Test
+    fun onboardingPageAndAgentExportPreserveSelectedLlmPeriod() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val selected = "llmFrom=2026-09-23&llmTo=2026-09-24"
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Запросы к LLM · все пользователи"))
+        assertTrue(page.contains("name=\"llmFrom\" value=\"2026-09-23\""))
+        assertTrue(page.contains("name=\"llmTo\" value=\"2026-09-24\""))
+        assertTrue(page.contains("llmFrom=2026-09-23&amp;llmTo=2026-09-24"))
+        assertTrue(page.contains("<tr><td>8</td><td>1</td><td>3</td>"))
+
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        val llm = root.getValue("llm_requests_period").jsonObject
+        assertEquals("2026-09-23", llm.getValue("from").jsonPrimitive.content)
+        assertEquals("2026-09-24", llm.getValue("to").jsonPrimitive.content)
+        assertEquals(JsonNull, root.getValue("llm_requests_today"))
+        assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
+        assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
+
+        val mainPage = client.get("$METRICS_PATH?$selected") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(mainPage.contains("2026-09-23 — 2026-09-24 включительно"))
+        assertTrue(mainPage.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(mainPage.contains("<dt>Токены prompt</dt><dd>100</dd>"))
+
+        val current = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals("all_users_today", Json.parseToJsonElement(current.bodyAsText()).jsonObject
+            .getValue("llm_requests_today").jsonObject.getValue("scope").jsonPrimitive.content)
+    }
+
+    @Test
+    fun llmRequestCountsAppearOnMetricsPage() {
+        val range = LlmRange(LocalDate.parse("2026-09-23"), LocalDate.parse("2026-09-24"))
+        val html = metricsReportHtml(sampleSnapshot(), sampleLlmPeriod(range), range)
+        assertTrue(html.contains("2026-09-23 — 2026-09-24 включительно"))
+        assertTrue(html.contains("<dt>Запросы к LLM</dt><dd>8</dd>"))
+        assertTrue(html.contains("<dt>Ошибки LLM</dt><dd>1</dd>"))
+        assertTrue(html.contains("<dt>LLM · онбординг</dt><dd>3</dd>"))
+    }
+
+    @Test
+    fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD, source = FixedMetricsSource(sampleSnapshot()),
+                secureCookie = false, onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        for (path in listOf(
+            "$METRICS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
+            "$ONBOARDING_ANALYTICS_PATH?llmFrom=2026-09-23",
+            "$ONBOARDING_AGENT_PATH?llmFrom=2020-01-01&llmTo=2026-10-01",
+        )) {
+            val response = client.get(path) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+    }
+
+    @Test
+    fun agentExportUsesMetricsSessionAndKeepsFilters() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused for onboarding")
+                    override suspend fun reminderSummary() = ReminderClockSummary(
+                        "Europe/Moscow", 2, mapOf("08" to 1, "13" to 1))
+                },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val anonymous = client.get("$ONBOARDING_AGENT_PATH?days=7")
+        assertEquals(HttpStatusCode.Unauthorized, anonymous.status)
+        assertEquals("no-store", anonymous.headers[HttpHeaders.CacheControl])
+
+        val exported = client.get("$ONBOARDING_AGENT_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertTrue(exported.headers[HttpHeaders.ContentType].orEmpty().startsWith("application/json"))
+        assertTrue(exported.headers[HttpHeaders.ContentDisposition].orEmpty().contains("attachment"))
+        val root = Json.parseToJsonElement(exported.bodyAsText()).jsonObject
+        assertEquals(JsonNull, root["llm_requests_today"])
+        assertEquals(JsonNull, root["llm_requests_period"])
+        assertEquals("7", root.getValue("filters").jsonObject.getValue("start_days").jsonPrimitive.content)
+        assertEquals("campaign", root.getValue("filters").jsonObject.getValue("start_source").jsonPrimitive.content)
+        assertEquals("2", root.getValue("current_reminders").jsonObject.getValue("active").jsonPrimitive.content)
+
+        val page = client.get("$ONBOARDING_ANALYTICS_PATH?days=7&source=campaign") {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("$ONBOARDING_AGENT_PATH?days=7&amp;source=campaign"))
+        assertTrue(page.contains("Активных: 2"))
+        assertTrue(page.contains("08:00–08:59"))
+    }
+
+    @Test
+    fun reminderSourceFailureDoesNotHideOnboardingAnalytics() = testApplication {
+        application {
+            installSpeakingCoachHttp(MetricsDashboard(
+                password = PASSWORD,
+                source = object : MetricsSource {
+                    override suspend fun load(): MetricsSnapshot = error("unused")
+                    override suspend fun reminderSummary(): ReminderClockSummary = error("ai-service unavailable")
+                },
+                secureCookie = false,
+                onboarding = MemoryOnboardingAnalytics(),
+            ))
+        }
+        val exported = client.get(ONBOARDING_AGENT_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }
+        assertEquals(HttpStatusCode.OK, exported.status)
+        assertEquals(JsonNull, Json.parseToJsonElement(exported.bodyAsText()).jsonObject["current_reminders"])
+        val page = client.get(ONBOARDING_ANALYTICS_PATH) {
+            cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
+        }.bodyAsText()
+        assertTrue(page.contains("Текущие настройки напоминаний недоступны"))
+    }
+
     @Test
     fun metricsRoutesStayHiddenWithoutPassword() = testApplication {
         application {
@@ -78,6 +396,7 @@ class MetricsDashboardTest {
         assertEquals(HttpStatusCode.OK, page.status)
         assertTrue(html.contains("tg-9"))
         assertTrue(html.contains("<td>@alex_g · Alex &lt;Green&gt;</td>"))
+        assertTrue(html.contains("<tr><td>tg-start</td><td>@new_user</td><td>Только /start</td><td>0</td>"))
         assertTrue(html.contains("<tr><td>tg-10</td><td>—</td>"))
         assertTrue(html.contains("Activated за 7 дней"))
         assertTrue(html.contains("clubs"))
@@ -168,6 +487,7 @@ class MetricsDashboardTest {
                 ),
                 autoToday = ReminderRun(mode = "auto", startedAt = "2026-09-24T19:00:00+03:00", sent = 3),
                 forecast = 12,
+                clockSummary = ReminderClockSummary("Europe/Moscow", 4, mapOf("08" to 3, "23" to 1)),
             ),
         )
         application {
@@ -179,6 +499,7 @@ class MetricsDashboardTest {
 
         assertTrue(html.contains("<a href=\"/admin/metrics/reminders\" aria-current=\"page\">Напоминания</a>"))
         assertTrue(html.contains("Рассылка запущена."))
+        assertTrue(html.contains("75.0%"))
         assertTrue(html.contains("4 · 40%"))
         assertTrue(html.contains("1 ч 5 мин"))
         assertTrue(html.contains("19:00 · 3"))
@@ -189,6 +510,30 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<tr><td>Только /start</td><td>6</td><td>1</td><td>17%</td></tr>"))
         assertTrue(html.contains("удалён из пула"))
         assertFalse(html.contains("<h2>Воронка</h2>"))
+    }
+
+    @Test
+    fun reminderAnalyticsShowsAllHoursAndSeparatesMaturedAutoReplies() {
+        val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+        val matured = today.minusDays(2).toString()
+        val snapshot = sampleSnapshot().copy(reminders = RemindersSnapshot(
+            analyticsDays = listOf(ReminderAnalyticsDay(
+                day = matured, autoSent = 3, autoBlocked = 1, skippedActive = 2, claimedAuto = 4,
+                hours = mapOf("08" to ReminderHourOutcome(sent = 3, returned = 1)),
+            )),
+            settingUsers = mapOf("7" to ReminderSettingUsers(setFromEmpty = 5, changed = 2, cleared = 1)),
+            trackingSince = today.minusDays(5).toString(),
+        ))
+        val html = remindersPageHtml(snapshot, null, false,
+            clock = ReminderClockSummary("Europe/Moscow", 4, mapOf("08" to 3, "23" to 1)),
+            offers = ReminderOfferSummary(10, 6))
+        assertTrue(html.contains("00:00–00:59"))
+        assertTrue(html.contains("23:00–23:59"))
+        assertTrue(html.contains("75.0%"))
+        assertTrue(html.contains("6 / 10 · 60%"))
+        assertTrue(html.contains("<td>3</td><td>1</td><td>33%</td>"))
+        assertTrue(html.contains("<td>2</td><td>3</td><td>1</td><td>0</td><td>0</td>"))
+        assertTrue(html.contains("Сменили время: 2"))
     }
 
     @Test
@@ -203,6 +548,8 @@ class MetricsDashboardTest {
 
         assertTrue(html.contains("<a href=\"/admin/metrics\" aria-current=\"page\">Сводка</a>"))
         assertTrue(html.contains("<a href=\"/admin/metrics/reminders\">Напоминания</a>"))
+        assertTrue(html.contains("<a href=\"#\" id=\"history-tab\">История</a>"))
+        assertTrue(html.contains("window.location.hostname + ':8443/admin/monitoring/history'"))
         assertFalse(html.contains("Отправить всем сейчас"))
         assertTrue(html.contains("<th>Игнор подряд</th>"))
         assertTrue(anonymous.contains("type=\"password\""))
@@ -257,6 +604,66 @@ class MetricsDashboardTest {
         assertFalse(html.contains("<script>"))
     }
 
+    @Test
+    fun monitoringShowsProviderCostPerClientWithoutAPassword() = testApplication {
+        val snapshot = sampleSnapshot().copy(
+            v2 = MetricsV2Snapshot(
+                clients = listOf(
+                    MetricsV2Client(
+                        client = "telegram",
+                        dau = 2,
+                        turns = 3,
+                        costMicro = 1_500_000,
+                        costCurrency = "USD",
+                        promptTokens = 11,
+                        chats = listOf(MetricsV2Chat(session = "tg-1", turns = 3)),
+                        actions = mapOf("text" to 4),
+                    ),
+                    MetricsV2Client(client = "android"),
+                ),
+                telegramJourney = TelegramJourneySnapshot(
+                    since = "2026-10-05",
+                    onlyStart = 4,
+                    atLeast = mapOf("1" to 3, "3" to 2, "5" to 1, "10" to 1, "20" to 0),
+                ),
+            ),
+            reminders = RemindersSnapshot(),
+        )
+        application {
+            module(
+                dashboardConfig(password = null),
+                metricsSource = FixedMetricsSource(snapshot),
+                reminderAdmin = FakeReminderAdmin(),
+            )
+        }
+        val html = client.get("/admin/monitoring").bodyAsText()
+        assertTrue(html.contains("Telegram"))
+        assertTrue(html.contains("Android"))
+        assertTrue(html.contains("1.500000 USD"))
+        assertTrue(html.contains("tg-1"))
+        assertTrue(html.contains("text"))
+        assertTrue(html.contains("Только Start, без ГС"))
+        assertTrue(html.contains("Учёт с 2026-10-05"))
+        assertTrue(html.contains("≥3 ГС"))
+        assertTrue(html.contains("20+ ГС"))
+        assertFalse(html.contains("₽ на ход"))
+        assertFalse(html.contains("₽ на DAU"))
+        assertFalse(html.contains(">100<"))
+        val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
+        assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))
+        val errors = client.get("/admin/monitoring/errors").bodyAsText()
+        assertTrue(errors.contains("Последние ошибки"))
+        assertTrue(errors.contains("href=\"/admin/monitoring/errors\" aria-current=\"page\""))
+        assertEquals(HttpStatusCode.NotFound, client.get("/admin/metrics").status)
+    }
+
+    @Test
+    fun monitoringStaysOffThePublicConnector() {
+        assertTrue(monitoringRequestAllowed(localPort = 8081, monitoringPort = 8081))
+        assertFalse(monitoringRequestAllowed(localPort = 443, monitoringPort = 8081))
+        assertTrue(monitoringRequestAllowed(localPort = 54321, monitoringPort = 0))
+    }
+
     private class FakeReminderAdmin : ReminderAdmin {
         var canStart = true
         var testResult = true
@@ -273,6 +680,24 @@ class MetricsDashboardTest {
         override suspend fun sendTest(chatId: Long, templateId: String?): Boolean {
             tests += chatId to templateId
             return testResult
+        }
+    }
+
+    private class FakeCampaignAdmin : LegacyCampaignAdmin {
+        var current = LegacyCampaignStatus(ready = true, audience = 3, remaining = 2, excluded = 1)
+        var started = 0
+        val tests = mutableListOf<Long>()
+
+        override suspend fun status(): LegacyCampaignStatus = current
+
+        override fun startAll(): Boolean {
+            started += 1
+            return true
+        }
+
+        override suspend fun sendTest(chatId: Long): Boolean {
+            tests += chatId
+            return true
         }
     }
 
@@ -317,6 +742,13 @@ class MetricsDashboardTest {
                 turns = 1,
                 lastAt = "2026-09-24T11:00:00+03:00",
             ),
+            MetricsChat(
+                sessionId = "tg-start",
+                turns = 0,
+                lastAt = "2026-09-24T10:00:00+03:00",
+                startOnly = true,
+                username = "new_user",
+            ),
         ),
         activated7 = 4,
         funnelDays = listOf(FunnelDay(day = "2026-09-24", start = 2, activated = 1)),
@@ -334,8 +766,13 @@ class MetricsDashboardTest {
         ),
     )
 
-    private class FixedMetricsSource(private val snapshot: MetricsSnapshot) : MetricsSource {
+    private class FixedMetricsSource(
+        private val snapshot: MetricsSnapshot,
+        private val feedback: CallFeedbackList? = null,
+    ) : MetricsSource {
         override suspend fun load(): MetricsSnapshot = snapshot
+        override suspend fun llmRange(range: LlmRange): LlmRequestPeriod = sampleLlmPeriod(range)
+        override suspend fun callFeedback(offset: Int, limit: Int): CallFeedbackList? = feedback
     }
 
     private class FailingMetricsSource : MetricsSource {
@@ -346,5 +783,11 @@ class MetricsDashboardTest {
 
     private companion object {
         const val PASSWORD = "secret-pass"
+
+        fun sampleLlmPeriod(range: LlmRange) = LlmRequestPeriod(
+            from = range.from.toString(), to = range.to.toString(), timezone = "Europe/Moscow",
+            requests = 8, failures = 1,
+            byPurpose = mapOf("onboarding" to 3, "reply" to 3, "notes" to 1, "session_review" to 1),
+        )
     }
 }

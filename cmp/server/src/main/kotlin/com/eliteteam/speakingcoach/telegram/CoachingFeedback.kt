@@ -5,12 +5,13 @@ import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.blockquote
 import dev.inmo.tgbotapi.utils.buildEntities
-import dev.inmo.tgbotapi.utils.italic
+import dev.inmo.tgbotapi.utils.code
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.strikethrough
 
 private const val MAX_CORRECTIONS = 3
+private val englishPhrase = Regex("""(?<![\p{L}\p{N}])[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*(?: +[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*)*(?![\p{L}\p{N}])""")
 
 private data class CorrectionSpan(
     val start: Int,
@@ -18,40 +19,82 @@ private data class CorrectionSpan(
     val correction: Correction,
 )
 
+internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
+    regularln("💬 Speaky said:")
+    regularln("")
+    blockquote { regular(text.trim()) }
+}
+
+internal fun onboardingCorrection(correction: Correction): TextSourcesList {
+    return buildEntities {
+        regularln("Ранее ты сказал:")
+        addAll(inlineCorrection(correction))
+        addAll(explanationLine(correction))
+    }
+}
+
 internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
     val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))
-    return buildEntities {
-        regularln("🗣️ You said:")
-        regularln("")
-        blockquote {
-            var index = 0
-            for (span in spans) {
-                val before = text.substring(index, span.start).trim()
-                if (before.isNotEmpty()) {
-                    regular(before)
-                    regular("\n\n")
-                }
-                span.correction.kind?.let { kind ->
-                    italic(correctionKindLabel(kind))
-                    regular("\n")
-                }
-                strikethrough(span.correction.wrong)
-                regular("\n")
-                bold(span.correction.better)
-                index = skipTrailingPunct(text, span.end)
-                if (text.substring(index).isNotBlank()) {
-                    regular("\n\n")
-                }
-            }
-            if (index < text.length) {
-                val tail = text.substring(index).trim()
-                if (tail.isNotEmpty()) {
-                    regular(tail)
-                }
+    if (spans.isNotEmpty()) {
+        return buildEntities {
+            spans.distinctBy { it.correction }.forEachIndexed { index, span ->
+                if (index > 0) regular("\n\n")
+                addAll(onboardingCorrection(span.correction))
             }
         }
     }
+    return buildEntities {
+        regularln("🗣️ You said:")
+        regularln("")
+        blockquote { regular(text) }
+    }
+}
+
+private fun explanationLine(correction: Correction): TextSourcesList = buildEntities {
+    correction.explanation?.takeIf { it.isNotBlank() }?.let { explanation ->
+        regular("\n\n💡 ")
+        var cursor = 0
+        for (match in englishPhrase.findAll(explanation)) {
+            if (match.range.first > cursor) regular(explanation.substring(cursor, match.range.first))
+            code(match.value)
+            cursor = match.range.last + 1
+        }
+        if (cursor < explanation.length) regular(explanation.substring(cursor))
+    }
+}
+
+internal fun inlineCorrection(correction: Correction): TextSourcesList = buildEntities {
+    if (correction.wrong == correction.better) {
+        regular(correction.wrong)
+        return@buildEntities
+    }
+    val original = correction.wrong.split(' ')
+    val improved = correction.better.split(' ')
+    var prefix = 0
+    while (prefix < minOf(original.size, improved.size) && original[prefix] == improved[prefix]) {
+        prefix++
+    }
+    var suffix = 0
+    while (suffix < minOf(original.size, improved.size) - prefix &&
+        original[original.lastIndex - suffix] == improved[improved.lastIndex - suffix]
+    ) {
+        suffix++
+    }
+    // Include a neighboring word for an insertion or deletion so both sides stay visible.
+    if (prefix + suffix == improved.size) {
+        if (suffix > 0) suffix-- else if (prefix > 0) prefix--
+    }
+    if (prefix + suffix == original.size) {
+        if (suffix > 0) suffix-- else if (prefix > 0) prefix--
+    }
+    val oldEnd = original.size - suffix
+    val newEnd = improved.size - suffix
+    if (prefix > 0) regular(original.take(prefix).joinToString(" ") + " ")
+    strikethrough(original.subList(prefix, oldEnd).joinToString(" "))
+    regular(" ")
+    bold(improved.subList(prefix, newEnd).joinToString(" "))
+    if (suffix > 0) regular(" " + original.takeLast(suffix).joinToString(" "))
 }
 
 private fun correctionSpans(transcript: String, corrections: List<Correction>): List<CorrectionSpan> {
@@ -92,16 +135,3 @@ private fun isWholePhrase(text: String, start: Int, end: Int): Boolean {
 }
 
 private fun isWordChar(char: Char): Boolean = char.isLetter() || char == '\''
-
-private val TRAILING_PUNCT = setOf('.', '!', '?', ',', ';')
-
-private fun skipTrailingPunct(text: String, from: Int): Int {
-    var index = from
-    while (index < text.length && text[index].isWhitespace()) {
-        index++
-    }
-    if (index < text.length && text[index] in TRAILING_PUNCT) {
-        return index + 1
-    }
-    return from
-}

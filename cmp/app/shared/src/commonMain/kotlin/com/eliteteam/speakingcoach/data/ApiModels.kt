@@ -53,6 +53,7 @@ internal data class HomeResponseDto(
 internal data class CreateSessionRequestDto(
     val topic: String,
     val tutorVoice: String,
+    val platform: String,
 )
 
 @Serializable

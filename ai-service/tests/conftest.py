@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
-from app.llm import ChatModel, Correction
+from app.llm import ChatModel, Correction, CorrectionRun
 from app.main import create_app
 from app.pipeline import ClipPipeline
 from app.stt import SpeechToText, SttResult
-from app.tts import TextToSpeech
+from app.tts import TextToSpeech, TtsAudio
 
 
 def test_settings() -> Settings:
@@ -37,7 +37,7 @@ class FakeStt(SpeechToText):
         self._texts = list(texts)
         self.calls = 0
 
-    async def transcribe(self, audio: bytes, content_type: str, filename: str) -> SttResult:
+    async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         self.calls += 1
         text = self._texts.pop(0) if self._texts else ""
         return SttResult(text=text, no_speech=not text.strip())
@@ -48,23 +48,35 @@ class FakeLlm(ChatModel):
         self.calls: list[tuple[list[str], str]] = []
         self.notes_calls: list[str] = []
         self.notes = list(notes or [])
+        self.profile_notes: list[str | None] = []
 
-    async def complete_reply(self, history, user_text: str) -> str:
+    async def complete_reply(self, history, user_text: str, profile_note: str | None = None) -> str:
         self.calls.append(([item.content for item in history], user_text))
+        self.profile_notes.append(profile_note)
         return f"Got it: {user_text}"
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
         self.notes_calls.append(user_text)
         return list(self.notes)
 
+    async def complete_notes_result(self, user_text: str, *, deadline_at=None, attempt_started=None) -> CorrectionRun:
+        if attempt_started is not None:
+            attempt_started()
+        notes = await self.complete_notes(user_text)
+        return CorrectionRun(notes, "shown" if notes else "empty", 1)
+
 
 class FakeTts(TextToSpeech):
-    def __init__(self) -> None:
+    def __init__(self, content_type: str = "audio/ogg") -> None:
         self.texts: list[str] = []
+        self.speeds: list[float | None] = []
+        self.content_type = content_type
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
         self.texts.append(text)
-        return b"OggS" + text.encode("utf-8")
+        self.speeds.append(speed)
+        prefix = b"OggS" if self.content_type == "audio/ogg" else b"ID3"
+        return TtsAudio(prefix + text.encode("utf-8"), self.content_type)
 
 
 class FakeReviewer:

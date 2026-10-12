@@ -46,8 +46,9 @@ jobs:
           cp infra/ai-service/ai-service-port.sh vps-upload/ai-service-port.sh
           cp infra/ai-service/restrict-8090.sh vps-upload/restrict-8090.sh
           cp infra/ai-service/restrict-8090.service vps-upload/restrict-8090.service
+          cp infra/ai-service/deploy-alloy.sh vps-upload/deploy-alloy.sh
           cp infra/redis/deploy-remote.sh vps-upload/deploy-redis.sh
-          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh vps-upload/restrict-8090.sh
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh vps-upload/deploy-alloy.sh vps-upload/restrict-8090.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
             ENV_BODY="${PROD_AI_SERVER_ENV:-}"
@@ -92,6 +93,7 @@ jobs:
             vps-upload/deploy-redis.sh \
             vps-upload/restrict-8090.sh \
             vps-upload/restrict-8090.service \
+            vps-upload/deploy-alloy.sh \
             vps-upload/ai-service-port.sh \
             vps-upload/.env \
             "${USER}@${HOST}:/opt/ai-service/"

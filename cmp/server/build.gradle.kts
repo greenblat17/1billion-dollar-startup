@@ -37,6 +37,7 @@ dependencies {
     implementation(libs.ktor.serverRoutingOpenapi)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.slf4j)
     implementation(libs.tgbotapi)
     testImplementation(libs.ktor.serverTestHost)
     testImplementation(libs.ktor.clientMock)

@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.ai
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 @Serializable
 data class SessionCreateRequest(
@@ -19,6 +20,35 @@ data class GreetingResponse(
 )
 
 @Serializable
+data class SpeechSpeedResponse(
+    val speed: Double,
+)
+
+@Serializable
+data class SpeechSpeedRequest(
+    val sessionId: String,
+    val speed: Double,
+)
+
+@Serializable
+data class LegacyCampaignStatus(
+    val ready: Boolean = false,
+    val audience: Int = 0,
+    val remaining: Int = 0,
+    val sent: Int = 0,
+    val excluded: Int = 0,
+    val blocked: Int = 0,
+    val failed: Int = 0,
+    val uncertain: Int = 0,
+)
+
+@Serializable
+data class LegacyCampaignClaim(val chatIds: List<Long> = emptyList())
+
+@Serializable
+data class LegacyCampaignReport(val chatId: Long, val status: String)
+
+@Serializable
 data class ClipAcceptedResponse(
     val jobId: String,
 )
@@ -30,6 +60,8 @@ data class ClipStatusResponse(
     val result: ClipResultResponse? = null,
     val error: ClipErrorResponse? = null,
     val transcript: String? = null,
+    val replyText: String = "",
+    val timingsMs: Map<String, Long> = emptyMap(),
 )
 
 @Serializable
@@ -38,6 +70,9 @@ data class ClipResultResponse(
     val corrections: List<ClipCorrectionResponse> = emptyList(),
     val transcript: String = "",
     val streak: ClipStreakResponse? = null,
+    val audioAvailable: Boolean = true,
+    val onboarding: OnboardingStateResponse? = null,
+    val call: CallClipResponse? = null,
 )
 
 @Serializable
@@ -54,12 +89,23 @@ data class ClipCorrectionResponse(
     val wrong: String = "",
     val better: String = "",
     val kind: String? = null,
+    val explanation: String? = null,
 )
 
 @Serializable
 data class ClipErrorResponse(
     val code: String,
     val message: String,
+    val stage: String = "other",
+    val reason: String = "unknown",
+)
+
+@Serializable
+data class MetricsActionRequest(
+    val sessionId: String,
+    val action: String,
+    val platform: String? = null,
+    val eventId: String? = null,
 )
 
 @Serializable
@@ -68,6 +114,9 @@ data class MetricsSnapshot(
     val day: String,
     val promptTokens: Long,
     val completionTokens: Long,
+    val llmRequests: Long? = null,
+    val llmFailures: Long? = null,
+    val llmRequestsByPurpose: Map<String, Long> = emptyMap(),
     val tpm: Long,
     val tps: Double,
     val turns: Long,
@@ -83,6 +132,106 @@ data class MetricsSnapshot(
     val funnelSources: List<FunnelSource> = emptyList(),
     val reminders: RemindersSnapshot? = null,
     val streaks: StreaksSnapshot? = null,
+    val corrections: Map<String, CorrectionMetrics> = emptyMap(),
+    val partialFailures: Map<String, Long> = emptyMap(),
+    val partialRecent: List<PartialRecent> = emptyList(),
+    val providerOutcomes: Map<String, Long> = emptyMap(),
+    val v2: MetricsV2Snapshot? = null,
+    val errors: ErrorsSnapshot? = null,
+)
+
+@Serializable
+data class ErrorsSnapshot(
+    val today: ErrorDay = ErrorDay(),
+    val days: List<ErrorDay> = emptyList(),
+    val recent: List<RecentError> = emptyList(),
+    val reasons: List<ErrorReason> = emptyList(),
+)
+
+@Serializable
+data class ErrorReason(val stage: String, val reason: String, val count: Long)
+
+@Serializable
+data class PartialRecent(val at: String, val feature: String, val reason: String)
+
+@Serializable
+data class RecentError(
+    val at: String,
+    val code: String,
+    val stage: String,
+    val message: String,
+    val username: String = "",
+    val telegramId: Long? = null,
+    val jobId: String = "",
+    val attemptId: String = "",
+    val reason: String = "unknown",
+)
+
+@Serializable
+data class ErrorDay(
+    val day: String = "",
+    val ok: Long = 0,
+    val timeout: Long = 0,
+    val pipelineFailed: Long = 0,
+)
+
+@Serializable
+data class MetricsV2Snapshot(
+    val clients: List<MetricsV2Client> = emptyList(),
+    val telegramJourney: TelegramJourneySnapshot? = null,
+)
+
+@Serializable
+data class TelegramJourneySnapshot(
+    val since: String = "",
+    val onlyStart: Long = 0,
+    val atLeast: Map<String, Long> = emptyMap(),
+)
+
+@Serializable
+data class MetricsV2Client(
+    val client: String = "",
+    val dau: Long = 0,
+    val turns: Long = 0,
+    val calls: Long = 0,
+    val costMicro: Long = 0,
+    val costCurrency: String = "",
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val realtimeInText: Long = 0,
+    val realtimeInAudio: Long = 0,
+    val realtimeOutText: Long = 0,
+    val realtimeOutAudio: Long = 0,
+    val realtimeCachedText: Long = 0,
+    val realtimeCachedAudio: Long = 0,
+    val sttSeconds: Double = 0.0,
+    val ttsChars: Long = 0,
+    val actions: Map<String, Long> = emptyMap(),
+    val errors: Map<String, Long> = emptyMap(),
+    val chats: List<MetricsV2Chat> = emptyList(),
+)
+
+@Serializable
+data class MetricsV2Chat(
+    val session: String = "",
+    val turns: Long = 0,
+)
+
+@Serializable
+data class CorrectionMetrics(
+    val count: Long = 0,
+    val elapsedMs: Long = 0,
+    val secondAttempts: Long = 0,
+)
+
+@Serializable
+data class LlmRequestPeriod(
+    val from: String,
+    val to: String,
+    val timezone: String,
+    val requests: Long,
+    val failures: Long,
+    val byPurpose: Map<String, Long> = emptyMap(),
 )
 
 @Serializable
@@ -96,6 +245,41 @@ data class RemindersSnapshot(
     val runs: List<ReminderRun> = emptyList(),
     val autoToday: ReminderRun? = null,
     val forecast: Long = 0,
+    val clockSummary: ReminderClockSummary? = null,
+    val analyticsDays: List<ReminderAnalyticsDay> = emptyList(),
+    val settingUsers: Map<String, ReminderSettingUsers> = emptyMap(),
+    val trackingSince: String? = null,
+)
+
+@Serializable
+data class ReminderSettingUsers(
+    @SerialName("set_from_empty") val setFromEmpty: Long = 0,
+    val changed: Long = 0,
+    val cleared: Long = 0,
+)
+
+@Serializable
+data class ReminderHourOutcome(val sent: Long = 0, val returned: Long = 0)
+
+@Serializable
+data class ReminderAnalyticsDay(
+    val day: String,
+    val autoSent: Long = 0,
+    val autoBlocked: Long = 0,
+    val autoFailed: Long = 0,
+    @SerialName("skipped_active") val skippedActive: Long = 0,
+    @SerialName("claimed_auto") val claimedAuto: Long = 0,
+    @SerialName("set_from_empty") val setFromEmpty: Long = 0,
+    val changed: Long = 0,
+    val cleared: Long = 0,
+    val hours: Map<String, ReminderHourOutcome> = emptyMap(),
+)
+
+@Serializable
+data class ReminderClockSummary(
+    val timezone: String,
+    val active: Int,
+    val hours: Map<String, Int>,
 )
 
 @Serializable
@@ -149,6 +333,7 @@ data class ReminderReport(
     val finishedAt: String,
     val claimed: Int,
     val results: List<ReminderSendResult>,
+    val reportId: String = "",
 )
 
 @Serializable
@@ -156,6 +341,7 @@ data class ReminderSendResult(
     val sessionId: String,
     val templateId: String,
     val status: String,
+    val hour: String? = null,
 )
 
 @Serializable
@@ -192,8 +378,34 @@ data class FunnelVoiceRequest(
 )
 
 @Serializable
+data class ReminderClaimRequest(
+    val mode: String,
+)
+
+@Serializable
 data class ReminderClaimResponse(
     val targets: List<ReminderTarget> = emptyList(),
+)
+
+@Serializable
+data class ReminderScheduleRequest(
+    val sessionId: String,
+    val requestId: String,
+    val action: String,
+    val runId: String = "",
+    val text: String = "",
+)
+
+@Serializable
+data class ReminderScheduleResponse(
+    val status: String,
+    val time: String? = null,
+    val runId: String = "",
+)
+
+@Serializable
+data class ReminderTimeResponse(
+    val time: String? = null,
 )
 
 @Serializable
@@ -201,6 +413,7 @@ data class ReminderTarget(
     val sessionId: String,
     val name: String? = null,
     val streak: Int = 0,
+    val hour: String? = null,
 )
 
 @Serializable
@@ -260,8 +473,252 @@ data class MetricsChat(
     val sessionId: String,
     val turns: Long,
     val lastAt: String,
+    val startOnly: Boolean = false,
     val username: String? = null,
     val name: String? = null,
     val lastReminderAt: String? = null,
     val reminderIgnored: Long = 0,
+)
+
+@Serializable
+data class OnboardingRequest(
+    val sessionId: String,
+    val requestId: String,
+    val reset: String = "",
+    val runId: String = "",
+    val action: String = "",
+)
+
+@Serializable
+data class LegacyInvitationRequest(val sessionId: String, val action: String)
+
+@Serializable
+data class LegacyInvitationResponse(val ok: Boolean)
+
+@Serializable
+data class OnboardingExample(
+    val wrong: String = "",
+    val better: String = "",
+    val explanation: String = "",
+)
+
+@Serializable
+data class VocabularySuggestion(
+    val original: String = "",
+    val alternative: String = "",
+    val explanation: String = "",
+)
+
+@Serializable
+data class OnboardingSkill(
+    val score: Int? = null,
+    val text: String = "",
+    val examples: List<OnboardingExample> = emptyList(),
+    val suggestions: List<VocabularySuggestion> = emptyList(),
+)
+
+@Serializable
+data class OnboardingFluency(
+    val score: Int? = null,
+    val text: String = "",
+    val paceWpm: Int? = null,
+    val longPauses: Int? = null,
+    val fillers: Int? = null,
+    val longestStretchSec: Int? = null,
+)
+
+@Serializable
+data class OnboardingReview(
+    val levelText: String = "",
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
+)
+
+@Serializable
+data class PracticeGoalRequest(
+    val sessionId: String,
+    val requestId: String,
+    val minutes: Int,
+)
+
+@Serializable
+data class OnboardingVoiceAnalyticsResponse(
+    val voiceIndex: Int = 0,
+    val telegramDurationSec: Double = 0.0,
+    val recognizedDurationSec: Double = 0.0,
+    val recognized: Boolean = false,
+    val failureReason: String? = null,
+    val milestones: List<Int> = emptyList(),
+    val completedNow: Boolean = false,
+    val assessmentFailed: Boolean = false,
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val scoreAvailable: Boolean = false,
+    val speechBeforeSec: Double? = null,
+    val speechAfterSec: Double? = null,
+)
+
+@Serializable
+data class OnboardingStateResponse(
+    val runId: String = "",
+    val status: String,
+    val legacyUser: Boolean = false,
+    val seconds: Double = 0.0,
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val resultText: String? = null,
+    val retryAvailable: Boolean = false,
+    val react: Boolean = false,
+    val review: OnboardingReview? = null,
+    val analytics: OnboardingVoiceAnalyticsResponse? = null,
+)
+
+@Serializable
+data class CallClipResponse(
+    val callId: String = "",
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+    val recognizedSeconds: Double? = null,
+)
+
+@Serializable
+data class CallSessionRequest(
+    val sessionId: String,
+    val reason: String? = null,
+)
+
+@Serializable
+data class StartCallRequest(
+    val sessionId: String,
+    val firstName: String? = null,
+    val scenarioKind: String? = null,
+    val scenarioDescription: String? = null,
+)
+
+@Serializable
+data class OpenCallResponse(
+    val callId: String = "",
+    val alreadyActive: Boolean = false,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val goalJustCrossed: Boolean = false,
+    val unseenCallId: String? = null,
+    val startedUnix: Double? = null,
+    val closedPreviousCallId: String? = null,
+    val closedPreviousUnix: Double? = null,
+)
+
+@Serializable
+data class CallStatusResponse(
+    val active: Boolean = false,
+    val callId: String? = null,
+    val startedUnix: Double? = null,
+    val goalSeconds: Double? = null,
+)
+
+@Serializable
+data class StartCallResponse(
+    val callId: String,
+    val status: String,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val unseenCallId: String? = null,
+    val startedUnix: Double? = null,
+    val closedPreviousCallId: String? = null,
+    val closedPreviousUnix: Double? = null,
+    val question: String? = null,
+    val audioBase64: String? = null,
+    val audioContentType: String? = null,
+)
+
+@Serializable
+data class EndCallResponse(
+    val callId: String? = null,
+    val lastVoiceMessageId: Long? = null,
+    val endedUnix: Double? = null,
+    val reason: String? = null,
+)
+
+@Serializable
+data class CallVoiceMessageRequest(
+    val sessionId: String,
+    val callId: String,
+    val messageId: Long,
+)
+
+@Serializable
+data class CallVoiceMessageResponse(val firstReplyToStarter: Boolean = false)
+
+@Serializable
+data class CallReviewRequest(
+    val callId: String,
+)
+
+@Serializable
+data class CallFeedbackRequest(
+    val sessionId: String,
+    val action: String,
+    val callId: String = "",
+    val choice: String = "",
+    val text: String = "",
+    val username: String = "",
+)
+
+@Serializable
+data class CallFeedbackResponse(val status: String = "ignored", val reason: String? = null)
+
+@Serializable
+data class CallFeedbackEntry(
+    val sessionId: String = "",
+    val username: String = "",
+    val choice: String = "",
+    val message: String? = null,
+)
+
+@Serializable
+data class CallFeedbackList(
+    val total: Int = 0,
+    val items: List<CallFeedbackEntry> = emptyList(),
+)
+
+@Serializable
+data class CallReviewResponse(
+    val callId: String = "",
+    val retry: Boolean = false,
+    val levelText: String = "",
+    val recap: String = "",
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val previousScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val todaySeconds: Double = 0.0,
+    val goalSeconds: Double = 0.0,
+    val streak: Int = 0,
+    val grammar: OnboardingSkill = OnboardingSkill(),
+    val vocabulary: OnboardingSkill = OnboardingSkill(),
+    val fluency: OnboardingFluency = OnboardingFluency(),
+)
+
+
+@Serializable
+data class ProgressAssessment(
+    val cefr: String? = null,
+    val overallScore: Int? = null,
+    val nextBand: String? = null,
+    val pointsToNext: Int? = null,
+    val grammar: Int? = null,
+    val vocabulary: Int? = null,
+    val fluency: Int? = null,
+)
+
+@Serializable
+data class ProgressProfileResponse(
+    val assessment: ProgressAssessment? = null,
+    val dailyMinutes: Int? = null,
+    val currentStreak: Int = 0,
 )

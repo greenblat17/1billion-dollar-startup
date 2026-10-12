@@ -46,7 +46,9 @@ jobs:
           cp infra/server/Dockerfile.runtime vps-upload/Dockerfile.runtime
           cp infra/server/deploy-remote.sh vps-upload/deploy-remote.sh
           cp infra/postgres/deploy-remote.sh vps-upload/deploy-postgres.sh
-          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-postgres.sh
+          mkdir -p vps-upload/monitoring
+          cp -a infra/monitoring/. vps-upload/monitoring/
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-postgres.sh vps-upload/monitoring/deploy-remote.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
             ENV_BODY="${PROD_CMP_SERVER_ENV:-}"
@@ -87,7 +89,7 @@ jobs:
           install -m 600 /dev/null "$KEY"
           printf '%s\n' "$KEY_BODY" > "$KEY"
           SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
-          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/speaking-coach
+          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/speaking-coach/monitoring
           scp "${SSH_OPTS[@]}" \
             vps-upload/server-all.jar \
             vps-upload/Dockerfile.runtime \
@@ -95,5 +97,8 @@ jobs:
             vps-upload/deploy-postgres.sh \
             vps-upload/.env \
             "${USER}@${HOST}:/opt/speaking-coach/"
+          scp -r "${SSH_OPTS[@]}" \
+            vps-upload/monitoring/. \
+            "${USER}@${HOST}:/opt/speaking-coach/monitoring/"
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/speaking-coach/deploy-remote.sh

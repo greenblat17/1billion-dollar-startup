@@ -22,13 +22,21 @@ docker network create "$NETWORK" >/dev/null 2>&1 || true
 docker rm -f ai-service >/dev/null 2>&1 || true
 PUBLISH_PORT="$(ai_service_port_from_env "$APP/.env")"
 docker run -d --name ai-service --restart unless-stopped \
+  --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   --network "$NETWORK" \
   -p "${PUBLISH_PORT}:8090" \
   --env-file "$APP/.env" \
   ai-service:local
+
+# Freeze this one-time campaign cohort on its first deployment. Later deploys
+# leave the Redis snapshot unchanged, so new users are never added to it.
+docker exec ai-service python -m app.legacy_onboarding_campaign snapshot
 
 chmod 755 "$APP/restrict-8090.sh"
 install -m 644 "$APP/restrict-8090.service" /etc/systemd/system/restrict-8090.service
 systemctl daemon-reload
 systemctl enable --now restrict-8090.service
 bash "$APP/restrict-8090.sh"
+if [ -f "$APP/deploy-alloy.sh" ]; then
+  bash "$APP/deploy-alloy.sh" || echo "AI log shipping was not updated" >&2
+fi

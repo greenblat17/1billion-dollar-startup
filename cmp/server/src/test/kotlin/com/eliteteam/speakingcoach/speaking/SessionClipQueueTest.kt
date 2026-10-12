@@ -54,6 +54,7 @@ class SessionClipQueueTest {
     @Test
     fun notifiesWhenQueuedBehindAnotherTurn() = runTest {
         var notified = false
+        var processingStarted = false
         val queue = SessionClipQueue(
             processor = { _, clip ->
                 delay(80.milliseconds)
@@ -66,12 +67,18 @@ class SessionClipQueueTest {
         val first = async { queue.submit(session, clip("a")) }
         delay(20.milliseconds)
         val second = async {
-            queue.submit(session, clip("b"), onQueuedBehind = { notified = true })
+            queue.submit(
+                session,
+                clip("b"),
+                onQueuedBehind = { notified = true },
+                onProcessingStart = { processingStarted = true },
+            )
         }
 
         first.await()
         second.await()
         assertTrue(notified)
+        assertTrue(processingStarted)
     }
 
     private fun clip(label: String) = ClipSource {

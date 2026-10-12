@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.app
 
 import com.eliteteam.speakingcoach.ai.AI_INTERNAL_TOKEN_HEADER
+import com.eliteteam.speakingcoach.ai.MetricsActionRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
@@ -18,17 +19,42 @@ internal class HttpInternalAi(
 ) : InternalAi {
     private val root = baseUrl.trimEnd('/')
 
-    override suspend fun startCall(sdp: String, topic: String, tutorVoice: String): RealtimeCall {
+    override suspend fun startCall(
+        sdp: String,
+        topic: String,
+        tutorVoice: String,
+        sessionId: String,
+        platform: String?,
+    ): RealtimeCall {
         val response = http.post("$root/internal/realtime/call") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(InternalRealtimeRequest(sdp = sdp, topic = topic, tutorVoice = tutorVoice))
+            setBody(
+                InternalRealtimeRequest(
+                    sdp = sdp,
+                    topic = topic,
+                    tutorVoice = tutorVoice,
+                    sessionId = sessionId,
+                    platform = platform,
+                ),
+            )
         }
         if (!response.status.isSuccess()) {
             error("ai-service POST /internal/realtime/call returned ${response.status}")
         }
         val body = response.body<InternalRealtimeResponse>()
         return RealtimeCall(sdpAnswer = body.sdp, openaiCallId = body.openaiCallId)
+    }
+
+    override suspend fun noteSession(sessionId: String, action: String, platform: String?) {
+        val response = http.post("$root/internal/metrics/action") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(MetricsActionRequest(sessionId = sessionId, action = action, platform = platform))
+        }
+        if (!response.status.isSuccess()) {
+            error("ai-service POST /internal/metrics/action returned ${response.status}")
+        }
     }
 
     override suspend fun review(turns: List<TranscriptTurn>): InternalReviewResponse {

@@ -17,6 +17,7 @@ internal class PostgresAppStore(databaseUrl: String) : AppStore {
     init {
         Flyway.configure()
             .dataSource(dataSource)
+            .ignoreMigrationPatterns("*:missing")
             .load()
             .migrate()
     }
@@ -78,22 +79,24 @@ internal class PostgresAppStore(databaseUrl: String) : AppStore {
             }
         }
 
-    override suspend fun createSession(userId: String, topic: String, tutorVoice: String): SpeakingSession =
+    override suspend fun createSession(userId: String, topic: String, tutorVoice: String, platform: String?): SpeakingSession =
         withContext(Dispatchers.IO) {
             val session = SpeakingSession(
                 id = "app-$userId-${UUID.randomUUID()}",
                 userId = userId,
                 topic = topic,
                 tutorVoice = tutorVoice,
+                platform = platform,
             )
             dataSource.connection.use { connection ->
                 connection.prepareStatement(
-                    "INSERT INTO speaking_sessions (id, user_id, topic, tutor_voice) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO speaking_sessions (id, user_id, topic, tutor_voice, platform) VALUES (?, ?, ?, ?, ?)",
                 ).use { statement ->
                     statement.setString(1, session.id)
                     statement.setString(2, session.userId)
                     statement.setString(3, session.topic)
                     statement.setString(4, session.tutorVoice)
+                    statement.setString(5, session.platform)
                     statement.executeUpdate()
                 }
             }
@@ -225,7 +228,7 @@ internal class PostgresAppStore(databaseUrl: String) : AppStore {
     private fun loadSession(connection: Connection, id: String): SpeakingSession? =
         connection.prepareStatement(
             """
-            SELECT id, user_id, topic, tutor_voice, duration_sec, openai_call_id, rtc_active, status
+            SELECT id, user_id, topic, tutor_voice, duration_sec, openai_call_id, rtc_active, status, platform
             FROM speaking_sessions WHERE id = ?
             """.trimIndent(),
         ).use { statement ->
@@ -243,6 +246,7 @@ internal class PostgresAppStore(databaseUrl: String) : AppStore {
                     openaiCallId = rows.getString("openai_call_id"),
                     durationSec = rows.getInt("duration_sec").takeUnless { rows.wasNull() },
                     status = SessionStatus.valueOf(rows.getString("status")),
+                    platform = rows.getString("platform"),
                 )
             }
         }

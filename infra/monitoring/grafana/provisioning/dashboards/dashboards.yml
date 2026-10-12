@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: speaky
+    orgId: 1
+    folder: Speaky
+    type: file
+    disableDeletion: false
+    options:
+      path: /etc/grafana/dashboards

@@ -6,6 +6,7 @@ from typing import Protocol
 import httpx
 
 from app.retry import once_on_retryable
+from app.voice import SPEAKY_MANNER
 
 logger = logging.getLogger(__name__)
 
@@ -13,12 +14,8 @@ REALTIME_MODEL = "gpt-realtime"
 TOPICS = {"Everyday", "Work", "Travel"}
 VOICES = {"marin", "cedar"}
 
-SPEAKY_REALTIME_INSTRUCTIONS = """You are Speaky, a warm English conversation partner helping the user practice speaking.
-
-Speak only English. Keep it to 2–4 short sentences.
-Stay slightly above their level. Ask a natural follow-up so the talk continues.
-Do not lecture, list grammar rules, give CEFR scores, or switch language unless they ask.
-Do not mention errors, corrections, or the transcript as a quote.
+SPEAKY_REALTIME_INSTRUCTIONS = SPEAKY_MANNER + """
+A turn is usually three to six spoken sentences. The reaction comes first.
 Greet the user and start the conversation yourself as soon as the session begins.
 """
 

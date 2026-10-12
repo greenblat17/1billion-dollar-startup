@@ -23,7 +23,7 @@ Telegram voice
   → Ktor POST /telegram/webhook (TLS, secret header)
   → SessionClipQueue (max 3 in-flight per session)
   → HttpClipClient → FastAPI ai-service
-       STT Groq → LLM OpenRouter JSON → TTS → ffmpeg OGG
+       STT Groq → LLM OpenRouter JSON → TTS OpenRouter OGG or direct Deepgram OGG/MP3
        Redis key session:{id} (or in-memory if REDIS_URL unset)
   → Telegram text quote (corrections) + sendVoice
 ```
