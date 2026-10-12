@@ -32,7 +32,7 @@ Gradle root is **`cmp/`**. Before `./gradlew`, `GRADLE_USER_HOME=$HOME/.gradle`.
 
 ## Docs map
 
-- **System diagrams:** `ai_docs/architecture.md`
+- **System diagrams:** [`architecture.md`](../../architecture.md)
 - **Deploy / VPS / CI:** `ai_docs/deploy.md`
 - Architecture notes: `ai_docs/architecture/2026-09-18-system.md`
 - Do not touch: `ai_docs/architecture/2026-09-18-agent-guardrails.md`

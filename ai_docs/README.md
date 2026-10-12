@@ -4,7 +4,7 @@ Working documentation next to the code. A coding agent in a new session should s
 
 **`summaries/2026-09-18-agent-start-here.md`**
 
-Глобальная архитектура (диаграммы): **`architecture.md`**. Деплой на VPS: **`deploy.md`**.
+Глобальная архитектура (диаграммы): [architecture.md](../architecture.md). Деплой на VPS: **`deploy.md`**.
 
 Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). CMP WebRTC: `architecture/2026-09-20-webrtc-client.md`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
@@ -35,7 +35,7 @@ Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-
 
 - `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.
 - `architecture/` - system design, component boundaries, data flows, and important technical
-  decisions. Hub diagrams: `architecture.md`.
+  decisions. Hub diagrams: [`../architecture.md`](../architecture.md).
 - `bugs/` - bug reports, investigation notes, root-cause analyses, and documented fixes or
   workarounds.
 - `integrations/` - setup guides, API contracts, configuration notes, and operational details for
