@@ -8,6 +8,7 @@ import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.createCallEventStore
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
+import com.eliteteam.speakingcoach.load.installLoadTestRoutes
 import com.eliteteam.speakingcoach.app.AppApi
 import com.eliteteam.speakingcoach.app.createAppApi
 import com.eliteteam.speakingcoach.app.installAppPlugins
@@ -255,6 +256,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics)
             }.hide()
+            if (config.loadTestEnabled) {
+                installLoadTestRoutes(config, ai, sessionClipQueue)
+            }
             if (appApi != null) {
                 installAppRoutes(ktorApp, appApi)
             }

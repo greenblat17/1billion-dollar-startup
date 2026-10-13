@@ -14,9 +14,14 @@ data class AppConfig(
     val metricsPassword: String? = null,
     val monitoringPort: Int = 0,
     val auditAudioDir: String = "/opt/speaking-coach/audit-audio",
+    val loadTestToken: String? = null,
+    val speakyEnv: String? = null,
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
+
+    val loadTestEnabled: Boolean
+        get() = speakyEnv == "dev" && !loadTestToken.isNullOrBlank()
 
     init {
         if (!telegramBotToken.isNullOrBlank()) {
@@ -60,6 +65,8 @@ data class AppConfig(
             metricsPassword = env("METRICS_PASSWORD")?.takeIf { it.isNotBlank() },
             monitoringPort = env("MONITORING_PORT")?.toIntOrNull() ?: 8081,
             auditAudioDir = env("AUDIT_AUDIO_DIR")?.takeIf { it.isNotBlank() } ?: "/opt/speaking-coach/audit-audio",
+            loadTestToken = env("LOAD_TEST_TOKEN")?.takeIf { it.isNotBlank() },
+            speakyEnv = env("SPEAKY_ENV"),
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

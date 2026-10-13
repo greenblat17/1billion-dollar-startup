@@ -39,6 +39,7 @@ import kotlin.time.TimeSource
 import java.util.Base64
 
 internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
+internal const val AI_LOAD_TEST_HEADER = "X-Speaky-Load-Test"
 
 class HttpClipClient(
     baseUrl: String,
@@ -379,6 +380,10 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun createLoadSession(sessionId: SessionId) {
+        createSession(sessionId)
+    }
+
     override suspend fun process(sessionId: SessionId, clip: AudioClip): ClipReply {
         val started = TimeSource.Monotonic.markNow()
         log.info("Submitting clip")
@@ -475,6 +480,7 @@ class HttpClipClient(
             },
         ) {
             applyInternalToken()
+            if (clip.loadTest) header(AI_LOAD_TEST_HEADER, "1")
         } } catch (error: CancellationException) { throw error }
             catch (error: Throwable) { throw ClipUploadFailure(
                 if (error.javaClass.simpleName.contains("timeout", ignoreCase = true)) "timeout" else "network",

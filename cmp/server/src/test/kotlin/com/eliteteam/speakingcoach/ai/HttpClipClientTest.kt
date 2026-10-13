@@ -435,6 +435,7 @@ class HttpClipClientTest {
         val engine = MockEngine { request ->
             when {
                 request.method == HttpMethod.Post && request.url.encodedPath == "/v1/clips" -> {
+                    assertEquals(null, request.headers[AI_LOAD_TEST_HEADER])
                     respond(
                         content = """{"jobId":"job-1"}""",
                         status = HttpStatusCode.Accepted,
