@@ -687,7 +687,10 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         default_speed=settings.tts_speed,
     )
     return ClipPipeline(
-        stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
+        stt=GroqSpeechToText(
+            groq, settings.stt_model, settings.ffmpeg_bin,
+            requires_wav=settings.stt_model.startswith("assemblyai/"),
+        ),
         llm=model,
         tts=tts,
         speech=speech,

@@ -26,13 +26,18 @@ class SpeechToText(Protocol):
 
 
 class GroqSpeechToText:
-    def __init__(self, client: AsyncOpenAI, model: str, ffmpeg_bin: str) -> None:
+    def __init__(self, client: AsyncOpenAI, model: str, ffmpeg_bin: str, requires_wav: bool = False) -> None:
         self._client = client
         self._model = model
         self._ffmpeg_bin = ffmpeg_bin
+        self._requires_wav = requires_wav
 
     @telegram_stage("stt")
     async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
+        if self._requires_wav:
+            if not _is_wav(audio):
+                audio = await to_wav_mono_16k(self._ffmpeg_bin, audio, suffix=_suffix(filename))
+            return await self._transcribe_file(audio, "voice.wav", "audio/wav", language)
         try:
             return await self._transcribe_file(audio, filename, content_type, language)
         except BadRequestError:
@@ -66,6 +71,10 @@ def _suffix(filename: str) -> str:
     if "." in filename:
         return "." + filename.rsplit(".", 1)[-1]
     return ".ogg"
+
+
+def _is_wav(audio: bytes) -> bool:
+    return audio[:4] == b"RIFF" and audio[8:12] == b"WAVE"
 
 
 def _as_dict(response: Any) -> dict[str, Any]:
