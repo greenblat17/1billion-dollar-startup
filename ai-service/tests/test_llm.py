@@ -6,7 +6,8 @@ import pytest
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
 from app.llm import (
-    Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply,
+    CompletionTokenLimitError, Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM,
+    REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply,
     read_reasoning_tokens,
 )
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
@@ -65,6 +66,24 @@ async def test_reply_stops_after_second_malformed_json() -> None:
     with pytest.raises(json.JSONDecodeError):
         await model.complete_reply([], "Hi")
     assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reply_retries_token_limit_with_larger_budget() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.limits = []
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.limits.append(kwargs["max_tokens"])
+            if len(self.limits) == 1:
+                raise CompletionTokenLimitError("llm response reached completion token limit")
+            return '{"reply":"OK"}'
+
+    model = Model()
+    assert await model.complete_reply([], "Hi") == "OK"
+    assert model.limits == [None, REPLY_RETRY_MAX_TOKENS]
 
 
 @pytest.mark.asyncio

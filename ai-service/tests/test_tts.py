@@ -1,9 +1,11 @@
 from dataclasses import replace
 import json
+import logging
 from types import SimpleNamespace
 
 import httpx
 import pytest
+from openai import AsyncOpenAI, InternalServerError
 
 from app.main import _build_pipeline
 from app.config import Settings
@@ -28,6 +30,31 @@ async def test_openrouter_mp3_is_returned_without_ffmpeg(monkeypatch) -> None:
     )
     tts = OpenAiTextToSpeech(client, "x-ai/grok-voice-tts-1.0", "ara", "mp3", "ffmpeg")
     assert await tts.synthesize("Hello") == TtsAudio(b"ID3audio", "audio/mpeg")
+
+
+@pytest.mark.asyncio
+async def test_openrouter_tts_502_logs_trace_ids_without_input(caplog) -> None:
+    calls = 0
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(502, headers={"cf-ray": "trace-a", "x-generation-id": "gen-b"},
+                              json={"error": {"message": "empty audio stream", "code": 502}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+        client = AsyncOpenAI(api_key="test", base_url="https://openrouter.ai/api/v1",
+                             http_client=http, max_retries=0)
+        tts = OpenAiTextToSpeech(client, "x-ai/grok-voice-tts-1.0", "ara", "mp3", "ffmpeg")
+        with caplog.at_level(logging.WARNING, logger="app.tts"):
+            with pytest.raises(InternalServerError):
+                await tts.synthesize("private spoken reply")
+
+    tts_logs = [record.getMessage() for record in caplog.records if record.name == "app.tts"]
+    assert calls == 2
+    assert len(tts_logs) == 2
+    assert all("status=502" in message and "cf_ray=trace-a" in message for message in tts_logs)
+    assert all("private spoken reply" not in message for message in tts_logs)
 
 
 @pytest.mark.asyncio

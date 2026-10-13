@@ -41,6 +41,7 @@ Do not add stage directions, labels, quotation marks around the spoken line, or 
 """
 
 NOTES_MAX_TOKENS = 1200
+REPLY_RETRY_MAX_TOKENS = 2000
 CORRECTION_RETRY_DELAY_SECONDS = 0.5
 MIN_RETRY_SECONDS = 1.0
 RETRYABLE_CORRECTION_OUTCOMES = frozenset({
@@ -206,7 +207,17 @@ class OpenAiChatModel:
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
         for attempt in range(2):
-            text = await self._complete(messages, self._reply_temperature, purpose="reply")
+            try:
+                text = await self._complete(
+                    messages, self._reply_temperature,
+                    max_tokens=REPLY_RETRY_MAX_TOKENS if attempt else None,
+                    purpose="reply",
+                )
+            except CompletionTokenLimitError:
+                if attempt == 1:
+                    raise
+                logger.warning("Reply token limit reached; retrying once session=%s", current_session())
+                continue
             try:
                 return parse_reply(text)
             except json.JSONDecodeError:

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Protocol
 
 import httpx
-from openai import AsyncOpenAI
+from openai import APIStatusError, AsyncOpenAI
 
 from app.audio import to_ogg_opus
-from app.metrics_v2 import cost_micro
+from app.metrics_v2 import cost_micro, current_session
 from app.retry import once_on_retryable
+
+logger = logging.getLogger(__name__)
 
 TTS_INSTRUCTIONS = (
     "Warm conversational speaking partner. Natural pace, not a textbook narrator, not overly cheerful."
@@ -53,15 +57,28 @@ class OpenAiTextToSpeech:
             kwargs["instructions"] = TTS_INSTRUCTIONS
 
         async def call() -> tuple[Any, dict[str, str]]:
-            raw_create = getattr(getattr(self._client.audio.speech, "with_raw_response", None), "create", None)
-            if raw_create is None:
-                return await self._client.audio.speech.create(**kwargs), {}
-            raw = await raw_create(**kwargs)
-            headers = {str(key).lower(): value for key, value in dict(raw.headers).items()}
-            parsed = raw.parse()
-            if hasattr(parsed, "__await__"):
-                parsed = await parsed
-            return parsed, headers
+            started = time.perf_counter()
+            try:
+                raw_create = getattr(getattr(self._client.audio.speech, "with_raw_response", None), "create", None)
+                if raw_create is None:
+                    return await self._client.audio.speech.create(**kwargs), {}
+                raw = await raw_create(**kwargs)
+                headers = {str(key).lower(): value for key, value in dict(raw.headers).items()}
+                parsed = raw.parse()
+                if hasattr(parsed, "__await__"):
+                    parsed = await parsed
+                return parsed, headers
+            except APIStatusError as error:
+                response_headers = error.response.headers
+                logger.warning(
+                    "TTS HTTP error session=%s model=%s voice=%s format=%s input_chars=%d "
+                    "status=%d elapsed_ms=%.0f cf_ray=%s generation_id=%s request_id=%s",
+                    current_session(), self._model, self._voice, self._response_format, len(text),
+                    error.status_code, (time.perf_counter() - started) * 1000,
+                    response_headers.get("cf-ray"), response_headers.get("x-generation-id"),
+                    response_headers.get("x-request-id"),
+                )
+                raise
 
         try:
             provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
