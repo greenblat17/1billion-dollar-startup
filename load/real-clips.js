@@ -23,6 +23,8 @@ const duration = __ENV.DURATION || '2m';
 const deadlineMs = Number(__ENV.JOB_DEADLINE_MS || 65000);
 const runId = __ENV.RUN_ID || 'real-load';
 const preAllocatedVUs = Number(__ENV.PREALLOCATED_VUS || Math.max(20, Math.ceil(rate / 60) * 25));
+const pollSeconds = Number(__ENV.POLL_SECONDS || 0.5);
+const abortOnFail = __ENV.ABORT_ON_FAIL !== 'false';
 let sessionId;
 let errorsLogged = 0;
 
@@ -31,6 +33,9 @@ if (!Number.isInteger(rate) || rate < 1 || rate > 600) {
 }
 if (!Number.isInteger(preAllocatedVUs) || preAllocatedVUs < 1) {
   throw new Error('PREALLOCATED_VUS must be a positive integer');
+}
+if (!Number.isFinite(pollSeconds) || pollSeconds <= 0) {
+  throw new Error('POLL_SECONDS must be positive');
 }
 
 export const options = {
@@ -45,8 +50,8 @@ export const options = {
     },
   },
   thresholds: {
-    clip_failed: [{ threshold: 'count==0', abortOnFail: true, delayAbortEval: '15s' }],
-    dropped_iterations: [{ threshold: 'count==0', abortOnFail: true, delayAbortEval: '15s' }],
+    clip_failed: [{ threshold: 'count==0', abortOnFail, delayAbortEval: '15s' }],
+    dropped_iterations: [{ threshold: 'count==0', abortOnFail, delayAbortEval: '15s' }],
   },
   summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max', 'count'],
 };
@@ -133,7 +138,7 @@ export default function (data) {
       endToEnd.add(Date.now() - started);
       return;
     }
-    sleep(0.5);
+    sleep(pollSeconds);
   }
   fail('job_timeout');
   endToEnd.add(Date.now() - started);

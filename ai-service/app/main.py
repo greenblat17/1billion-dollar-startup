@@ -565,7 +565,7 @@ def create_app(
         return {"jobId": job.job_id}
 
     @app.get("/v1/clips/{job_id}")
-    def get_clip(job_id: str) -> JSONResponse:
+    async def get_clip(job_id: str) -> JSONResponse:
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="unknown job")
@@ -581,7 +581,7 @@ def create_app(
         return await audit_artifacts.get(normalized)
 
     @app.get("/v1/clips/{job_id}/audio")
-    def get_audio(job_id: str) -> Response:
+    async def get_audio(job_id: str) -> Response:
         job = jobs.get(job_id)
         if job is None or job.status != "ok" or job.reply_audio is None:
             return Response(status_code=404)

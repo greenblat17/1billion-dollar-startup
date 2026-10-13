@@ -58,16 +58,24 @@ class JobStore:
     def __init__(self, ttl_seconds: int) -> None:
         self._ttl_seconds = ttl_seconds
         self._jobs: dict[str, ClipJob] = {}
+        self._next_purge_at = time.monotonic() + min(max(ttl_seconds, 1), 60)
 
     def create(self, session_id: str, attempt_id: str | None = None) -> ClipJob:
-        self.purge()
-        job = ClipJob(job_id=str(uuid4()), session_id=session_id, attempt_id=attempt_id)
+        now = time.monotonic()
+        if now >= self._next_purge_at:
+            self.purge()
+        job = ClipJob(job_id=str(uuid4()), session_id=session_id, attempt_id=attempt_id, created_at=now)
         self._jobs[job.job_id] = job
         return job
 
     def get(self, job_id: str) -> ClipJob | None:
-        self.purge()
-        return self._jobs.get(job_id)
+        if time.monotonic() >= self._next_purge_at:
+            self.purge()
+        job = self._jobs.get(job_id)
+        if job is not None and time.monotonic() - job.created_at > self._ttl_seconds:
+            self._jobs.pop(job_id, None)
+            return None
+        return job
 
     def purge(self) -> None:
         now = time.monotonic()
@@ -78,3 +86,4 @@ class JobStore:
         ]
         for job_id in expired:
             self._jobs.pop(job_id, None)
+        self._next_purge_at = now + min(max(self._ttl_seconds, 1), 60)
