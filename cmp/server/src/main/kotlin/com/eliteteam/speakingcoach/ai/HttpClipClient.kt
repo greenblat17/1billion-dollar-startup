@@ -43,7 +43,7 @@ internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 class HttpClipClient(
     baseUrl: String,
     private val http: HttpClient,
-    private val pollInterval: Duration = 1.seconds,
+    private val pollInterval: Duration = 1.5.seconds,
     private val timeout: Duration = 90.seconds,
     private val internalToken: String = "",
 ) : ClipProcessor {

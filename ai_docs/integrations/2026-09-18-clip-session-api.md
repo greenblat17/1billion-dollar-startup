@@ -32,7 +32,7 @@ Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio
 
 `status`: `pending` | `ok` | `error`.
 
-The CMP server polls a pending job once per second. This lowers the number of status requests while voice jobs are in progress; the AI job and HTTP response formats are unchanged.
+The CMP server polls a pending job once every 1.5 seconds. The AI job and HTTP response formats are unchanged.
 
 On `ok`, Kotlin reads `result.corrections` (falls back to `result.notes` when `corrections` is empty or absent), `result.transcript`, fallback top-level `transcript`. Extra fields `replyText`, `timingsMs` are ignored by Ktor (`ignoreUnknownKeys`).
 

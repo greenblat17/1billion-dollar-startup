@@ -35,6 +35,39 @@ def test_parse_reply_reads_reply():
 
 
 @pytest.mark.asyncio
+async def test_reply_retries_malformed_json_once() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.calls = 0
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.calls += 1
+            return '{"reply":"broken' if self.calls == 1 else '{"reply":"OK"}'
+
+    model = Model()
+    assert await model.complete_reply([], "Hi") == "OK"
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reply_stops_after_second_malformed_json() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.calls = 0
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.calls += 1
+            return '{"reply":"broken'
+
+    model = Model()
+    with pytest.raises(json.JSONDecodeError):
+        await model.complete_reply([], "Hi")
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_roleplay_uses_counterpart_system_instead_of_teacher_persona():
     class CaptureModel(OpenAiChatModel):
         async def _complete(self, messages, *args, **kwargs):

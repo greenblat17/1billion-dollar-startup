@@ -205,8 +205,15 @@ class OpenAiChatModel:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
-        text = await self._complete(messages, self._reply_temperature, purpose="reply")
-        return parse_reply(text)
+        for attempt in range(2):
+            text = await self._complete(messages, self._reply_temperature, purpose="reply")
+            try:
+                return parse_reply(text)
+            except json.JSONDecodeError:
+                if attempt == 1:
+                    raise
+                logger.warning("Reply JSON invalid; retrying once session=%s", current_session())
+        raise AssertionError("unreachable reply attempt")
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
         return (await self.complete_notes_result(user_text)).corrections
