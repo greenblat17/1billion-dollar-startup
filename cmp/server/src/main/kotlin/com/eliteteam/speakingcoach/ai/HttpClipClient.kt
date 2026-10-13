@@ -34,7 +34,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 import java.util.Base64
@@ -44,7 +43,7 @@ internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 class HttpClipClient(
     baseUrl: String,
     private val http: HttpClient,
-    private val pollInterval: Duration = 300.milliseconds,
+    private val pollInterval: Duration = 1.seconds,
     private val timeout: Duration = 90.seconds,
     private val internalToken: String = "",
 ) : ClipProcessor {

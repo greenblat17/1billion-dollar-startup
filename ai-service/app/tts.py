@@ -73,6 +73,8 @@ class OpenAiTextToSpeech:
         payload = await _audio_bytes(response)
         if self._v2 is not None:
             await self._v2.record_tts("", self._model, len(text), await _openrouter_cost(self._client, headers))
+        if self._response_format == "mp3":
+            return TtsAudio(payload, "audio/mpeg")
         suffix = ".opus" if self._response_format == "opus" else f".{self._response_format}"
         return TtsAudio(await to_ogg_opus(self._ffmpeg_bin, payload, suffix=suffix), "audio/ogg")
 

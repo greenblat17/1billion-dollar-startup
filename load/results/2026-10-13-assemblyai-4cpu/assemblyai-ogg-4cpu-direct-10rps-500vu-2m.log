@@ -1,0 +1,468 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/speaky-load-4cpu/real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 500 max VUs, 3m15s max duration (incl. graceful stop):
+              * clips: 10.00 iterations/s for 2m0s (maxVUs: 500, gracefulStop: 1m15s)
+
+
+running (0m00.8s), 008/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   1% ] 008/500 VUs  0m00.8s/2m0s  10.00 iters/s
+
+running (0m01.8s), 018/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   1% ] 018/500 VUs  0m01.8s/2m0s  10.00 iters/s
+
+running (0m02.8s), 028/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   2% ] 028/500 VUs  0m02.8s/2m0s  10.00 iters/s
+
+running (0m03.8s), 038/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   3% ] 038/500 VUs  0m03.8s/2m0s  10.00 iters/s
+
+running (0m04.8s), 048/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   4% ] 048/500 VUs  0m04.8s/2m0s  10.00 iters/s
+
+running (0m05.8s), 058/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   5% ] 058/500 VUs  0m05.8s/2m0s  10.00 iters/s
+
+running (0m06.8s), 065/500 VUs, 3 complete and 0 interrupted iterations
+clips   [   6% ] 065/500 VUs  0m06.8s/2m0s  10.00 iters/s
+
+running (0m07.8s), 072/500 VUs, 6 complete and 0 interrupted iterations
+clips   [   6% ] 072/500 VUs  0m07.8s/2m0s  10.00 iters/s
+
+running (0m08.8s), 077/500 VUs, 11 complete and 0 interrupted iterations
+clips   [   7% ] 077/500 VUs  0m08.8s/2m0s  10.00 iters/s
+
+running (0m09.8s), 085/500 VUs, 13 complete and 0 interrupted iterations
+clips   [   8% ] 085/500 VUs  0m09.8s/2m0s  10.00 iters/s
+
+running (0m10.8s), 091/500 VUs, 17 complete and 0 interrupted iterations
+clips   [   9% ] 091/500 VUs  0m10.8s/2m0s  10.00 iters/s
+
+running (0m11.8s), 098/500 VUs, 20 complete and 0 interrupted iterations
+clips   [  10% ] 098/500 VUs  0m11.8s/2m0s  10.00 iters/s
+
+running (0m12.8s), 100/500 VUs, 28 complete and 0 interrupted iterations
+clips   [  11% ] 100/500 VUs  0m12.8s/2m0s  10.00 iters/s
+
+running (0m13.8s), 103/500 VUs, 35 complete and 0 interrupted iterations
+clips   [  11% ] 103/500 VUs  0m13.8s/2m0s  10.00 iters/s
+
+running (0m14.8s), 112/500 VUs, 36 complete and 0 interrupted iterations
+clips   [  12% ] 112/500 VUs  0m14.8s/2m0s  10.00 iters/s
+
+running (0m15.8s), 119/500 VUs, 39 complete and 0 interrupted iterations
+clips   [  13% ] 119/500 VUs  0m15.8s/2m0s  10.00 iters/s
+
+running (0m16.8s), 116/500 VUs, 52 complete and 0 interrupted iterations
+clips   [  14% ] 116/500 VUs  0m16.8s/2m0s  10.00 iters/s
+
+running (0m17.8s), 121/500 VUs, 57 complete and 0 interrupted iterations
+clips   [  15% ] 121/500 VUs  0m17.8s/2m0s  10.00 iters/s
+
+running (0m18.8s), 129/500 VUs, 59 complete and 0 interrupted iterations
+clips   [  16% ] 129/500 VUs  0m18.8s/2m0s  10.00 iters/s
+
+running (0m19.8s), 139/500 VUs, 59 complete and 0 interrupted iterations
+clips   [  16% ] 139/500 VUs  0m19.8s/2m0s  10.00 iters/s
+
+running (0m20.8s), 147/500 VUs, 61 complete and 0 interrupted iterations
+clips   [  17% ] 147/500 VUs  0m20.8s/2m0s  10.00 iters/s
+
+running (0m21.8s), 157/500 VUs, 61 complete and 0 interrupted iterations
+clips   [  18% ] 157/500 VUs  0m21.8s/2m0s  10.00 iters/s
+
+running (0m22.8s), 159/500 VUs, 69 complete and 0 interrupted iterations
+clips   [  19% ] 159/500 VUs  0m22.8s/2m0s  10.00 iters/s
+
+running (0m23.8s), 166/500 VUs, 72 complete and 0 interrupted iterations
+clips   [  20% ] 166/500 VUs  0m23.8s/2m0s  10.00 iters/s
+
+running (0m24.8s), 171/500 VUs, 77 complete and 0 interrupted iterations
+clips   [  21% ] 171/500 VUs  0m24.8s/2m0s  10.00 iters/s
+
+running (0m25.8s), 180/500 VUs, 78 complete and 0 interrupted iterations
+clips   [  21% ] 180/500 VUs  0m25.8s/2m0s  10.00 iters/s
+
+running (0m26.8s), 186/500 VUs, 82 complete and 0 interrupted iterations
+clips   [  22% ] 186/500 VUs  0m26.8s/2m0s  10.00 iters/s
+
+running (0m27.8s), 189/500 VUs, 89 complete and 0 interrupted iterations
+clips   [  23% ] 189/500 VUs  0m27.8s/2m0s  10.00 iters/s
+
+running (0m28.8s), 197/500 VUs, 91 complete and 0 interrupted iterations
+clips   [  24% ] 197/500 VUs  0m28.8s/2m0s  10.00 iters/s
+
+running (0m29.8s), 203/500 VUs, 95 complete and 0 interrupted iterations
+clips   [  25% ] 203/500 VUs  0m29.8s/2m0s  10.00 iters/s
+
+running (0m30.8s), 213/500 VUs, 95 complete and 0 interrupted iterations
+clips   [  26% ] 213/500 VUs  0m30.8s/2m0s  10.00 iters/s
+
+running (0m31.8s), 223/500 VUs, 95 complete and 0 interrupted iterations
+clips   [  26% ] 223/500 VUs  0m31.8s/2m0s  10.00 iters/s
+
+running (0m32.8s), 230/500 VUs, 98 complete and 0 interrupted iterations
+clips   [  27% ] 230/500 VUs  0m32.8s/2m0s  10.00 iters/s
+
+running (0m33.8s), 236/500 VUs, 102 complete and 0 interrupted iterations
+clips   [  28% ] 236/500 VUs  0m33.8s/2m0s  10.00 iters/s
+
+running (0m34.8s), 246/500 VUs, 102 complete and 0 interrupted iterations
+clips   [  29% ] 246/500 VUs  0m34.8s/2m0s  10.00 iters/s
+
+running (0m35.8s), 256/500 VUs, 102 complete and 0 interrupted iterations
+clips   [  30% ] 256/500 VUs  0m35.8s/2m0s  10.00 iters/s
+
+running (0m36.8s), 264/500 VUs, 104 complete and 0 interrupted iterations
+clips   [  31% ] 264/500 VUs  0m36.8s/2m0s  10.00 iters/s
+
+running (0m37.8s), 274/500 VUs, 104 complete and 0 interrupted iterations
+clips   [  31% ] 274/500 VUs  0m37.8s/2m0s  10.00 iters/s
+
+running (0m38.8s), 283/500 VUs, 105 complete and 0 interrupted iterations
+clips   [  32% ] 283/500 VUs  0m38.8s/2m0s  10.00 iters/s
+
+running (0m39.8s), 292/500 VUs, 106 complete and 0 interrupted iterations
+clips   [  33% ] 292/500 VUs  0m39.8s/2m0s  10.00 iters/s
+
+running (0m40.8s), 300/500 VUs, 108 complete and 0 interrupted iterations
+clips   [  34% ] 300/500 VUs  0m40.8s/2m0s  10.00 iters/s
+
+running (0m41.8s), 308/500 VUs, 110 complete and 0 interrupted iterations
+clips   [  35% ] 308/500 VUs  0m41.8s/2m0s  10.00 iters/s
+
+running (0m42.8s), 314/500 VUs, 114 complete and 0 interrupted iterations
+clips   [  36% ] 314/500 VUs  0m42.8s/2m0s  10.00 iters/s
+
+running (0m43.8s), 324/500 VUs, 114 complete and 0 interrupted iterations
+clips   [  36% ] 324/500 VUs  0m43.8s/2m0s  10.00 iters/s
+
+running (0m44.8s), 332/500 VUs, 116 complete and 0 interrupted iterations
+clips   [  37% ] 332/500 VUs  0m44.8s/2m0s  10.00 iters/s
+
+running (0m45.8s), 341/500 VUs, 117 complete and 0 interrupted iterations
+clips   [  38% ] 341/500 VUs  0m45.8s/2m0s  10.00 iters/s
+
+running (0m46.8s), 348/500 VUs, 120 complete and 0 interrupted iterations
+clips   [  39% ] 348/500 VUs  0m46.8s/2m0s  10.00 iters/s
+
+running (0m47.8s), 357/500 VUs, 121 complete and 0 interrupted iterations
+clips   [  40% ] 357/500 VUs  0m47.8s/2m0s  10.00 iters/s
+
+running (0m48.8s), 366/500 VUs, 122 complete and 0 interrupted iterations
+clips   [  41% ] 366/500 VUs  0m48.8s/2m0s  10.00 iters/s
+
+running (0m49.8s), 375/500 VUs, 123 complete and 0 interrupted iterations
+clips   [  41% ] 375/500 VUs  0m49.8s/2m0s  10.00 iters/s
+
+running (0m50.8s), 384/500 VUs, 124 complete and 0 interrupted iterations
+clips   [  42% ] 384/500 VUs  0m50.8s/2m0s  10.00 iters/s
+
+running (0m51.8s), 393/500 VUs, 125 complete and 0 interrupted iterations
+clips   [  43% ] 393/500 VUs  0m51.8s/2m0s  10.00 iters/s
+
+running (0m52.8s), 400/500 VUs, 128 complete and 0 interrupted iterations
+clips   [  44% ] 400/500 VUs  0m52.8s/2m0s  10.00 iters/s
+
+running (0m53.8s), 409/500 VUs, 129 complete and 0 interrupted iterations
+clips   [  45% ] 409/500 VUs  0m53.8s/2m0s  10.00 iters/s
+
+running (0m54.8s), 419/500 VUs, 129 complete and 0 interrupted iterations
+clips   [  46% ] 419/500 VUs  0m54.8s/2m0s  10.00 iters/s
+
+running (0m55.8s), 429/500 VUs, 129 complete and 0 interrupted iterations
+clips   [  46% ] 429/500 VUs  0m55.8s/2m0s  10.00 iters/s
+
+running (0m56.8s), 437/500 VUs, 131 complete and 0 interrupted iterations
+clips   [  47% ] 437/500 VUs  0m56.8s/2m0s  10.00 iters/s
+
+running (0m57.8s), 445/500 VUs, 133 complete and 0 interrupted iterations
+clips   [  48% ] 445/500 VUs  0m57.8s/2m0s  10.00 iters/s
+
+running (0m58.8s), 453/500 VUs, 135 complete and 0 interrupted iterations
+clips   [  49% ] 453/500 VUs  0m58.8s/2m0s  10.00 iters/s
+
+running (0m59.8s), 463/500 VUs, 135 complete and 0 interrupted iterations
+clips   [  50% ] 463/500 VUs  0m59.8s/2m0s  10.00 iters/s
+
+running (1m00.8s), 473/500 VUs, 135 complete and 0 interrupted iterations
+clips   [  51% ] 473/500 VUs  1m00.8s/2m0s  10.00 iters/s
+
+running (1m01.8s), 481/500 VUs, 137 complete and 0 interrupted iterations
+clips   [  51% ] 481/500 VUs  1m01.8s/2m0s  10.00 iters/s
+
+running (1m02.8s), 489/500 VUs, 139 complete and 0 interrupted iterations
+clips   [  52% ] 489/500 VUs  1m02.8s/2m0s  10.00 iters/s
+
+running (1m03.8s), 497/500 VUs, 141 complete and 0 interrupted iterations
+clips   [  53% ] 497/500 VUs  1m03.8s/2m0s  10.00 iters/s
+time="2026-10-13T12:23:38Z" level=warning msg="Insufficient VUs, reached 500 active VUs and cannot initialize more" executor=constant-arrival-rate scenario=clips
+
+running (1m04.8s), 500/500 VUs, 141 complete and 0 interrupted iterations
+clips   [  54% ] 500/500 VUs  1m04.8s/2m0s  10.00 iters/s
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+
+running (1m05.8s), 251/500 VUs, 143 complete and 249 interrupted iterations
+clips ✗ [  55% ] 394/500 VUs  1m05.8s/2m0s  10.00 iters/s
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+time="2026-10-13T12:23:40Z" level=error msg="clip failed: stage=client reason=poll_http_0" source=console
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✓ 'count==0' count=0
+
+    dropped_iterations
+    ✗ 'count==0' count=15
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 641     9.741143/s
+    checks_succeeded...: 100.00% 641 out of 641
+    checks_failed......: 0.00%   0 out of 641
+
+    ✓ clip accepted
+
+    CUSTOM
+    clip_accepted..................: 641    9.741143/s
+    clip_completed.................: 143    2.173141/s
+    clip_e2e.......................: avg=19.94s   med=15.87s   p(95)=45.89s p(99)=48.73s max=49.72s count=143  
+    clip_failed....................: 0      0/s
+
+    HTTP
+    http_req_duration..............: avg=777.35ms med=728.59ms p(95)=1.67s  p(99)=2.22s  max=2.4s   count=13054
+      { expected_response:true }...: avg=777.35ms med=728.59ms p(95)=1.67s  p(99)=2.22s  max=2.4s   count=13054
+    http_req_failed................: 0.00%  0 out of 13054
+    http_reqs......................: 13054  198.378919/s
+
+    EXECUTION
+    dropped_iterations.............: 15     0.227952/s
+    iteration_duration.............: avg=20.56s   med=16s      p(95)=47.21s p(99)=50s    max=50.92s count=143  
+    iterations.....................: 143    2.173141/s
+    vus............................: 500    min=8          max=500
+    vus_max........................: 500    min=500        max=500
+
+    NETWORK
+    data_received..................: 2.7 MB 41 kB/s
+    data_sent......................: 11 MB  159 kB/s
+
+
+
+
+running (1m05.8s), 000/500 VUs, 143 complete and 500 interrupted iterations
+clips ✗ [  55% ] 394/500 VUs  1m05.8s/2m0s  10.00 iters/s
+time="2026-10-13T12:23:40Z" level=error msg="thresholds on metrics 'dropped_iterations' were crossed; at least one has abortOnFail enabled, stopping test prematurely"

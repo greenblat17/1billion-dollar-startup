@@ -19,6 +19,8 @@ Agreed interaction history and service logs: `architecture/2026-10-05-conversati
 Live monitoring versus the journal, model reply audio, and load-test exclusion: `architecture/2026-10-11-live-monitoring-journal-load-tests.md`.
 Cost of one voice day (onboarding or a 5/10/15 minute call): `architecture/2026-10-11-voice-loop-day-cost.md`.
 Provider ceilings for the configured Groq and OpenRouter models: `architecture/2026-10-11-provider-limits.md`.
+Real DEV voice load test and measured Groq RPM limit: `architecture/2026-10-13-real-voice-load-test.md`.
+Real DEV OGG load test with AssemblyAI and the 10 RPS failure: `architecture/2026-10-13-assemblyai-load-test.md`.
 Env catalog (GitHub blobs and per-host keys, no secret values): `integrations/2026-10-11-env.md`.
 DEV clip load and the VPS sizing note: `architecture/2026-10-11-vps-sizing.md`.
 Telegram MVP acceptance map: `architecture/2026-10-11-telegram-mvp-acceptance.md`.

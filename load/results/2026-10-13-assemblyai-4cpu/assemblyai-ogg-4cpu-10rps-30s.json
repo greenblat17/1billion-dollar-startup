@@ -1,0 +1,160 @@
+{
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca",
+                    "passes": 301,
+                    "fails": 0,
+                    "name": "clip accepted"
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    },
+    "metrics": {
+        "http_req_waiting": {
+            "max": 8858.501,
+            "count": 4952,
+            "avg": 1010.3012607027475,
+            "med": 637.4835,
+            "p(95)": 3246.7548999999995,
+            "p(99)": 7167.503709999996
+        },
+        "clip_accepted": {
+            "count": 301,
+            "rate": 4.9019413853860225
+        },
+        "http_req_duration": {
+            "count": 4952,
+            "avg": 1056.1887358642987,
+            "med": 680.4675,
+            "p(95)": 3277.5495,
+            "p(99)": 7235.168659999992,
+            "max": 8858.605
+        },
+        "http_req_connecting": {
+            "avg": 0.014988489499192254,
+            "med": 0,
+            "p(95)": 0.188,
+            "p(99)": 0.26,
+            "max": 3.882,
+            "count": 4952
+        },
+        "vus_max": {
+            "value": 250,
+            "min": 250,
+            "max": 250
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_blocked": {
+            "med": 0.005,
+            "p(95)": 0.238,
+            "p(99)": 0.33,
+            "max": 3.942,
+            "count": 4952,
+            "avg": 0.024381663974152215
+        },
+        "vus": {
+            "min": 10,
+            "max": 213,
+            "value": 11
+        },
+        "iterations": {
+            "count": 301,
+            "rate": 4.9019413853860225
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 1056.1887358642987,
+            "med": 680.4675,
+            "p(95)": 3277.5495,
+            "p(99)": 7235.168659999992,
+            "max": 8858.605,
+            "count": 4952
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "count": 4952,
+            "avg": 0
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 4952,
+            "value": 0
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_reqs": {
+            "count": 4952,
+            "rate": 80.64589282535411
+        },
+        "clip_e2e": {
+            "avg": 21341.83388704319,
+            "med": 21311,
+            "p(95)": 31038,
+            "p(99)": 32310,
+            "max": 33676,
+            "count": 301
+        },
+        "iteration_duration": {
+            "max": 40698.99711,
+            "count": 301,
+            "avg": 24197.120019182723,
+            "med": 22527.156087,
+            "p(95)": 38295.496593,
+            "p(99)": 39657.393837
+        },
+        "http_req_receiving": {
+            "count": 4952,
+            "avg": 45.86640811793206,
+            "med": 30.743000000000002,
+            "p(95)": 174.01479999999998,
+            "p(99)": 343.3800399999999,
+            "max": 465.172
+        },
+        "http_req_sending": {
+            "p(95)": 0.057,
+            "p(99)": 0.09697999999999957,
+            "max": 0.969,
+            "count": 4952,
+            "avg": 0.02106704361874029,
+            "med": 0.014
+        },
+        "checks": {
+            "passes": 301,
+            "fails": 0,
+            "value": 1
+        },
+        "clip_completed": {
+            "count": 301,
+            "rate": 4.9019413853860225
+        },
+        "data_sent": {
+            "count": 4609033,
+            "rate": 75060.49704089666
+        },
+        "data_received": {
+            "count": 1144678,
+            "rate": 18641.675950634224
+        }
+    },
+    "setup_data": {
+        "runId": "assemblyai-ogg-4cpu-10rps-30s"
+    }
+}

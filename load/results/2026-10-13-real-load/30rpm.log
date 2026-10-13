@@ -1,0 +1,190 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: load/real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 25 max VUs, 2m15s max duration (incl. graceful stop):
+              * clips: 0.50 iterations/s for 1m0s (maxVUs: 25, gracefulStop: 1m15s)
+
+
+running (0m01.0s), 01/25 VUs, 0 complete and 0 interrupted iterations
+clips   [   2% ] 01/25 VUs  0m01.0s/1m0s  0.50 iters/s
+
+running (0m02.0s), 01/25 VUs, 0 complete and 0 interrupted iterations
+clips   [   3% ] 01/25 VUs  0m02.0s/1m0s  0.50 iters/s
+
+running (0m03.0s), 02/25 VUs, 0 complete and 0 interrupted iterations
+clips   [   5% ] 02/25 VUs  0m03.0s/1m0s  0.50 iters/s
+
+running (0m04.0s), 02/25 VUs, 0 complete and 0 interrupted iterations
+clips   [   7% ] 02/25 VUs  0m04.0s/1m0s  0.50 iters/s
+
+running (0m05.0s), 03/25 VUs, 0 complete and 0 interrupted iterations
+clips   [   8% ] 03/25 VUs  0m05.0s/1m0s  0.50 iters/s
+
+running (0m06.0s), 03/25 VUs, 0 complete and 0 interrupted iterations
+clips   [  10% ] 03/25 VUs  0m06.0s/1m0s  0.50 iters/s
+
+running (0m07.0s), 03/25 VUs, 1 complete and 0 interrupted iterations
+clips   [  12% ] 03/25 VUs  0m07.0s/1m0s  0.50 iters/s
+
+running (0m08.0s), 03/25 VUs, 1 complete and 0 interrupted iterations
+clips   [  13% ] 03/25 VUs  0m08.0s/1m0s  0.50 iters/s
+
+running (0m09.0s), 03/25 VUs, 2 complete and 0 interrupted iterations
+clips   [  15% ] 03/25 VUs  0m09.0s/1m0s  0.50 iters/s
+
+running (0m10.0s), 02/25 VUs, 3 complete and 0 interrupted iterations
+clips   [  17% ] 02/25 VUs  0m10.0s/1m0s  0.50 iters/s
+
+running (0m11.0s), 03/25 VUs, 3 complete and 0 interrupted iterations
+clips   [  18% ] 03/25 VUs  0m11.0s/1m0s  0.50 iters/s
+
+running (0m12.0s), 03/25 VUs, 3 complete and 0 interrupted iterations
+clips   [  20% ] 03/25 VUs  0m12.0s/1m0s  0.50 iters/s
+
+running (0m13.0s), 03/25 VUs, 4 complete and 0 interrupted iterations
+clips   [  22% ] 03/25 VUs  0m13.0s/1m0s  0.50 iters/s
+
+running (0m14.0s), 03/25 VUs, 4 complete and 0 interrupted iterations
+clips   [  23% ] 03/25 VUs  0m14.0s/1m0s  0.50 iters/s
+
+running (0m15.0s), 03/25 VUs, 5 complete and 0 interrupted iterations
+clips   [  25% ] 03/25 VUs  0m15.0s/1m0s  0.50 iters/s
+
+running (0m16.0s), 03/25 VUs, 5 complete and 0 interrupted iterations
+clips   [  27% ] 03/25 VUs  0m16.0s/1m0s  0.50 iters/s
+
+running (0m17.0s), 04/25 VUs, 5 complete and 0 interrupted iterations
+clips   [  28% ] 04/25 VUs  0m17.0s/1m0s  0.50 iters/s
+
+running (0m18.0s), 02/25 VUs, 7 complete and 0 interrupted iterations
+clips   [  30% ] 02/25 VUs  0m18.0s/1m0s  0.50 iters/s
+
+running (0m19.0s), 03/25 VUs, 7 complete and 0 interrupted iterations
+clips   [  32% ] 03/25 VUs  0m19.0s/1m0s  0.50 iters/s
+
+running (0m20.0s), 03/25 VUs, 7 complete and 0 interrupted iterations
+clips   [  33% ] 03/25 VUs  0m20.0s/1m0s  0.50 iters/s
+
+running (0m21.0s), 04/25 VUs, 7 complete and 0 interrupted iterations
+clips   [  35% ] 04/25 VUs  0m21.0s/1m0s  0.50 iters/s
+
+running (0m22.0s), 02/25 VUs, 9 complete and 0 interrupted iterations
+clips   [  37% ] 02/25 VUs  0m22.0s/1m0s  0.50 iters/s
+
+running (0m23.0s), 03/25 VUs, 9 complete and 0 interrupted iterations
+clips   [  38% ] 03/25 VUs  0m23.0s/1m0s  0.50 iters/s
+
+running (0m24.0s), 02/25 VUs, 10 complete and 0 interrupted iterations
+clips   [  40% ] 02/25 VUs  0m24.0s/1m0s  0.50 iters/s
+
+running (0m25.0s), 03/25 VUs, 10 complete and 0 interrupted iterations
+clips   [  42% ] 03/25 VUs  0m25.0s/1m0s  0.50 iters/s
+
+running (0m26.0s), 02/25 VUs, 11 complete and 0 interrupted iterations
+clips   [  43% ] 02/25 VUs  0m26.0s/1m0s  0.50 iters/s
+
+running (0m27.0s), 03/25 VUs, 11 complete and 0 interrupted iterations
+clips   [  45% ] 03/25 VUs  0m27.0s/1m0s  0.50 iters/s
+
+running (0m28.0s), 02/25 VUs, 12 complete and 0 interrupted iterations
+clips   [  47% ] 02/25 VUs  0m28.0s/1m0s  0.50 iters/s
+
+running (0m29.0s), 03/25 VUs, 12 complete and 0 interrupted iterations
+clips   [  48% ] 03/25 VUs  0m29.0s/1m0s  0.50 iters/s
+
+running (0m30.0s), 03/25 VUs, 12 complete and 0 interrupted iterations
+clips   [  50% ] 03/25 VUs  0m30.0s/1m0s  0.50 iters/s
+
+running (0m31.0s), 04/25 VUs, 12 complete and 0 interrupted iterations
+clips   [  52% ] 04/25 VUs  0m31.0s/1m0s  0.50 iters/s
+
+running (0m32.0s), 03/25 VUs, 13 complete and 0 interrupted iterations
+clips   [  53% ] 03/25 VUs  0m32.0s/1m0s  0.50 iters/s
+
+running (0m33.0s), 03/25 VUs, 14 complete and 0 interrupted iterations
+clips   [  55% ] 03/25 VUs  0m33.0s/1m0s  0.50 iters/s
+
+running (0m34.0s), 03/25 VUs, 14 complete and 0 interrupted iterations
+clips   [  57% ] 03/25 VUs  0m34.0s/1m0s  0.50 iters/s
+
+running (0m35.0s), 03/25 VUs, 15 complete and 0 interrupted iterations
+clips   [  58% ] 03/25 VUs  0m35.0s/1m0s  0.50 iters/s
+
+running (0m36.0s), 02/25 VUs, 16 complete and 0 interrupted iterations
+clips   [  60% ] 02/25 VUs  0m36.0s/1m0s  0.50 iters/s
+
+running (0m37.0s), 03/25 VUs, 16 complete and 0 interrupted iterations
+clips   [  62% ] 03/25 VUs  0m37.0s/1m0s  0.50 iters/s
+
+running (0m38.0s), 03/25 VUs, 16 complete and 0 interrupted iterations
+clips   [  63% ] 03/25 VUs  0m38.0s/1m0s  0.50 iters/s
+
+running (0m39.0s), 04/25 VUs, 16 complete and 0 interrupted iterations
+clips   [  65% ] 04/25 VUs  0m39.0s/1m0s  0.50 iters/s
+
+running (0m40.0s), 02/25 VUs, 18 complete and 0 interrupted iterations
+clips   [  67% ] 02/25 VUs  0m40.0s/1m0s  0.50 iters/s
+
+running (0m41.0s), 03/25 VUs, 18 complete and 0 interrupted iterations
+clips   [  68% ] 03/25 VUs  0m41.0s/1m0s  0.50 iters/s
+time="2026-10-13T12:28:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m42.0s), 01/25 VUs, 20 complete and 0 interrupted iterations
+clips   [  70% ] 01/25 VUs  0m42.0s/1m0s  0.50 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✗ 'count==0' count=1
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 21      0.500048/s
+    checks_succeeded...: 100.00% 21 out of 21
+    checks_failed......: 0.00%   0 out of 21
+
+    ✓ clip accepted
+
+    CUSTOM
+    clip_accepted..................: 21     0.500048/s
+    clip_completed.................: 19     0.452424/s
+    clip_e2e.......................: avg=5.74s    med=5.75s    p(95)=7.33s    p(99)=7.6s     max=7.67s    count=20 
+    clip_failed....................: 1      0.023812/s
+
+    HTTP
+    http_req_duration..............: avg=195.95ms med=159.51ms p(95)=373.36ms p(99)=553.85ms max=568.02ms count=225
+      { expected_response:true }...: avg=195.95ms med=159.51ms p(95)=373.36ms p(99)=553.85ms max=568.02ms count=225
+    http_req_failed................: 0.00%  0 out of 225
+    http_reqs......................: 225    5.357658/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=6.06s    med=6.12s    p(95)=7.63s    p(99)=7.86s    max=7.92s    count=20 
+    iterations.....................: 20     0.476236/s
+    vus............................: 1      min=1        max=4 
+    vus_max........................: 25     min=25       max=25
+
+    NETWORK
+    data_received..................: 56 kB  1.3 kB/s
+    data_sent......................: 2.3 MB 56 kB/s
+
+
+
+
+running (0m42.1s), 00/25 VUs, 20 complete and 1 interrupted iterations
+clips ✗ [  70% ] 01/25 VUs  0m42.0s/1m0s  0.50 iters/s
+time="2026-10-13T12:28:31+03:00" level=error msg="thresholds on metrics 'clip_failed' were crossed; at least one has abortOnFail enabled, stopping test prematurely"

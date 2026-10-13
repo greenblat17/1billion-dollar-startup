@@ -1,5 +1,6 @@
 from dataclasses import replace
 import json
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -9,6 +10,24 @@ from app.config import Settings
 from app import tts as tts_module
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TtsAudio
 from tests.conftest import test_settings as make_settings
+
+
+@pytest.mark.asyncio
+async def test_openrouter_mp3_is_returned_without_ffmpeg(monkeypatch) -> None:
+    async def create(**kwargs):
+        assert kwargs["response_format"] == "mp3"
+        return b"ID3audio"
+
+    async def unexpected_conversion(*_args, **_kwargs):
+        raise AssertionError("MP3 must not be transcoded")
+
+    monkeypatch.setattr(tts_module, "to_ogg_opus", unexpected_conversion)
+    client = SimpleNamespace(
+        base_url="https://openrouter.ai/api/v1",
+        audio=SimpleNamespace(speech=SimpleNamespace(create=create)),
+    )
+    tts = OpenAiTextToSpeech(client, "x-ai/grok-voice-tts-1.0", "ara", "mp3", "ffmpeg")
+    assert await tts.synthesize("Hello") == TtsAudio(b"ID3audio", "audio/mpeg")
 
 
 @pytest.mark.asyncio

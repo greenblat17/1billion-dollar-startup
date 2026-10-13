@@ -1,0 +1,160 @@
+{
+    "root_group": {
+        "checks": {
+            "clip accepted": {
+                "name": "clip accepted",
+                "path": "::clip accepted",
+                "id": "9a6089d19d49e147e5c59e838cacf7ca",
+                "passes": 361,
+                "fails": 1
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    },
+    "metrics": {
+        "iterations": {
+            "count": 142,
+            "rate": 3.7381850974460615
+        },
+        "http_req_waiting": {
+            "max": 4918.327,
+            "count": 3018,
+            "avg": 1144.4105019880717,
+            "med": 1030.0124999999998,
+            "p(95)": 2656.8806000000004,
+            "p(99)": 3179.9469999999965
+        },
+        "http_req_failed": {
+            "passes": 1,
+            "fails": 3017,
+            "value": 0.0003313452617627568
+        },
+        "checks": {
+            "passes": 361,
+            "fails": 1,
+            "value": 0.9972375690607734
+        },
+        "clip_failed": {
+            "count": 1,
+            "rate": 0.02632524716511311,
+            "thresholds": {
+                "count==0": true
+            }
+        },
+        "clip_completed": {
+            "count": 141,
+            "rate": 3.7118598502809483
+        },
+        "clip_accepted": {
+            "count": 361,
+            "rate": 9.503414226605832
+        },
+        "vus_max": {
+            "value": 250,
+            "min": 250,
+            "max": 250
+        },
+        "data_received": {
+            "count": 691764,
+            "rate": 18210.858279927306
+        },
+        "clip_e2e": {
+            "avg": 12900.056737588653,
+            "med": 12795,
+            "p(95)": 20744,
+            "p(99)": 22281.399999999998,
+            "max": 22593,
+            "count": 141
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(99)": 3287.651800000001,
+            "max": 4977.466,
+            "count": 3017,
+            "avg": 1206.4796251242924,
+            "med": 1095.456,
+            "p(95)": 2729.5085999999997
+        },
+        "http_req_receiving": {
+            "max": 418.159,
+            "count": 3018,
+            "avg": 61.653216699801156,
+            "med": 55.7555,
+            "p(95)": 183.987,
+            "p(99)": 303.51952
+        },
+        "http_reqs": {
+            "count": 3018,
+            "rate": 79.44959594431137
+        },
+        "http_req_connecting": {
+            "p(95)": 0.268,
+            "p(99)": 0.3758099999999995,
+            "max": 4.052,
+            "count": 3018,
+            "avg": 0.03506891981444664,
+            "med": 0
+        },
+        "data_sent": {
+            "count": 5200716,
+            "rate": 136910.1341355584
+        },
+        "http_req_duration": {
+            "p(95)": 2729.5079499999997,
+            "p(99)": 3287.6011,
+            "max": 4977.466,
+            "count": 3018,
+            "avg": 1206.0881500994003,
+            "med": 1095.4215
+        },
+        "iteration_duration": {
+            "avg": 13908.323304253525,
+            "med": 14052.9125345,
+            "p(95)": 22638.979424899997,
+            "p(99)": 24116.96666103,
+            "max": 24269.803852,
+            "count": 142
+        },
+        "dropped_iterations": {
+            "rate": 0,
+            "count": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "count": 3018,
+            "avg": 0
+        },
+        "http_req_sending": {
+            "avg": 0.02443141153081532,
+            "med": 0.014,
+            "p(95)": 0.073,
+            "p(99)": 0.12082999999999992,
+            "max": 0.662,
+            "count": 3018
+        },
+        "http_req_blocked": {
+            "med": 0.005,
+            "p(95)": 0.341,
+            "p(99)": 0.48080999999999946,
+            "max": 4.106,
+            "count": 3018,
+            "avg": 0.048215705765406534
+        },
+        "vus": {
+            "value": 238,
+            "min": 10,
+            "max": 238
+        }
+    },
+    "setup_data": {
+        "runId": "assemblyai-ogg-4cpu-10rps-2m"
+    }
+}
