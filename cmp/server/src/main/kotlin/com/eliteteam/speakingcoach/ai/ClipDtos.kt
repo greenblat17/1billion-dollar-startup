@@ -187,6 +187,21 @@ data class AdminModelOverview(
     val modelSince: String = "",
     val voiceLlmSince: String = "",
     val days: List<AdminModelDay> = emptyList(),
+    val legacyActiveChatsInPeriod: Long = 0,
+    val legacyDays: List<AdminLegacyDay> = emptyList(),
+)
+
+@Serializable
+data class AdminLegacyDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+    val completedTurns: Long = 0,
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val sttMs: Long = 0,
+    val ttsChars: Long = 0,
+    val firstVoiceChats: Long = 0,
 )
 
 @Serializable

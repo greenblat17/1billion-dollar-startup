@@ -26,6 +26,7 @@ _TELEGRAM_HISTORICAL_VOICE_USERS = "metrics:v2:telegram:journey:historical-only"
 _TELEGRAM_HISTORICAL_BACKFILL_DONE = "metrics:v2:telegram:journey:historical-backfill-done"
 _TELEGRAM_HISTORICAL_VOICE_SINCE = "2026-09-24"
 _VOICE_LLM_COST_SINCE = "metrics:v2:voice-llm-cost:since"
+_LEGACY_BEFORE_DAY = "2026-10-06"
 _TELEGRAM_MESSAGE_ID = re.compile(r"message:[0-9]+\Z")
 _session: ContextVar[str] = ContextVar("metrics_v2_session", default="")
 _platform: ContextVar[str] = ContextVar("metrics_v2_platform", default="")
@@ -262,6 +263,8 @@ class MemoryMetricsV2(MetricsV2):
             "modelSince": model_since,
             "voiceLlmSince": self._voice_llm_cost_since,
             "days": [_overview_day(day, self.days.get((day, "telegram"), {})) for day in days],
+            "legacyActiveChatsInPeriod": 0,
+            "legacyDays": [],
         }
 
     async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):
@@ -481,10 +484,24 @@ class RedisMetricsV2(MetricsV2):
 
     async def overview(self, from_day: str, to_day: str) -> dict[str, Any]:
         days = _overview_days(from_day, to_day)
+        legacy_days = [day for day in days if day < _LEGACY_BEFORE_DAY]
         async with self._redis.pipeline() as pipe:
             for day in days:
                 pipe.hgetall(_day_key(day, "telegram"))
             buckets = await pipe.execute()
+        async with self._redis.pipeline() as pipe:
+            for day in legacy_days:
+                pipe.hgetall(f"metrics:day:{day}")
+                pipe.smembers(f"metrics:dau:{day}")
+                pipe.hgetall(f"metrics:funnel:{day}")
+            legacy_buckets = await pipe.execute()
+        legacy_sessions: set[str] = set()
+        legacy_rows = []
+        for index, day in enumerate(legacy_days):
+            raw, members, funnel = legacy_buckets[index * 3:index * 3 + 3]
+            telegram_members = {str(member) for member in members if client_for(str(member)) == "telegram"}
+            legacy_sessions.update(telegram_members)
+            legacy_rows.append(_legacy_overview_day(day, raw, funnel, len(telegram_members), bool(members)))
         # Legacy funnel keys have no TTL and include starts as well as voice users.
         chats: set[str] = set()
         async for key in self._redis.scan_iter(match="metrics:funnel:user:*", count=200):
@@ -503,6 +520,8 @@ class RedisMetricsV2(MetricsV2):
             "modelSince": min(model_days, default=""),
             "voiceLlmSince": await self._redis.get(_VOICE_LLM_COST_SINCE) or "",
             "days": [_overview_day(day, bucket) for day, bucket in zip(days, buckets)],
+            "legacyActiveChatsInPeriod": len(legacy_sessions),
+            "legacyDays": legacy_rows,
         }
 
     async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):
@@ -610,6 +629,20 @@ def _overview_day(day: str, raw: dict[str, Any]) -> dict[str, Any]:
             "ttsCalls": counts["tts"], "llmCostMicro": llm_cost_micro,
             "voiceLlmCalls": voice_llm["calls"], "voiceLlmPricedCalls": voice_llm["priced"],
             "voiceLlmCostMicro": voice_llm["cost"], "tracked": bool(raw)}
+
+
+def _legacy_overview_day(day: str, raw: dict[str, Any], funnel: dict[str, Any],
+                         active_chats: int, has_members: bool) -> dict[str, Any]:
+    return {
+        "day": day, "tracked": bool(raw or funnel or has_members),
+        "activeChatsWithTurn": active_chats,
+        "completedTurns": int(raw.get("turns") or 0),
+        "promptTokens": int(raw.get("prompt_tokens") or 0),
+        "completionTokens": int(raw.get("completion_tokens") or 0),
+        "sttMs": int(raw.get("stt_ms") or 0),
+        "ttsChars": int(raw.get("tts_chars") or 0),
+        "firstVoiceChats": int(funnel.get("activated") or 0),
+    }
 
 
 def _llm_requests_from_memory(days: dict[tuple[str, str], dict[str, int]], now: float) -> list[dict[str, Any]]:

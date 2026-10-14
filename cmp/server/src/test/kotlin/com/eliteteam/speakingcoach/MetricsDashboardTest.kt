@@ -310,6 +310,28 @@ class MetricsDashboardTest {
     }
 
     @Test
+    fun overviewShowsAvailableLegacyRedisHistoryWithDifferentDefinitions() {
+        val day = "2026-09-24"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 198, modelSince = "2026-10-06",
+                legacyActiveChatsInPeriod = 2,
+                legacyDays = listOf(com.eliteteam.speakingcoach.ai.AdminLegacyDay(
+                    day, tracked = true, activeChatsWithTurn = 2, completedTurns = 2,
+                    promptTokens = 1346, completionTokens = 76, sttMs = 17114,
+                    ttsChars = 235, firstVoiceChats = 2,
+                ))),
+            AdminUsageOverview(0, listOf(AdminUsageDay(day)), "2026-10-06"),
+        )
+        assertTrue(html.contains("История старого учёта · до 6 октября"))
+        assertTrue(html.contains("<dt>Чатов с завершённым ходом</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1422</dd>"))
+        assertTrue(html.contains("<td>17.1</td>"))
+        assertTrue(html.contains("<dt>Голосовых</dt><dd>—</dd>"))
+        assertTrue(html.contains("<dt>Вызовов / активный чат</dt><dd>—</dd>"))
+    }
+
+    @Test
     fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(

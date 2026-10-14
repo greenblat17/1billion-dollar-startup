@@ -97,6 +97,27 @@ async def test_admin_overview_counts_telegram_models_and_known_voice_llm_cost(re
 
 
 @pytest.mark.asyncio
+async def test_admin_overview_reads_legacy_days_without_inventing_model_calls() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.hset("metrics:day:2026-09-24", mapping={
+        "turns": 2, "prompt_tokens": 1346, "completion_tokens": 76,
+        "stt_ms": 17114, "tts_chars": 235,
+    })
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1", "tg-2")
+    await redis.hset("metrics:funnel:2026-09-24", mapping={"activated": 2, "start": 1})
+    report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-25")
+    assert report["legacyActiveChatsInPeriod"] == 2
+    assert report["legacyDays"][0] == {
+        "day": "2026-09-24", "tracked": True, "activeChatsWithTurn": 2,
+        "completedTurns": 2, "promptTokens": 1346, "completionTokens": 76,
+        "sttMs": 17114, "ttsChars": 235, "firstVoiceChats": 2,
+    }
+    assert report["legacyDays"][1]["tracked"] is False
+    assert report["days"][0]["llmCalls"] == 0
+    assert report["days"][0]["tracked"] is False
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redis_backed", [False, True])
 async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
     store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()

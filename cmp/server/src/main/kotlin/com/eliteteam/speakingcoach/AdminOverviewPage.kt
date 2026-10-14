@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
+import com.eliteteam.speakingcoach.ai.AdminLegacyDay
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -59,6 +60,8 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
+        ${legacyHistoryHtml(models)}
+        ${if (models?.legacyDays?.isNotEmpty() == true) "<h2>Показатели нового учёта · с 6 октября</h2>" else ""}
         <section class="overview-cards" aria-label="Итоги">
           ${overviewCard("Всего чатов", models?.totalChats?.toString() ?: "—", "Записаны в воронке Redis за всё доступное время")}
           ${overviewCard("Активных чатов", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные чаты с голосом, текстом или нажатием кнопки за период")}
@@ -106,6 +109,47 @@ internal fun adminOverviewHtml(
         Telegram API — записанные попытки отправки и редактирования в контексте входящего сообщения; фоновые рассылки исключены.
         Неучтённые методы API и отдельные навыки в сумму не входят. «—» означает отсутствие измерений.</p>
         </body></html>
+    """.trimIndent()
+}
+
+private fun legacyHistoryHtml(models: AdminModelOverview?): String {
+    val overview = models ?: return ""
+    val days = overview.legacyDays
+    if (days.isEmpty()) return ""
+    val observed = days.filter(AdminLegacyDay::tracked)
+    if (observed.isEmpty()) return "<p class=\"coverage\">За выбранные дни до 6 октября в старом Redis нет записей.</p>"
+    val labels = days.map { it.day }
+    val rows = days.joinToString("") { row ->
+        val active = row.takeIf(AdminLegacyDay::tracked)
+        """<tr><td>${row.day}</td><td>${active?.activeChatsWithTurn ?: "—"}</td>
+        <td>${active?.completedTurns ?: "—"}</td><td>${active?.promptTokens ?: "—"}</td>
+        <td>${active?.completionTokens ?: "—"}</td><td>${active?.sttMs?.let { decimal(it / 1000.0, 1) } ?: "—"}</td>
+        <td>${active?.ttsChars ?: "—"}</td><td>${active?.firstVoiceChats ?: "—"}</td></tr>"""
+    }
+    return """
+        <section aria-label="Исторические данные Redis">
+        <h2>История старого учёта · до 6 октября</h2>
+        <p class="coverage">Эти записи сохранились в Redis. «Активные» здесь означают чаты с завершённым ходом AI,
+        «первые голосовые» — чаты, впервые отправившие голосовое. Ход AI не подтверждает доставку ответа пользователю.
+        Токены, время STT и символы TTS в старом счётчике не разделены по клиентским платформам.
+        Точное число всех голосовых, вызовов компонентов и их стоимость из этих записей не определяется.</p>
+        <div class="overview-cards">
+          ${overviewCard("Чатов с завершённым ходом", overview.legacyActiveChatsInPeriod.toString(), "Уникальные Telegram-чаты за историческую часть выбранного периода")}
+          ${overviewCard("Завершённых ходов AI", observed.sumOf { it.completedTurns }.toString(), "До отправки ответа пользователю")}
+          ${overviewCard("Токенов LLM", observed.sumOf { it.promptTokens + it.completionTokens }.toString(), "Входные + выходные токены старого счётчика")}
+          ${overviewCard("Чатов с первым голосовым", observed.sumOf { it.firstVoiceChats }.toString(), "Первое голосовое в истории чата, не все голосовые")}
+        </div>
+        <div class="chart-grid">
+          ${overviewChart("Завершённые ходы AI · старый учёт", labels, listOf(
+              ChartLine("Ходы", "#2563eb", days.map { it.takeIf(AdminLegacyDay::tracked)?.completedTurns })), true)}
+          ${overviewChart("Чаты с завершённым ходом · старый учёт", labels, listOf(
+              ChartLine("Чаты", "#16a34a", days.map { it.takeIf(AdminLegacyDay::tracked)?.activeChatsWithTurn })), true)}
+        </div>
+        <h2>Исторические данные по дням</h2>
+        <div class="table-wrap"><table><thead><tr><th>День</th><th>Чаты с ходом</th><th>Ходы AI</th>
+        <th>Токены вход</th><th>Токены выход</th><th>STT, с</th><th>TTS, символы</th>
+        <th>Первое голосовое</th></tr></thead><tbody>$rows</tbody></table></div>
+        </section>
     """.trimIndent()
 }
 
