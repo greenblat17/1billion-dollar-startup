@@ -3,6 +3,7 @@
 // Example: k6 run -e BASE_URL=https://DEV_CMP -e AUDIO_FILE=/tmp/probe.ogg \
 //   -e RATE_RPM=600 -e DURATION=2m -e PREALLOCATED_VUS=500 load/cmp-real-clips.js
 // Set LOAD_TEST_TOKEN in the environment; do not put it on the command line.
+// AUDIO_MANIFEST may replace AUDIO_FILE with a JSON array of OGG paths and durations.
 
 import http from 'k6/http';
 import exec from 'k6/execution';
@@ -11,7 +12,15 @@ import { Counter, Trend } from 'k6/metrics';
 const accepted = new Counter('clip_accepted');
 const failed = new Counter('clip_failed');
 const elapsed = new Trend('clip_e2e', true);
-const audio = open(__ENV.AUDIO_FILE, 'b');
+const shortElapsed = new Trend('clip_e2e_short', true);
+const mediumElapsed = new Trend('clip_e2e_medium', true);
+const longElapsed = new Trend('clip_e2e_long', true);
+const samples = __ENV.AUDIO_MANIFEST
+  ? JSON.parse(open(__ENV.AUDIO_MANIFEST)).map((item) => ({
+    ...item,
+    audio: open(item.path, 'b'),
+  }))
+  : [{ path: __ENV.AUDIO_FILE, durationSeconds: 3.4, audio: open(__ENV.AUDIO_FILE, 'b') }];
 const rate = Number(__ENV.RATE_RPM || 600);
 const duration = __ENV.DURATION || '2m';
 const vus = Number(__ENV.PREALLOCATED_VUS || 500);
@@ -22,7 +31,10 @@ let errorsLogged = 0;
 if (!Number.isInteger(rate) || rate < 1 || rate > 600) throw new Error('RATE_RPM must be 1..600');
 if (!Number.isInteger(vus) || vus < 1) throw new Error('PREALLOCATED_VUS must be positive');
 if (!/^[A-Za-z0-9_-]{1,40}$/.test(runId)) throw new Error('RUN_ID has invalid characters');
-if (!__ENV.AUDIO_FILE.toLowerCase().endsWith('.ogg')) throw new Error('AUDIO_FILE must be OGG');
+if (samples.length === 0 || samples.some((item) =>
+  !item.path || !item.path.toLowerCase().endsWith('.ogg') ||
+  !Number.isFinite(item.durationSeconds) || item.durationSeconds <= 0 || item.durationSeconds > 60
+)) throw new Error('Audio samples must be nonempty OGG files with durations of 1..60 seconds');
 
 export const options = {
   scenarios: {
@@ -43,8 +55,8 @@ export const options = {
 };
 
 export function setup() {
-  if (!__ENV.BASE_URL || !__ENV.LOAD_TEST_TOKEN || !__ENV.AUDIO_FILE) {
-    throw new Error('BASE_URL, LOAD_TEST_TOKEN, and AUDIO_FILE are required');
+  if (!__ENV.BASE_URL || !__ENV.LOAD_TEST_TOKEN || (!__ENV.AUDIO_FILE && !__ENV.AUDIO_MANIFEST)) {
+    throw new Error('BASE_URL, LOAD_TEST_TOKEN, and AUDIO_FILE or AUDIO_MANIFEST are required');
   }
   return { runId };
 }
@@ -76,17 +88,22 @@ function ensureSession(data) {
 
 export default function (data) {
   if (!ensureSession(data)) return;
+  const sample = samples[exec.scenario.iterationInTest % samples.length];
   const started = Date.now();
   const response = http.post(
-    `${__ENV.BASE_URL}/internal/load-test/clips?sessionId=${sessionId}&durationSeconds=3.4`,
-    audio,
+    `${__ENV.BASE_URL}/internal/load-test/clips?sessionId=${sessionId}&durationSeconds=${sample.durationSeconds}`,
+    sample.audio,
     {
       headers: { 'X-Load-Test-Token': __ENV.LOAD_TEST_TOKEN, 'Content-Type': 'audio/ogg' },
       tags: { name: 'POST /internal/load-test/clips' },
       timeout: '90s',
     },
   );
-  elapsed.add(Date.now() - started);
+  const duration = Date.now() - started;
+  elapsed.add(duration);
+  if (sample.durationSeconds < 7) shortElapsed.add(duration);
+  else if (sample.durationSeconds < 15) mediumElapsed.add(duration);
+  else longElapsed.add(duration);
   if (response.status === 200) accepted.add(1);
   else recordFailure('clip', response.status);
 }

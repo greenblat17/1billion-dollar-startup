@@ -1,0 +1,10 @@
+[
+  {
+    "path": "./fixtures/librispeech-test-clean/09-long-2094-142345-0011.ogg",
+    "durationSeconds": 16.267
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/10-long-5639-40744-0027.ogg",
+    "durationSeconds": 23.267
+  }
+]

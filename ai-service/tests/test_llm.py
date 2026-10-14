@@ -10,6 +10,7 @@ from app.llm import (
     REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply,
     read_reasoning_tokens,
 )
+from app.load_test import bind_load_test, reset_load_test
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.metrics import MemoryMetricsStore, MetricRates
 from app.pipeline import ClipPipeline
@@ -33,6 +34,31 @@ def parse(notes, transcript="I am agree with you."):
 
 def test_parse_reply_reads_reply():
     assert parse_reply('{"reply":"Nice — what did you buy?"}') == "Nice — what did you buy?"
+
+
+@pytest.mark.asyncio
+async def test_load_test_logs_provider_tokens_without_logging_normal_reply(caplog) -> None:
+    class Completions:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"reply":"OK"}'))],
+                usage=SimpleNamespace(prompt_tokens=123, completion_tokens=45),
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    model = OpenAiChatModel(client, "test-model")
+    with caplog.at_level("INFO", logger="app.llm"):
+        token = bind_load_test(True)
+        try:
+            assert await model.complete_reply([], "Hi") == "OK"
+        finally:
+            reset_load_test(token)
+        assert await model.complete_reply([], "Hi") == "OK"
+
+    usage_lines = [record.message for record in caplog.records if "load_test_llm_usage" in record.message]
+    assert len(usage_lines) == 1
+    assert "purpose=reply" in usage_lines[0]
+    assert "prompt_tokens=123 completion_tokens=45 usage_present=True" in usage_lines[0]
 
 
 @pytest.mark.asyncio
