@@ -190,7 +190,7 @@
       },
       "targets": [
         {
-          "expr": "max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d]))",
+          "expr": "max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d]))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -274,7 +274,7 @@
       },
       "targets": [
         {
-          "expr": "(max by (day) (max_over_time(speaking_llm_requests{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+          "expr": "(max by (day) (max_over_time(speaking_llm_requests{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -371,7 +371,7 @@
       },
       "targets": [
         {
-          "expr": "((max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0)) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0)",
+          "expr": "((max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -456,7 +456,7 @@
       },
       "targets": [
         {
-          "expr": "(max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+          "expr": "(max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -543,8 +543,8 @@
     },
     {
       "type": "barchart",
-      "title": "LLM-cost / DAU по дням, $",
-      "description": "usage.cost за московский день / DAU. Ноль, если в этот день никого не было.",
+      "title": "Учтённые расходы / DAU по дням, $",
+      "description": "Сумма возвращённых провайдерами цен LLM и TTS за московский день / DAU. STT без цены не входит. Ноль, если в этот день никого не было.",
       "gridPos": {
         "h": 7,
         "w": 24,
@@ -553,7 +553,7 @@
       },
       "targets": [
         {
-          "expr": "((max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[15d])) / 1000000) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0)",
+          "expr": "((max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[185d])) / 1000000) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -638,7 +638,7 @@
       },
       "targets": [
         {
-          "expr": "(max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[15d])) / 1000000) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0)",
+          "expr": "(max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[185d])) / 1000000) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -723,7 +723,7 @@
       },
       "targets": [
         {
-          "expr": "max by (day) (max_over_time((sum by (day) (speaking_errors{client=\"telegram\"}))[15d:1m])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0)",
+          "expr": "max by (day) (max_over_time((sum by (day) (speaking_errors{client=\"telegram\"}))[15d:1m])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
           "format": "table",
           "instant": true,
           "refId": "A"
@@ -807,13 +807,13 @@
       },
       "targets": [
         {
-          "expr": "(max by (day) (max_over_time(speaking_prompt_tokens{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+          "expr": "(max by (day) (max_over_time(speaking_prompt_tokens{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
           "format": "table",
           "instant": true,
           "refId": "A"
         },
         {
-          "expr": "(max by (day) (max_over_time(speaking_completion_tokens{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+          "expr": "(max by (day) (max_over_time(speaking_completion_tokens{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
           "format": "table",
           "instant": true,
           "refId": "B"
@@ -895,7 +895,7 @@
     {
       "type": "timeseries",
       "title": "TPM",
-      "description": "Токены запроса и ответа в минуту, среднее за 5 минут.",
+      "description": "Входные и выходные токены LLM за последние 60 секунд. Значение приближено к фактическому числу из-за опроса Prometheus каждые 15 секунд.",
       "gridPos": {
         "h": 7,
         "w": 24,
@@ -904,7 +904,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(delta(speaking_prompt_tokens{client=\"telegram\"}[5m])) + sum(delta(speaking_completion_tokens{client=\"telegram\"}[5m]))) / 5",
+          "expr": "clamp_min(sum(delta(speaking_prompt_tokens{client=\"telegram\"}[1m])) + sum(delta(speaking_completion_tokens{client=\"telegram\"}[1m])), 0)",
           "legendFormat": "токенов в минуту",
           "refId": "A"
         }
@@ -930,7 +930,7 @@
     {
       "type": "timeseries",
       "title": "TPS",
-      "description": "Токены запроса и ответа в секунду, среднее за 5 минут.",
+      "description": "Скорость генерации LLM: выходные токены / время генерации по данным OpenRouter; средняя по запросам, завершившимся за последнюю минуту. При отсутствии времени генерации запрос исключается.",
       "gridPos": {
         "h": 7,
         "w": 24,
@@ -939,8 +939,8 @@
       },
       "targets": [
         {
-          "expr": "(sum(delta(speaking_prompt_tokens{client=\"telegram\"}[5m])) + sum(delta(speaking_completion_tokens{client=\"telegram\"}[5m]))) / 300",
-          "legendFormat": "токенов в секунду",
+          "expr": "sum(increase(speaking_llm_generation_tokens_total{client=\"telegram\"}[1m])) / sum(increase(speaking_llm_generation_seconds_total{client=\"telegram\"}[1m]))",
+          "legendFormat": "выходных токенов в секунду",
           "refId": "A"
         }
       ],
@@ -964,44 +964,420 @@
     },
     {
       "type": "row",
-      "title": "Диагностика",
-      "collapsed": true,
+      "title": "Вызовы STT / LLM / TTS / Telegram API",
+      "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 84
       },
-      "panels": [
+      "panels": [],
+      "id": 26
+    },
+    {
+      "type": "timeseries",
+      "title": "STT: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 85
+      },
+      "targets": [
         {
-          "type": "timeseries",
-          "title": "Входящие запросы Telegram в секунду",
-          "gridPos": {
-            "h": 6,
-            "w": 24,
-            "x": 0,
-            "y": 85
-          },
-          "targets": [
-            {
-              "expr": "sum(rate(telegram_webhook_requests_total{client=\"telegram\"}[5m]))",
-              "legendFormat": "запросов в секунду",
-              "refId": "A"
-            }
-          ],
-          "fieldConfig": {
-            "defaults": {
-              "unit": "reqps",
-              "min": 0,
-              "custom": {
-                "axisLabel": "запросов в секунду"
-              }
-            },
-            "overrides": []
-          },
-          "description": "Среднее за 5 минут по входящим запросам Telegram, включая повторы.",
-          "id": 18
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"stt\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 27
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 85
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"llm\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 28
+    },
+    {
+      "type": "timeseries",
+      "title": "TTS: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 92
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"tts\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 29
+    },
+    {
+      "type": "timeseries",
+      "title": "Telegram API: вызовы в минуту",
+      "description": "Все исходящие обращения бота к Telegram API, включая загрузку файлов, ответы, индикаторы и служебные вызовы; среднее за 5 минут. Ошибки и повторные попытки учитываются. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 92
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"telegram_api\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 33
+    },
+    {
+      "type": "timeseries",
+      "title": "Все вызовы в минуту",
+      "description": "Попытки STT, LLM, TTS и Telegram API, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены из AI-вызовов. История каждой серии начинается с выката её счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 30
+    },
+    {
+      "type": "row",
+      "title": "Стоимость голосового обмена",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 106
+      },
+      "id": 34
+    },
+    {
+      "type": "stat",
+      "title": "Подтверждённые расходы / обмен, 24 ч",
+      "description": "Сумма цен, возвращённых провайдерами STT/LLM/TTS при обработке входящих голосовых, делённая на число распознанных голосовых с доставленным голосовым ответом. Нижняя граница реальных затрат: вызовы без цены не включены.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 107
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(speaking_voice_model_cost_micro_total[24h])) / 1000000 / (sum(increase(speaking_voice_exchanges_total[24h])) > 0)) and on() (sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) > 0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 35
+    },
+    {
+      "type": "stat",
+      "title": "Вызовов с известной ценой, 24 ч",
+      "description": "Доля вызовов STT/LLM/TTS, для которых получена цена провайдера. Это доля вызовов, а не доля денег; STT сейчас обычно без цены.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 107
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) / (sum(increase(speaking_voice_model_calls_total[24h])) > 0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 36
+    },
+    {
+      "type": "timeseries",
+      "title": "Подтверждённые расходы на обмен по дням",
+      "description": "Каждая точка: подтверждённые расходы на обработку входящих голосовых за предыдущие 24 часа / доставленные голосовые ответы на распознанные сообщения за те же 24 часа. Шаг графика — 1 день. Неизвестные цены не считаются нулевыми затратами; см. долю вызовов с известной ценой.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 114
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(speaking_voice_model_cost_micro_total[24h])) / 1000000 / (sum(increase(speaking_voice_exchanges_total[24h])) > 0)) and on() (sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) > 0)",
+          "interval": "1d",
+          "legendFormat": "$ за обмен",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "custom": {
+            "axisLabel": "$ за обмен"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 37
+    },
+    {
+      "type": "row",
+      "title": "Трафик Telegram",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 121
+      },
+      "id": 31
+    },
+    {
+      "type": "timeseries",
+      "title": "Входящие запросы Telegram · RPS",
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 0,
+        "y": 122
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(telegram_webhook_requests_total{client=\"telegram\"}[5m]))",
+          "legendFormat": "запросов в секунду",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "custom": {
+            "axisLabel": "запросов в секунду"
+          }
+        },
+        "overrides": []
+      },
+      "description": "Среднее за 5 минут по входящим запросам Telegram, включая повторы.",
+      "id": 18
+    },
+    {
+      "type": "stat",
+      "title": "Отправили хотя бы одно голосовое",
+      "description": "Уникальные Telegram-чаты с первого дня учёта. Один групповой чат считается одной единицей. Учитывается входящее голосовое, даже если его обработка завершилась ошибкой.",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 122
+      },
+      "targets": [
+        {
+          "expr": "speaking_telegram_voice_users",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 32
+    },
+    {
+      "type": "row",
+      "title": "Диагностика",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 129
+      },
+      "panels": [
         {
           "type": "timeseries",
           "title": "За сколько секунд человек получил ответ",
@@ -1009,7 +1385,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 91
+            "y": 130
           },
           "targets": [
             {
@@ -1042,7 +1418,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 99
+            "y": 138
           },
           "targets": [
             {
@@ -1075,7 +1451,7 @@
             "h": 3,
             "w": 24,
             "x": 0,
-            "y": 107
+            "y": 146
           },
           "targets": [
             {
@@ -1136,7 +1512,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 110
+            "y": 149
           },
           "targets": [
             {
@@ -1216,7 +1592,7 @@
             "h": 8,
             "w": 24,
             "x": 0,
-            "y": 118
+            "y": 157
           },
           "targets": [
             {
@@ -1283,11 +1659,11 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 126
+            "y": 165
           },
           "targets": [
             {
-              "expr": "(max by (day) (max_over_time(speaking_stt_seconds{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+              "expr": "(max by (day) (max_over_time(speaking_stt_seconds{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
               "format": "table",
               "instant": true,
               "refId": "A"
@@ -1367,11 +1743,11 @@
             "h": 7,
             "w": 24,
             "x": 0,
-            "y": 133
+            "y": 172
           },
           "targets": [
             {
-              "expr": "(max by (day) (max_over_time(speaking_tts_chars{client=\"telegram\"}[15d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[15d])) * 0))",
+              "expr": "(max by (day) (max_over_time(speaking_tts_chars{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
               "format": "table",
               "instant": true,
               "refId": "A"

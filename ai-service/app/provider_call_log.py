@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 
 from app.load_test import load_test_active
 from app.metrics_v2 import client_for, current_session
+from app.operational_metrics import PROVIDER_CALL_METRICS, current_voice_usage
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
@@ -84,9 +85,10 @@ def _emit(
     http_status: int | None, error_code: str | None, cost_micro: int | None, started: float,
 ) -> None:
     session = current_session()
+    is_load_test = load_test_active()
     event = {
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-        "source": "load_test" if load_test_active() else client_for(session),
+        "source": "load_test" if is_load_test else client_for(session),
         "user_id": anonymous_user_id(),
         "type": kind,
         "purpose": purpose,
@@ -98,4 +100,9 @@ def _emit(
         "duration_ms": int((time.perf_counter() - started) * 1000),
         "cost_micro_usd": cost_micro,
     }
+    if not is_load_test:
+        PROVIDER_CALL_METRICS.record(kind, result)
+        voice_usage = current_voice_usage()
+        if voice_usage is not None:
+            voice_usage.record(kind, result, cost_micro)
     logger.info("provider_call %s", json.dumps(event, separators=(",", ":"), ensure_ascii=True))

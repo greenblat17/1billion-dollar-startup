@@ -47,8 +47,9 @@ internal suspend fun buildTelegramWebhookBehaviour(
     callEvents: com.eliteteam.speakingcoach.analytics.CallEventRecorder? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
+    userIdHashKey: String = "",
 ): BehaviourContext {
-    val bot = speakingCoachTelegramBot(token, audit)
+    val bot = speakingCoachTelegramBot(token, audit, operationalMetrics, userIdHashKey)
     return bot.buildBehaviour(
         scope = scope,
         defaultExceptionsHandler = { error ->

@@ -108,6 +108,7 @@ async def test_telegram_journey_counts_distinct_users_at_cumulative_voice_milest
         "onlyStart": 0,
         "atLeast": {"1": 3, "3": 1, "5": 1, "10": 1, "20": 1},
     }
+    assert "speaking_telegram_voice_users 3\n" in store.prometheus(await store.snapshot())
 
 
 def test_action_endpoint_records_telegram_message_id_once() -> None:

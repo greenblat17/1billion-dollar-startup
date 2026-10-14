@@ -115,6 +115,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --web.listen-address=127.0.0.1:9090
       - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=185d
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./ai_token:/etc/prometheus/ai_token:ro

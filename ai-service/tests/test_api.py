@@ -170,7 +170,11 @@ def test_clips_with_wrong_internal_token_are_401() -> None:
 def test_prometheus_scrape_accepts_bearer_token() -> None:
     app, _, _, _ = build_app()
     with TestClient(app, headers={"Authorization": "Bearer test-internal-token"}) as client:
-        assert client.get("/internal/metrics/prometheus").status_code == 200
+        response = client.get("/internal/metrics/prometheus")
+        assert response.status_code == 200
+        assert "speaking_provider_calls_total" in response.text
+        assert "speaking_voice_model_cost_micro_total" in response.text
+        assert "speaking_voice_model_calls_total" in response.text
 
 
 def test_wrong_bearer_token_is_401() -> None:

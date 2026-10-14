@@ -159,7 +159,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, telegramMetrics, audit,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents,
+        telegramMetrics, audit, config.aiInternalToken,
     )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },

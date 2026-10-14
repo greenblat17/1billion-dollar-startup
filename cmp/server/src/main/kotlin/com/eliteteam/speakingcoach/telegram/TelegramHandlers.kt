@@ -193,8 +193,14 @@ internal fun telegramProfile(chat: Chat): ChatProfile {
     )
 }
 
-internal fun speakingCoachTelegramBot(token: String, audit: InteractionAudit? = null) =
+internal fun speakingCoachTelegramBot(
+    token: String,
+    audit: InteractionAudit? = null,
+    metrics: TelegramOperationalMetrics? = null,
+    userIdHashKey: String = "",
+) =
     telegramBot(token) { logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token) }
+        .let { if (metrics == null) it else MeasuredTelegramBot(it, metrics, userIdHashKey) }
         .let { if (audit == null) it else AuditedTelegramBot(it, audit) }
 
 internal fun BehaviourContext.installSpeakingCoachHandlers(
@@ -1002,6 +1008,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     delivered && result.reply.audio != null -> "delivered"
                     delivered && result.reply.text.isNotBlank() -> "text_fallback"
                     else -> "other_failed"
+                }
+                if (deliveryOutcome == "delivered" && result.reply.transcript.isNotBlank()) {
+                    operationalMetrics?.recordCompletedVoiceExchange()
                 }
                 recordVoiceAttempt(message, receivedAt, eligible = true, outcome = deliveryOutcome,
                     stage = when (deliveryOutcome) {

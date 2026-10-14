@@ -11,6 +11,8 @@ from app.main import _build_pipeline
 from app.config import Settings
 from app import tts as tts_module
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TtsAudio
+from app.metrics_v2 import MemoryMetricsV2, bind_metrics, reset_metrics
+from app.operational_metrics import VoiceModelUsage, bind_voice_usage, reset_voice_usage
 from tests.conftest import test_settings as make_settings
 
 
@@ -30,6 +32,34 @@ async def test_openrouter_mp3_is_returned_without_ffmpeg(monkeypatch) -> None:
     )
     tts = OpenAiTextToSpeech(client, "x-ai/grok-voice-tts-1.0", "ara", "mp3", "ffmpeg")
     assert await tts.synthesize("Hello") == TtsAudio(b"ID3audio", "audio/mpeg")
+
+
+@pytest.mark.asyncio
+async def test_voice_usage_settles_tts_price_after_generation_lookup(monkeypatch) -> None:
+    async def create(**_kwargs):
+        return SimpleNamespace(headers={"generation-id": "gen-1"}, parse=lambda: b"ID3audio")
+
+    async def known_cost(_client, _headers):
+        return 456
+
+    monkeypatch.setattr(tts_module, "_openrouter_cost", known_cost)
+    client = SimpleNamespace(
+        base_url="https://openrouter.ai/api/v1",
+        audio=SimpleNamespace(speech=SimpleNamespace(with_raw_response=SimpleNamespace(create=create))),
+    )
+    tts = OpenAiTextToSpeech(client, "x-ai/grok-voice-tts-1.0", "ara", "mp3", "ffmpeg")
+    tts._v2 = MemoryMetricsV2()
+    usage = VoiceModelUsage()
+    voice_token = bind_voice_usage(usage)
+    session_token = bind_metrics("tg-1")
+    try:
+        assert await tts.synthesize("Hello") == TtsAudio(b"ID3audio", "audio/mpeg")
+    finally:
+        reset_metrics(session_token)
+        reset_voice_usage(voice_token)
+    assert usage.attempts["tts"] == 1
+    assert usage.priced["tts"] == 1
+    assert usage.cost_micro["tts"] == 456
 
 
 @pytest.mark.asyncio

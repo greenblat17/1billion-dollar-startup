@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -16,8 +17,8 @@ from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
 from app.load_test import load_test_active
 from app.metrics import MetricsStore
-from app.metrics_v2 import current_session, read_provider_cost
-from app.operational_metrics import telegram_stage
+from app.metrics_v2 import client_for, current_session, read_provider_cost
+from app.operational_metrics import LLM_GENERATION_METRICS, telegram_stage
 from app.provider_call_log import anonymous_user_id, logged_provider_call, provider_from_url
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
@@ -309,6 +310,10 @@ class OpenAiChatModel:
                         max_completion_tokens=token_limit,
                         response_format=response_format or {"type": "json_object"},
                         extra_body=extra_body or None,
+                        extra_headers=(
+                            {"X-OpenRouter-Metadata": "enabled"}
+                            if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else None
+                        ),
                     ),
                     kind="llm", provider=provider_from_url(getattr(self._client, "base_url", None)),
                     model=model_name, purpose=purpose, cost_of=read_provider_cost,
@@ -330,6 +335,9 @@ class OpenAiChatModel:
                 await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
                 raise
             prompt_tokens, completion_tokens = read_usage(response)
+            generation_ms = read_generation_time_ms(response)
+            if client_for(current_session()) == "telegram" and not load_test_active() and generation_ms is not None:
+                LLM_GENERATION_METRICS.record(completion_tokens, generation_ms)
             if load_test_active():
                 logger.info(
                     "load_test_llm_usage session=%s purpose=%s model=%s outcome=ok elapsed_ms=%d "
@@ -450,6 +458,22 @@ def read_usage(response: Any) -> tuple[int, int]:
         prompt = getattr(usage, "prompt_tokens", None)
         completion = getattr(usage, "completion_tokens", None)
     return _nonneg_token(prompt), _nonneg_token(completion)
+
+
+def read_generation_time_ms(response: Any) -> float | None:
+    """Read OpenRouter's opt-in output generation time, in milliseconds."""
+    metadata = getattr(response, "openrouter_metadata", None)
+    if metadata is None:
+        extras = getattr(response, "model_extra", None) or {}
+        metadata = extras.get("openrouter_metadata") if isinstance(extras, dict) else None
+    raw = metadata.get("generation_time") if isinstance(metadata, dict) else getattr(metadata, "generation_time", None)
+    if isinstance(raw, bool):
+        return None
+    try:
+        duration = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return duration if math.isfinite(duration) and duration > 0 else None
 
 
 def read_reasoning_tokens(response: Any) -> int | None:

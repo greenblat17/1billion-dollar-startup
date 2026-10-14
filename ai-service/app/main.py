@@ -29,7 +29,10 @@ from app.logging_setup import configure_process_logging
 from app.provider_call_log import configure_user_id_hash_key
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
-from app.operational_metrics import STAGE_METRICS
+from app.operational_metrics import (
+    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, STAGE_METRICS, VOICE_MODEL_METRICS,
+    VoiceModelUsage, bind_voice_usage, reset_voice_usage,
+)
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_job_timings
@@ -203,7 +206,11 @@ def create_app(
             v2_snapshot = await v2.snapshot()
             v2_snapshot["day"] = payload.get("day", "")
             body = v2.prometheus(v2_snapshot)
-        return Response(content=body + STAGE_METRICS.prometheus(), media_type="text/plain; version=0.0.4")
+        return Response(
+            content=body + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
+            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus(),
+            media_type="text/plain; version=0.0.4",
+        )
 
     @app.post("/internal/metrics/action")
     async def metrics_action(request: Request) -> dict[str, bool]:
@@ -786,6 +793,8 @@ async def _run_job(
 ) -> None:
     started = time.perf_counter()
     load_test_token = bind_load_test(load_test)
+    voice_usage = VoiceModelUsage() if job.session_id.startswith("tg-") and not load_test else None
+    voice_usage_token = bind_voice_usage(voice_usage)
     provider_metrics_token = bind_provider_metrics(pipeline.metrics)
     job_timings: dict[str, int] = {}
     timings_token = bind_job_timings(job_timings)
@@ -833,6 +842,9 @@ async def _run_job(
         await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id,
                                   job_id=job.job_id, attempt_id=job.attempt_id, reason=reason)
     finally:
+        if voice_usage is not None:
+            VOICE_MODEL_METRICS.record(voice_usage)
+        reset_voice_usage(voice_usage_token)
         reset_writer(audit_token)
         reset_receipt_time(receipt_token)
         reset_job_timings(timings_token)

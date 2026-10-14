@@ -13,6 +13,7 @@ from app.metrics_v2 import cost_micro, current_session
 from app.load_test import load_test_active
 from app.retry import once_on_retryable
 from app.provider_call_log import anonymous_user_id, logged_provider_call
+from app.operational_metrics import current_voice_usage
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ class OpenAiTextToSpeech:
             cost_started = time.perf_counter()
             cost = await _openrouter_cost(self._client, headers)
             cost_ms = int((time.perf_counter() - cost_started) * 1000)
+            voice_usage = current_voice_usage()
+            if voice_usage is not None:
+                voice_usage.settle_tts(cost)
             await self._v2.record_tts("", self._model, len(text), cost)
             if load_test_active():
                 logger.info(

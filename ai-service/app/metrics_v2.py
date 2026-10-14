@@ -574,6 +574,10 @@ def _model_row(models, kind, model):
 
 def _prometheus(snapshot: dict[str, Any]) -> str:
     lines = []
+    journey = snapshot.get("telegramJourney")
+    if journey is not None:
+        lines.append("# TYPE speaking_telegram_voice_users gauge")
+        lines.append(f"speaking_telegram_voice_users {journey['atLeast']['1']}")
     for column in snapshot.get("clients", []):
         client = column["client"]
         day = snapshot.get("day", "")

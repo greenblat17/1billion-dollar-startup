@@ -8,7 +8,10 @@ import httpx
 import pytest
 
 from app.llm import OpenAiChatModel
+from app.load_test import bind_load_test, reset_load_test
 from app.metrics_v2 import bind_metrics, reset_metrics
+from app.operational_metrics import ProviderCallMetrics, VoiceModelUsage, bind_voice_usage, reset_voice_usage
+from app import provider_call_log
 from app.provider_call_log import anonymous_user_id, configure_user_id_hash_key, logged_provider_call
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech
@@ -109,8 +112,10 @@ async def test_stt_log_has_model_and_unknown_cost(caplog):
 
 
 @pytest.mark.asyncio
-async def test_tts_retry_logs_both_http_attempts(caplog):
+async def test_tts_retry_logs_and_counts_both_http_attempts(caplog, monkeypatch):
     attempts = 0
+    metrics = ProviderCallMetrics()
+    monkeypatch.setattr(provider_call_log, "PROVIDER_CALL_METRICS", metrics)
 
     def respond(_request):
         nonlocal attempts
@@ -129,3 +134,45 @@ async def test_tts_retry_logs_both_http_attempts(caplog):
     ]
     assert events[0]["error_code"] == "HTTPStatusError"
     assert "private text" not in caplog.text and "test-key" not in caplog.text
+    assert 'type="tts",result="error"} 1' in metrics.prometheus()
+    assert 'type="tts",result="success"} 1' in metrics.prometheus()
+
+
+@pytest.mark.asyncio
+async def test_load_test_call_is_logged_but_not_counted(caplog, monkeypatch):
+    metrics = ProviderCallMetrics()
+    monkeypatch.setattr(provider_call_log, "PROVIDER_CALL_METRICS", metrics)
+    bound = bind_load_test(True)
+    try:
+        with caplog.at_level(logging.INFO, logger="app.provider_call_log"):
+            await logged_provider_call(
+                lambda: asyncio.sleep(0, result="ok"),
+                kind="llm", provider="openrouter", model="test",
+            )
+    finally:
+        reset_load_test(bound)
+    assert _events(caplog)[0]["source"] == "load_test"
+    assert 'type="llm",result="success"} 0' in metrics.prometheus()
+
+
+@pytest.mark.asyncio
+async def test_provider_attempt_is_attributed_only_to_bound_voice_job():
+    usage = VoiceModelUsage()
+    token = bind_voice_usage(usage)
+    try:
+        await logged_provider_call(
+            lambda: asyncio.sleep(0, result="ok"), kind="llm", provider="openrouter", model="test",
+            cost_of=lambda _response: 73,
+        )
+        await logged_provider_call(
+            lambda: asyncio.sleep(0, result="audio"), kind="tts", provider="openrouter", model="test",
+        )
+        usage.settle_tts(None)
+    finally:
+        reset_voice_usage(token)
+    await logged_provider_call(
+        lambda: asyncio.sleep(0, result="outside"), kind="llm", provider="openrouter", model="test",
+    )
+    assert usage.attempts == {"stt": 0, "llm": 1, "tts": 1}
+    assert usage.priced == {"stt": 0, "llm": 1, "tts": 0}
+    assert usage.cost_micro["llm"] == 73
