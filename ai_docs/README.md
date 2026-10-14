@@ -13,6 +13,7 @@ when changing product behavior, UI, navigation, or backend contracts. Put new de
 these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
 Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
 Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
 Agreed interaction history and service logs: `architecture/2026-10-05-conversation-audit-logging.md`.

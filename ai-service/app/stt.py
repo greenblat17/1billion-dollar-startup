@@ -13,6 +13,7 @@ from app.load_test import load_test_active
 from app.metrics_v2 import current_session
 from app.retry import once_on_retryable
 from app.operational_metrics import telegram_stage
+from app.provider_call_log import logged_provider_call, provider_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +63,16 @@ class GroqSpeechToText:
 
     async def _transcribe_file(self, audio: bytes, filename: str, content_type: str, language: str | None) -> SttResult:
         async def call() -> Any:
-            return await self._client.audio.transcriptions.create(
+            return await logged_provider_call(
+                lambda: self._client.audio.transcriptions.create(
+                    model=self._model,
+                    file=(filename, audio, content_type),
+                    **({"language": language} if language else {}),
+                    response_format="verbose_json",
+                    timestamp_granularities=["word"],
+                ),
+                kind="stt", provider=provider_from_url(getattr(self._client, "base_url", None)),
                 model=self._model,
-                file=(filename, audio, content_type),
-                **({"language": language} if language else {}),
-                response_format="verbose_json",
-                timestamp_granularities=["word"],
             )
 
         response = await once_on_retryable(call, metric_service="stt", metric_provider="groq")

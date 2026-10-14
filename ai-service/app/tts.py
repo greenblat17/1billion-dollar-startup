@@ -12,6 +12,7 @@ from app.audio import to_ogg_opus
 from app.metrics_v2 import cost_micro, current_session
 from app.load_test import load_test_active
 from app.retry import once_on_retryable
+from app.provider_call_log import anonymous_user_id, logged_provider_call
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,9 @@ class OpenAiTextToSpeech:
             except APIStatusError as error:
                 response_headers = error.response.headers
                 logger.warning(
-                    "TTS HTTP error session=%s model=%s voice=%s format=%s input_chars=%d "
+                    "TTS HTTP error user_id=%s model=%s voice=%s format=%s input_chars=%d "
                     "status=%d elapsed_ms=%.0f cf_ray=%s generation_id=%s request_id=%s",
-                    current_session(), self._model, self._voice, self._response_format, len(text),
+                    anonymous_user_id(), self._model, self._voice, self._response_format, len(text),
                     error.status_code, (time.perf_counter() - started) * 1000,
                     response_headers.get("cf-ray"), response_headers.get("x-generation-id"),
                     response_headers.get("x-request-id"),
@@ -84,7 +85,10 @@ class OpenAiTextToSpeech:
         try:
             provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
             provider_started = time.perf_counter()
-            response, headers = await once_on_retryable(call, metric_service="tts", metric_provider=provider)
+            response, headers = await once_on_retryable(
+                lambda: logged_provider_call(call, kind="tts", provider=provider, model=self._model),
+                metric_service="tts", metric_provider=provider,
+            )
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error("", "tts", "failed")
@@ -126,8 +130,11 @@ class DeepgramTextToSpeech:
         self._ffmpeg_bin = ffmpeg_bin
 
     async def synthesize(self, text: str, speed: float | None = None) -> TtsAudio:
-        response = await once_on_retryable(lambda: self._request(text, speed), metric_service="tts",
-                                           metric_provider="deepgram")
+        response = await once_on_retryable(
+            lambda: logged_provider_call(
+                lambda: self._request(text, speed), kind="tts", provider="deepgram", model=self._model,
+            ), metric_service="tts", metric_provider="deepgram",
+        )
         if response.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "audio/mpeg":
             raise RuntimeError("deepgram tts returned an unsupported audio type")
         if not response.content:

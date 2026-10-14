@@ -7,6 +7,8 @@ from openai import AsyncOpenAI
 
 from app.llm import metered_completion
 from app.metrics import MetricsStore
+from app.metrics_v2 import read_provider_cost
+from app.provider_call_log import logged_provider_call, provider_from_url
 
 REVIEW_SYSTEM = """You score a spoken English conversation for an on-screen review.
 
@@ -39,15 +41,19 @@ class OpenAiSessionReviewer:
         )
 
         async def call() -> Any:
-            return await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": REVIEW_SYSTEM},
-                    {"role": "user", "content": transcript},
-                ],
-                temperature=0.0,
-                max_completion_tokens=self._max_tokens,
-                response_format={"type": "json_object"},
+            return await logged_provider_call(
+                lambda: self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[
+                        {"role": "system", "content": REVIEW_SYSTEM},
+                        {"role": "user", "content": transcript},
+                    ],
+                    temperature=0.0,
+                    max_completion_tokens=self._max_tokens,
+                    response_format={"type": "json_object"},
+                ),
+                kind="llm", provider=provider_from_url(getattr(self._client, "base_url", None)),
+                model=self._model, purpose="session_review", cost_of=read_provider_cost,
             )
 
         response = await metered_completion(call, self._metrics, "session_review")

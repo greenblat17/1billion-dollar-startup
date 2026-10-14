@@ -26,8 +26,9 @@ from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_
 from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
 from app.llm import OpenAiChatModel
 from app.logging_setup import configure_process_logging
+from app.provider_call_log import configure_user_id_hash_key
 from app.metrics import MetricsStore, build_metrics_store
-from app.metrics_v2 import build_metrics_v2
+from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
 from app.operational_metrics import STAGE_METRICS
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
@@ -70,6 +71,7 @@ def create_app(
     if not settings.ai_internal_token:
         raise RuntimeError("AI_INTERNAL_TOKEN is required")
     configure_process_logging(settings.log_level, settings.log_file)
+    configure_user_id_hash_key(settings.ai_internal_token)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
     onboarding = OnboardingService(
@@ -625,7 +627,11 @@ def create_app(
             for item in turns_raw
             if isinstance(item, dict)
         ]
-        return await session_reviewer.review(turns)
+        bound = bind_metrics(str(payload.get("sessionId") or ""), str(payload.get("platform") or ""))
+        try:
+            return await session_reviewer.review(turns)
+        finally:
+            reset_metrics(bound)
 
     return app
 

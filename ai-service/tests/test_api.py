@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.llm import Correction
+from app.metrics_v2 import client_for, current_session
 from app.main import create_app
 from app.onboarding_model import OnboardingModel
 from app.dialogue import MemoryDialogueStore
@@ -369,7 +370,13 @@ def test_clip_includes_coaching_notes() -> None:
 
 def test_internal_realtime_and_review() -> None:
     realtime = FakeRealtime()
-    reviewer = FakeReviewer()
+    class CheckingReviewer(FakeReviewer):
+        async def review(self, turns):
+            assert current_session() == "app-test-user-test-session"
+            assert client_for(current_session()) == "ios"
+            return await super().review(turns)
+
+    reviewer = CheckingReviewer()
     app, _, _, _ = build_app(realtime=realtime, reviewer=reviewer)
     with _client(app) as client:
         created = client.post(
@@ -390,6 +397,8 @@ def test_internal_realtime_and_review() -> None:
         reviewed = client.post(
             "/internal/review",
             json={
+                "sessionId": "app-test-user-test-session",
+                "platform": "ios",
                 "turns": [
                     {"role": "user", "text": "I work here since 2023."},
                 ]

@@ -18,6 +18,7 @@ from app.load_test import load_test_active
 from app.metrics import MetricsStore
 from app.metrics_v2 import current_session, read_provider_cost
 from app.operational_metrics import telegram_stage
+from app.provider_call_log import anonymous_user_id, logged_provider_call, provider_from_url
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX, ROLEPLAY_IDENTITY
@@ -217,14 +218,14 @@ class OpenAiChatModel:
             except CompletionTokenLimitError:
                 if attempt == 1:
                     raise
-                logger.warning("Reply token limit reached; retrying once session=%s", current_session())
+                logger.warning("Reply token limit reached; retrying once user_id=%s", anonymous_user_id())
                 continue
             try:
                 return parse_reply(text)
             except json.JSONDecodeError:
                 if attempt == 1:
                     raise
-                logger.warning("Reply JSON invalid; retrying once session=%s", current_session())
+                logger.warning("Reply JSON invalid; retrying once user_id=%s", anonymous_user_id())
         raise AssertionError("unreachable reply attempt")
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
@@ -300,13 +301,17 @@ class OpenAiChatModel:
                 extra_body["reasoning"] = {"effort": reasoning_effort}
             started = time.perf_counter()
             try:
-                response = await self._client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    max_completion_tokens=token_limit,
-                    response_format=response_format or {"type": "json_object"},
-                    extra_body=extra_body or None,
+                response = await logged_provider_call(
+                    lambda: self._client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=temperature,
+                        max_completion_tokens=token_limit,
+                        response_format=response_format or {"type": "json_object"},
+                        extra_body=extra_body or None,
+                    ),
+                    kind="llm", provider=provider_from_url(getattr(self._client, "base_url", None)),
+                    model=model_name, purpose=purpose, cost_of=read_provider_cost,
                 )
             except Exception as error:
                 if load_test_active():
@@ -317,10 +322,10 @@ class OpenAiChatModel:
                     )
                 if operation:
                     logger.warning(
-                        "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                        "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
                         "finish_reason=unavailable prompt_tokens=unavailable completion_tokens=unavailable "
                         "reasoning_tokens=unavailable error_type=%s",
-                        current_session(), operation, model_name, token_limit, type(error).__name__,
+                        anonymous_user_id(), operation, model_name, token_limit, type(error).__name__,
                     )
                 await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
                 raise
@@ -335,9 +340,9 @@ class OpenAiChatModel:
             if operation:
                 choices = getattr(response, "choices", None) or []
                 logger.info(
-                    "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                    "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
                     "finish_reason=%s prompt_tokens=%d completion_tokens=%d reasoning_tokens=%s",
-                    current_session(), operation, model_name, token_limit,
+                    anonymous_user_id(), operation, model_name, token_limit,
                     getattr(choices[0], "finish_reason", None) if choices else None,
                     prompt_tokens, completion_tokens, read_reasoning_tokens(response),
                 )

@@ -9,7 +9,9 @@ internal interface InternalAi {
         platform: String? = null,
     ): RealtimeCall
 
-    suspend fun review(turns: List<TranscriptTurn>): InternalReviewResponse
+    suspend fun review(
+        turns: List<TranscriptTurn>, sessionId: String = "", platform: String? = null,
+    ): InternalReviewResponse
 
     suspend fun noteSession(sessionId: String, action: String, platform: String?) {}
 }

@@ -161,7 +161,13 @@ class ClipPipeline:
         on_stage: Callable[[str], None] | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
-        bound = bind_metrics(session_id)
+        platform = None
+        if session_id.startswith("app-") and self._v2 is not None:
+            try:
+                platform = await self._v2.platform_of(session_id)
+            except Exception:
+                logger.warning("could not resolve client platform for provider logs")
+        bound = bind_metrics(session_id, platform)
         try:
             return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
         finally:

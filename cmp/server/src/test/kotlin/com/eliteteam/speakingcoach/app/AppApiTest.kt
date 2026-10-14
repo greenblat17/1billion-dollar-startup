@@ -257,7 +257,9 @@ private class FakeInternalAi : InternalAi {
         return RealtimeCall(sdpAnswer = "v=0 answer", openaiCallId = "rtc_test")
     }
 
-    override suspend fun review(turns: List<TranscriptTurn>): InternalReviewResponse =
+    override suspend fun review(
+        turns: List<TranscriptTurn>, sessionId: String, platform: String?,
+    ): InternalReviewResponse =
         InternalReviewResponse(
             steps = listOf(
                 ReviewStepDto(
