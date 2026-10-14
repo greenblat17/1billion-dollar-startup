@@ -19,10 +19,11 @@ internal fun adminOverviewHtml(
     val days = generateSequence(range.from) { previous -> previous.plusDays(1).takeIf { it <= range.to } }
         .map(LocalDate::toString).toList()
     val observedModels = days.mapNotNull(byModel::get)
-    val fullJournal = usage?.firstObservedDay?.let { it <= range.from.toString() } == true
-    val fullModels = models?.modelSince?.let { it.isNotBlank() && it <= range.from.toString() } == true
+    // The first recorded date may begin after midnight, so ratios require later days.
+    val fullJournal = usage?.firstObservedDay?.let { it < range.from.toString() } == true
+    val fullModels = models?.modelSince?.let { it.isNotBlank() && it < range.from.toString() } == true
     val fullVoiceCost = fullJournal && fullModels &&
-        models.voiceLlmSince.let { it.isNotBlank() && it <= range.from.toString() }
+        models.voiceLlmSince.let { it.isNotBlank() && it < range.from.toString() }
     val llm = observedModels.sumOf { it.llmCalls }
     val stt = observedModels.sumOf { it.sttCalls }
     val tts = observedModels.sumOf { it.ttsCalls }
@@ -69,7 +70,7 @@ internal fun adminOverviewHtml(
         </section>
         <p class="coverage">История действий: с ${escapeHtml(journalSince)} (PostgreSQL хранит 30 дней).
         История моделей: с ${escapeHtml(modelSince)} (Redis хранит 30 дней); дни без вызовов после этой даты показаны нулями.
-        Стоимость LLM для голосовых собирается с ${escapeHtml(models?.voiceLlmSince?.ifBlank { "первого измеренного обращения" } ?: "первого измеренного обращения")}; неизвестная цена не считается нулём.</p>
+        Стоимость LLM для голосовых собирается с ${escapeHtml(models?.voiceLlmSince?.ifBlank { "первого измеренного обращения" } ?: "первого измеренного обращения")}; первый день каждого источника может быть неполным и не входит в расчёт итоговых карточек. Неизвестная цена не считается нулём.</p>
         <div class="chart-grid">
           ${overviewChart("Активные чаты", days, listOf(ChartLine("Чаты", "#2563eb", days.map { byUsage[it]?.activeChats })), usage != null)}
           ${overviewChart("Голосовые и ответы", days, listOf(

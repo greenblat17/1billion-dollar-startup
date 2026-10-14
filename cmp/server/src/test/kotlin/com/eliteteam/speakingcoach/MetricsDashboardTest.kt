@@ -277,11 +277,11 @@ class MetricsDashboardTest {
         val day = "2026-10-13"
         val html = adminOverviewHtml(
             LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
-            AdminModelOverview(totalChats = 197, modelSince = day, voiceLlmSince = day, days = listOf(AdminModelDay(day, tracked = true,
+            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", voiceLlmSince = "2026-10-12", days = listOf(AdminModelDay(day, tracked = true,
                 llmCalls = 265, sttCalls = 94, ttsCalls = 96, voiceLlmCalls = 4,
                 voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000))),
             AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
-                exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), day),
+                exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), "2026-10-12"),
             listOf(AdminProviderError("2026-10-13T12:00:00Z", "tts", "rate_limit")),
         )
         assertTrue(html.contains("<dd>69.0</dd>"))
@@ -301,10 +301,10 @@ class MetricsDashboardTest {
 
         val quietDay = adminOverviewHtml(
             LlmRange(LocalDate.parse(day), LocalDate.parse("2026-10-14")),
-            AdminModelOverview(totalChats = 197, modelSince = day, days = listOf(
+            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", days = listOf(
                 AdminModelDay(day, tracked = true, llmCalls = 2), AdminModelDay("2026-10-14"))),
             AdminUsageOverview(1, listOf(AdminUsageDay(day, activeChats = 1),
-                AdminUsageDay("2026-10-14")), day),
+                AdminUsageDay("2026-10-14")), "2026-10-12"),
         )
         assertTrue(quietDay.contains("<dt>Вызовов / активный чат</dt><dd>2.0</dd>"))
     }
