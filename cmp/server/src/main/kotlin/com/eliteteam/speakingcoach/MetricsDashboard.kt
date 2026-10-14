@@ -9,6 +9,7 @@ import com.eliteteam.speakingcoach.analytics.JourneyMode
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
@@ -44,6 +45,7 @@ import javax.crypto.spec.SecretKeySpec
 
 internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
+internal const val METRICS_DETAILS_PATH = "$METRICS_PATH/details"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
 internal const val ERRORS_PATH = "/admin/metrics/errors"
@@ -61,6 +63,7 @@ private const val METRICS_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60
 internal fun interface MetricsSource {
     suspend fun load(): MetricsSnapshot
     suspend fun llmRange(range: LlmRange): LlmRequestPeriod? = null
+    suspend fun adminOverview(range: LlmRange): AdminModelOverview? = null
     suspend fun reminderSummary(): ReminderClockSummary? = null
     suspend fun callFeedback(offset: Int, limit: Int): com.eliteteam.speakingcoach.ai.CallFeedbackList? = null
 }
@@ -76,12 +79,32 @@ internal class MetricsDashboard(
     val onboarding: OnboardingAnalytics? = null,
     val voiceAttempts: VoiceAttemptRecorder? = null,
     val callEvents: CallEventRecorder? = null,
+    val usage: AdminUsageStore? = null,
+    val logs: AdminLogSource? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
 internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
     val log = LoggerFactory.getLogger("MetricsDashboard")
     get("/admin/metrics") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val range = call.overviewRangeOrRespond() ?: return@get
+        val models = try { dashboard.source.adminOverview(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview model metrics unavailable", error); null }
+        val usage = try { dashboard.usage?.load(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
+        val providerErrors = try { dashboard.logs?.recentProviderErrors(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview provider logs unavailable", error); null }
+        call.respondText(adminOverviewHtml(range, models, usage, providerErrors), ContentType.Text.Html)
+    }.hide()
+    get(METRICS_DETAILS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
@@ -398,6 +421,23 @@ private suspend fun ApplicationCall.llmRangeOrRespond(): LlmRange? {
     return range
 }
 
+private suspend fun ApplicationCall.overviewRangeOrRespond(): LlmRange? {
+    val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+    val fromText = request.queryParameters["from"]
+    val toText = request.queryParameters["to"]
+    val range = try {
+        if (fromText == null && toText == null) LlmRange(today.minusDays(6), today)
+        else LlmRange(LocalDate.parse(requireNotNull(fromText)), LocalDate.parse(requireNotNull(toText)))
+    } catch (_: Exception) { null }
+    if (range == null || range.to < range.from || range.to > today ||
+        java.time.temporal.ChronoUnit.DAYS.between(range.from, range.to) >= 30
+    ) {
+        respondText("Неверный период: выберите до 30 дней", status = HttpStatusCode.BadRequest)
+        return null
+    }
+    return range
+}
+
 internal fun metricsSessionToken(password: String): String {
     val mac = Mac.getInstance("HmacSHA256")
     mac.init(SecretKeySpec(password.toByteArray(Charsets.UTF_8), "HmacSHA256"))
@@ -486,9 +526,9 @@ internal fun metricsReportHtml(
         </head>
         <body>
         <h1>Speaky</h1>
-        ${adminTabs(METRICS_PATH)}
+        ${adminTabs(METRICS_DETAILS_PATH)}
         <h2>Запросы к LLM</h2>
-        ${llmRangeForm(METRICS_PATH, range)}
+        ${llmRangeForm(METRICS_DETAILS_PATH, range)}
         <p class="meta">${range.from} — ${range.to} включительно · Europe/Moscow · все пользователи.</p>
         <dl>
         ${card("Запросы к LLM", llm?.requests?.toString() ?: "—")}
@@ -648,6 +688,7 @@ internal fun card(label: String, value: String): String {
 internal fun adminTabs(active: String, root: String = "/admin/metrics"): String {
     val tabs = buildList {
         add(root to "Сводка")
+        if (root == METRICS_PATH) add(METRICS_DETAILS_PATH to "Подробная сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
         if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")

@@ -228,6 +228,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
         if (appApi != null) {
             installAppPlugins(appApi)
         }
+        val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
+            config.databaseUrl?.let(::PostgresAdminUsageStore)
+        adminUsage?.let { store -> monitor.subscribe(ApplicationStopped) { store.close() } }
         installSpeakingCoachHttp(
             metrics = metricsDashboard(
                 config,
@@ -238,6 +241,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 onboarding = onboardingAnalytics,
                 voiceAttempts = voiceAttempts,
                 callEvents = callEvents,
+                usage = adminUsage,
+                logs = LokiAdminLogSource(),
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -317,10 +322,13 @@ internal fun Application.module(
     val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val voiceAttempts = source?.let { VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), voiceScope) }
     val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
+    val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
+        config.databaseUrl?.let(::PostgresAdminUsageStore)
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
         runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
         voiceScope.cancel()
+        adminUsage?.close()
     }
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
@@ -332,6 +340,8 @@ internal fun Application.module(
             onboarding = onboardingAnalytics,
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
+            usage = adminUsage,
+            logs = if (config.databaseUrl == null) null else LokiAdminLogSource(),
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -370,12 +380,14 @@ private fun Application.metricsDashboard(
     onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: CallEventRecorder? = null,
+    usage: AdminUsageStore? = null,
+    logs: AdminLogSource? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage, logs)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

@@ -415,9 +415,12 @@ internal fun monitoringReportHtml(snapshot: MetricsSnapshot): String {
 private fun telegramJourneyHtml(snapshot: MetricsSnapshot): String {
     val journey = snapshot.v2?.telegramJourney ?: return ""
     val since = if (journey.since.isBlank()) "Учёт ещё не начался." else "Учёт с ${escapeHtml(journey.since)}."
+    val voiceHistory = if (journey.firstVoiceSince.isNotBlank())
+        "Чаты с ≥1 ГС учтены с ${escapeHtml(journey.firstVoiceSince)} по старой воронке; пороги 3/5/10/20 ГС и Start — с ${escapeHtml(journey.since)}."
+    else "Пороги голосовых включают друг друга."
     return """
         <h2>Telegram · путь от Start до голосовых</h2>
-        <p class="meta">$since Накопительные числа пользователей с момента включения учёта, без восстановления прошлых сообщений. Пороги голосовых включают друг друга.</p>
+        <p class="meta">$since $voiceHistory Накопительные числа чатов; старое количество сообщений каждого чата не восстановлено.</p>
         <dl>
         ${card("Только Start, без ГС", journey.onlyStart.toString())}
         ${card("≥1 ГС", (journey.atLeast["1"] ?: 0).toString())}

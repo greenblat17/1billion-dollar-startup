@@ -13,6 +13,7 @@ when changing product behavior, UI, navigation, or backend contracts. Put new de
 these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
 Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
 Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.

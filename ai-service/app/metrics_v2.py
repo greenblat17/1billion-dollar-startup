@@ -22,6 +22,10 @@ _TELEGRAM_RECEIPT_TTL = 7 * 24 * 60 * 60
 _TELEGRAM_JOURNEY_SINCE = "metrics:v2:telegram:journey:since"
 _TELEGRAM_JOURNEY_ONLY_START = "metrics:v2:telegram:journey:only-start"
 _TELEGRAM_JOURNEY_MILESTONES = "metrics:v2:telegram:journey:milestones"
+_TELEGRAM_HISTORICAL_VOICE_USERS = "metrics:v2:telegram:journey:historical-only"
+_TELEGRAM_HISTORICAL_BACKFILL_DONE = "metrics:v2:telegram:journey:historical-backfill-done"
+_TELEGRAM_HISTORICAL_VOICE_SINCE = "2026-09-24"
+_VOICE_LLM_COST_SINCE = "metrics:v2:voice-llm-cost:since"
 _TELEGRAM_MESSAGE_ID = re.compile(r"message:[0-9]+\Z")
 _session: ContextVar[str] = ContextVar("metrics_v2_session", default="")
 _platform: ContextVar[str] = ContextVar("metrics_v2_platform", default="")
@@ -116,6 +120,12 @@ class MetricsV2:
 
     async def snapshot(self, *, now: float | None = None) -> dict[str, Any]: ...
 
+    async def overview(self, from_day: str, to_day: str) -> dict[str, Any]: ...
+
+    async def record_voice_llm_usage(
+        self, session_id: str, calls: int, priced_calls: int, cost_micro_usd: int, *, now: float | None = None,
+    ) -> None: ...
+
     def prometheus(self, snapshot: dict[str, Any]) -> str: ...
 
 
@@ -132,6 +142,7 @@ class MemoryMetricsV2(MetricsV2):
         self._telegram_voice_counts: dict[str, int] = {}
         self._telegram_milestones = {threshold: 0 for threshold in _TELEGRAM_VOICE_MILESTONES}
         self._telegram_since = ""
+        self._voice_llm_cost_since = ""
 
     async def record_llm(self, session_id, kind, model, prompt_tokens, completion_tokens, cost, *, platform=None, now=None):
         if load_test_active():
@@ -243,6 +254,24 @@ class MemoryMetricsV2(MetricsV2):
     def prometheus(self, snapshot):
         return _prometheus(snapshot)
 
+    async def overview(self, from_day: str, to_day: str) -> dict[str, Any]:
+        days = _overview_days(from_day, to_day)
+        model_since = min((day for day, client in self.days if client == "telegram"), default="")
+        return {
+            "totalChats": len({session for session in self._telegram_voice_counts} | self._telegram_only_start),
+            "modelSince": model_since,
+            "voiceLlmSince": self._voice_llm_cost_since,
+            "days": [_overview_day(day, self.days.get((day, "telegram"), {})) for day in days],
+        }
+
+    async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):
+        if load_test_active() or calls <= 0:
+            return
+        self._voice_llm_cost_since = self._voice_llm_cost_since or metrics_day(now if now is not None else time.time())
+        await self._add(session_id, None, now, "voice_llm", "usage", "", {
+            "calls": calls, "priced": priced_calls, "cost": cost_micro_usd,
+        }, priced_calls > 0)
+
     async def _scope(self, session_id, platform, now):
         session = (session_id or current_session()).strip()
         if not session:
@@ -277,6 +306,28 @@ class MemoryMetricsV2(MetricsV2):
 class RedisMetricsV2(MetricsV2):
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
+
+    async def _backfill_historical_voice_users(self) -> None:
+        if await self._redis.exists(_TELEGRAM_HISTORICAL_BACKFILL_DONE):
+            return
+        found_history = False
+        async for key in self._redis.scan_iter(match="metrics:funnel:user:*"):
+            session = str(key).removeprefix("metrics:funnel:user:")
+            if client_for(session) != "telegram":
+                continue
+            first_voice_day = await self._redis.hget(key, "activated_day")
+            if not first_voice_day or first_voice_day < _TELEGRAM_HISTORICAL_VOICE_SINCE:
+                continue
+            found_history = True
+            journey_key = f"metrics:v2:telegram:journey:user:{session}"
+            if int(await self._redis.hget(journey_key, "voices") or 0) == 0:
+                await self._redis.sadd(_TELEGRAM_HISTORICAL_VOICE_USERS, session)
+                # A new voice can arrive while the scan is running.
+                if int(await self._redis.hget(journey_key, "voices") or 0) > 0:
+                    await self._redis.srem(_TELEGRAM_HISTORICAL_VOICE_USERS, session)
+                else:
+                    await self._redis.srem(_TELEGRAM_JOURNEY_ONLY_START, session)
+        await self._redis.set(_TELEGRAM_HISTORICAL_BACKFILL_DONE, "1" if found_history else "0")
 
     async def record_llm(self, session_id, kind, model, prompt_tokens, completion_tokens, cost, *, platform=None, now=None):
         if load_test_active():
@@ -359,12 +410,13 @@ class RedisMetricsV2(MetricsV2):
                     if action == "start":
                         if not started:
                             pipe.hset(user_key, "started", "1")
-                            if voices == 0:
+                            if voices == 0 and not await self._redis.sismember(_TELEGRAM_HISTORICAL_VOICE_USERS, session_id):
                                 pipe.sadd(_TELEGRAM_JOURNEY_ONLY_START, session_id)
                     else:
                         voices += 1
                         pipe.hset(user_key, "voices", voices)
                         pipe.srem(_TELEGRAM_JOURNEY_ONLY_START, session_id)
+                        pipe.srem(_TELEGRAM_HISTORICAL_VOICE_USERS, session_id)
                         if voices in _TELEGRAM_VOICE_MILESTONES:
                             pipe.hincrby(_TELEGRAM_JOURNEY_MILESTONES, str(voices), 1)
                     await pipe.execute()
@@ -390,6 +442,7 @@ class RedisMetricsV2(MetricsV2):
         return await self._redis.get(_platform_key(session_id.strip()))
 
     async def snapshot(self, *, now=None):
+        await self._backfill_historical_voice_users()
         day = metrics_day(now if now is not None else time.time())
         columns = []
         for client in _CLIENTS:
@@ -409,17 +462,56 @@ class RedisMetricsV2(MetricsV2):
             pipe.get(_TELEGRAM_JOURNEY_SINCE)
             pipe.scard(_TELEGRAM_JOURNEY_ONLY_START)
             pipe.hgetall(_TELEGRAM_JOURNEY_MILESTONES)
-            since, only_start, milestones = await pipe.execute()
+            pipe.scard(_TELEGRAM_HISTORICAL_VOICE_USERS)
+            pipe.get(_TELEGRAM_HISTORICAL_BACKFILL_DONE)
+            since, only_start, milestones, historical_only, historical_backfill = await pipe.execute()
+        milestones = {int(key): int(value) for key, value in milestones.items()}
+        milestones[1] = milestones.get(1, 0) + int(historical_only)
         return {
             "clients": columns,
-            "telegramJourney": _telegram_journey_snapshot(
-                since or "", int(only_start), {int(key): int(value) for key, value in milestones.items()},
-            ),
+            "telegramJourney": {
+                **_telegram_journey_snapshot(since or "", int(only_start), milestones),
+                **({"firstVoiceSince": _TELEGRAM_HISTORICAL_VOICE_SINCE} if historical_backfill == "1" else {}),
+            },
             "llmRequestsByDay": await self._llm_requests_history(now if now is not None else time.time()),
         }
 
     def prometheus(self, snapshot):
         return _prometheus(snapshot)
+
+    async def overview(self, from_day: str, to_day: str) -> dict[str, Any]:
+        days = _overview_days(from_day, to_day)
+        async with self._redis.pipeline() as pipe:
+            for day in days:
+                pipe.hgetall(_day_key(day, "telegram"))
+            buckets = await pipe.execute()
+        # Legacy funnel keys have no TTL and include starts as well as voice users.
+        chats: set[str] = set()
+        async for key in self._redis.scan_iter(match="metrics:funnel:user:*", count=200):
+            session = str(key).removeprefix("metrics:funnel:user:")
+            if client_for(session) == "telegram":
+                chats.add(session)
+        async for key in self._redis.scan_iter(match="metrics:v2:telegram:journey:user:*", count=200):
+            chats.add(str(key).removeprefix("metrics:v2:telegram:journey:user:"))
+        model_days = []
+        async for key in self._redis.scan_iter(match="metrics:v2:day:*:telegram", count=100):
+            day = str(key).removeprefix("metrics:v2:day:").removesuffix(":telegram")
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+                model_days.append(day)
+        return {
+            "totalChats": len(chats),
+            "modelSince": min(model_days, default=""),
+            "voiceLlmSince": await self._redis.get(_VOICE_LLM_COST_SINCE) or "",
+            "days": [_overview_day(day, bucket) for day, bucket in zip(days, buckets)],
+        }
+
+    async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):
+        if load_test_active() or calls <= 0:
+            return
+        await self._add(session_id, None, now, "voice_llm", "usage", "", {
+            "calls": calls, "priced": priced_calls, "cost": cost_micro_usd,
+        }, priced_calls > 0)
+        await self._redis.setnx(_VOICE_LLM_COST_SINCE, metrics_day(now if now is not None else time.time()))
 
     async def _scope(self, session_id, platform, now):
         session = (session_id or current_session()).strip()
@@ -490,6 +582,34 @@ def _telegram_journey_snapshot(since: str, only_start: int, milestones: dict[int
 
 def _llm_calls(bucket: dict[str, int]) -> int:
     return sum(value for key, value in bucket.items() if key.startswith("llm|") and key.endswith("|calls"))
+
+
+def _overview_days(from_day: str, to_day: str) -> list[str]:
+    from datetime import date, timedelta
+    start, end = date.fromisoformat(from_day), date.fromisoformat(to_day)
+    if end < start or (end - start).days >= 30:
+        raise ValueError("overview period must be 1-30 days")
+    return [(start + timedelta(days=offset)).isoformat() for offset in range((end - start).days + 1)]
+
+
+def _overview_day(day: str, raw: dict[str, Any]) -> dict[str, Any]:
+    counts = {"llm": 0, "stt": 0, "tts": 0}
+    llm_cost_micro = 0
+    voice_llm = {"calls": 0, "priced": 0, "cost": 0}
+    for key, value in raw.items():
+        parts = str(key).split("|")
+        if len(parts) != 4:
+            continue
+        if parts[0] == "voice_llm" and parts[3] in voice_llm:
+            voice_llm[parts[3]] += int(value)
+        elif parts[0] in counts and parts[3] == "calls":
+            counts[parts[0]] += int(value)
+        elif parts[0] == "llm" and parts[3] == "cost":
+            llm_cost_micro += int(value)
+    return {"day": day, "llmCalls": counts["llm"], "sttCalls": counts["stt"],
+            "ttsCalls": counts["tts"], "llmCostMicro": llm_cost_micro,
+            "voiceLlmCalls": voice_llm["calls"], "voiceLlmPricedCalls": voice_llm["priced"],
+            "voiceLlmCostMicro": voice_llm["cost"], "tracked": bool(raw)}
 
 
 def _llm_requests_from_memory(days: dict[tuple[str, str], dict[str, int]], now: float) -> list[dict[str, Any]]:

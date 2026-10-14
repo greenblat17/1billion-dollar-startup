@@ -238,6 +238,18 @@ def create_app(
             raise HTTPException(status_code=400, detail="LLM period must be 1-366 days ending no later than today")
         return await clip_pipeline.metrics.llm_range(from_day, to_day)
 
+    @app.get("/internal/metrics/overview")
+    async def metrics_overview(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 30:
+            raise HTTPException(status_code=400, detail="Overview period must be 1-30 days ending no later than today")
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is None:
+            raise HTTPException(status_code=503, detail="Metrics unavailable")
+        return await v2.overview(from_day.isoformat(), to_day.isoformat())
+
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
         payload = await _json_object(request)
@@ -844,6 +856,15 @@ async def _run_job(
     finally:
         if voice_usage is not None:
             VOICE_MODEL_METRICS.record(voice_usage)
+            v2 = getattr(pipeline, "_v2", None)
+            if v2 is not None:
+                try:
+                    await v2.record_voice_llm_usage(
+                        job.session_id, voice_usage.attempts["llm"], voice_usage.priced["llm"],
+                        voice_usage.cost_micro["llm"], now=received_at_epoch,
+                    )
+                except Exception:
+                    logger.exception("failed to record voice LLM cost")
         reset_voice_usage(voice_usage_token)
         reset_writer(audit_token)
         reset_receipt_time(receipt_token)

@@ -74,6 +74,30 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("redis_backed", [False, True])
+async def test_admin_overview_counts_telegram_models_and_known_voice_llm_cost(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    moment = datetime(2026, 10, 13, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp()
+    await store.record_telegram_message("tg-1", "voice", "message:1", now=moment)
+    await store.record_llm("tg-1", "reply", "model", 100, 10, 4_000, now=moment)
+    await store.record_stt("tg-1", "stt", 5, now=moment)
+    await store.record_tts("tg-1", "tts", 20, None, now=moment)
+    await store.record_llm("app-1", "reply", "model", 100, 10, 9_000, platform="ios", now=moment)
+    await store.record_voice_llm_usage("tg-1", 2, 1, 4_000, now=moment)
+    report = await store.overview("2026-10-13", "2026-10-13")
+    assert report["modelSince"] == "2026-10-13"
+    assert report["voiceLlmSince"] == "2026-10-13"
+    assert report["days"][0]["llmCalls"] == 1
+    assert report["days"][0]["sttCalls"] == 1
+    assert report["days"][0]["ttsCalls"] == 1
+    assert report["days"][0]["llmCostMicro"] == 4_000
+    assert report["days"][0]["voiceLlmCalls"] == 2
+    assert report["days"][0]["voiceLlmPricedCalls"] == 1
+    assert report["days"][0]["voiceLlmCostMicro"] == 4_000
+    assert report["days"][0]["tracked"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
 async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
     store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
     moscow = ZoneInfo("Europe/Moscow")
@@ -109,6 +133,29 @@ async def test_telegram_journey_counts_distinct_users_at_cumulative_voice_milest
         "atLeast": {"1": 3, "3": 1, "5": 1, "10": 1, "20": 1},
     }
     assert "speaking_telegram_voice_users 3\n" in store.prometheus(await store.snapshot())
+
+
+@pytest.mark.asyncio
+async def test_first_voice_backfill_uses_legacy_activation_without_inflating_higher_milestones() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = RedisMetricsV2(redis)
+    await redis.hset("metrics:funnel:user:tg-old", "activated_day", "2026-09-24")
+    await redis.hset("metrics:funnel:user:tg-overlap", "activated_day", "2026-09-25")
+    await redis.hset("metrics:funnel:user:tg-too-early", "activated_day", "2026-09-23")
+    await store.record_telegram_message("tg-old", "start", "message:1")
+    await store.record_telegram_message("tg-overlap", "voice", "message:1")
+
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["firstVoiceSince"] == "2026-09-24"
+    assert journey["atLeast"] == {"1": 2, "3": 0, "5": 0, "10": 0, "20": 0}
+    assert journey["onlyStart"] == 0
+    assert "speaking_telegram_voice_users 2\n" in store.prometheus(await store.snapshot())
+
+    await store.record_telegram_message("tg-old", "voice", "message:2")
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["atLeast"]["1"] == 2
+    assert journey["atLeast"]["3"] == 0
+    assert await redis.scard("metrics:v2:telegram:journey:historical-only") == 0
 
 
 def test_action_endpoint_records_telegram_message_id_once() -> None:

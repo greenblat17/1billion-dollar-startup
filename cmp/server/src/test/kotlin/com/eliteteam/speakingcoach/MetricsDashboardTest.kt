@@ -11,6 +11,8 @@ import com.eliteteam.speakingcoach.ai.RecentError
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.AdminModelDay
+import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
@@ -154,7 +156,7 @@ class MetricsDashboardTest {
         application {
             module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
         }
-        val html = client.get("/admin/metrics") {
+        val html = client.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(html.contains("<h2>Исправления</h2>"))
@@ -246,7 +248,7 @@ class MetricsDashboardTest {
         assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
         assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
 
-        val mainPage = client.get("$METRICS_PATH?$selected") {
+        val mainPage = client.get("$METRICS_DETAILS_PATH?$selected") {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(mainPage.contains("2026-09-23 — 2026-09-24 включительно"))
@@ -271,6 +273,43 @@ class MetricsDashboardTest {
     }
 
     @Test
+    fun newOverviewShowsMeasuredCallsPerActiveChatAndKnownVoiceCost() {
+        val day = "2026-10-13"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 197, modelSince = day, voiceLlmSince = day, days = listOf(AdminModelDay(day, tracked = true,
+                llmCalls = 265, sttCalls = 94, ttsCalls = 96, voiceLlmCalls = 4,
+                voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000))),
+            AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
+                exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), day),
+            listOf(AdminProviderError("2026-10-13T12:00:00Z", "tts", "rate_limit")),
+        )
+        assertTrue(html.contains("<dd>69.0</dd>"))
+        assertTrue(html.contains("<dd>\$0.0500</dd>"))
+        assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
+        assertTrue(html.contains("<dd>197</dd>"))
+        assertTrue(html.contains("rate_limit"))
+
+        val incomplete = adminOverviewHtml(
+            LlmRange(LocalDate.parse("2026-10-12"), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 197, modelSince = day, voiceLlmSince = day,
+                days = listOf(AdminModelDay(day, tracked = true, llmCalls = 265))),
+            AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, exchanges = 10)), day),
+        )
+        assertTrue(incomplete.contains("<dt>Вызовов / активный чат</dt><dd>—</dd>"))
+        assertTrue(incomplete.contains("<dt>LLM-cost / обмен</dt><dd>—</dd>"))
+
+        val quietDay = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse("2026-10-14")),
+            AdminModelOverview(totalChats = 197, modelSince = day, days = listOf(
+                AdminModelDay(day, tracked = true, llmCalls = 2), AdminModelDay("2026-10-14"))),
+            AdminUsageOverview(1, listOf(AdminUsageDay(day, activeChats = 1),
+                AdminUsageDay("2026-10-14")), day),
+        )
+        assertTrue(quietDay.contains("<dt>Вызовов / активный чат</dt><dd>2.0</dd>"))
+    }
+
+    @Test
     fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
@@ -279,7 +318,7 @@ class MetricsDashboardTest {
             ))
         }
         for (path in listOf(
-            "$METRICS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
+            "$METRICS_DETAILS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
             "$ONBOARDING_ANALYTICS_PATH?llmFrom=2026-09-23",
             "$ONBOARDING_AGENT_PATH?llmFrom=2020-01-01&llmTo=2026-10-01",
         )) {
@@ -389,7 +428,7 @@ class MetricsDashboardTest {
         val token = setCookie.substringAfter("$METRICS_COOKIE=").substringBefore(";")
         assertEquals(metricsSessionToken(PASSWORD), token)
 
-        val page = anonymous.get("/admin/metrics") {
+        val page = anonymous.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, token)
         }
         val html = page.bodyAsText()
@@ -412,7 +451,7 @@ class MetricsDashboardTest {
         application {
             module(dashboardConfig(password = PASSWORD), metricsSource = FailingMetricsSource())
         }
-        val page = client.get("/admin/metrics") {
+        val page = client.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }
         val html = page.bodyAsText()
@@ -551,7 +590,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<a href=\"#\" id=\"history-tab\">История</a>"))
         assertTrue(html.contains("window.location.hostname + ':8443/admin/monitoring/history'"))
         assertFalse(html.contains("Отправить всем сейчас"))
-        assertTrue(html.contains("<th>Игнор подряд</th>"))
+        assertTrue(html.contains("Главные показатели"))
         assertTrue(anonymous.contains("type=\"password\""))
         assertFalse(anonymous.contains("Отправить всем сейчас"))
     }

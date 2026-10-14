@@ -182,8 +182,30 @@ data class MetricsV2Snapshot(
 )
 
 @Serializable
+data class AdminModelOverview(
+    val totalChats: Long = 0,
+    val modelSince: String = "",
+    val voiceLlmSince: String = "",
+    val days: List<AdminModelDay> = emptyList(),
+)
+
+@Serializable
+data class AdminModelDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val llmCalls: Long = 0,
+    val sttCalls: Long = 0,
+    val ttsCalls: Long = 0,
+    val llmCostMicro: Long = 0,
+    val voiceLlmCalls: Long = 0,
+    val voiceLlmPricedCalls: Long = 0,
+    val voiceLlmCostMicro: Long = 0,
+)
+
+@Serializable
 data class TelegramJourneySnapshot(
     val since: String = "",
+    val firstVoiceSince: String = "",
     val onlyStart: Long = 0,
     val atLeast: Map<String, Long> = emptyMap(),
 )

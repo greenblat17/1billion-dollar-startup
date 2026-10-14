@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.llm import Correction
-from app.metrics_v2 import client_for, current_session
+from app.metrics_v2 import MemoryMetricsV2, client_for, current_session
 from app.main import create_app
 from app.onboarding_model import OnboardingModel
 from app.dialogue import MemoryDialogueStore
@@ -181,6 +181,20 @@ def test_wrong_bearer_token_is_401() -> None:
     app, _, _, _ = build_app()
     with TestClient(app, headers={"Authorization": "Bearer nope"}) as client:
         assert client.get("/internal/metrics/prometheus").status_code == 401
+
+
+def test_admin_overview_is_internal_and_bounds_the_period() -> None:
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400),
+                            v2=MemoryMetricsV2())
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    path = "/internal/metrics/overview?from=2026-10-13&to=2026-10-13"
+    with TestClient(app) as anonymous:
+        assert anonymous.get(path).status_code == 401
+    with _client(app) as client:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.json()["days"][0]["day"] == "2026-10-13"
+        assert client.get("/internal/metrics/overview?from=2026-09-01&to=2026-10-13").status_code == 400
 
 
 def test_unknown_job_is_404() -> None:
