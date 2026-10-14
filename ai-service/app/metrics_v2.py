@@ -265,6 +265,9 @@ class MemoryMetricsV2(MetricsV2):
             "days": [_overview_day(day, self.days.get((day, "telegram"), {})) for day in days],
             "legacyActiveChatsInPeriod": 0,
             "legacyDays": [],
+            "redisDauDays": [],
+            "chatGrowthDays": [],
+            "chatGrowthUnattributed": 0,
         }
 
     async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):
@@ -492,22 +495,44 @@ class RedisMetricsV2(MetricsV2):
         async with self._redis.pipeline() as pipe:
             for day in legacy_days:
                 pipe.hgetall(f"metrics:day:{day}")
-                pipe.smembers(f"metrics:dau:{day}")
                 pipe.hgetall(f"metrics:funnel:{day}")
             legacy_buckets = await pipe.execute()
+        dau_keys = [key async for key in self._redis.scan_iter(match="metrics:dau:*", count=100)]
+        dau_since = min((key.removeprefix("metrics:dau:") for key in dau_keys
+                         if re.fullmatch(r"metrics:dau:\d{4}-\d{2}-\d{2}", key)), default="")
+        async with self._redis.pipeline() as pipe:
+            for day in days:
+                pipe.smembers(f"metrics:dau:{day}")
+            dau_members = await pipe.execute()
+        telegram_dau_members = [
+            {str(member) for member in members if client_for(str(member)) == "telegram"}
+            for members in dau_members
+        ]
         legacy_sessions: set[str] = set()
         legacy_rows = []
         for index, day in enumerate(legacy_days):
-            raw, members, funnel = legacy_buckets[index * 3:index * 3 + 3]
-            telegram_members = {str(member) for member in members if client_for(str(member)) == "telegram"}
+            raw, funnel = legacy_buckets[index * 2:index * 2 + 2]
+            telegram_members = telegram_dau_members[index]
             legacy_sessions.update(telegram_members)
-            legacy_rows.append(_legacy_overview_day(day, raw, funnel, len(telegram_members), bool(members)))
+            legacy_rows.append(_legacy_overview_day(day, raw, funnel, len(telegram_members), bool(dau_members[index])))
         # Legacy funnel keys have no TTL and include starts as well as voice users.
         chats: set[str] = set()
+        funnel_keys = []
         async for key in self._redis.scan_iter(match="metrics:funnel:user:*", count=200):
             session = str(key).removeprefix("metrics:funnel:user:")
             if client_for(session) == "telegram":
                 chats.add(session)
+                funnel_keys.append(key)
+        async with self._redis.pipeline() as pipe:
+            for key in funnel_keys:
+                pipe.hget(key, "first_day")
+            first_days = await pipe.execute()
+        first_seen: dict[str, int] = {}
+        attributed_chats: set[str] = set()
+        for key, first_day in zip(funnel_keys, first_days, strict=True):
+            if first_day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", first_day):
+                attributed_chats.add(str(key).removeprefix("metrics:funnel:user:"))
+                first_seen[first_day] = first_seen.get(first_day, 0) + 1
         async for key in self._redis.scan_iter(match="metrics:v2:telegram:journey:user:*", count=200):
             chats.add(str(key).removeprefix("metrics:v2:telegram:journey:user:"))
         model_days = []
@@ -522,6 +547,18 @@ class RedisMetricsV2(MetricsV2):
             "days": [_overview_day(day, bucket) for day, bucket in zip(days, buckets)],
             "legacyActiveChatsInPeriod": len(legacy_sessions),
             "legacyDays": legacy_rows,
+            "redisDauDays": [
+                {"day": day, "tracked": bool(dau_since and day >= dau_since),
+                 "activeChatsWithTurn": len(members)}
+                for day, members in zip(days, telegram_dau_members, strict=True)
+            ],
+            "chatGrowthDays": [
+                {"day": day, "tracked": bool(first_seen and day >= min(first_seen)),
+                 "newChats": first_seen.get(day, 0),
+                 "totalChatsToDate": sum(count for first, count in first_seen.items() if first <= day)}
+                for day in days
+            ],
+            "chatGrowthUnattributed": len(chats - attributed_chats),
         }
 
     async def record_voice_llm_usage(self, session_id, calls, priced_calls, cost_micro_usd, *, now=None):

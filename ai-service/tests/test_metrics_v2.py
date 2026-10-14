@@ -118,6 +118,31 @@ async def test_admin_overview_reads_legacy_days_without_inventing_model_calls() 
 
 
 @pytest.mark.asyncio
+async def test_admin_overview_builds_chat_growth_and_redis_dau_across_october_sixth() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.hset("metrics:funnel:user:tg-1", mapping={"first_day": "2026-09-24"})
+    await redis.hset("metrics:funnel:user:tg-2", mapping={"first_day": "2026-09-25"})
+    await redis.hset("metrics:funnel:user:tg-3", mapping={"first_day": "2026-10-06"})
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-06", "tg-1", "tg-3", "app-1")
+
+    report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-10-07")
+    growth = {row["day"]: row for row in report["chatGrowthDays"]}
+    dau = {row["day"]: row for row in report["redisDauDays"]}
+    assert report["totalChats"] == 3
+    assert report["chatGrowthUnattributed"] == 0
+    assert growth["2026-09-24"] == {"day": "2026-09-24", "tracked": True,
+                                      "newChats": 1, "totalChatsToDate": 1}
+    assert growth["2026-10-05"]["totalChatsToDate"] == 2
+    assert growth["2026-10-06"]["totalChatsToDate"] == 3
+    assert dau["2026-09-24"]["activeChatsWithTurn"] == 1
+    assert dau["2026-09-25"] == {"day": "2026-09-25", "tracked": True,
+                                   "activeChatsWithTurn": 0}
+    assert dau["2026-10-06"]["activeChatsWithTurn"] == 2
+    assert dau["2026-10-07"]["activeChatsWithTurn"] == 0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redis_backed", [False, True])
 async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
     store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()

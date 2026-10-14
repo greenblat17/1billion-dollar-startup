@@ -189,6 +189,24 @@ data class AdminModelOverview(
     val days: List<AdminModelDay> = emptyList(),
     val legacyActiveChatsInPeriod: Long = 0,
     val legacyDays: List<AdminLegacyDay> = emptyList(),
+    val redisDauDays: List<AdminRedisDauDay> = emptyList(),
+    val chatGrowthDays: List<AdminChatGrowthDay> = emptyList(),
+    val chatGrowthUnattributed: Long = 0,
+)
+
+@Serializable
+data class AdminRedisDauDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+)
+
+@Serializable
+data class AdminChatGrowthDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val newChats: Long = 0,
+    val totalChatsToDate: Long = 0,
 )
 
 @Serializable

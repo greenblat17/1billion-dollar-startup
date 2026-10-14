@@ -60,10 +60,10 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
+        ${audienceHistoryHtml(days, models)}
         ${legacyHistoryHtml(models)}
         ${if (models?.legacyDays?.isNotEmpty() == true) "<h2>Показатели нового учёта · с 6 октября</h2>" else ""}
         <section class="overview-cards" aria-label="Итоги">
-          ${overviewCard("Всего чатов", models?.totalChats?.toString() ?: "—", "Записаны в воронке Redis за всё доступное время")}
           ${overviewCard("Активных чатов", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные чаты с голосом, текстом или нажатием кнопки за период")}
           ${overviewCard("Голосовых", if (fullJournal) usage.days.sumOf { it.voices }.toString() else "—", "Уникальные входящие голосовые сообщения")}
           ${overviewCard("Успешных обменов", if (fullJournal) usage.days.sumOf { it.exchanges }.toString() else "—", "Голосовое и доставленный голосовой ответ с распознанной репликой")}
@@ -109,6 +109,30 @@ internal fun adminOverviewHtml(
         Telegram API — записанные попытки отправки и редактирования в контексте входящего сообщения; фоновые рассылки исключены.
         Неучтённые методы API и отдельные навыки в сумму не входят. «—» означает отсутствие измерений.</p>
         </body></html>
+    """.trimIndent()
+}
+
+private fun audienceHistoryHtml(days: List<String>, models: AdminModelOverview?): String {
+    val growth = models?.chatGrowthDays?.associateBy { it.day }.orEmpty()
+    val dau = models?.redisDauDays?.associateBy { it.day }.orEmpty()
+    val missingDates = models?.chatGrowthUnattributed ?: 0
+    return """
+        <section aria-label="Рост аудитории">
+        <h2>Рост аудитории</h2>
+        <p class="coverage">Всего чатов — накопленное число Telegram-чатов по дате первого обращения.
+        DAU по Redis — чаты, у которых за день завершился хотя бы один ход AI. Оба ряда доступны с начала
+        сохранённой истории Redis; DAU отличается от новых «Активных чатов», где учитываются также текст и кнопки.
+        ${if (missingDates > 0) "$missingDates чатов без даты первого обращения не включены в график роста." else ""}</p>
+        <div class="audience-total">
+          ${overviewCard("Всего чатов", models?.totalChats?.toString() ?: "—", "Уникальные Telegram-чаты за всю доступную историю")}
+        </div>
+        <div class="chart-grid">
+          ${overviewChart("Рост пользователей · Telegram-чаты", days, listOf(
+              ChartLine("Всего чатов", "#2563eb", days.map { growth[it]?.takeIf { row -> row.tracked }?.totalChatsToDate })), growth.isNotEmpty())}
+          ${overviewChart("DAU · завершённые ходы AI", days, listOf(
+              ChartLine("Чаты за день", "#16a34a", days.map { dau[it]?.takeIf { row -> row.tracked }?.activeChatsWithTurn })), dau.isNotEmpty())}
+        </div>
+        </section>
     """.trimIndent()
 }
 
@@ -204,6 +228,7 @@ private fun overviewStyle(): String = """
   .period input, .period button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:white; }
   .period button { background:#1d4ed8; border-color:#1d4ed8; color:white; cursor:pointer; }
   .overview-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); gap:12px; margin:22px 0 14px; }
+  .audience-total { max-width:240px; margin:16px 0; }
   .overview-card { background:white; border:1px solid #e7e5e4; border-radius:12px; padding:17px; min-height:132px; }
   .overview-card dt { color:#57534e; font-size:13px; font-weight:600; }
   .overview-card dd { margin:10px 0 8px; font-size:32px; line-height:1; font-weight:700; letter-spacing:-.04em; }

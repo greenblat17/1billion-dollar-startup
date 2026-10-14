@@ -13,6 +13,8 @@ import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.AdminModelDay
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
+import com.eliteteam.speakingcoach.ai.AdminRedisDauDay
+import com.eliteteam.speakingcoach.ai.AdminChatGrowthDay
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
@@ -329,6 +331,28 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<td>17.1</td>"))
         assertTrue(html.contains("<dt>Голосовых</dt><dd>—</dd>"))
         assertTrue(html.contains("<dt>Вызовов / активный чат</dt><dd>—</dd>"))
+    }
+
+    @Test
+    fun overviewShowsRedisAudienceGrowthAndDauAcrossOldAndNewPeriods() {
+        val from = LocalDate.parse("2026-09-24")
+        val to = LocalDate.parse("2026-10-06")
+        val html = adminOverviewHtml(
+            LlmRange(from, to),
+            AdminModelOverview(totalChats = 3, modelSince = "2026-10-06",
+                chatGrowthDays = listOf(
+                    AdminChatGrowthDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1),
+                    AdminChatGrowthDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3)),
+                redisDauDays = listOf(
+                    AdminRedisDauDay("2026-09-24", tracked = true, activeChatsWithTurn = 1),
+                    AdminRedisDauDay("2026-10-06", tracked = true, activeChatsWithTurn = 2))),
+            AdminUsageOverview(0, emptyList(), "2026-10-06"),
+        )
+        assertTrue(html.contains("Рост пользователей · Telegram-чаты"))
+        assertTrue(html.contains("DAU · завершённые ходы AI"))
+        assertTrue(html.contains("2026-09-24 · Всего чатов: 1.000"))
+        assertTrue(html.contains("2026-10-06 · Всего чатов: 3.000"))
+        assertTrue(html.contains("2026-10-06 · Чаты за день: 2.000"))
     }
 
     @Test
