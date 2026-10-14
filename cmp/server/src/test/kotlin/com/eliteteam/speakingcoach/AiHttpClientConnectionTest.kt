@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach
 import com.sun.net.httpserver.HttpServer
 import io.ktor.client.call.body
 import io.ktor.client.request.get
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import java.net.InetSocketAddress
 import java.util.concurrent.ConcurrentHashMap
@@ -27,6 +28,9 @@ class AiHttpClientConnectionTest {
                 assertEquals("ok", client.get("http://127.0.0.1:${server.address.port}/status").body<String>())
             }
             assertEquals(1, sourcePorts.size)
+            delay(4_000)
+            assertEquals("ok", client.get("http://127.0.0.1:${server.address.port}/status").body<String>())
+            assertEquals(2, sourcePorts.size)
         } finally {
             client.close()
             server.stop(0)

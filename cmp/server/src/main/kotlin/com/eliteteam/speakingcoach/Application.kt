@@ -73,9 +73,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import okhttp3.ConnectionPool
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 
 private val tlsStorePassword = "ktor".toCharArray()
 
@@ -390,6 +392,12 @@ private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
 
 internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(OkHttp) {
     expectSuccess = false
+    engine {
+        config {
+            // AI closes idle connections after 5 seconds; retire them on CMP first.
+            connectionPool(ConnectionPool(5, 3, TimeUnit.SECONDS))
+        }
+    }
     install(ContentNegotiation) {
         json(
             Json {
