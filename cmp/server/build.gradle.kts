@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.postgresql)
     implementation(libs.ktor.clientCore)
     implementation(libs.ktor.clientCio)
+    implementation(libs.ktor.clientOkHttp)
     implementation(libs.ktor.clientContentNegotiation)
     implementation(libs.ktor.serializationJson)
     implementation(libs.ktor.serverRoutingOpenapi)

@@ -1,6 +1,7 @@
 // Real end-to-end AI-service load test. No provider mocks.
 // Run against DEV only. Each VU has its own session; one iteration is one
 // POST /v1/clips followed by polling until the job succeeds or fails.
+// Set DOWNLOAD_AUDIO=true to also fetch the reply as the CMP client does.
 // Example:
 //   k6 run -e BASE_URL=http://127.0.0.1:8090 \
 //     -e AUDIO_FILE=/tmp/speaky-probe.wav -e RATE_RPM=30 -e DURATION=2m \
@@ -16,6 +17,7 @@ const accepted = new Counter('clip_accepted');
 const completed = new Counter('clip_completed');
 const failed = new Counter('clip_failed');
 const endToEnd = new Trend('clip_e2e', true);
+const audioDownload = new Trend('clip_audio_download', true);
 const audio = open(__ENV.AUDIO_FILE, 'b');
 const isOgg = __ENV.AUDIO_FILE.toLowerCase().endsWith('.ogg');
 const rate = Number(__ENV.RATE_RPM || 30);
@@ -25,6 +27,7 @@ const runId = __ENV.RUN_ID || 'real-load';
 const preAllocatedVUs = Number(__ENV.PREALLOCATED_VUS || Math.max(20, Math.ceil(rate / 60) * 25));
 const pollSeconds = Number(__ENV.POLL_SECONDS || 0.5);
 const abortOnFail = __ENV.ABORT_ON_FAIL !== 'false';
+const downloadAudio = __ENV.DOWNLOAD_AUDIO === 'true';
 let sessionId;
 let errorsLogged = 0;
 
@@ -128,6 +131,21 @@ export default function (data) {
     }
     const status = polled.json('status');
     if (status === 'ok') {
+      if (downloadAudio && polled.json('result.audioAvailable') !== false) {
+        const audioStarted = Date.now();
+        const reply = http.get(`${__ENV.BASE_URL}/v1/clips/${jobId}/audio`, {
+          headers: { 'X-Internal-Token': __ENV.AI_INTERNAL_TOKEN },
+          tags: { name: 'GET /v1/clips/{id}/audio' },
+          timeout: '15s',
+          responseType: 'binary',
+        });
+        audioDownload.add(Date.now() - audioStarted);
+        if (reply.status !== 200 || !reply.body || reply.body.byteLength === 0) {
+          fail(`audio_http_${reply.status}`);
+          endToEnd.add(Date.now() - started);
+          return;
+        }
+      }
       completed.add(1);
       endToEnd.add(Date.now() - started);
       return;

@@ -1,0 +1,168 @@
+{
+    "root_group": {
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "name": "clip accepted",
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca",
+                    "passes": 255,
+                    "fails": 22
+                }
+            },
+        "name": "",
+        "path": ""
+    },
+    "metrics": {
+        "checks": {
+            "passes": 255,
+            "fails": 22,
+            "value": 0.9205776173285198
+        },
+        "http_req_sending": {
+            "avg": 0.02955800711743772,
+            "med": 0.021,
+            "p(95)": 0.06979999999999996,
+            "p(99)": 0.09296000000000004,
+            "max": 0.152,
+            "count": 1405
+        },
+        "http_req_waiting": {
+            "p(95)": 5268.567,
+            "p(99)": 6209.821080000002,
+            "max": 6770.458,
+            "count": 1405,
+            "avg": 1698.2547309608553,
+            "med": 913.057
+        },
+        "clip_failed": {
+            "rate": 0.6118685193563353,
+            "count": 22,
+            "thresholds": {
+                "count==0": true
+            }
+        },
+        "http_req_duration": {
+            "p(99)": 6601.474720000001,
+            "max": 8397.097,
+            "count": 1405,
+            "avg": 1900.735431316727,
+            "med": 1041.25,
+            "p(95)": 5930.7702
+        },
+        "clip_accepted": {
+            "count": 255,
+            "rate": 7.092112383448433
+        },
+        "http_req_connecting": {
+            "p(99)": 0.369,
+            "max": 1.735,
+            "count": 1405,
+            "avg": 0.057442704626334565,
+            "med": 0,
+            "p(95)": 0.293
+        },
+        "iteration_duration": {
+            "p(95)": 20164.354066750002,
+            "p(99)": 20992.799085969997,
+            "max": 21254.521079,
+            "count": 184,
+            "avg": 11407.006626048913,
+            "med": 9785.054002500001
+        },
+        "dropped_iterations": {
+            "rate": 0,
+            "count": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "vus_max": {
+            "min": 500,
+            "max": 500,
+            "value": 500
+        },
+        "http_req_failed": {
+            "passes": 22,
+            "fails": 1383,
+            "value": 0.015658362989323844
+        },
+        "data_sent": {
+            "count": 3761219,
+            "rate": 104607.7954774962
+        },
+        "http_req_tls_handshaking": {
+            "max": 0,
+            "count": 1405,
+            "avg": 0,
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "http_req_blocked": {
+            "p(95)": 0.38939999999999986,
+            "p(99)": 0.47484000000000015,
+            "max": 1.798,
+            "count": 1405,
+            "avg": 0.08023701067615671,
+            "med": 0.004
+        },
+        "vus": {
+            "max": 198,
+            "value": 176,
+            "min": 10
+        },
+        "data_received": {
+            "count": 19786430,
+            "rate": 550304.2557930807
+        },
+        "clip_completed": {
+            "rate": 4.505577278896651,
+            "count": 162
+        },
+        "http_reqs": {
+            "count": 1405,
+            "rate": 39.0761486225296
+        },
+        "iterations": {
+            "count": 184,
+            "rate": 5.117445798252987
+        },
+        "clip_e2e": {
+            "avg": 10740.969135802468,
+            "med": 9481,
+            "p(95)": 18260.54999999999,
+            "p(99)": 18503.29,
+            "max": 18569,
+            "count": 162
+        },
+        "http_req_receiving": {
+            "max": 4862.09,
+            "count": 1405,
+            "avg": 202.45114234875436,
+            "med": 0.047,
+            "p(95)": 1880.2633999999953,
+            "p(99)": 3471.561640000001
+        },
+        "clip_audio_download": {
+            "p(95)": 7260.2999999999965,
+            "p(99)": 7781.24,
+            "max": 8397,
+            "count": 162,
+            "avg": 3208.8271604938273,
+            "med": 2713.5
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(95)": 5945.038099999998,
+            "p(99)": 6633.31738000001,
+            "max": 8397.097,
+            "count": 1383,
+            "avg": 1882.1594967462045,
+            "med": 978.824
+        }
+    },
+    "setup_data": {
+        "runId": "newkey-direct-audio-2m"
+    }
+}

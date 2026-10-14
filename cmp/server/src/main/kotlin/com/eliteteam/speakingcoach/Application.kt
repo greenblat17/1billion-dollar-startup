@@ -49,7 +49,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.ContentType
@@ -388,7 +388,7 @@ private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
     )
 }
 
-internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(CIO) {
+internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(OkHttp) {
     expectSuccess = false
     install(ContentNegotiation) {
         json(

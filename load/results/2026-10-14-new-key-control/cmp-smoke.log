@@ -1,0 +1,73 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: load/cmp-real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 2 max VUs, 1m31s max duration (incl. graceful stop):
+              * clips: 1.00 iterations/s for 1s (maxVUs: 2, gracefulStop: 1m30s)
+
+
+running (0m01.0s), 1/2 VUs, 0 complete and 0 interrupted iterations
+clips   [ 100% ] 1/2 VUs  1.0s/1s  1.00 iters/s
+
+running (0m02.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m03.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m04.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m05.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m06.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✓ 'count==0' count=0
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    CUSTOM
+    clip_accepted..................: 2      0.292285/s
+    clip_e2e.......................: avg=5.52s med=5.52s p(95)=6.25s p(99)=6.31s max=6.33s count=2
+    clip_failed....................: 0      0/s
+
+    HTTP
+    http_req_duration..............: avg=2.84s med=2.44s p(95)=6.09s p(99)=6.28s max=6.33s count=4
+      { expected_response:true }...: avg=2.84s med=2.44s p(95)=6.09s p(99)=6.28s max=6.33s count=4
+    http_req_failed................: 0.00%  0 out of 4
+    http_reqs......................: 4      0.58457/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=5.97s med=5.97s p(95)=6.75s p(99)=6.82s max=6.84s count=2
+    iterations.....................: 2      0.292285/s
+    vus............................: 2      min=1      max=2
+    vus_max........................: 2      min=2      max=2
+
+    NETWORK
+    data_received..................: 3.2 kB 462 B/s
+    data_sent......................: 25 kB  3.6 kB/s
+
+
+
+
+running (0m06.8s), 0/2 VUs, 2 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 0/2 VUs  1s  1.00 iters/s

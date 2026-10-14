@@ -10,6 +10,7 @@ from openai import APIStatusError, AsyncOpenAI
 
 from app.audio import to_ogg_opus
 from app.metrics_v2 import cost_micro, current_session
+from app.load_test import load_test_active
 from app.retry import once_on_retryable
 
 logger = logging.getLogger(__name__)
@@ -82,14 +83,24 @@ class OpenAiTextToSpeech:
 
         try:
             provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
+            provider_started = time.perf_counter()
             response, headers = await once_on_retryable(call, metric_service="tts", metric_provider=provider)
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error("", "tts", "failed")
             raise
         payload = await _audio_bytes(response)
+        provider_ms = int((time.perf_counter() - provider_started) * 1000)
         if self._v2 is not None:
-            await self._v2.record_tts("", self._model, len(text), await _openrouter_cost(self._client, headers))
+            cost_started = time.perf_counter()
+            cost = await _openrouter_cost(self._client, headers)
+            cost_ms = int((time.perf_counter() - cost_started) * 1000)
+            await self._v2.record_tts("", self._model, len(text), cost)
+            if load_test_active():
+                logger.info(
+                    "TTS load timing session=%s provider_ms=%d cost_lookup_ms=%d",
+                    current_session(), provider_ms, cost_ms,
+                )
         if self._response_format == "mp3":
             return TtsAudio(payload, "audio/mpeg")
         suffix = ".opus" if self._response_format == "opus" else f".{self._response_format}"

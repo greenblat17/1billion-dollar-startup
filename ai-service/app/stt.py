@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import math
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI, BadRequestError
 
 from app.audio import to_wav_mono_16k
+from app.load_test import load_test_active
+from app.metrics_v2 import current_session
 from app.retry import once_on_retryable
 from app.operational_metrics import telegram_stage
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -35,9 +41,19 @@ class GroqSpeechToText:
     @telegram_stage("stt")
     async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
         if self._requires_wav:
+            conversion_started = time.perf_counter()
             if not _is_wav(audio):
                 audio = await to_wav_mono_16k(self._ffmpeg_bin, audio, suffix=_suffix(filename))
-            return await self._transcribe_file(audio, "voice.wav", "audio/wav", language)
+            conversion_ms = int((time.perf_counter() - conversion_started) * 1000)
+            provider_started = time.perf_counter()
+            try:
+                return await self._transcribe_file(audio, "voice.wav", "audio/wav", language)
+            finally:
+                if load_test_active():
+                    logger.info(
+                        "STT load timing session=%s conversion_ms=%d provider_ms=%d",
+                        current_session(), conversion_ms, int((time.perf_counter() - provider_started) * 1000),
+                    )
         try:
             return await self._transcribe_file(audio, filename, content_type, language)
         except BadRequestError:

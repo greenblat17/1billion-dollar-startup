@@ -218,7 +218,10 @@ class ClipPipeline:
 
         context_started = time.perf_counter()
         stage("state")
+        history_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
+        timings["contextHistory"] = _elapsed_ms(history_started)
+        call_started = time.perf_counter()
         scenario_call = None
         if self.calls is not None and await self.calls.is_open_today(session_id):
             call_summary = await self.calls.summary(session_id)
@@ -226,12 +229,15 @@ class ClipPipeline:
                 candidate = await self.calls.get(call_summary["callId"])
                 if candidate is not None and candidate.get("scenario"):
                     scenario_call = candidate
+        timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
             history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
             for turn in scenario_call.get("turns", []):
                 history.extend((ChatMessage("user", turn["transcript"]), ChatMessage("assistant", turn["reply"])))
+        personalization_started = time.perf_counter()
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
+        timings["contextPersonalization"] = _elapsed_ms(personalization_started)
         if scenario_call is not None:
             scenario = scenario_call["scenario"]
             verified_context = (profile_note or "").partition("Context data:\n")[2]
