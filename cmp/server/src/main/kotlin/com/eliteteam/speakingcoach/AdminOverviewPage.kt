@@ -155,7 +155,7 @@ private fun overviewStyle(): String = """
   .overview-head { display:flex; justify-content:space-between; align-items:end; gap:24px; margin:34px 0 18px; }
   .eyebrow { color:#2563eb; font-size:12px; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
   .overview-head h1 { font-size:30px; letter-spacing:-.04em; margin:3px 0; }
-  .period { display:flex; align-items:end; gap:8px; flex-wrap:wrap; }
+  .period { display:flex; flex-direction:row; align-items:end; justify-content:flex-end; gap:8px; flex-wrap:wrap; max-width:none; }
   .period label { color:#57534e; font-size:12px; display:grid; gap:4px; }
   .period input, .period button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:white; }
   .period button { background:#1d4ed8; border-color:#1d4ed8; color:white; cursor:pointer; }
@@ -175,6 +175,9 @@ private fun overviewStyle(): String = """
   .chart-dates { display:flex; justify-content:space-between; font-size:11px; color:#78716c; }
   .table-wrap { overflow-x:auto; background:white; border:1px solid #e7e5e4; border-radius:12px; }
   .table-wrap table { margin:0; width:100%; white-space:nowrap; }
-  @media(max-width:800px) { .overview-head { display:block; } .period { margin-top:15px; } .chart-grid { grid-template-columns:1fr; } }
+  .tabs { overflow-x:auto; white-space:nowrap; }
+  .tabs a { flex:0 0 auto; }
+  @media(max-width:800px) { .overview-head { display:block; } .period { margin-top:15px; justify-content:flex-start; } .chart-grid { grid-template-columns:1fr; } }
+  @media(max-width:600px) { .overview-cards { grid-template-columns:1fr; } }
 </style>
 """
