@@ -143,6 +143,43 @@ async def test_admin_overview_builds_chat_growth_and_redis_dau_across_october_si
 
 
 @pytest.mark.asyncio
+async def test_admin_overview_history_uses_same_definition_before_and_after_october_sixth() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    base = "tg-ChatId(chatId=-7)"
+    topic = "tg-ChatIdWithThreadId(chatIdWithThreadId=(-7,12))"
+    await redis.hset(f"metrics:funnel:user:{base}", mapping={
+        "first_day": "2026-10-03", "start_day": "2026-10-03",
+        "activated_day": "2026-10-08", "engaged_day": "2026-10-14", "source": "campaign",
+    })
+    await redis.hset(f"metrics:funnel:user:{topic}", mapping={
+        "first_day": "2026-10-08", "activated_day": "2026-10-08", "source": "campaign",
+    })
+    for day, turns in (("2026-10-03", 1), ("2026-10-08", 3), ("2026-10-14", 4)):
+        await redis.hset(f"metrics:day:{day}", mapping={
+            "turns": turns, "prompt_tokens": turns * 10, "completion_tokens": turns * 2,
+            "stt_ms": turns * 1000, "tts_chars": turns * 20,
+        })
+    await redis.sadd("metrics:dau:2026-10-03", base)
+    await redis.sadd("metrics:dau:2026-10-08", base, topic)
+    await redis.sadd("metrics:dau:2026-10-14", topic)
+    report = await RedisMetricsV2(redis).overview("2026-10-03", "2026-10-14")
+    rows = {row["day"]: row for row in report["historyDays"]}
+    assert report["totalChats"] == 1
+    assert report["historyActiveChatsInPeriod"] == 1
+    assert report["historyActiveSessionsInPeriod"] == 1
+    assert rows["2026-10-03"]["newChats"] == 1
+    assert rows["2026-10-08"]["newChats"] == 0
+    assert rows["2026-10-08"]["activeChatsWithTurn"] == 1
+    assert rows["2026-10-08"]["firstVoiceChats"] == 1
+    assert rows["2026-10-08"]["returningActiveChats"] == 1
+    assert rows["2026-10-14"]["firstVoiceChatsToDate"] == 1
+    assert rows["2026-10-14"]["engagedChats"] == 1
+    assert rows["2026-10-14"]["completedTurns"] == 4
+    assert rows["2026-10-14"]["activeChats7d"] == 1
+    assert report["sourceBreakdown"] == [{"source": "campaign", "newChats": 1, "firstVoiceChats": 1}]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redis_backed", [False, True])
 async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
     store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()

@@ -192,6 +192,38 @@ data class AdminModelOverview(
     val redisDauDays: List<AdminRedisDauDay> = emptyList(),
     val chatGrowthDays: List<AdminChatGrowthDay> = emptyList(),
     val chatGrowthUnattributed: Long = 0,
+    val historySince: String = "",
+    val historyActiveChatsInPeriod: Long = 0,
+    val historyActiveSessionsInPeriod: Long = 0,
+    val historyDays: List<AdminHistoryDay> = emptyList(),
+    val sourceBreakdown: List<AdminSourceBreakdown> = emptyList(),
+)
+
+@Serializable
+data class AdminHistoryDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+    val completedTurns: Long = 0,
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val sttMs: Long = 0,
+    val ttsChars: Long = 0,
+    val newChats: Long = 0,
+    val totalChatsToDate: Long = 0,
+    val firstVoiceChats: Long = 0,
+    val firstVoiceChatsToDate: Long = 0,
+    val firstStarts: Long = 0,
+    val engagedChats: Long = 0,
+    val returningActiveChats: Long = 0,
+    val activeChats7d: Long? = null,
+)
+
+@Serializable
+data class AdminSourceBreakdown(
+    val source: String,
+    val newChats: Long = 0,
+    val firstVoiceChats: Long = 0,
 )
 
 @Serializable

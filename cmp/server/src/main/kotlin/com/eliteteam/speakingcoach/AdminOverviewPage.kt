@@ -1,7 +1,7 @@
 package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
-import com.eliteteam.speakingcoach.ai.AdminLegacyDay
+import com.eliteteam.speakingcoach.ai.AdminHistoryDay
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -55,13 +55,13 @@ internal fun adminOverviewHtml(
         <meta name="robots" content="noindex"><title>Speaky · показатели</title>
         ${pageStyle()}${overviewStyle()}</head><body>
         <header class="overview-head"><div><span class="eyebrow">Speaky / аналитика</span><h1>Главные показатели</h1>
-        <p class="meta">Telegram · ${range.from} — ${range.to} · Europe/Moscow. $periodStatus</p></div>
+        <p class="meta">${range.from} — ${range.to} · Europe/Moscow. $periodStatus</p></div>
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
-        ${audienceHistoryHtml(days, models)}
-        ${legacyHistoryHtml(models)}
-        ${if (models?.legacyDays?.isNotEmpty() == true) "<h2>Показатели нового учёта · с 6 октября</h2>" else ""}
+        ${historicalOverviewHtml(days, models)}
+        ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
+        ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
           ${overviewCard("Активных чатов", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные чаты с голосом, текстом или нажатием кнопки за период")}
           ${overviewCard("Голосовых", if (fullJournal) usage.days.sumOf { it.voices }.toString() else "—", "Уникальные входящие голосовые сообщения")}
@@ -99,71 +99,84 @@ internal fun adminOverviewHtml(
         <p class="coverage">Вызовы LLM, STT и TTS — успешно учтённые ответы провайдеров; ошибочные попытки до нового счётчика не восстановлены.
         Telegram API — записанные попытки отправки и редактирования в контексте входящего сообщения; фоновые рассылки исключены.
         Неучтённые методы API и отдельные навыки в сумму не входят. «—» означает отсутствие измерений.</p>
+        """ else ""}
         </body></html>
     """.trimIndent()
 }
 
-private fun audienceHistoryHtml(days: List<String>, models: AdminModelOverview?): String {
-    val growth = models?.chatGrowthDays?.associateBy { it.day }.orEmpty()
-    val dau = models?.redisDauDays?.associateBy { it.day }.orEmpty()
-    val missingDates = models?.chatGrowthUnattributed ?: 0
+private fun historicalOverviewHtml(days: List<String>, models: AdminModelOverview?): String {
+    val overview = models ?: return "<p class=\"coverage\">Данные Redis сейчас недоступны.</p>"
+    val byDay = overview.historyDays.associateBy { it.day }
+    val observed = overview.historyDays.filter(AdminHistoryDay::tracked)
+    if (observed.isEmpty()) return "<p class=\"coverage\">За выбранный период сохранённых данных Redis нет.</p>"
+    val through = observed.last()
+    val rows = days.joinToString("") { day ->
+        val row = byDay[day]?.takeIf(AdminHistoryDay::tracked)
+        """<tr><td>$day</td><td>${row?.totalChatsToDate ?: "—"}</td><td>${row?.newChats ?: "—"}</td>
+        <td>${row?.activeChatsWithTurn ?: "—"}</td><td>${row?.activeChats7d ?: "—"}</td>
+        <td>${row?.returningActiveChats ?: "—"}</td><td>${row?.firstVoiceChats ?: "—"}</td>
+        <td>${row?.completedTurns ?: "—"}</td><td>${row?.promptTokens ?: "—"}</td>
+        <td>${row?.completionTokens ?: "—"}</td><td>${row?.sttMs?.let { decimal(it / 1000.0, 1) } ?: "—"}</td>
+        <td>${row?.ttsChars ?: "—"}</td></tr>"""
+    }
+    val sources = overview.sourceBreakdown.sortedByDescending { it.newChats }
+        .joinToString("") { row -> "<tr><td>${escapeHtml(row.source)}</td><td>${row.newChats}</td><td>${row.firstVoiceChats}</td></tr>" }
+    val active = overview.historyActiveChatsInPeriod
+    val sessions = overview.historyActiveSessionsInPeriod
+    val turns = observed.sumOf { it.completedTurns }
+    val tokens = observed.sumOf { it.promptTokens + it.completionTokens }
     return """
-        <section aria-label="Рост аудитории">
-        <h2>Рост аудитории</h2>
-        <p class="coverage">Всего чатов — накопленное число Telegram-чатов по дате первого обращения.
-        DAU по Redis — чаты, у которых за день завершился хотя бы один ход AI. Оба ряда доступны с начала
-        сохранённой истории Redis; DAU отличается от новых «Активных чатов», где учитываются также текст и кнопки.
-        ${if (missingDates > 0) "$missingDates чатов без даты первого обращения не включены в график роста." else ""}</p>
-        <div class="audience-total">
-          ${overviewCard("Всего чатов", models?.totalChats?.toString() ?: "—", "Уникальные Telegram-чаты за всю доступную историю")}
+        <section aria-label="История Redis">
+        <h2>Аудитория и использование AI</h2>
+        <p class="coverage">С ${escapeHtml(overview.historySince)} · ежедневные записи Redis за весь выбранный период.
+        Активный чат — Telegram-чат, для которого завершился хотя бы один ход AI. Это не число всех входящих сообщений.
+        Ход AI фиксируется до доставки ответа. Токены, STT и TTS охватывают все клиентские платформы.
+        ${if (overview.chatGrowthUnattributed > 0) "${overview.chatGrowthUnattributed} чатов без даты первого обращения не включены в график роста." else ""}</p>
+        <div class="overview-cards">
+          ${overviewCard("Всего чатов на конец периода", through.totalChatsToDate.toString(), "Накопленно с первого сохранённого обращения")}
+          ${overviewCard("Активных чатов за период", active.toString(), "Уникальные Telegram-чаты с завершённым ходом AI")}
+          ${overviewCard("DAU в последний день", through.activeChatsWithTurn.toString(), "Чаты с завершённым ходом AI")}
+          ${overviewCard("Чатов с первым голосовым", through.firstVoiceChatsToDate.toString(), "Накопленно на конец периода")}
+          ${overviewCard("Завершённых ходов AI", turns.toString(), "За выбранный период, все платформы")}
+          ${overviewCard("Ходов / активную AI-сессию", if (sessions > 0) decimal(turns.toDouble() / sessions, 1) else "—", "Все платформы, уникальные сессии с завершённым ходом")}
+          ${overviewCard("Токенов LLM", tokens.toString(), "Входные + выходные, все платформы")}
+          ${overviewCard("Токенов / ход", if (turns > 0) decimal(tokens.toDouble() / turns, 1) else "—", "Входные + выходные токены / завершённые ходы")}
+          ${overviewCard("Обработано речи", decimal(observed.sumOf { it.sttMs } / 60000.0, 1) + " мин", "Длительность аудио, обработанного STT; не время ожидания")}
+          ${overviewCard("Символов TTS", observed.sumOf { it.ttsChars }.toString(), "Текст, переданный озвучке")}
         </div>
         <div class="chart-grid">
           ${overviewChart("Рост пользователей · Telegram-чаты", days, listOf(
-              ChartLine("Всего чатов", "#2563eb", days.map { growth[it]?.takeIf { row -> row.tracked }?.totalChatsToDate })), growth.isNotEmpty())}
-          ${overviewChart("DAU · завершённые ходы AI", days, listOf(
-              ChartLine("Чаты за день", "#16a34a", days.map { dau[it]?.takeIf { row -> row.tracked }?.activeChatsWithTurn })), dau.isNotEmpty())}
+              ChartLine("Всего чатов", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.totalChatsToDate }),
+              ChartLine("С первым голосовым", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstVoiceChatsToDate })), true)}
+          ${overviewChart("DAU и активные за 7 дней", days, listOf(
+              ChartLine("DAU", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChatsWithTurn }),
+              ChartLine("7 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChats7d })), true)}
+          ${overviewChart("Новые и вернувшиеся", days, listOf(
+              ChartLine("Новые чаты", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.newChats }),
+              ChartLine("Активные повторно", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.returningActiveChats })), true)}
+          ${overviewChart("Первые шаги", days, listOf(
+              ChartLine("Первый /start", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstStarts }),
+              ChartLine("Первый голос", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstVoiceChats }),
+              ChartLine("Третий обмен", "#a855f7", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.engagedChats })), true)}
+          ${overviewChart("Завершённые ходы AI", days, listOf(
+              ChartLine("Ходы", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.completedTurns })), true)}
+          ${overviewChart("Токены LLM", days, listOf(
+              ChartLine("Вход", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.promptTokens }),
+              ChartLine("Выход", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.completionTokens })), true)}
+          ${overviewChart("Аудио STT · минуты", days, listOf(
+              ChartLine("Минуты", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.sttMs })), true, valueDivisor = 60_000)}
+          ${overviewChart("Текст TTS · символы", days, listOf(
+              ChartLine("Символы", "#a855f7", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.ttsChars })), true)}
         </div>
-        </section>
-    """.trimIndent()
-}
-
-private fun legacyHistoryHtml(models: AdminModelOverview?): String {
-    val overview = models ?: return ""
-    val days = overview.legacyDays
-    if (days.isEmpty()) return ""
-    val observed = days.filter(AdminLegacyDay::tracked)
-    if (observed.isEmpty()) return "<p class=\"coverage\">За выбранные дни до 6 октября в старом Redis нет записей.</p>"
-    val labels = days.map { it.day }
-    val rows = days.joinToString("") { row ->
-        val active = row.takeIf(AdminLegacyDay::tracked)
-        """<tr><td>${row.day}</td><td>${active?.activeChatsWithTurn ?: "—"}</td>
-        <td>${active?.completedTurns ?: "—"}</td><td>${active?.promptTokens ?: "—"}</td>
-        <td>${active?.completionTokens ?: "—"}</td><td>${active?.sttMs?.let { decimal(it / 1000.0, 1) } ?: "—"}</td>
-        <td>${active?.ttsChars ?: "—"}</td><td>${active?.firstVoiceChats ?: "—"}</td></tr>"""
-    }
-    return """
-        <section aria-label="Исторические данные Redis">
-        <h2>История старого учёта · до 6 октября</h2>
-        <p class="coverage">Эти записи сохранились в Redis. «Активные» здесь означают чаты с завершённым ходом AI,
-        «первые голосовые» — чаты, впервые отправившие голосовое. Ход AI не подтверждает доставку ответа пользователю.
-        Токены, время STT и символы TTS в старом счётчике не разделены по клиентским платформам.
-        Точное число всех голосовых, вызовов компонентов и их стоимость из этих записей не определяется.</p>
-        <div class="overview-cards">
-          ${overviewCard("Чатов с завершённым ходом", overview.legacyActiveChatsInPeriod.toString(), "Уникальные Telegram-чаты за историческую часть выбранного периода")}
-          ${overviewCard("Завершённых ходов AI", observed.sumOf { it.completedTurns }.toString(), "До отправки ответа пользователю")}
-          ${overviewCard("Токенов LLM", observed.sumOf { it.promptTokens + it.completionTokens }.toString(), "Входные + выходные токены старого счётчика")}
-          ${overviewCard("Чатов с первым голосовым", observed.sumOf { it.firstVoiceChats }.toString(), "Первое голосовое в истории чата, не все голосовые")}
-        </div>
-        <div class="chart-grid">
-          ${overviewChart("Завершённые ходы AI · старый учёт", labels, listOf(
-              ChartLine("Ходы", "#2563eb", days.map { it.takeIf(AdminLegacyDay::tracked)?.completedTurns })), true)}
-          ${overviewChart("Чаты с завершённым ходом · старый учёт", labels, listOf(
-              ChartLine("Чаты", "#16a34a", days.map { it.takeIf(AdminLegacyDay::tracked)?.activeChatsWithTurn })), true)}
-        </div>
-        <h2>Исторические данные по дням</h2>
-        <div class="table-wrap"><table><thead><tr><th>День</th><th>Чаты с ходом</th><th>Ходы AI</th>
-        <th>Токены вход</th><th>Токены выход</th><th>STT, с</th><th>TTS, символы</th>
-        <th>Первое голосовое</th></tr></thead><tbody>$rows</tbody></table></div>
+        <p class="coverage">«7 дней» — уникальные активные чаты за последние семь календарных суток; первые шесть дней истории не отображаются.
+        Возврат — чат, активный сегодня и хотя бы в один более ранний сохранённый день. Новые чаты и первые голосовые считаются по первой дате чата.</p>
+        <h2>Источники новых чатов за период</h2>
+        <div class="table-wrap"><table><thead><tr><th>Источник</th><th>Новые чаты</th><th>Первый голос</th></tr></thead>
+        <tbody>${sources.ifBlank { "<tr><td colspan=\"3\">Нет данных</td></tr>" }}</tbody></table></div>
+        <h2>Данные по дням · сохранённая история</h2>
+        <div class="table-wrap"><table><thead><tr><th>День</th><th>Всего чатов</th><th>Новые</th>
+        <th>DAU</th><th>7 дней</th><th>Вернулись</th><th>Первый голос</th><th>Ходы AI</th>
+        <th>Токены вход</th><th>Токены выход</th><th>STT, с</th><th>TTS, символы</th></tr></thead><tbody>$rows</tbody></table></div>
         </section>
     """.trimIndent()
 }
@@ -181,7 +194,6 @@ private fun overviewChart(
         return "<section class=\"chart-card\"><h2>${escapeHtml(title)}</h2><p class=\"meta\">Нет данных</p></section>"
     val max = (lines.flatMap { it.values }.filterNotNull().maxOrNull() ?: 0L).coerceAtLeast(1)
     val width = 720.0
-    val height = 150.0
     val x = { index: Int -> 20.0 + index * (width - 40.0) / (days.size - 1).coerceAtLeast(1) }
     val y = { value: Long -> 125.0 - value.toDouble() / max * 100.0 }
     val paths = lines.joinToString("") { line ->
@@ -219,7 +231,6 @@ private fun overviewStyle(): String = """
   .period input, .period button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:white; }
   .period button { background:#1d4ed8; border-color:#1d4ed8; color:white; cursor:pointer; }
   .overview-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); gap:12px; margin:22px 0 14px; }
-  .audience-total { max-width:240px; margin:16px 0; }
   .overview-card { background:white; border:1px solid #e7e5e4; border-radius:12px; padding:17px; min-height:132px; }
   .overview-card dt { color:#57534e; font-size:13px; font-weight:600; }
   .overview-card dd { margin:10px 0 8px; font-size:32px; line-height:1; font-weight:700; letter-spacing:-.04em; }

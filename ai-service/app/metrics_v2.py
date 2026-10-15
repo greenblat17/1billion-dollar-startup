@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from datetime import date, timedelta
 from contextvars import ContextVar, Token
 from typing import Any
 from redis.asyncio import Redis
@@ -28,6 +29,7 @@ _TELEGRAM_HISTORICAL_VOICE_SINCE = "2026-09-24"
 _VOICE_LLM_COST_SINCE = "metrics:v2:voice-llm-cost:since"
 _LEGACY_BEFORE_DAY = "2026-10-06"
 _TELEGRAM_MESSAGE_ID = re.compile(r"message:[0-9]+\Z")
+_CHAT_ID = re.compile(r"tg-(?:ChatId\(chatId=|ChatIdWithThreadId\(chatIdWithThreadId=\()?(-?\d+)")
 _session: ContextVar[str] = ContextVar("metrics_v2_session", default="")
 _platform: ContextVar[str] = ContextVar("metrics_v2_platform", default="")
 
@@ -53,6 +55,20 @@ def client_for(session_id: str, platform: str | None = None) -> str:
         name = (platform if platform is not None else _platform.get()).strip().lower()
         return name if name in _MOBILE else "unknown"
     return "unknown"
+
+
+def _telegram_chat_id(session_id: str) -> str:
+    match = _CHAT_ID.match(session_id)
+    return f"tg-{match.group(1)}" if match else session_id
+
+
+def _cohort_counts(cohorts: dict[str, dict[str, str]], field: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for user in cohorts.values():
+        day = user.get(field)
+        if day:
+            counts[day] = counts.get(day, 0) + 1
+    return counts
 
 
 def cost_micro(value: Any) -> int | None:
@@ -487,54 +503,116 @@ class RedisMetricsV2(MetricsV2):
 
     async def overview(self, from_day: str, to_day: str) -> dict[str, Any]:
         days = _overview_days(from_day, to_day)
-        legacy_days = [day for day in days if day < _LEGACY_BEFORE_DAY]
         async with self._redis.pipeline() as pipe:
             for day in days:
                 pipe.hgetall(_day_key(day, "telegram"))
             buckets = await pipe.execute()
         async with self._redis.pipeline() as pipe:
-            for day in legacy_days:
+            for day in days:
                 pipe.hgetall(f"metrics:day:{day}")
                 pipe.hgetall(f"metrics:funnel:{day}")
-            legacy_buckets = await pipe.execute()
+            history_buckets = await pipe.execute()
         dau_keys = [key async for key in self._redis.scan_iter(match="metrics:dau:*", count=100)]
-        dau_since = min((key.removeprefix("metrics:dau:") for key in dau_keys
-                         if re.fullmatch(r"metrics:dau:\d{4}-\d{2}-\d{2}", key)), default="")
+        recorded_dau_days = sorted(key.removeprefix("metrics:dau:") for key in dau_keys
+                                   if re.fullmatch(r"metrics:dau:\d{4}-\d{2}-\d{2}", key) and key <= f"metrics:dau:{to_day}")
+        history_keys = [key async for key in self._redis.scan_iter(match="metrics:day:*", count=100)]
+        first_history_day = min((key.removeprefix("metrics:day:") for key in history_keys
+                                 if re.fullmatch(r"metrics:day:\d{4}-\d{2}-\d{2}", key)), default="")
+        dau_since = min(recorded_dau_days, default="")
+        history_since = min(filter(None, (first_history_day, dau_since)), default="")
         async with self._redis.pipeline() as pipe:
-            for day in days:
+            for day in recorded_dau_days:
                 pipe.smembers(f"metrics:dau:{day}")
             dau_members = await pipe.execute()
-        telegram_dau_members = [
-            {str(member) for member in members if client_for(str(member)) == "telegram"}
-            for members in dau_members
-        ]
+        dau_by_day = {
+            day: {_telegram_chat_id(str(member)) for member in members
+                  if client_for(str(member)) == "telegram"}
+            for day, members in zip(recorded_dau_days, dau_members, strict=True)
+        }
+        raw_dau_by_day = {day: {str(member) for member in members}
+                          for day, members in zip(recorded_dau_days, dau_members, strict=True)}
         legacy_sessions: set[str] = set()
         legacy_rows = []
-        for index, day in enumerate(legacy_days):
-            raw, funnel = legacy_buckets[index * 2:index * 2 + 2]
-            telegram_members = telegram_dau_members[index]
+        for index, day in enumerate(days):
+            if day >= _LEGACY_BEFORE_DAY:
+                continue
+            raw, funnel = history_buckets[index * 2:index * 2 + 2]
+            telegram_members = dau_by_day.get(day, set())
             legacy_sessions.update(telegram_members)
-            legacy_rows.append(_legacy_overview_day(day, raw, funnel, len(telegram_members), bool(dau_members[index])))
+            legacy_rows.append(_legacy_overview_day(day, raw, funnel, len(telegram_members), day in dau_by_day))
         # Legacy funnel keys have no TTL and include starts as well as voice users.
         chats: set[str] = set()
         funnel_keys = []
         async for key in self._redis.scan_iter(match="metrics:funnel:user:*", count=200):
             session = str(key).removeprefix("metrics:funnel:user:")
             if client_for(session) == "telegram":
-                chats.add(session)
+                chats.add(_telegram_chat_id(session))
                 funnel_keys.append(key)
         async with self._redis.pipeline() as pipe:
             for key in funnel_keys:
-                pipe.hget(key, "first_day")
-            first_days = await pipe.execute()
-        first_seen: dict[str, int] = {}
+                pipe.hgetall(key)
+            funnel_users = await pipe.execute()
+        cohorts: dict[str, dict[str, str]] = {}
         attributed_chats: set[str] = set()
-        for key, first_day in zip(funnel_keys, first_days, strict=True):
-            if first_day and re.fullmatch(r"\d{4}-\d{2}-\d{2}", first_day):
-                attributed_chats.add(str(key).removeprefix("metrics:funnel:user:"))
-                first_seen[first_day] = first_seen.get(first_day, 0) + 1
+        for key, user in zip(funnel_keys, funnel_users, strict=True):
+            chat = _telegram_chat_id(str(key).removeprefix("metrics:funnel:user:"))
+            cohort = cohorts.setdefault(chat, {})
+            for field in ("first_day", "start_day", "activated_day", "engaged_day"):
+                value = str(user.get(field) or "")
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) and (field not in cohort or value < cohort[field]):
+                    cohort[field] = value
+            source = str(user.get("source") or "").strip()
+            source_day = str(user.get("first_day") or "9999-12-31")
+            if source and ("source" not in cohort or
+                           (source_day, source) < (cohort["_source_day"], cohort["source"])):
+                cohort["source"] = source
+                cohort["_source_day"] = source_day
+            if "first_day" in cohort:
+                attributed_chats.add(chat)
         async for key in self._redis.scan_iter(match="metrics:v2:telegram:journey:user:*", count=200):
-            chats.add(str(key).removeprefix("metrics:v2:telegram:journey:user:"))
+            chats.add(_telegram_chat_id(str(key).removeprefix("metrics:v2:telegram:journey:user:")))
+        first_seen = _cohort_counts(cohorts, "first_day")
+        first_voice = _cohort_counts(cohorts, "activated_day")
+        first_start = _cohort_counts(cohorts, "start_day")
+        engaged = _cohort_counts(cohorts, "engaged_day")
+        prior_active: set[str] = set()
+        for day in recorded_dau_days:
+            if day >= from_day:
+                break
+            prior_active.update(dau_by_day[day])
+        period_active: set[str] = set()
+        period_sessions: set[str] = set()
+        history_rows = []
+        for index, day in enumerate(days):
+            raw, funnel = history_buckets[index * 2:index * 2 + 2]
+            active = dau_by_day.get(day, set())
+            period_active.update(active)
+            period_sessions.update(_telegram_chat_id(member) for member in raw_dau_by_day.get(day, set()))
+            trailing = [recorded for recorded in recorded_dau_days if day >= recorded >=
+                        (date.fromisoformat(day) - timedelta(days=6)).isoformat()]
+            weekly = set().union(*(dau_by_day[recorded] for recorded in trailing)) if trailing else set()
+            tracked = bool(history_since and day >= history_since)
+            history_rows.append({
+                **_legacy_overview_day(day, raw, funnel, len(active), day in dau_by_day),
+                "tracked": tracked,
+                "newChats": first_seen.get(day, 0),
+                "totalChatsToDate": sum(count for first, count in first_seen.items() if first <= day),
+                "firstVoiceChats": first_voice.get(day, int(funnel.get("activated") or 0) if not first_voice else 0),
+                "firstVoiceChatsToDate": sum(count for first, count in first_voice.items() if first <= day),
+                "firstStarts": first_start.get(day, int(funnel.get("start") or 0) if not first_start else 0),
+                "engagedChats": engaged.get(day, int(funnel.get("engaged") or 0) if not engaged else 0),
+                "returningActiveChats": len(active & prior_active),
+                "activeChats7d": len(weekly) if dau_since and day >= (date.fromisoformat(dau_since) + timedelta(days=6)).isoformat() else None,
+            })
+            prior_active.update(active)
+        sources: dict[str, dict[str, int]] = {}
+        for user in cohorts.values():
+            source = user.get("source") or "direct"
+            row = sources.setdefault(source, {"newChats": 0, "firstVoiceChats": 0})
+            if from_day <= user.get("first_day", "") <= to_day:
+                row["newChats"] += 1
+            if from_day <= user.get("activated_day", "") <= to_day:
+                row["firstVoiceChats"] += 1
         model_days = []
         async for key in self._redis.scan_iter(match="metrics:v2:day:*:telegram", count=100):
             day = str(key).removeprefix("metrics:v2:day:").removesuffix(":telegram")
@@ -547,10 +625,16 @@ class RedisMetricsV2(MetricsV2):
             "days": [_overview_day(day, bucket) for day, bucket in zip(days, buckets)],
             "legacyActiveChatsInPeriod": len(legacy_sessions),
             "legacyDays": legacy_rows,
+            "historySince": history_since,
+            "historyActiveChatsInPeriod": len(period_active),
+            "historyActiveSessionsInPeriod": len(period_sessions),
+            "historyDays": history_rows,
+            "sourceBreakdown": [{"source": source, **values} for source, values in sorted(sources.items())
+                                if values["newChats"] or values["firstVoiceChats"]],
             "redisDauDays": [
                 {"day": day, "tracked": bool(dau_since and day >= dau_since),
-                 "activeChatsWithTurn": len(members)}
-                for day, members in zip(days, telegram_dau_members, strict=True)
+                 "activeChatsWithTurn": len(dau_by_day.get(day, set()))}
+                for day in days
             ],
             "chatGrowthDays": [
                 {"day": day, "tracked": bool(first_seen and day >= min(first_seen)),

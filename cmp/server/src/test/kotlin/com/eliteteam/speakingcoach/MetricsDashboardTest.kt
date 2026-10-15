@@ -13,8 +13,7 @@ import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.AdminModelDay
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
-import com.eliteteam.speakingcoach.ai.AdminRedisDauDay
-import com.eliteteam.speakingcoach.ai.AdminChatGrowthDay
+import com.eliteteam.speakingcoach.ai.AdminHistoryDay
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
@@ -279,7 +278,9 @@ class MetricsDashboardTest {
         val day = "2026-10-13"
         val html = adminOverviewHtml(
             LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
-            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", voiceLlmSince = "2026-10-12", days = listOf(AdminModelDay(day, tracked = true,
+            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", voiceLlmSince = "2026-10-12",
+                historySince = "2026-09-24", historyDays = listOf(AdminHistoryDay(day, tracked = true, totalChatsToDate = 197)),
+                days = listOf(AdminModelDay(day, tracked = true,
                 llmCalls = 265, sttCalls = 94, ttsCalls = 96, voiceLlmCalls = 4,
                 voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000))),
             AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
@@ -316,20 +317,19 @@ class MetricsDashboardTest {
         val html = adminOverviewHtml(
             LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
             AdminModelOverview(totalChats = 198, modelSince = "2026-10-06",
-                legacyActiveChatsInPeriod = 2,
-                legacyDays = listOf(com.eliteteam.speakingcoach.ai.AdminLegacyDay(
+                historySince = day, historyActiveChatsInPeriod = 2,
+                historyDays = listOf(AdminHistoryDay(
                     day, tracked = true, activeChatsWithTurn = 2, completedTurns = 2,
                     promptTokens = 1346, completionTokens = 76, sttMs = 17114,
-                    ttsChars = 235, firstVoiceChats = 2,
+                    ttsChars = 235, firstVoiceChats = 2, firstVoiceChatsToDate = 2,
                 ))),
             AdminUsageOverview(0, listOf(AdminUsageDay(day)), "2026-10-06"),
         )
-        assertTrue(html.contains("История старого учёта · до 6 октября"))
-        assertTrue(html.contains("<dt>Чатов с завершённым ходом</dt><dd>2</dd>"))
+        assertTrue(html.contains("Аудитория и использование AI"))
+        assertTrue(html.contains("<dt>Активных чатов за период</dt><dd>2</dd>"))
         assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1422</dd>"))
         assertTrue(html.contains("<td>17.1</td>"))
-        assertTrue(html.contains("<dt>Голосовых</dt><dd>—</dd>"))
-        assertTrue(html.contains("<dt>Вызовов / активный чат</dt><dd>—</dd>"))
+        assertFalse(html.contains("<dt>Голосовых</dt>"))
     }
 
     @Test
@@ -338,20 +338,17 @@ class MetricsDashboardTest {
         val to = LocalDate.parse("2026-10-06")
         val html = adminOverviewHtml(
             LlmRange(from, to),
-            AdminModelOverview(totalChats = 3, modelSince = "2026-10-06",
-                chatGrowthDays = listOf(
-                    AdminChatGrowthDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1),
-                    AdminChatGrowthDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3)),
-                redisDauDays = listOf(
-                    AdminRedisDauDay("2026-09-24", tracked = true, activeChatsWithTurn = 1),
-                    AdminRedisDauDay("2026-10-06", tracked = true, activeChatsWithTurn = 2))),
+            AdminModelOverview(totalChats = 3, modelSince = "2026-10-06", historySince = "2026-09-24",
+                historyDays = listOf(
+                    AdminHistoryDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1, activeChatsWithTurn = 1),
+                    AdminHistoryDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3, activeChatsWithTurn = 2))),
             AdminUsageOverview(0, emptyList(), "2026-10-06"),
         )
         assertTrue(html.contains("Рост пользователей · Telegram-чаты"))
-        assertTrue(html.contains("DAU · завершённые ходы AI"))
+        assertTrue(html.contains("DAU и активные за 7 дней"))
         assertTrue(html.contains("2026-09-24 · Всего чатов: 1.000"))
         assertTrue(html.contains("2026-10-06 · Всего чатов: 3.000"))
-        assertTrue(html.contains("2026-10-06 · Чаты за день: 2.000"))
+        assertTrue(html.contains("2026-10-06 · DAU: 2.000"))
     }
 
     @Test
