@@ -14,6 +14,7 @@ import com.eliteteam.speakingcoach.ai.MetricsSnapshot
 import com.eliteteam.speakingcoach.ai.AdminModelDay
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.AdminHistoryDay
+import com.eliteteam.speakingcoach.ai.AdminRetentionDay
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
@@ -314,6 +315,27 @@ class MetricsDashboardTest {
                 AdminUsageDay("2026-10-14")), "2026-10-12"),
         )
         assertTrue(quietDay.contains("<dt>Вызовов / активного пользователя</dt><dd>2.0</dd>"))
+    }
+
+    @Test
+    fun overviewShowsRetentionStickinessAndIncomingMessagesWithCoverage() {
+        val day = "2026-10-24"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(historySince = "2026-09-24", modelSince = "2026-10-06",
+                historyDays = listOf(AdminHistoryDay(day, tracked = true, activeChatsWithTurn = 2,
+                    activeChats7d = 4, activeChats30d = 8)),
+                retention = listOf(AdminRetentionDay(1, 4, 2), AdminRetentionDay(7, 2, 1),
+                    AdminRetentionDay(30, 0, 0))),
+            AdminUsageOverview(2, listOf(AdminUsageDay(day, incomingMessages = 5, callbacks = 3)),
+                "2026-10-06"),
+        )
+        assertTrue(html.contains("<dt>Stickiness · 7 дней</dt><dd>50.0%</dd>"))
+        assertTrue(html.contains("<dt>Stickiness · 30 дней</dt><dd>25.0%</dd>"))
+        assertTrue(html.contains("<dt>Retention D1</dt><dd>50.0%</dd>"))
+        assertTrue(html.contains("<dt>Retention D30</dt><dd>—</dd>"))
+        assertTrue(html.contains("<dt>Входящих сообщений</dt><dd>5</dd>"))
+        assertTrue(html.contains("2026-10-24 · Сообщения: 5.000"))
     }
 
     @Test

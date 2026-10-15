@@ -195,6 +195,39 @@ async def test_admin_overview_cumulative_turn_users_include_days_before_selected
 
 
 @pytest.mark.asyncio
+async def test_admin_overview_retention_and_full_rolling_windows(monkeypatch) -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    monkeypatch.setattr("app.metrics_v2.time.time", lambda: datetime(
+        2026, 10, 25, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp())
+    for chat in ("tg-1", "tg-2"):
+        await redis.hset(f"metrics:funnel:user:{chat}", mapping={
+            "first_day": "2026-09-24", "activated_day": "2026-09-24",
+        })
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-09-25", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-01", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-10-24", "tg-1")
+
+    cohort_report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-24")
+    assert cohort_report["retention"] == [
+        {"day": 1, "eligible": 2, "returned": 1},
+        {"day": 7, "eligible": 2, "returned": 2},
+        {"day": 30, "eligible": 2, "returned": 1},
+    ]
+    report = await RedisMetricsV2(redis).overview("2026-10-24", "2026-10-24")
+    rows = {row["day"]: row for row in report["historyDays"]}
+    assert rows["2026-10-24"]["activeChats30d"] == 2
+    assert rows["2026-10-24"]["activeChats7d"] == 1
+    prior = await RedisMetricsV2(redis).overview("2026-10-22", "2026-10-22")
+    assert prior["historyDays"][0]["activeChats30d"] is None
+
+    monkeypatch.setattr("app.metrics_v2.time.time", lambda: datetime(
+        2026, 10, 24, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp())
+    incomplete = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-24")
+    assert incomplete["retention"][2] == {"day": 30, "eligible": 0, "returned": 0}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("redis_backed", [False, True])
 async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
     store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()

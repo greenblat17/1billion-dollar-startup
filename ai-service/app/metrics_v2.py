@@ -512,9 +512,11 @@ class RedisMetricsV2(MetricsV2):
                 pipe.hgetall(f"metrics:day:{day}")
                 pipe.hgetall(f"metrics:funnel:{day}")
             history_buckets = await pipe.execute()
+        today_name = metrics_day(time.time())
         dau_keys = [key async for key in self._redis.scan_iter(match="metrics:dau:*", count=100)]
         recorded_dau_days = sorted(key.removeprefix("metrics:dau:") for key in dau_keys
-                                   if re.fullmatch(r"metrics:dau:\d{4}-\d{2}-\d{2}", key) and key <= f"metrics:dau:{to_day}")
+                                   if re.fullmatch(r"metrics:dau:\d{4}-\d{2}-\d{2}", key)
+                                   and key <= f"metrics:dau:{max(to_day, today_name)}")
         history_keys = [key async for key in self._redis.scan_iter(match="metrics:day:*", count=100)]
         first_history_day = min((key.removeprefix("metrics:day:") for key in history_keys
                                  if re.fullmatch(r"metrics:day:\d{4}-\d{2}-\d{2}", key)), default="")
@@ -580,6 +582,20 @@ class RedisMetricsV2(MetricsV2):
             if day >= from_day:
                 break
             prior_active.update(dau_by_day[day])
+        today = date.fromisoformat(today_name)
+        retention = []
+        for offset in (1, 7, 30):
+            eligible = returned = 0
+            for chat, user in cohorts.items():
+                activated = user.get("activated_day", "")
+                if not (from_day <= activated <= to_day):
+                    continue
+                target = (date.fromisoformat(activated) + timedelta(days=offset)).isoformat()
+                if target >= today.isoformat() or target < dau_since:
+                    continue
+                eligible += 1
+                returned += chat in dau_by_day.get(target, set())
+            retention.append({"day": offset, "eligible": eligible, "returned": returned})
         period_active: set[str] = set()
         period_sessions: set[str] = set()
         history_rows = []
@@ -591,6 +607,9 @@ class RedisMetricsV2(MetricsV2):
             trailing = [recorded for recorded in recorded_dau_days if day >= recorded >=
                         (date.fromisoformat(day) - timedelta(days=6)).isoformat()]
             weekly = set().union(*(dau_by_day[recorded] for recorded in trailing)) if trailing else set()
+            monthly_start = (date.fromisoformat(day) - timedelta(days=29)).isoformat()
+            monthly = set().union(*(dau_by_day[recorded] for recorded in recorded_dau_days
+                                     if monthly_start <= recorded <= day))
             tracked = bool(history_since and day >= history_since)
             history_rows.append({
                 **_legacy_overview_day(day, raw, funnel, len(active), day in dau_by_day),
@@ -604,6 +623,7 @@ class RedisMetricsV2(MetricsV2):
                 "engagedChats": engaged.get(day, int(funnel.get("engaged") or 0) if not engaged else 0),
                 "returningActiveChats": len(active & prior_active),
                 "activeChats7d": len(weekly) if dau_since and day >= (date.fromisoformat(dau_since) + timedelta(days=6)).isoformat() else None,
+                "activeChats30d": len(monthly) if dau_since and monthly_start >= dau_since else None,
             })
             prior_active.update(active)
         sources: dict[str, dict[str, int]] = {}
@@ -630,6 +650,7 @@ class RedisMetricsV2(MetricsV2):
             "historyActiveChatsInPeriod": len(period_active),
             "historyActiveSessionsInPeriod": len(period_sessions),
             "historyDays": history_rows,
+            "retention": retention,
             "sourceBreakdown": [{"source": source, **values} for source, values in sorted(sources.items())
                                 if values["newChats"] or values["firstVoiceChats"]],
             "redisDauDays": [

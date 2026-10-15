@@ -196,8 +196,12 @@ data class AdminModelOverview(
     val historyActiveChatsInPeriod: Long = 0,
     val historyActiveSessionsInPeriod: Long = 0,
     val historyDays: List<AdminHistoryDay> = emptyList(),
+    val retention: List<AdminRetentionDay> = emptyList(),
     val sourceBreakdown: List<AdminSourceBreakdown> = emptyList(),
 )
+
+@Serializable
+data class AdminRetentionDay(val day: Int, val eligible: Long = 0, val returned: Long = 0)
 
 @Serializable
 data class AdminHistoryDay(
@@ -218,6 +222,7 @@ data class AdminHistoryDay(
     val engagedChats: Long = 0,
     val returningActiveChats: Long = 0,
     val activeChats7d: Long? = null,
+    val activeChats30d: Long? = null,
 )
 
 @Serializable

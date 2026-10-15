@@ -11,6 +11,8 @@ import kotlinx.coroutines.withContext
 internal data class AdminUsageDay(
     val day: String,
     val activeChats: Long = 0,
+    val incomingMessages: Long = 0,
+    val callbacks: Long = 0,
     val voices: Long = 0,
     val exchanges: Long = 0,
     val voiceErrors: Long = 0,
@@ -67,11 +69,13 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
             }
             connection.prepareStatement("""
                 SELECT (occurred_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-                       count(DISTINCT chat_id) AS active_chats
+                       count(DISTINCT chat_id) FILTER (WHERE kind IN ('voice', 'text', 'callback')) AS active_chats,
+                       count(*) FILTER (WHERE kind IN ('voice', 'text', 'photo')) AS incoming_messages,
+                       count(*) FILTER (WHERE kind = 'callback') AS callbacks
                 FROM interaction_events
                 WHERE occurred_at >= ? AND occurred_at < ?
                   AND direction = 'incoming' AND status = 'received'
-                  AND kind IN ('voice', 'text', 'callback') AND chat_id IS NOT NULL
+                  AND kind IN ('voice', 'text', 'photo', 'callback') AND chat_id IS NOT NULL
                 GROUP BY 1
             """.trimIndent()).use { statement ->
                 statement.setTimestamp(1, start)
@@ -79,7 +83,9 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
                 statement.executeQuery().use { result ->
                     while (result.next()) {
                         val day = result.getString("day")
-                        rows[day] = AdminUsageDay(day, activeChats = result.getLong("active_chats"))
+                        rows[day] = AdminUsageDay(day, activeChats = result.getLong("active_chats"),
+                            incomingMessages = result.getLong("incoming_messages"),
+                            callbacks = result.getLong("callbacks"))
                     }
                 }
             }

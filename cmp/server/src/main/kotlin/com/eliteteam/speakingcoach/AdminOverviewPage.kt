@@ -52,7 +52,7 @@ internal fun adminOverviewHtml(
     val rows = days.joinToString("") { day ->
         val model = byModel[day]
         val product = byUsage[day]
-        """<tr><td>$day</td><td>${product?.activeChats ?: "—"}</td><td>${product?.voices ?: "—"}</td>
+        """<tr><td>$day</td><td>${product?.activeChats ?: "—"}</td><td>${product?.incomingMessages ?: "—"}</td><td>${product?.callbacks ?: "—"}</td><td>${product?.voices ?: "—"}</td>
           <td>${product?.exchanges ?: "—"}</td><td>${model?.llmCalls ?: "—"}</td>
           <td>${model?.sttCalls ?: "—"}</td><td>${model?.ttsCalls ?: "—"}</td>
           <td>${product?.telegramApiCalls ?: "—"}</td><td>${product?.voiceErrors ?: "—"}</td></tr>"""
@@ -71,6 +71,7 @@ internal fun adminOverviewHtml(
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
           ${overviewCard("Активных пользователей", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные Telegram ID с голосом, текстом или нажатием кнопки за период")}
+          ${overviewCard("Входящих сообщений", if (fullJournal) usage.days.sumOf { it.incomingMessages }.toString() else "—", "Голосовые, текстовые и фото; без нажатий кнопок. Журнал с $journalSince")}
           ${overviewCard("Голосовых", if (fullJournal) usage.days.sumOf { it.voices }.toString() else "—", "Уникальные входящие голосовые сообщения")}
           ${overviewCard("Успешных обменов", if (fullJournal) usage.days.sumOf { it.exchanges }.toString() else "—", "Голосовое и доставленный голосовой ответ с распознанной репликой")}
           ${overviewCard("Вызовов / активного пользователя", callsPerUser, "Учтённые LLM + STT + TTS + Telegram API. Неполный показатель")}
@@ -85,6 +86,9 @@ internal fun adminOverviewHtml(
           ${overviewChart("Голосовые и ответы", days, listOf(
               ChartLine("Отправлено", "#2563eb", days.map { byUsage[it]?.voices }),
               ChartLine("Успешно", "#16a34a", days.map { byUsage[it]?.exchanges })), usage != null)}
+          ${overviewChart("Входящие сообщения и кнопки", days, listOf(
+              ChartLine("Сообщения", "#2563eb", days.map { byUsage[it]?.incomingMessages }),
+              ChartLine("Кнопки", "#16a34a", days.map { byUsage[it]?.callbacks })), usage != null)}
           ${overviewChart("Вызовы компонентов", days, listOf(
               ChartLine("LLM", "#2563eb", days.map { byModel[it]?.llmCalls }),
               ChartLine("STT", "#f59e0b", days.map { byModel[it]?.sttCalls }),
@@ -100,7 +104,7 @@ internal fun adminOverviewHtml(
           ${overviewChart("Ошибки голосового пути", days, listOf(
               ChartLine("Ошибки", "#dc2626", days.map { byUsage[it]?.voiceErrors })), usage != null)}
         </div>
-        <h2>Данные по дням</h2><div class="table-wrap"><table><thead><tr><th>День</th><th>Активные</th><th>ГС</th>
+        <h2>Данные по дням</h2><div class="table-wrap"><table><thead><tr><th>День</th><th>Активные</th><th>Сообщения</th><th>Кнопки</th><th>ГС</th>
         <th>Обмены</th><th>LLM</th><th>STT</th><th>TTS</th><th>Telegram API</th><th>Ошибки</th></tr></thead>
         <tbody>$rows</tbody></table></div>
         <p class="coverage">Вызовы LLM, STT и TTS — успешно учтённые ответы провайдеров; ошибочные попытки до нового счётчика не восстановлены.
@@ -240,6 +244,7 @@ private fun historicalOverviewHtml(
     val sessions = overview.historyActiveSessionsInPeriod
     val turns = observed.sumOf { it.completedTurns }
     val tokens = observed.sumOf { it.promptTokens + it.completionTokens }
+    val retention = overview.retention.associateBy { it.day }
     return """
         <section aria-label="История Redis">
         <h2>Аудитория и использование AI</h2>
@@ -253,6 +258,13 @@ private fun historicalOverviewHtml(
           ${overviewCard("Всего пользователей на конец периода", through.totalChatsToDate.toString(), "Накопленно с первого сохранённого обращения")}
           ${overviewCard("Активных пользователей за период", active.toString(), "Уникальные Telegram ID с завершённым голосовым ходом AI")}
           ${overviewCard("DAU в последний день", through.activeChatsWithTurn.toString(), "Пользователи с завершённым голосовым ходом AI")}
+          ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "DAU / уникальные активные за 7 дней на конец периода")}
+          ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "DAU / уникальные активные за 30 дней; появится после полного окна")}
+          ${listOf(1, 7, 30).joinToString("") { offset ->
+              val cohort = retention[offset]
+              overviewCard("Retention D$offset", ratioPercent(cohort?.returned, cohort?.eligible),
+                  "Вернулись ровно на день $offset после первого голоса: ${cohort?.returned ?: 0} из ${cohort?.eligible ?: 0} пользователей с завершённым днём")
+          }}
           ${overviewCard("Отправили первое голосовое · всего", through.firstVoiceChatsToDate.toString(), "Накопленно на конец периода")}
           ${overviewCard("Завершённых ходов AI", turns.toString(), "За выбранный период, все платформы")}
           ${overviewCard("Ходов / активную AI-сессию", if (sessions > 0) decimal(turns.toDouble() / sessions, 1) else "—", "Все платформы, уникальные сессии с завершённым ходом")}
@@ -269,6 +281,9 @@ private fun historicalOverviewHtml(
           ${overviewChart("DAU и активные за 7 дней", days, listOf(
               ChartLine("DAU", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChatsWithTurn }),
               ChartLine("7 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChats7d })), true)}
+          ${overviewChart("Stickiness · DAU / активные, %", days, listOf(
+              ChartLine("7 дней", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.let { row -> ratioBasisPoints(row.activeChatsWithTurn, row.activeChats7d) } }),
+              ChartLine("30 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.let { row -> ratioBasisPoints(row.activeChatsWithTurn, row.activeChats30d) } })), true, valueDivisor = 100)}
           ${overviewChart("Новые и вернувшиеся", days, listOf(
               ChartLine("Новые пользователи", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.newChats }),
               ChartLine("Активные повторно", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.returningActiveChats })), true)}
@@ -286,7 +301,9 @@ private fun historicalOverviewHtml(
           ${overviewChart("Текст TTS · символы", days, listOf(
               ChartLine("Символы", "#a855f7", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.ttsChars })), true)}
         </div>
-        <p class="coverage">«7 дней» — уникальные активные пользователи за последние семь календарных суток; первые шесть дней истории не отображаются.
+        <p class="coverage">Stickiness — DAU / уникальные активные за последние 7 или 30 календарных суток; до заполнения окна значение не показывается.
+        Retention D1/D7/D30 — доля пользователей, впервые отправивших голосовое в выбранном периоде и завершивших ход AI ровно через 1/7/30 дней. В знаменатель входят только пользователи, у которых этот день уже завершился по Москве.
+        «7 дней» — уникальные активные пользователи за последние семь календарных суток; первые шесть дней истории не отображаются.
         Возврат — пользователь, активный сегодня и хотя бы в один более ранний сохранённый день. Новые пользователи и первые голосовые считаются по первой дате Telegram ID.
         «Завершили голосовой ход AI» — приближение к числу пользователей с целевым действием за всю историю. Оно не подтверждает доставку ответа; доставка учтена только в детальном блоке с 6 октября.</p>
         $ratesHtml
@@ -304,6 +321,12 @@ private fun historicalOverviewHtml(
 private fun overviewCard(title: String, value: String, note: String): String =
     """<article class="overview-card"><dt>${escapeHtml(title)}</dt><dd>${escapeHtml(value)}</dd>
     <p>${escapeHtml(note)}</p></article>"""
+
+private fun ratioPercent(part: Long?, total: Long?): String =
+    if (part == null || total == null || total <= 0) "—" else decimal(part * 100.0 / total, 1) + "%"
+
+private fun ratioBasisPoints(part: Long, total: Long?): Long? =
+    total?.takeIf { it > 0 }?.let { (part * 10_000.0 / it).toLong() }
 
 private data class ChartLine(val label: String, val color: String, val values: List<Long?>)
 private val chartDateFormat = DateTimeFormatter.ofPattern("dd.MM")
