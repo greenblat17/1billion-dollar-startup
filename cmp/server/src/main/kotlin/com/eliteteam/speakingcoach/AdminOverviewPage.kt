@@ -4,7 +4,12 @@ import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.AdminHistoryDay
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
 
 /** Product-facing daily overview. Missing source data is displayed as missing, never as zero. */
 internal fun adminOverviewHtml(
@@ -186,16 +191,35 @@ private fun overviewCard(title: String, value: String, note: String): String =
     <p>${escapeHtml(note)}</p></article>"""
 
 private data class ChartLine(val label: String, val color: String, val values: List<Long?>)
+private val chartDateFormat = DateTimeFormatter.ofPattern("dd.MM")
 
 private fun overviewChart(
     title: String, days: List<String>, lines: List<ChartLine>, available: Boolean, valueDivisor: Long = 1,
 ): String {
     if (!available || lines.all { line -> line.values.all { it == null } })
         return "<section class=\"chart-card\"><h2>${escapeHtml(title)}</h2><p class=\"meta\">Нет данных</p></section>"
-    val max = (lines.flatMap { it.values }.filterNotNull().maxOrNull() ?: 0L).coerceAtLeast(1)
-    val width = 720.0
-    val x = { index: Int -> 20.0 + index * (width - 40.0) / (days.size - 1).coerceAtLeast(1) }
-    val y = { value: Long -> 125.0 - value.toDouble() / max * 100.0 }
+    val left = 62.0
+    val right = 704.0
+    val top = 16.0
+    val bottom = 160.0
+    val max = (lines.flatMap { it.values }.filterNotNull().maxOrNull() ?: 0L).toDouble() / valueDivisor
+    val tickStep = chartTickStep(max, wholeNumbers = valueDivisor == 1L)
+    val tickCount = ceil(max / tickStep - 1e-9).toInt().coerceAtLeast(1)
+    val axisMax = tickCount * tickStep
+    val x = { index: Int -> if (days.size == 1) (left + right) / 2 else left + index * (right - left) / (days.size - 1) }
+    val y = { value: Double -> bottom - value / axisMax * (bottom - top) }
+    val yAxis = (0..tickCount).joinToString("") { tick ->
+        val value = tick * tickStep
+        val position = y(value)
+        """<line x1="$left" y1="$position" x2="$right" y2="$position" stroke="${if (tick == 0) "#9ca3af" else "#e5e7eb"}"/>
+        <text class="axis-y" x="54" y="${position + 4}" text-anchor="end">${chartAxisLabel(value, tickStep, axisMax)}</text>"""
+    }
+    val xAxis = chartDateIndexes(days.size).joinToString("") { index ->
+        val position = x(index)
+        val anchor = when { days.size == 1 -> "middle"; index == 0 -> "start"; index == days.lastIndex -> "end"; else -> "middle" }
+        """<line x1="$position" y1="$bottom" x2="$position" y2="${bottom + 5}" stroke="#9ca3af"/>
+        <text class="axis-x" x="$position" y="182" text-anchor="$anchor">${LocalDate.parse(days[index]).format(chartDateFormat)}</text>"""
+    }
     val paths = lines.joinToString("") { line ->
         val segments = mutableListOf<MutableList<Pair<Int, Long>>>()
         line.values.forEachIndexed { index, value ->
@@ -204,17 +228,46 @@ private fun overviewChart(
             segments.last().add(index to value)
         }
         segments.joinToString("") { segment ->
-            val points = segment.joinToString(" ") { (index, value) -> "${x(index)},${y(value)}" }
+            val points = segment.joinToString(" ") { (index, value) -> "${x(index)},${y(value.toDouble() / valueDivisor)}" }
             "<polyline points=\"$points\" fill=\"none\" stroke=\"${line.color}\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
         } + line.values.mapIndexedNotNull { index, value ->
-            value?.let { "<circle cx=\"${x(index)}\" cy=\"${y(it)}\" r=\"3\" fill=\"${line.color}\"><title>${days[index]} · ${escapeHtml(line.label)}: ${decimal(it.toDouble() / valueDivisor, 3)}</title></circle>" }
+            value?.let { "<circle cx=\"${x(index)}\" cy=\"${y(it.toDouble() / valueDivisor)}\" r=\"3\" fill=\"${line.color}\"><title>${days[index]} · ${escapeHtml(line.label)}: ${decimal(it.toDouble() / valueDivisor, 3)}</title></circle>" }
         }.joinToString("")
     }
     val legend = lines.joinToString("") { line -> "<span><i style=\"background:${line.color}\"></i>${escapeHtml(line.label)}</span>" }
     return """<section class="chart-card"><h2>${escapeHtml(title)}</h2><div class="chart-legend">$legend</div>
-      <svg viewBox="0 0 720 150" role="img" aria-label="${escapeHtml(title)}">
-      <line x1="20" y1="125" x2="700" y2="125" stroke="#d8dee8"/>$paths</svg>
-      <div class="chart-dates"><span>${days.first()}</span><span>${days.last()}</span></div></section>"""
+      <div class="chart-scroll"><svg viewBox="0 0 720 194" role="img" aria-label="${escapeHtml(title)}">
+      <g class="chart-axis">$yAxis<line x1="$left" y1="$top" x2="$left" y2="$bottom" stroke="#9ca3af"/>$xAxis</g>
+      $paths</svg></div></section>"""
+}
+
+private fun chartDateIndexes(size: Int): List<Int> {
+    if (size <= 7) return (0 until size).toList()
+    return (0..5).map { index -> (index * (size - 1).toDouble() / 5).toInt() }.distinct()
+}
+
+private fun chartTickStep(max: Double, wholeNumbers: Boolean): Double {
+    if (max <= 0) return 1.0
+    val raw = max / 4
+    val magnitude = 10.0.pow(floor(log10(raw)))
+    val nice = (if (wholeNumbers) listOf(1.0, 2.0, 5.0, 10.0) else listOf(1.0, 2.0, 2.5, 5.0, 10.0))
+        .first { it >= raw / magnitude - 1e-9 }
+    return (nice * magnitude).let { if (wholeNumbers) it.coerceAtLeast(1.0) else it }
+}
+
+private fun chartAxisLabel(value: Double, step: Double, axisMax: Double): String {
+    if (value == 0.0) return "0"
+    val divisor = when {
+        axisMax >= 1_000_000 -> 1_000_000.0
+        axisMax >= 1_000 -> 1_000.0
+        else -> 1.0
+    }
+    val suffix = when (divisor) { 1_000_000.0 -> "M"; 1_000.0 -> "k"; else -> "" }
+    val scaledStep = step / divisor
+    val digits = java.math.BigDecimal.valueOf(scaledStep).setScale(9, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros().scale().coerceIn(0, 9)
+    val formatted = decimal(value / divisor, digits)
+    return (if (digits > 0) formatted.trimEnd('0').trimEnd('.') else formatted) + suffix
 }
 
 private fun decimal(value: Double, digits: Int): String = String.format(Locale.ROOT, "%.${digits}f", value)
@@ -239,11 +292,12 @@ private fun overviewStyle(): String = """
   .chart-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
   .chart-card { background:white; border:1px solid #e7e5e4; border-radius:12px; padding:14px 16px; min-width:0; }
   .chart-card h2 { margin:0 0 8px; font-size:15px; }
-  .chart-card svg { width:100%; height:auto; display:block; }
+  .chart-scroll { overflow-x:auto; }
+  .chart-card svg { width:100%; min-width:600px; height:auto; display:block; }
+  .chart-axis text { fill:#6b7280; font-size:14px; font-family:system-ui,sans-serif; }
   .chart-legend { display:flex; gap:12px; flex-wrap:wrap; color:#57534e; font-size:11px; }
   .chart-legend span { display:inline-flex; align-items:center; gap:4px; }
   .chart-legend i { display:inline-block; width:8px; height:8px; border-radius:50%; }
-  .chart-dates { display:flex; justify-content:space-between; font-size:11px; color:#78716c; }
   .table-wrap { overflow-x:auto; background:white; border:1px solid #e7e5e4; border-radius:12px; }
   .table-wrap table { margin:0; width:100%; white-space:nowrap; }
   .tabs { overflow-x:auto; white-space:nowrap; }

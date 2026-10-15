@@ -282,7 +282,7 @@ class MetricsDashboardTest {
                 historySince = "2026-09-24", historyDays = listOf(AdminHistoryDay(day, tracked = true, totalChatsToDate = 197)),
                 days = listOf(AdminModelDay(day, tracked = true,
                 llmCalls = 265, sttCalls = 94, ttsCalls = 96, voiceLlmCalls = 4,
-                voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000))),
+                voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000, llmCostMicro = 500_000))),
             AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
                 exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), "2026-10-12"),
         )
@@ -291,6 +291,9 @@ class MetricsDashboardTest {
         assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
         assertTrue(html.contains("<dd>197</dd>"))
         assertFalse(html.contains("Loki"))
+        val costChart = html.substringAfter("<h2>Известная стоимость LLM · USD</h2>").substringBefore("</section>")
+        assertTrue(costChart.contains(">0.2</text>"))
+        assertTrue(costChart.contains("text-anchor=\"middle\">13.10</text>"))
 
         val incomplete = adminOverviewHtml(
             LlmRange(LocalDate.parse("2026-10-12"), LocalDate.parse(day)),
@@ -330,6 +333,8 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1422</dd>"))
         assertTrue(html.contains("<td>17.1</td>"))
         assertFalse(html.contains("<dt>Голосовых</dt>"))
+        val audioChart = html.substringAfter("<h2>Аудио STT · минуты</h2>").substringBefore("</section>")
+        assertTrue(audioChart.contains(">0.1</text>"))
     }
 
     @Test
@@ -349,6 +354,11 @@ class MetricsDashboardTest {
         assertTrue(html.contains("2026-09-24 · Всего чатов: 1.000"))
         assertTrue(html.contains("2026-10-06 · Всего чатов: 3.000"))
         assertTrue(html.contains("2026-10-06 · DAU: 2.000"))
+        val growthChart = html.substringAfter("<h2>Рост пользователей · Telegram-чаты</h2>").substringBefore("</section>")
+        assertTrue(growthChart.contains("class=\"axis-y\""))
+        assertTrue(growthChart.contains("class=\"axis-x\""))
+        assertTrue(growthChart.contains(">2</text>"))
+        assertTrue(growthChart.contains(">01.10</text>"))
     }
 
     @Test
