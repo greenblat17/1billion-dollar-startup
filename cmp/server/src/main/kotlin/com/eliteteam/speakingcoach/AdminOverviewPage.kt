@@ -68,6 +68,7 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
+        <a class="grafana-link" href="https://89.19.214.50:8443/d/speaky-v2/speaky" target="_blank" rel="noopener noreferrer">Открыть Grafana ↗</a>
         ${historicalOverviewHtml(days, models, historicalRates, range, ratesWindow, ratesDay)}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
@@ -488,6 +489,7 @@ private fun overviewStyle(): String = """
   .period label { color:#57534e; font-size:12px; display:grid; gap:4px; }
   .period input, .period button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:white; }
   .period button { background:#1d4ed8; border-color:#1d4ed8; color:white; cursor:pointer; }
+  .grafana-link { display:inline-block; margin:0 0 18px; padding:8px 12px; border:1px solid #d6d3d1; border-radius:8px; background:#fff; color:#1d4ed8; text-decoration:none; font-weight:600; }
   .rates-scale { display:flex; align-items:end; gap:10px; flex-wrap:wrap; margin:16px 0; }
   .rates-scale label { display:grid; gap:4px; color:#57534e; font-size:12px; }
   .rates-scale select, .rates-scale input, .rates-scale button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:#fff; }
