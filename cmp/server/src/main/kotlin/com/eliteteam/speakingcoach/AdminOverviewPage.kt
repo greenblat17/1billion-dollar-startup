@@ -243,7 +243,8 @@ private fun historicalOverviewHtml(
     val active = overview.historyActiveChatsInPeriod
     val sessions = overview.historyActiveSessionsInPeriod
     val turns = observed.sumOf { it.completedTurns }
-    val tokens = observed.sumOf { it.promptTokens + it.completionTokens }
+    val promptTokens = observed.sumOf { it.promptTokens }
+    val completionTokens = observed.sumOf { it.completionTokens }
     val retention = overview.retention.associateBy { it.day }
     return """
         <section aria-label="История Redis">
@@ -293,10 +294,12 @@ private fun historicalOverviewHtml(
             <div class="metric-grid usage-grid">
               ${overviewCard("Завершённых ходов AI", turns.toString(), "За выбранный период, все платформы")}
               ${overviewCard("Ходов / активную AI-сессию", if (sessions > 0) decimal(turns.toDouble() / sessions, 1) else "—", "Все платформы, уникальные сессии с завершённым ходом")}
-              ${overviewCard("Токенов LLM", groupedCount(tokens), "Входные + выходные, все платформы")}
-              ${overviewCard("Токенов / ход", if (turns > 0) decimal(tokens.toDouble() / turns, 1) else "—", "Входные + выходные токены / завершённые ходы")}
               ${overviewCard("Обработано речи", decimal(observed.sumOf { it.sttMs } / 60000.0, 1) + " мин", "Длительность аудио, обработанного STT; не время ожидания")}
+              ${overviewCard("Токены LLM · вход", groupedCount(promptTokens), "Входные токены за период, все платформы")}
+              ${overviewCard("Токены LLM · выход", groupedCount(completionTokens), "Выходные токены за период, все платформы")}
               ${overviewCard("Символов TTS", groupedCount(observed.sumOf { it.ttsChars }), "Текст, переданный озвучке")}
+              ${overviewCard("Входных токенов / ход", if (turns > 0) decimal(promptTokens.toDouble() / turns, 1) else "—", "Входные токены / завершённые ходы")}
+              ${overviewCard("Выходных токенов / ход", if (turns > 0) decimal(completionTokens.toDouble() / turns, 1) else "—", "Выходные токены / завершённые ходы")}
             </div>
           </section>
         </div>
