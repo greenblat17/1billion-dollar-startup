@@ -284,13 +284,12 @@ class MetricsDashboardTest {
                 voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000))),
             AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
                 exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), "2026-10-12"),
-            listOf(AdminProviderError("2026-10-13T12:00:00Z", "tts", "rate_limit")),
         )
         assertTrue(html.contains("<dd>69.0</dd>"))
         assertTrue(html.contains("<dd>\$0.0500</dd>"))
         assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
         assertTrue(html.contains("<dd>197</dd>"))
-        assertTrue(html.contains("rate_limit"))
+        assertFalse(html.contains("Loki"))
 
         val incomplete = adminOverviewHtml(
             LlmRange(LocalDate.parse("2026-10-12"), LocalDate.parse(day)),

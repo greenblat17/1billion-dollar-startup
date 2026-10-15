@@ -242,7 +242,6 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 voiceAttempts = voiceAttempts,
                 callEvents = callEvents,
                 usage = adminUsage,
-                logs = LokiAdminLogSource(),
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -341,7 +340,6 @@ internal fun Application.module(
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
             usage = adminUsage,
-            logs = if (config.databaseUrl == null) null else LokiAdminLogSource(),
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -381,13 +379,12 @@ private fun Application.metricsDashboard(
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: CallEventRecorder? = null,
     usage: AdminUsageStore? = null,
-    logs: AdminLogSource? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage, logs)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

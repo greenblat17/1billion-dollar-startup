@@ -80,7 +80,6 @@ internal class MetricsDashboard(
     val voiceAttempts: VoiceAttemptRecorder? = null,
     val callEvents: CallEventRecorder? = null,
     val usage: AdminUsageStore? = null,
-    val logs: AdminLogSource? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -99,10 +98,7 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val usage = try { dashboard.usage?.load(range) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
-        val providerErrors = try { dashboard.logs?.recentProviderErrors(range) }
-            catch (error: CancellationException) { throw error }
-            catch (error: Throwable) { log.warn("Overview provider logs unavailable", error); null }
-        call.respondText(adminOverviewHtml(range, models, usage, providerErrors), ContentType.Text.Html)
+        call.respondText(adminOverviewHtml(range, models, usage), ContentType.Text.Html)
     }.hide()
     get(METRICS_DETAILS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {

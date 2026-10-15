@@ -11,7 +11,6 @@ internal fun adminOverviewHtml(
     range: LlmRange,
     models: AdminModelOverview?,
     usage: AdminUsageOverview?,
-    providerErrors: List<AdminProviderError>? = null,
 ): String {
     val byModel = models?.days?.filter { models.modelSince.isNotBlank() && it.day >= models.modelSince }
         ?.associateBy { it.day }.orEmpty()
@@ -97,14 +96,6 @@ internal fun adminOverviewHtml(
         <h2>Данные по дням</h2><div class="table-wrap"><table><thead><tr><th>День</th><th>Активные</th><th>ГС</th>
         <th>Обмены</th><th>LLM</th><th>STT</th><th>TTS</th><th>Telegram API</th><th>Ошибки</th></tr></thead>
         <tbody>$rows</tbody></table></div>
-        <h2>Ошибки вызовов провайдеров · Loki</h2>
-        ${when {
-            providerErrors == null -> "<p class=\"coverage\">Логи сейчас недоступны.</p>"
-            providerErrors.isEmpty() -> "<p class=\"coverage\">Записей об ошибках за выбранный период не найдено. История Loki ограничена 30 днями.</p>"
-            else -> "<div class=\"table-wrap\"><table><thead><tr><th>Время UTC</th><th>Компонент</th><th>Код</th></tr></thead><tbody>" +
-                providerErrors.joinToString("") { error -> "<tr><td>${escapeHtml(error.at)}</td><td>${escapeHtml(error.type)}</td><td>${escapeHtml(error.code)}</td></tr>" } +
-                "</tbody></table></div>"
-        }}
         <p class="coverage">Вызовы LLM, STT и TTS — успешно учтённые ответы провайдеров; ошибочные попытки до нового счётчика не восстановлены.
         Telegram API — записанные попытки отправки и редактирования в контексте входящего сообщения; фоновые рассылки исключены.
         Неучтённые методы API и отдельные навыки в сумму не входят. «—» означает отсутствие измерений.</p>
