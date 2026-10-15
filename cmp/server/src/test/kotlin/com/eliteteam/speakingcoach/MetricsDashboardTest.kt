@@ -386,8 +386,8 @@ class MetricsDashboardTest {
             assertEquals(1380, byDay[1].coveredMinutes)
             val html = adminOverviewHtml(range, null, null, rates)
             assertTrue(html.contains("ТЕСТОВЫЙ аккаунт OpenRouter"))
-            assertTrue(html.contains("TPM по минутам · OpenRouter"))
-            assertTrue(html.contains("TPS по минутам · OpenRouter"))
+            assertTrue(html.contains("TPM (токенов/мин) · OpenRouter"))
+            assertTrue(html.contains("TPS (токенов/с) · OpenRouter"))
             assertTrue(html.contains("25.09 00:30 · 120.000"))
             assertTrue(html.contains("25.09 00:30 · 17.500"))
             assertTrue(html.contains("2 из 2 вызовов"))
@@ -402,8 +402,8 @@ class MetricsDashboardTest {
                 AdminModelOverview(totalChats = 1, historySince = "2026-09-25",
                     historyDays = listOf(AdminHistoryDay("2026-09-25", tracked = true))),
                 null, rates)
-            assertTrue(withAudience.indexOf("Рост пользователей") < withAudience.indexOf("TPM по минутам"))
-            assertTrue(withAudience.indexOf("TPM по минутам") < withAudience.indexOf("Источники новых пользователей"))
+            assertTrue(withAudience.indexOf("Рост пользователей") < withAudience.indexOf("TPM (токенов/мин)"))
+            assertTrue(withAudience.indexOf("TPM (токенов/мин)") < withAudience.indexOf("Источники новых пользователей"))
         } finally {
             Files.deleteIfExists(file)
         }

@@ -138,8 +138,8 @@ private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
         Время генерации известно для $timedCalls из $allCalls вызовов; TPS учитывает только их.
         Дневные максимумы и неполные дни видны в таблице.</p>
         <div class="chart-grid">
-          ${openRouterMinuteChart("TPM по минутам · OpenRouter", minutes, { it.tpm }, "#2563eb")}
-          ${openRouterMinuteChart("TPS по минутам · OpenRouter", minutes, { it.tpsMilli }, "#16a34a", 1000)}
+          ${openRouterMinuteChart("TPM (токенов/мин) · OpenRouter", minutes, { it.tpm }, "#2563eb")}
+          ${openRouterMinuteChart("TPS (токенов/с) · OpenRouter", minutes, { it.tpsMilli }, "#16a34a", 1000)}
         </div>
         <h2>TPM и TPS · дневные максимумы и покрытие</h2><div class="table-wrap"><table><thead><tr>
         <th>День по Москве</th><th>Минут в выгрузке</th><th>Пиковый TPM</th><th>Пиковый TPS</th>
