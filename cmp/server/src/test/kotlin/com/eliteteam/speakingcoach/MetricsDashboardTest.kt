@@ -336,6 +336,9 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<dt>Retention D30</dt><dd>—</dd>"))
         assertTrue(html.contains("<dt>Входящих сообщений</dt><dd>5</dd>"))
         assertTrue(html.contains("2026-10-24 · Сообщения: 5.000"))
+        assertTrue(html.indexOf("id=\"audience-heading\"") < html.indexOf("id=\"return-heading\""))
+        assertTrue(html.indexOf("id=\"return-heading\"") < html.indexOf("id=\"usage-heading\""))
+        assertTrue(html.contains("class=\"metric-lead\""))
     }
 
     @Test
@@ -355,7 +358,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("Аудитория и использование AI"))
         assertTrue(html.contains("<dt>Активных пользователей за период</dt><dd>2</dd>"))
         assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>2</dd>"))
-        assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1422</dd>"))
+        assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1\u202F422</dd>"))
         assertTrue(html.contains("<td>17.1</td>"))
         assertFalse(html.contains("<dt>Голосовых</dt>"))
         val audioChart = html.substringAfter("<h2>Аудио STT · минуты</h2>").substringBefore("</section>")

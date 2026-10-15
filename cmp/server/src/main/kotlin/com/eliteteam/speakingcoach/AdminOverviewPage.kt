@@ -253,25 +253,52 @@ private fun historicalOverviewHtml(
         DAU — пользователи, для которых завершился хотя бы один голосовой ход AI за день. Это не число всех входящих сообщений.
         Ход AI фиксируется до доставки ответа. Токены, STT и TTS охватывают все клиентские платформы.
         ${if (overview.chatGrowthUnattributed > 0) "${overview.chatGrowthUnattributed} Telegram ID без даты первого обращения не включены в график роста." else ""}</p>
-        <div class="overview-cards">
-          ${overviewCard("Завершили голосовой ход AI · всего", through.chatsWithTurnToDate?.toString() ?: "—", "Уникальные пользователи за всю сохранённую историю; доставка ответа не подтверждена")}
-          ${overviewCard("Всего пользователей на конец периода", through.totalChatsToDate.toString(), "Накопленно с первого сохранённого обращения")}
-          ${overviewCard("Активных пользователей за период", active.toString(), "Уникальные Telegram ID с завершённым голосовым ходом AI")}
-          ${overviewCard("DAU в последний день", through.activeChatsWithTurn.toString(), "Пользователи с завершённым голосовым ходом AI")}
-          ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "DAU / уникальные активные за 7 дней на конец периода")}
-          ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "DAU / уникальные активные за 30 дней; появится после полного окна")}
-          ${listOf(1, 7, 30).joinToString("") { offset ->
-              val cohort = retention[offset]
-              overviewCard("Retention D$offset", ratioPercent(cohort?.returned, cohort?.eligible),
-                  "Вернулись ровно на день $offset после первого голоса: ${cohort?.returned ?: 0} из ${cohort?.eligible ?: 0} пользователей с завершённым днём")
-          }}
-          ${overviewCard("Отправили первое голосовое · всего", through.firstVoiceChatsToDate.toString(), "Накопленно на конец периода")}
-          ${overviewCard("Завершённых ходов AI", turns.toString(), "За выбранный период, все платформы")}
-          ${overviewCard("Ходов / активную AI-сессию", if (sessions > 0) decimal(turns.toDouble() / sessions, 1) else "—", "Все платформы, уникальные сессии с завершённым ходом")}
-          ${overviewCard("Токенов LLM", tokens.toString(), "Входные + выходные, все платформы")}
-          ${overviewCard("Токенов / ход", if (turns > 0) decimal(tokens.toDouble() / turns, 1) else "—", "Входные + выходные токены / завершённые ходы")}
-          ${overviewCard("Обработано речи", decimal(observed.sumOf { it.sttMs } / 60000.0, 1) + " мин", "Длительность аудио, обработанного STT; не время ожидания")}
-          ${overviewCard("Символов TTS", observed.sumOf { it.ttsChars }.toString(), "Текст, переданный озвучке")}
+        <div class="metric-layout">
+          <section class="metric-section" aria-labelledby="audience-heading">
+            <div class="metric-section-head"><span class="metric-index">01</span><div>
+              <h3 id="audience-heading">Аудитория</h3><p>Сколько людей пришло и сколько пользуется голосовым сценарием</p>
+            </div></div>
+            <div class="audience-layout">
+              <div class="metric-lead">${overviewCard("Завершили голосовой ход AI · всего", through.chatsWithTurnToDate?.toString() ?: "—", "Уникальные пользователи за всю сохранённую историю; доставка ответа не подтверждена")}</div>
+              <div class="metric-grid audience-grid">
+                ${overviewCard("Всего пользователей на конец периода", through.totalChatsToDate.toString(), "Накопленно с первого сохранённого обращения")}
+                ${overviewCard("Активных пользователей за период", active.toString(), "Уникальные Telegram ID с завершённым голосовым ходом AI")}
+                ${overviewCard("DAU в последний день", through.activeChatsWithTurn.toString(), "Пользователи с завершённым голосовым ходом AI")}
+                ${overviewCard("Отправили первое голосовое · всего", through.firstVoiceChatsToDate.toString(), "Накопленно на конец периода")}
+              </div>
+            </div>
+          </section>
+          <section class="metric-section" aria-labelledby="return-heading">
+            <div class="metric-section-head"><span class="metric-index">02</span><div>
+              <h3 id="return-heading">Возврат пользователей</h3><p>Регулярность активности и возврат после первого голоса</p>
+            </div></div>
+            <div class="engagement-layout">
+              <div class="metric-subgroup"><h4>Stickiness</h4><div class="metric-grid stickiness-grid">
+                ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "DAU / уникальные активные за 7 дней на конец периода")}
+                ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "DAU / уникальные активные за 30 дней; появится после полного окна")}
+              </div></div>
+              <div class="metric-subgroup"><h4>Retention</h4><div class="metric-grid retention-grid">
+                ${listOf(1, 7, 30).joinToString("") { offset ->
+                    val cohort = retention[offset]
+                    overviewCard("Retention D$offset", ratioPercent(cohort?.returned, cohort?.eligible),
+                        "Вернулись ровно на день $offset после первого голоса: ${cohort?.returned ?: 0} из ${cohort?.eligible ?: 0} пользователей с завершённым днём")
+                }}
+              </div></div>
+            </div>
+          </section>
+          <section class="metric-section" aria-labelledby="usage-heading">
+            <div class="metric-section-head"><span class="metric-index">03</span><div>
+              <h3 id="usage-heading">Использование AI</h3><p>Ходы, токены и объём обработанного аудио</p>
+            </div></div>
+            <div class="metric-grid usage-grid">
+              ${overviewCard("Завершённых ходов AI", turns.toString(), "За выбранный период, все платформы")}
+              ${overviewCard("Ходов / активную AI-сессию", if (sessions > 0) decimal(turns.toDouble() / sessions, 1) else "—", "Все платформы, уникальные сессии с завершённым ходом")}
+              ${overviewCard("Токенов LLM", groupedCount(tokens), "Входные + выходные, все платформы")}
+              ${overviewCard("Токенов / ход", if (turns > 0) decimal(tokens.toDouble() / turns, 1) else "—", "Входные + выходные токены / завершённые ходы")}
+              ${overviewCard("Обработано речи", decimal(observed.sumOf { it.sttMs } / 60000.0, 1) + " мин", "Длительность аудио, обработанного STT; не время ожидания")}
+              ${overviewCard("Символов TTS", groupedCount(observed.sumOf { it.ttsChars }), "Текст, переданный озвучке")}
+            </div>
+          </section>
         </div>
         <div class="chart-grid">
           ${overviewChart("Рост пользователей", days, listOf(
@@ -327,6 +354,8 @@ private fun ratioPercent(part: Long?, total: Long?): String =
 
 private fun ratioBasisPoints(part: Long, total: Long?): Long? =
     total?.takeIf { it > 0 }?.let { (part * 10_000.0 / it).toLong() }
+
+private fun groupedCount(value: Long): String = String.format(Locale.US, "%,d", value).replace(',', '\u202F')
 
 private data class ChartLine(val label: String, val color: String, val values: List<Long?>)
 private val chartDateFormat = DateTimeFormatter.ofPattern("dd.MM")
@@ -426,6 +455,30 @@ private fun overviewStyle(): String = """
   .overview-card dt { color:#57534e; font-size:13px; font-weight:600; }
   .overview-card dd { margin:10px 0 8px; font-size:32px; line-height:1; font-weight:700; letter-spacing:-.04em; }
   .overview-card p, .coverage { color:#78716c; font-size:12px; line-height:1.5; margin:0; }
+  .metric-layout { display:grid; gap:16px; margin:24px 0 28px; }
+  .metric-section { min-width:0; padding:24px 28px 28px; background:#fff; border:1px solid #e7e5e4; border-radius:18px; }
+  .metric-section-head { display:flex; align-items:start; gap:15px; margin-bottom:23px; }
+  .metric-index { color:#2563eb; font-size:12px; line-height:25px; font-weight:700; letter-spacing:.05em; font-variant-numeric:tabular-nums; }
+  .metric-section-head h3 { margin:0 0 3px; font-size:20px; line-height:1.2; letter-spacing:-.035em; }
+  .metric-section-head p { margin:0; color:#78716c; font-size:13px; line-height:1.5; }
+  .metric-section .overview-card { min-height:0; padding:0; background:none; border:0; border-radius:0; }
+  .metric-section .overview-card dt { color:#57534e; font-size:12px; line-height:1.35; text-wrap:balance; }
+  .metric-section .overview-card dd { margin:9px 0 7px; font-size:29px; line-height:1.05; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+  .metric-section .overview-card p { max-width:34ch; font-size:11px; line-height:1.45; }
+  .audience-layout { display:grid; grid-template-columns:minmax(230px,.85fr) minmax(0,2fr); gap:30px; }
+  .metric-lead { display:flex; align-items:center; padding:20px 24px; background:#eff4ff; border-radius:12px; }
+  .metric-lead .overview-card dd { font-size:52px; color:#1d4ed8; margin:14px 0 10px; }
+  .metric-lead .overview-card p { max-width:30ch; }
+  .metric-grid { display:grid; min-width:0; }
+  .audience-grid { grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:28px; row-gap:18px; }
+  .audience-grid .overview-card:nth-child(n+3) { border-top:1px solid #e7e5e4; padding-top:17px; }
+  .engagement-layout { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.4fr); gap:30px; }
+  .metric-subgroup + .metric-subgroup { border-left:1px solid #e7e5e4; padding-left:30px; }
+  .metric-subgroup h4 { margin:0 0 17px; color:#78716c; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .stickiness-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+  .retention-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+  .usage-grid { grid-template-columns:repeat(3,minmax(0,1fr)); column-gap:28px; row-gap:20px; }
+  .usage-grid .overview-card:nth-child(n+4) { border-top:1px solid #e7e5e4; padding-top:20px; }
   .coverage { margin:14px 0 20px; }
   .chart-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; }
   .chart-card { background:white; border:1px solid #e7e5e4; border-radius:12px; padding:14px 16px; min-width:0; }
@@ -440,7 +493,8 @@ private fun overviewStyle(): String = """
   .table-wrap table { margin:0; width:100%; white-space:nowrap; }
   .tabs { overflow-x:auto; white-space:nowrap; }
   .tabs a { flex:0 0 auto; }
-  @media(max-width:800px) { .overview-head { display:block; } .period { margin-top:15px; justify-content:flex-start; } .chart-grid { grid-template-columns:1fr; } }
-  @media(max-width:600px) { .overview-cards { grid-template-columns:1fr; } }
+  @media(max-width:800px) { .overview-head { display:block; } .period { margin-top:15px; justify-content:flex-start; } .chart-grid { grid-template-columns:1fr; } .audience-layout, .engagement-layout { grid-template-columns:1fr; } .metric-subgroup + .metric-subgroup { border-left:0; border-top:1px solid #e7e5e4; padding:22px 0 0; } }
+  @media(max-width:600px) { .overview-cards { grid-template-columns:1fr; } .metric-section { padding:20px; } .audience-grid, .usage-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .usage-grid .overview-card:nth-child(n+3) { border-top:1px solid #e7e5e4; padding-top:17px; } .retention-grid { gap:12px; } .metric-section .overview-card dd { font-size:25px; } }
+  @media(max-width:420px) { .retention-grid { grid-template-columns:1fr; } .retention-grid .overview-card + .overview-card { border-top:1px solid #e7e5e4; padding-top:14px; } }
 </style>
 """
