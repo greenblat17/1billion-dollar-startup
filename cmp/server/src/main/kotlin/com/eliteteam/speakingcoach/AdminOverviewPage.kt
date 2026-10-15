@@ -120,9 +120,10 @@ private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
     val archiveDays = imported.days(LlmRange(archiveFrom, archiveTo))
     val days = archiveDays.map { it.day.toString() }
     val byDay = archiveDays.associateBy { it.day.toString() }
+    val minutes = imported.minutes.sortedBy { it.minuteUtc }
     val scope = if (imported.scope == "test") "ТЕСТОВЫЙ аккаунт" else "рабочий аккаунт"
-    val timedCalls = imported.minutes.sumOf { it.timedCalls }
-    val allCalls = imported.minutes.sumOf { it.calls }
+    val timedCalls = minutes.sumOf { it.timedCalls }
+    val allCalls = minutes.sumOf { it.calls }
     val rows = days.mapNotNull { day -> byDay[day]?.let { """<tr><td>$day</td><td>${it.coveredMinutes} / 1440</td>
         <td>${it.peakTpm}</td><td>${it.peakTpsMilli?.let { value -> decimal(value / 1000.0, 2) } ?: "—"}</td></tr>""" } }
         .joinToString("")
@@ -132,22 +133,88 @@ private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
         <p class="coverage">Архив за $archiveFrom — $archiveTo по Москве; фильтр дат выше на него не влияет.
         Источник: OpenRouter Analytics API · ${escapeHtml(imported.fromUtc)} — ${escapeHtml(imported.toUtc)} UTC.
         Модели LLM: ${escapeHtml(imported.models.joinToString(", "))}.
-        Пик TPM за день — наибольшее число входных и выходных токенов за одну календарную минуту.
-        Пик TPS за день — наибольшее отношение выходных токенов к сумме времени генерации среди вызовов той же минуты.
+        Графики показывают значения за каждую минуту с вызовами; промежутки без вызовов показаны разрывами. Время на оси — московское.
+        TPM — входные и выходные токены за минуту. TPS — выходные токены / суммарное время генерации вызовов этой минуты.
         Это вызовы выбранного аккаунта OpenRouter, включая его тесты; вызовы через других провайдеров сюда не входят.
         Время генерации известно для $timedCalls из $allCalls вызовов; TPS учитывает только их.
-        Неполные дни видны в таблице.</p>
+        Дневные максимумы и неполные дни видны в таблице.</p>
         <div class="chart-grid">
-          ${overviewChart("Пиковый TPM по дням · OpenRouter", days,
-              listOf(ChartLine("Токенов / мин", "#2563eb", days.map { byDay[it]?.peakTpm })), true)}
-          ${overviewChart("Пиковый TPS по дням · OpenRouter", days,
-              listOf(ChartLine("Выходных токенов / с", "#16a34a", days.map { byDay[it]?.peakTpsMilli })),
-              true, valueDivisor = 1000)}
+          ${openRouterMinuteChart("TPM по минутам · OpenRouter", minutes, { it.tpm }, "#2563eb")}
+          ${openRouterMinuteChart("TPS по минутам · OpenRouter", minutes, { it.tpsMilli }, "#16a34a", 1000)}
         </div>
-        <h2>TPM и TPS · покрытие по дням</h2><div class="table-wrap"><table><thead><tr>
+        <h2>TPM и TPS · дневные максимумы и покрытие</h2><div class="table-wrap"><table><thead><tr>
         <th>День по Москве</th><th>Минут в выгрузке</th><th>Пиковый TPM</th><th>Пиковый TPS</th>
         </tr></thead><tbody>$rows</tbody></table></div>
     """.trimIndent()
+}
+
+private fun openRouterMinuteChart(
+    title: String,
+    minutes: List<OpenRouterRateMinute>,
+    value: (OpenRouterRateMinute) -> Long?,
+    color: String,
+    valueDivisor: Long = 1,
+): String {
+    val points = minutes.map { Instant.parse(it.minuteUtc) to value(it) }.sortedBy { it.first }
+    if (points.none { it.second != null })
+        return "<section class=\"chart-card\"><h2>${escapeHtml(title)}</h2><p class=\"meta\">Нет данных</p></section>"
+
+    val left = 62.0
+    val right = 704.0
+    val top = 16.0
+    val bottom = 160.0
+    val firstMillis = points.first().first.toEpochMilli()
+    val lastMillis = points.last().first.toEpochMilli()
+    val duration = (lastMillis - firstMillis).toDouble()
+    val x = { instant: Instant ->
+        if (duration == 0.0) (left + right) / 2
+        else left + (instant.toEpochMilli() - firstMillis) / duration * (right - left)
+    }
+    val max = (points.mapNotNull { it.second }.maxOrNull() ?: 0L).toDouble() / valueDivisor
+    val tickStep = chartTickStep(max, wholeNumbers = valueDivisor == 1L)
+    val tickCount = ceil(max / tickStep - 1e-9).toInt().coerceAtLeast(1)
+    val axisMax = tickCount * tickStep
+    val y = { amount: Long -> bottom - amount.toDouble() / valueDivisor / axisMax * (bottom - top) }
+    val yAxis = (0..tickCount).joinToString("") { tick ->
+        val amount = tick * tickStep
+        val position = bottom - amount / axisMax * (bottom - top)
+        """<line x1="$left" y1="$position" x2="$right" y2="$position" stroke="${if (tick == 0) "#9ca3af" else "#e5e7eb"}"/>
+        <text class="axis-y" x="54" y="${position + 4}" text-anchor="end">${chartAxisLabel(amount, tickStep, axisMax)}</text>"""
+    }
+    val timeFormat = DateTimeFormatter.ofPattern("dd.MM HH:mm").withZone(ZoneId.of("Europe/Moscow"))
+    val xAxis = (if (duration == 0.0) listOf(0) else (0..5).toList()).joinToString("") { index ->
+        val instant = Instant.ofEpochMilli(firstMillis + ((lastMillis - firstMillis) * index / 5))
+        val position = x(instant)
+        val anchor = when {
+            duration == 0.0 -> "middle"
+            index == 0 -> "start"
+            index == 5 -> "end"
+            else -> "middle"
+        }
+        """<line x1="$position" y1="$bottom" x2="$position" y2="${bottom + 5}" stroke="#9ca3af"/>
+        <text class="axis-x" x="$position" y="182" text-anchor="$anchor" style="font-size:11px">${timeFormat.format(instant)}</text>"""
+    }
+    val segments = mutableListOf<List<Pair<Instant, Long>>>()
+    var current = mutableListOf<Pair<Instant, Long>>()
+    for ((time, amount) in points) {
+        if (amount == null || (current.isNotEmpty() && time.epochSecond - current.last().first.epochSecond > 60)) {
+            if (current.isNotEmpty()) segments += current
+            current = mutableListOf()
+        }
+        if (amount != null) current += time to amount
+    }
+    if (current.isNotEmpty()) segments += current
+    val paths = segments.joinToString("") { segment ->
+        val coordinates = segment.joinToString(" ") { (time, amount) -> "${x(time)},${y(amount)}" }
+        "<polyline points=\"$coordinates\" fill=\"none\" stroke=\"$color\" stroke-width=\"2.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>"
+    }
+    val dots = points.mapNotNull { (time, amount) -> amount?.let {
+        "<circle cx=\"${x(time)}\" cy=\"${y(it)}\" r=\"2.5\" fill=\"$color\"><title>${timeFormat.format(time)} · ${decimal(it.toDouble() / valueDivisor, 3)}</title></circle>"
+    } }.joinToString("")
+    return """<section class="chart-card"><h2>${escapeHtml(title)}</h2><div class="chart-scroll">
+      <svg viewBox="0 0 720 194" role="img" aria-label="${escapeHtml(title)}">
+      <g class="chart-axis">$yAxis<line x1="$left" y1="$top" x2="$left" y2="$bottom" stroke="#9ca3af"/>$xAxis</g>
+      $paths$dots</svg></div></section>"""
 }
 
 private fun historicalOverviewHtml(days: List<String>, models: AdminModelOverview?): String {

@@ -386,16 +386,18 @@ class MetricsDashboardTest {
             assertEquals(1380, byDay[1].coveredMinutes)
             val html = adminOverviewHtml(range, null, null, rates)
             assertTrue(html.contains("ТЕСТОВЫЙ аккаунт OpenRouter"))
-            assertTrue(html.contains("2026-09-25 · Токенов / мин: 120.000"))
-            assertTrue(html.contains("2026-09-25 · Выходных токенов / с: 17.500"))
+            assertTrue(html.contains("TPM по минутам · OpenRouter"))
+            assertTrue(html.contains("TPS по минутам · OpenRouter"))
+            assertTrue(html.contains("25.09 00:30 · 120.000"))
+            assertTrue(html.contains("25.09 00:30 · 17.500"))
             assertTrue(html.contains("2 из 2 вызовов"))
             val currentPeriodHtml = adminOverviewHtml(
                 LlmRange(LocalDate.parse("2026-10-09"), LocalDate.parse("2026-10-15")),
                 null, null, rates,
             )
             assertTrue(currentPeriodHtml.contains("Архив за 2026-09-24 — 2026-09-25"))
-            assertTrue(currentPeriodHtml.contains("2026-09-25 · Токенов / мин: 120.000"))
-            assertTrue(currentPeriodHtml.contains("2026-09-25 · Выходных токенов / с: 17.500"))
+            assertTrue(currentPeriodHtml.contains("25.09 00:30 · 120.000"))
+            assertTrue(currentPeriodHtml.contains("25.09 00:30 · 17.500"))
         } finally {
             Files.deleteIfExists(file)
         }
