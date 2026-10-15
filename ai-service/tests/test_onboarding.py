@@ -12,7 +12,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
-from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore, RETRY_TEXT
+from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment

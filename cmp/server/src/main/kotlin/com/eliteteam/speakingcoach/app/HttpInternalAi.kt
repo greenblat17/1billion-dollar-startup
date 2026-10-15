@@ -57,13 +57,17 @@ internal class HttpInternalAi(
         }
     }
 
-    override suspend fun review(turns: List<TranscriptTurn>): InternalReviewResponse {
+    override suspend fun review(
+        turns: List<TranscriptTurn>, sessionId: String, platform: String?,
+    ): InternalReviewResponse {
         val response = http.post("$root/internal/review") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
             setBody(
                 InternalReviewRequest(
                     turns = turns.map { CompleteTurnDto(role = it.role, text = it.text) },
+                    sessionId = sessionId,
+                    platform = platform,
                 ),
             )
         }

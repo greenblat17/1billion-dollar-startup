@@ -11,6 +11,7 @@ from app.calls import CallStore
 from app.onboarding import OnboardingStore
 from app.onboarding_review import correction_candidates, fluency_metrics, select_examples
 from app.onboarding_score import placed_level, step_score
+from app.metrics_v2 import bind_metrics, reset_metrics
 from app.vocabulary_suggestions import VOCABULARY_SUGGESTION_POLICY, select_vocabulary_suggestions
 
 logger = logging.getLogger(__name__)
@@ -134,11 +135,14 @@ class CallReviews:
         assessment = await self.store.get_assessment(str(call["sessionId"]))
         if not isinstance(assessment, dict) or not isinstance(assessment.get("overallScore"), int):
             raise ValueError("numeric baseline required")
+        bound = bind_metrics(str(call["sessionId"]))
         try:
             built = await self._compose(call, assessment)
         except Exception:
             logger.exception("call review failed call=%s", call_id)
             return {"callId": call_id, "retry": True}
+        finally:
+            reset_metrics(bound)
         if not await self.calls.save_review(call_id, built["public"]):
             raise KeyError(call_id)
         await self.store.save_assessment(str(call["sessionId"]), built["assessment"])

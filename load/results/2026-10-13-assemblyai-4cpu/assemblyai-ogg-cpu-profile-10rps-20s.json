@@ -1,0 +1,160 @@
+{
+    "metrics": {
+        "http_req_duration{expected_response:true}": {
+            "avg": 1012.0702027027003,
+            "med": 827.737,
+            "p(95)": 2154.6306499999982,
+            "p(99)": 3693.1813900000047,
+            "max": 5028.775,
+            "count": 2442
+        },
+        "vus_max": {
+            "value": 250,
+            "min": 250,
+            "max": 250
+        },
+        "http_req_sending": {
+            "p(95)": 0.059,
+            "p(99)": 0.10959000000000015,
+            "max": 2.173,
+            "count": 2442,
+            "avg": 0.024622440622440858,
+            "med": 0.014
+        },
+        "checks": {
+            "passes": 201,
+            "fails": 0,
+            "value": 1
+        },
+        "http_req_tls_handshaking": {
+            "count": 2442,
+            "avg": 0,
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0
+        },
+        "http_req_receiving": {
+            "count": 2442,
+            "avg": 45.326869778869735,
+            "med": 13.8615,
+            "p(95)": 165.13374999999996,
+            "p(99)": 434.08302000000805,
+            "max": 868.04
+        },
+        "iteration_duration": {
+            "med": 17954.045753,
+            "p(95)": 23225.817019,
+            "p(99)": 25025.199674,
+            "max": 34366.134375,
+            "count": 201,
+            "avg": 16880.371278283583
+        },
+        "http_req_connecting": {
+            "med": 0,
+            "p(95)": 0.197,
+            "p(99)": 0.2733600000000006,
+            "max": 4.807,
+            "count": 2442,
+            "avg": 0.025946764946764952
+        },
+        "http_reqs": {
+            "rate": 49.87207261961945,
+            "count": 2442
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 2442,
+            "value": 0
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "data_sent": {
+            "count": 2910234,
+            "rate": 59434.64430306535
+        },
+        "http_req_duration": {
+            "med": 827.737,
+            "p(95)": 2154.6306499999982,
+            "p(99)": 3693.1813900000047,
+            "max": 5028.775,
+            "count": 2442,
+            "avg": 1012.0702027027003
+        },
+        "http_req_blocked": {
+            "max": 4.875,
+            "count": 2442,
+            "avg": 0.03626003276003317,
+            "med": 0.005,
+            "p(95)": 0.252,
+            "p(99)": 0.34736000000000056
+        },
+        "vus": {
+            "min": 2,
+            "max": 140,
+            "value": 2
+        },
+        "clip_completed": {
+            "count": 201,
+            "rate": 4.104949466234034
+        },
+        "data_received": {
+            "count": 606013,
+            "rate": 12376.38179542729
+        },
+        "clip_accepted": {
+            "count": 201,
+            "rate": 4.104949466234034
+        },
+        "http_req_waiting": {
+            "p(99)": 3693.109060000005,
+            "max": 4926.156,
+            "count": 2442,
+            "avg": 966.7187104832101,
+            "med": 779.1995,
+            "p(95)": 2089.1645
+        },
+        "clip_e2e": {
+            "p(99)": 23988,
+            "max": 32312,
+            "count": 201,
+            "avg": 14927.114427860697,
+            "med": 15193,
+            "p(95)": 21509
+        },
+        "iterations": {
+            "count": 201,
+            "rate": 4.104949466234034
+        }
+    },
+    "setup_data": {
+        "runId": "assemblyai-ogg-cpu-profile-10rps-20s"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca",
+                    "passes": 201,
+                    "fails": 0,
+                    "name": "clip accepted",
+                    "path": "::clip accepted"
+                }
+            }
+    }
+}

@@ -9,23 +9,58 @@
   },
   "panels": [
     {
-      "type": "stat",
-      "title": "Ktor /health",
+      "type": "row",
+      "title": "Доступность",
+      "collapsed": false,
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 1,
+        "w": 24,
         "x": 0,
         "y": 0
       },
+      "panels": [],
+      "id": 1
+    },
+    {
+      "type": "state-timeline",
+      "title": "Доступность cmp-service и ai-service",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
       "targets": [
         {
-          "expr": "probe_success{job=\"blackbox-ktor\"}",
-          "legendFormat": "Ktor",
+          "expr": "min_over_time(probe_success{job=\"blackbox-ktor\"}[$__interval])",
+          "legendFormat": "Сервис telegram-бота (cmp-service)",
           "refId": "A"
+        },
+        {
+          "expr": "min_over_time(probe_success{job=\"blackbox-ai\"}[$__interval])",
+          "legendFormat": "AI-сервис (ai-service)",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "нет",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "доступен",
+                  "color": "green",
+                  "index": 1
+                }
+              }
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -40,516 +75,1881 @@
             ]
           },
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "spanNulls": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value"
-      }
+        "mergeValues": true,
+        "showValue": "never",
+        "alignValue": "center",
+        "rowHeight": 0.85,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "description": "Проверка /health каждые 15 с. Шаг красный, если хотя бы одна проверка в нём не прошла.",
+      "id": 2
     },
     {
       "type": "stat",
-      "title": "AI service /health",
+      "title": "Метрики получены",
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 0
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 8
       },
       "targets": [
         {
-          "expr": "probe_success{job=\"blackbox-ai\"}",
-          "legendFormat": "AI",
+          "expr": "timestamp(last_over_time((up{job=\"speaking-telegram\"} == 1)[24h:])) * 1000",
+          "legendFormat": "cmp-service",
+          "instant": true,
           "refId": "A"
+        },
+        {
+          "expr": "timestamp(last_over_time((up{job=\"speaking-v2\"} == 1)[24h:])) * 1000",
+          "legendFormat": "ai-service",
+          "instant": true,
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
+          "unit": "dateTimeAsLocal",
+          "noValue": "нет за сутки",
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "text"
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value"
-      }
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {
+          "titleSize": 14,
+          "valueSize": 16
+        }
+      },
+      "description": "Время последнего успешного сбора за сутки. Оба сервиса опрашиваются каждые 15 с.",
+      "id": 3
     },
     {
-      "type": "stat",
-      "title": "Сбор метрик AI / Ktor",
+      "type": "row",
+      "title": "Обязательная частотность",
+      "collapsed": false,
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 0
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "panels": [],
+      "id": 4
+    },
+    {
+      "type": "barchart",
+      "title": "Завершили голосовой ход AI по дням",
+      "description": "Человек с хотя бы одним завершённым голосовым ходом за московский день.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 12
       },
       "targets": [
         {
-          "expr": "up{job=~\"speaking-v2|speaking-telegram\"}",
-          "legendFormat": "{{job}}",
+          "expr": "max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d]))",
+          "format": "table",
+          "instant": true,
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "DAU"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
+          "unit": "short",
+          "min": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value"
-      }
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 5
     },
     {
-      "type": "stat",
-      "title": "Возраст метрик Telegram",
+      "type": "barchart",
+      "title": "Запросы к модели по дням",
+      "description": "Вызовы модели за московский день. Распознавание и озвучка в число не входят.",
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 19
       },
       "targets": [
         {
-          "expr": "time() - timestamp(speaking_dau{client=\"telegram\"})",
-          "legendFormat": "секунд",
+          "expr": "(max by (day) (max_over_time(speaking_llm_requests{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+          "format": "table",
+          "instant": true,
           "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "запросы"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "s",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 180
-              },
-              {
-                "color": "red",
-                "value": 300
-              }
-            ]
-          },
+          "unit": "short",
+          "min": 0,
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
           }
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value"
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
-      "description": "Секунды с последнего успешного сбора Telegram-метрик, а не с последнего действия пользователя."
+      "id": 6
+    },
+    {
+      "type": "row",
+      "title": "Продуктовые метрики",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "panels": [],
+      "id": 7
+    },
+    {
+      "type": "barchart",
+      "title": "Частотность: ходов на завершившего ход AI",
+      "description": "Завершённые ходы за московский день / пользователи с завершённым ходом AI. Это не все отправители голосовых.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "targets": [
+        {
+          "expr": "((max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "ходов на человека"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 2,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 8
+    },
+    {
+      "type": "barchart",
+      "title": "Голосовые ходы по дням",
+      "description": "Завершённые голосовые ходы за московский день.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "targets": [
+        {
+          "expr": "(max by (day) (max_over_time(speaking_turns{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "ходы"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 9
+    },
+    {
+      "type": "row",
+      "title": "Технические метрики",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "panels": [],
+      "id": 10
+    },
+    {
+      "type": "barchart",
+      "title": "Учтённые расходы / завершившего ход AI по дням, $",
+      "description": "Сумма возвращённых провайдерами цен LLM и TTS за московский день / пользователи с завершённым ходом AI. Это не все отправители голосовых. STT без цены не входит.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "targets": [
+        {
+          "expr": "((max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[185d])) / 1000000) / (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) > 0)) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "$ на человека"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 11
+    },
+    {
+      "type": "barchart",
+      "title": "Списано провайдерами по дням, $",
+      "description": "usage.cost за московский день. Секунды Groq в сумму не входят.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "targets": [
+        {
+          "expr": "(max by (day) (max_over_time(speaking_cost_micro{client=\"telegram\"}[185d])) / 1000000) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "$"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 12
+    },
+    {
+      "type": "barchart",
+      "title": "Ошибки сервисов по дням",
+      "description": "Сумма ошибок сервиса за московский день. Ноль, если ошибок не было.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "max by (day) (max_over_time((sum by (day) (speaking_errors{client=\"telegram\"}))[15d:1m])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value": "ошибки"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 13
+    },
+    {
+      "type": "barchart",
+      "title": "Токены по дням",
+      "description": "Токены запроса и ответа модели за московский день.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "targets": [
+        {
+          "expr": "(max by (day) (max_over_time(speaking_prompt_tokens{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "(max by (day) (max_over_time(speaking_completion_tokens{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "day",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true
+            },
+            "renameByName": {
+              "Value #A": "запрос",
+              "Value #B": "ответ модели"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "axisPlacement": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "day",
+        "orientation": "vertical",
+        "showValue": "always",
+        "stacking": "none",
+        "groupWidth": 0.7,
+        "barWidth": 0.9,
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0,
+        "text": {
+          "valueSize": 14
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "id": 14
     },
     {
       "type": "timeseries",
-      "title": "Telegram webhook RPS",
+      "title": "TPM",
+      "description": "Входные и выходные токены LLM за последние 60 секунд. Значение приближено к фактическому числу из-за опроса Prometheus каждые 15 секунд.",
       "gridPos": {
-        "h": 8,
+        "h": 7,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 70
+      },
+      "targets": [
+        {
+          "expr": "clamp_min(sum(delta(speaking_prompt_tokens{client=\"telegram\"}[1m])) + sum(delta(speaking_completion_tokens{client=\"telegram\"}[1m])), 0)",
+          "legendFormat": "токенов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "токенов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 15
+    },
+    {
+      "type": "timeseries",
+      "title": "TPS",
+      "description": "Скорость генерации LLM: выходные токены / время генерации по данным OpenRouter; средняя по запросам, завершившимся за последнюю минуту. При отсутствии времени генерации запрос исключается.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 77
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_llm_generation_tokens_total{client=\"telegram\"}[1m])) / sum(increase(speaking_llm_generation_seconds_total{client=\"telegram\"}[1m]))",
+          "legendFormat": "выходных токенов в секунду",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "токенов в секунду"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 16
+    },
+    {
+      "type": "row",
+      "title": "Вызовы STT / LLM / TTS / Telegram API",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "panels": [],
+      "id": 26
+    },
+    {
+      "type": "timeseries",
+      "title": "STT: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 85
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"stt\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 27
+    },
+    {
+      "type": "timeseries",
+      "title": "LLM: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 85
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"llm\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 28
+    },
+    {
+      "type": "timeseries",
+      "title": "TTS: вызовы в минуту",
+      "description": "Попытки обращения к провайдерам, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 92
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"tts\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 29
+    },
+    {
+      "type": "timeseries",
+      "title": "Telegram API: вызовы в минуту",
+      "description": "Все исходящие обращения бота к Telegram API, включая загрузку файлов, ответы, индикаторы и служебные вызовы; среднее за 5 минут. Ошибки и повторные попытки учитываются. История начинается с выката счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 92
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total{type=\"telegram_api\"}[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 33
+    },
+    {
+      "type": "timeseries",
+      "title": "Туллколы в минуту",
+      "description": "Попытки STT, LLM, TTS и Telegram API, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены из AI-вызовов. История каждой серии начинается с выката её счётчика.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(speaking_provider_calls_total[5m])) / 5",
+          "legendFormat": "вызовов в минуту",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "axisLabel": "вызовов в минуту"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 30
+    },
+    {
+      "type": "row",
+      "title": "Стоимость голосового обмена",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 106
+      },
+      "id": 34
+    },
+    {
+      "type": "stat",
+      "title": "Стоимость успешного голосового обмена",
+      "description": "Фактические известные расходы STT + LLM + TTS только по голосовым с распознанной речью и доставленным голосовым ответом, делённые на число таких обменов за выбранный период. При неполных ценах это нижняя граница. История начинается после включения нового учёта.",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 107
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(known_micro)::double precision / 1000000 / nullif(count(*), 0) AS value FROM per_exchange",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 35,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Обменов с полной ценой",
+      "description": "Доля успешных обменов, для которых записаны STT, LLM и TTS и известна цена каждого фактического вызова. 100% возможно только без неизвестных цен и пропавших компонентов.",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 107
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(CASE WHEN expected_stt > 0 AND expected_llm > 0 AND expected_tts > 0 AND stt = expected_stt AND llm = expected_llm AND tts = expected_tts AND calls = priced THEN 1 ELSE 0 END)::double precision / nullif(count(*), 0) AS value FROM per_exchange",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 36,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Неизвестные цены и расхождения",
+      "description": "Число вызовов без цены плюс несовпадения между ожидаемым числом вызовов и сохранёнными записями STT, LLM и TTS. Если AI не передал счётчики, обмен тоже считается неполным.",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 107
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(calls - priced + CASE WHEN expected_stt IS NULL OR expected_llm IS NULL OR expected_tts IS NULL THEN 1 ELSE abs(expected_stt - stt) + abs(expected_llm - llm) + abs(expected_tts - tts) END) AS value FROM per_exchange",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 38,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Начало полного учёта",
+      "description": "Московская дата первого доставленного голосового обмена, для которого AI передал ожидаемое число STT, LLM и TTS вызовов. С более ранних дат цена может быть неполной.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 114
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_char(min(delivered_at AT TIME ZONE 'Europe/Moscow'), 'DD.MM.YYYY') AS value FROM voice_cost_exchanges WHERE expected_stt IS NOT NULL AND expected_llm IS NOT NULL AND expected_tts IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 39,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Стоимость успешного обмена по дням",
+      "description": "Московские календарные дни доставки. Каждая точка пересчитывается, когда провайдер позже возвращает цену TTS. При неполном покрытии показана нижняя граница; см. долю обменов с полной ценой.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 118
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT day AS \"time\", sum(known_micro)::double precision / 1000000 / count(*) AS value FROM per_exchange GROUP BY day ORDER BY day",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 4,
+          "min": 0,
+          "custom": {
+            "axisLabel": "$ за обмен"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "id": 37,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Трафик Telegram",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 125
+      },
+      "id": 31
+    },
+    {
+      "type": "timeseries",
+      "title": "Входящие запросы Telegram · RPS",
+      "gridPos": {
+        "h": 7,
+        "w": 16,
+        "x": 0,
+        "y": 126
       },
       "targets": [
         {
           "expr": "sum(rate(telegram_webhook_requests_total{client=\"telegram\"}[5m]))",
-          "legendFormat": "запросов/с",
+          "legendFormat": "запросов в секунду",
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "reqps",
-          "min": 0
+          "min": 0,
+          "custom": {
+            "axisLabel": "запросов в секунду"
+          }
         },
         "overrides": []
       },
-      "description": "Среднее число авторизованных HTTP-запросов Telegram webhook в секунду за последние 5 минут. Включает повторные обновления и ошибки разбора; не включает запросы без верного секретного заголовка. Метрика Ktor сбрасывается при рестарте."
-    },
-    {
-      "type": "timeseries",
-      "title": "Ответ пользователю, p50 / p95",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 12
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
-          "legendFormat": "p95",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "description": "От получения голосового сообщения Ktor до подтверждения отправки ответа Telegram. Успешно доставленные ответы за последние 15 минут."
-    },
-    {
-      "type": "timeseries",
-      "title": "Ожидание в очередях, p50 / p95",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 12
-      },
-      "targets": [
-        {
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
-          "legendFormat": "p50",
-          "refId": "A"
-        },
-        {
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
-          "legendFormat": "p95",
-          "refId": "B"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "description": "Сумма ожидания очереди действий чата и очереди обработки клипа для доставленных ответов за последние 15 минут."
+      "description": "Среднее за 5 минут по входящим запросам Telegram, включая повторы.",
+      "id": 18
     },
     {
       "type": "stat",
-      "title": "Ответов за 15 минут",
+      "title": "Отправили хотя бы одно голосовое",
+      "description": "Уникальные Telegram-чаты с первым голосовым с 24.09.2026. История до 06.10 восстановлена по старой воронке. Один групповой чат считается одной единицей; входящее голосовое учитывается даже при ошибке обработки.",
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 0,
-        "y": 20
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 126
       },
       "targets": [
         {
-          "expr": "increase(telegram_voice_response_duration_seconds_count{client=\"telegram\"}[15m])",
-          "legendFormat": "Ответов за 15 минут",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Сбоев за 5 минут",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
-        "y": 20
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[5m]))",
-          "legendFormat": "Сбоев за 5 минут",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Сбоев за 15 минут",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 12,
-        "y": 20
-      },
-      "targets": [
-        {
-          "expr": "sum(increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m]))",
-          "legendFormat": "Сбоев за 15 минут",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "stat",
-      "title": "Очередь заполнена за 15 минут",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 20
-      },
-      "targets": [
-        {
-          "expr": "increase(telegram_voice_requests_total{client=\"telegram\",outcome=\"queue_full\"}[15m])",
-          "legendFormat": "Очередь заполнена за 15 минут",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Сбои по этапам, 5 / 15 минут",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
-      },
-      "targets": [
-        {
-          "expr": "sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[5m]))",
-          "legendFormat": "{{stage}} 5 мин",
-          "refId": "A"
-        },
-        {
-          "expr": "sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m]))",
-          "legendFormat": "{{stage}} 15 мин",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Доля сбоев по этапам, 15 минут",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "targets": [
-        {
-          "expr": "100 * sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m])) / clamp_min(sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\"}[15m])), 1) and on(stage) (sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\"}[15m])) > 0)",
-          "legendFormat": "{{stage}}",
+          "expr": "speaking_telegram_voice_users",
+          "instant": true,
           "refId": "A"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "short",
+          "decimals": 0,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
         },
         "overrides": []
       },
-      "description": "Неудачные логические операции / все логические операции этапа. Пустое окно без попыток не считается 0%."
-    },
-    {
-      "type": "timeseries",
-      "title": "Исходы голосовых сообщений, 15 минут",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 32
-      },
-      "targets": [
-        {
-          "expr": "increase(telegram_voice_requests_total{client=\"telegram\"}[15m])",
-          "legendFormat": "{{outcome}}",
-          "refId": "A"
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         }
-      ]
+      },
+      "id": 32
     },
     {
-      "type": "timeseries",
-      "title": "Ходов на активного пользователя сегодня",
+      "type": "row",
+      "title": "Диагностика",
+      "collapsed": true,
       "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 32
-      },
-      "targets": [
-        {
-          "expr": "(speaking_turns{client=\"telegram\"} / clamp_min(speaking_dau{client=\"telegram\"}, 1)) and on(client, day) (speaking_dau{client=\"telegram\"} > 0)",
-          "legendFormat": "ходов / DAU",
-          "refId": "A"
-        }
-      ],
-      "description": "Завершённые голосовые ходы сегодня / Telegram DAU сегодня, по московскому дню."
-    },
-    {
-      "type": "timeseries",
-      "title": "Списано, USD",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 40
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 6
-        },
-        "overrides": []
-      },
-      "targets": [
-        {
-          "expr": "speaking_cost_micro{client=\"telegram\"} / 1000000",
-          "legendFormat": "{{currency}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Токены чата",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 40
-      },
-      "targets": [
-        {
-          "expr": "speaking_prompt_tokens{client=\"telegram\"}",
-          "legendFormat": "prompt",
-          "refId": "A"
-        },
-        {
-          "expr": "speaking_completion_tokens{client=\"telegram\"}",
-          "legendFormat": "completion",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Токены звонка",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 48
-      },
-      "targets": [
-        {
-          "expr": "speaking_realtime_tokens{client=\"telegram\"}",
-          "legendFormat": "{{part}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Объём",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 48
-      },
-      "targets": [
-        {
-          "expr": "speaking_stt_seconds{client=\"telegram\"}",
-          "legendFormat": "stt s",
-          "refId": "A"
-        },
-        {
-          "expr": "speaking_tts_chars{client=\"telegram\"}",
-          "legendFormat": "tts chars",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "DAU и ходы",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 56
-      },
-      "targets": [
-        {
-          "expr": "speaking_dau{client=\"telegram\"}",
-          "legendFormat": "dau",
-          "refId": "A"
-        },
-        {
-          "expr": "speaking_turns{client=\"telegram\"}",
-          "legendFormat": "turns",
-          "refId": "B"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Действия за день",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 56
-      },
-      "targets": [
-        {
-          "expr": "speaking_actions{client=\"telegram\"}",
-          "legendFormat": "{{action}}",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "timeseries",
-      "title": "Ошибки сервисов за день",
-      "gridPos": {
-        "h": 8,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 64
+        "y": 133
       },
-      "targets": [
+      "panels": [
         {
-          "expr": "speaking_errors{client=\"telegram\"} or on() label_replace(speaking_dau{client=\"telegram\"} * 0, \"outcome\", \"нет ошибок\", \"client\", \"telegram\")",
-          "legendFormat": "{{outcome}}",
-          "refId": "A"
+          "type": "timeseries",
+          "title": "За сколько секунд человек получил ответ",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 130
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+              "legendFormat": "половина ответов быстрее",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_response_duration_seconds_bucket{client=\"telegram\"}[15m])))",
+              "legendFormat": "95 из 100 быстрее",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "axisLabel": "секунды"
+              }
+            },
+            "overrides": []
+          },
+          "description": "p50 и p95 секунд от голосового до принятого Telegram ответа. Окно 15 минут, только доставленные.",
+          "id": 19
+        },
+        {
+          "type": "timeseries",
+          "title": "Сколько секунд ход ждал в нашей очереди",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 138
+          },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+              "legendFormat": "половина ответов быстрее",
+              "refId": "A"
+            },
+            {
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(telegram_voice_queue_wait_seconds_bucket{client=\"telegram\"}[15m])))",
+              "legendFormat": "95 из 100 быстрее",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "axisLabel": "секунды"
+              }
+            },
+            "overrides": []
+          },
+          "description": "p50 и p95 секунд в очереди чата и обработки. Окно 15 минут, только доставленные.",
+          "id": 20
+        },
+        {
+          "type": "stat",
+          "title": "Сколько ответов вошло в задержку за 15 минут",
+          "gridPos": {
+            "h": 3,
+            "w": 24,
+            "x": 0,
+            "y": 146
+          },
+          "targets": [
+            {
+              "expr": "sum(increase(telegram_voice_response_duration_seconds_count{client=\"telegram\"}[15m])) or vector(0)",
+              "legendFormat": "ответов в расчёте",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "decimals": 0,
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "orange",
+                    "value": null
+                  },
+                  {
+                    "color": "blue",
+                    "value": 20
+                  }
+                ]
+              },
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "horizontal",
+            "textMode": "value",
+            "wideLayout": true,
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "text": {
+              "titleSize": 14,
+              "valueSize": 22
+            }
+          },
+          "description": "Сколько доставленных ответов вошло в расчёт задержки за 15 минут.",
+          "id": 21
+        },
+        {
+          "type": "timeseries",
+          "title": "Ошибки сервисов по этапам за 15 минут",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 149
+          },
+          "targets": [
+            {
+              "expr": "(100 * sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=\"failure\"}[15m])) / sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=~\"success|failure\"}[15m]))) and on(stage) (sum by (stage) (increase(speaking_stage_attempts_total{client=\"telegram\",outcome=~\"success|failure\"}[15m])) > 0)",
+              "legendFormat": "{{stage}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "decimals": 1,
+              "custom": {
+                "axisLabel": "доля неудач"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "stt"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "распознавание"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "llm"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "ответ модели"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "tts"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "озвучка"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "delivery"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "доставка в Telegram"
+                  }
+                ]
+              }
+            ]
+          },
+          "description": "Доля неудач за 15 минут. Если попыток не было, линия не рисуется.",
+          "id": 22
+        },
+        {
+          "type": "timeseries",
+          "title": "Чем закончились голосовые за 15 минут",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 157
+          },
+          "targets": [
+            {
+              "expr": "increase(telegram_voice_requests_total{client=\"telegram\",outcome=~\"delivered|failed|queue_full\"}[15m])",
+              "legendFormat": "{{outcome}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "decimals": 0,
+              "custom": {
+                "axisLabel": "сколько за 15 минут"
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "delivered"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "ответ доставлен"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "failed"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "ход сломался"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "queue_full"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "очередь переполнена"
+                  }
+                ]
+              }
+            ]
+          },
+          "description": "Сколько голосовых за 15 минут доставлены, сломались или не влезли в очередь.",
+          "id": 23
+        },
+        {
+          "type": "barchart",
+          "title": "Секунды речи человека по дням",
+          "description": "Секунды речи человека за московский день.",
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 165
+          },
+          "targets": [
+            {
+              "expr": "(max by (day) (max_over_time(speaking_stt_seconds{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Time 1": true,
+                  "Time 2": true
+                },
+                "renameByName": {
+                  "Value": "секунды"
+                }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "sort": [
+                  {
+                    "field": "day",
+                    "desc": false
+                  }
+                ]
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "custom": {
+                "fillOpacity": 80,
+                "lineWidth": 0,
+                "axisPlacement": "auto"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "xField": "day",
+            "orientation": "vertical",
+            "showValue": "always",
+            "stacking": "none",
+            "groupWidth": 0.7,
+            "barWidth": 0.9,
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0,
+            "text": {
+              "valueSize": 14
+            },
+            "legend": {
+              "showLegend": false,
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "id": 24
+        },
+        {
+          "type": "barchart",
+          "title": "Символы озвучки по дням",
+          "description": "Символы озвученного ответа за московский день.",
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 172
+          },
+          "targets": [
+            {
+              "expr": "(max by (day) (max_over_time(speaking_tts_chars{client=\"telegram\"}[185d])) or (max by (day) (max_over_time(speaking_dau{client=\"telegram\"}[185d])) * 0))",
+              "format": "table",
+              "instant": true,
+              "refId": "A"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true,
+                  "Time 1": true,
+                  "Time 2": true
+                },
+                "renameByName": {
+                  "Value": "символы"
+                }
+              }
+            },
+            {
+              "id": "sortBy",
+              "options": {
+                "sort": [
+                  {
+                    "field": "day",
+                    "desc": false
+                  }
+                ]
+              }
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "min": 0,
+              "color": {
+                "mode": "fixed",
+                "fixedColor": "blue"
+              },
+              "custom": {
+                "fillOpacity": 80,
+                "lineWidth": 0,
+                "axisPlacement": "auto"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "xField": "day",
+            "orientation": "vertical",
+            "showValue": "always",
+            "stacking": "none",
+            "groupWidth": 0.7,
+            "barWidth": 0.9,
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0,
+            "text": {
+              "valueSize": 14
+            },
+            "legend": {
+              "showLegend": false,
+              "displayMode": "list",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "id": 25
         }
-      ]
+      ],
+      "id": 17
     }
   ]
 }

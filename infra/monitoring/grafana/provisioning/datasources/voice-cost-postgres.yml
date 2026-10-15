@@ -1,0 +1,17 @@
+apiVersion: 1
+datasources:
+  - name: Voice costs
+    uid: voice-cost-postgres
+    type: postgres
+    access: proxy
+    url: 127.0.0.1:5432
+    user: speaking_cost_ro
+    isDefault: false
+    editable: false
+    jsonData:
+      database: ${VOICE_COST_DB_NAME}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: ${VOICE_COST_DB_PASSWORD}

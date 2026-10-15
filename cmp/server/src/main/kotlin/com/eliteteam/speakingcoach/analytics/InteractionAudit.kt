@@ -30,6 +30,22 @@ import org.slf4j.LoggerFactory
 private const val CONTENT_SECONDS = 7L * 86_400L
 private const val EVENT_SECONDS = 30L * 86_400L
 private const val MAX_AUDIO_BYTES = 20 * 1024 * 1024
+private val STORED_AUDIO_FILE = Regex(
+    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(-reply)?\\.(ogg|mp3)",
+)
+
+internal fun auditAudioFileName(attemptId: String, reply: Boolean, contentType: String = "audio/ogg"): String {
+    val id = UUID.fromString(attemptId).toString()
+    if (!reply) return "$id.ogg"
+    val extension = when (contentType.substringBefore(';').trim().lowercase()) {
+        "audio/mpeg", "audio/mp3" -> "mp3"
+        else -> "ogg"
+    }
+    return "$id-reply.$extension"
+}
+
+internal fun auditAudioContentType(fileName: String): String =
+    if (fileName.endsWith(".mp3")) "audio/mpeg" else "audio/ogg"
 
 internal data class InteractionEvent(
     val id: String,
@@ -323,34 +339,44 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
     }
 
     suspend fun saveAudio(chatId: Long, messageId: Long, receivedAt: Instant, bytes: ByteArray): Boolean =
-        withContext(Dispatchers.IO) {
-            if (bytes.isEmpty() || bytes.size > MAX_AUDIO_BYTES ||
-                !receivedAt.plusSeconds(CONTENT_SECONDS).isAfter(Instant.now())) return@withContext false
-            if (Files.getFileStore(audioDir).usableSpace < maxOf(100L * 1024 * 1024, bytes.size * 2L)) return@withContext false
-            val attemptId = voiceAttemptId(chatId, messageId)
-            val name = "$attemptId.ogg"
-            val target = audioDir.resolve(name)
-            val temporary = Files.createTempFile(audioDir, "incoming-", ".tmp")
+        writeClipAudio(chatId, messageId, receivedAt, bytes, reply = false, contentType = "audio/ogg")
+
+    suspend fun saveReplyAudio(
+        chatId: Long, messageId: Long, receivedAt: Instant, bytes: ByteArray, contentType: String,
+    ): Boolean = writeClipAudio(chatId, messageId, receivedAt, bytes, reply = true, contentType = contentType)
+
+    private suspend fun writeClipAudio(
+        chatId: Long, messageId: Long, receivedAt: Instant, bytes: ByteArray, reply: Boolean, contentType: String,
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (bytes.isEmpty() || bytes.size > MAX_AUDIO_BYTES ||
+            !receivedAt.plusSeconds(CONTENT_SECONDS).isAfter(Instant.now())) return@withContext false
+        if (Files.getFileStore(audioDir).usableSpace < maxOf(100L * 1024 * 1024, bytes.size * 2L)) return@withContext false
+        val attemptId = voiceAttemptId(chatId, messageId)
+        val name = auditAudioFileName(attemptId, reply, contentType)
+        if (!STORED_AUDIO_FILE.matches(name)) return@withContext false
+        val target = audioDir.resolve(name)
+        val temporary = Files.createTempFile(audioDir, if (reply) "reply-" else "incoming-", ".tmp")
+        try {
+            Files.write(temporary, bytes)
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
             try {
-                Files.write(temporary, bytes)
-                Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
-                try {
-                    record(InteractionEvent(
-                        id = "audio:$attemptId", chatId = chatId, direction = "incoming", kind = "audio",
-                        status = "saved", receivedAt = receivedAt, attemptId = attemptId,
-                        messageId = messageId, audioFile = name, audioSize = bytes.size,
-                        audioSha256 = MessageDigest.getInstance("SHA-256").digest(bytes)
-                            .joinToString("") { "%02x".format(it) },
-                    ))
-                } catch (error: Throwable) {
-                    Files.deleteIfExists(target)
-                    throw error
-                }
-                true
-            } finally {
-                Files.deleteIfExists(temporary)
+                record(InteractionEvent(
+                    id = if (reply) "audio-reply:$attemptId" else "audio:$attemptId",
+                    chatId = chatId, direction = if (reply) "outgoing" else "incoming", kind = "audio",
+                    status = "saved", receivedAt = receivedAt, attemptId = attemptId,
+                    messageId = messageId, audioFile = name, audioSize = bytes.size,
+                    audioSha256 = MessageDigest.getInstance("SHA-256").digest(bytes)
+                        .joinToString("") { "%02x".format(it) },
+                ))
+            } catch (error: Throwable) {
+                Files.deleteIfExists(target)
+                throw error
             }
+            true
+        } finally {
+            Files.deleteIfExists(temporary)
         }
+    }
 
     suspend fun list(
         chatId: Long?, attemptId: String? = null, jobId: String? = null,
@@ -408,22 +434,30 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
         rows
     }
 
-    suspend fun readAudio(attemptId: String): ByteArray? = withContext(Dispatchers.IO) {
+    suspend fun readAudio(attemptId: String, reply: Boolean = false): Pair<ByteArray, String>? = withContext(Dispatchers.IO) {
         val id = runCatching { UUID.fromString(attemptId) }.getOrNull() ?: return@withContext null
+        val names = if (reply) listOf("$id-reply.ogg", "$id-reply.mp3") else listOf("$id.ogg")
+        if (names.any { !STORED_AUDIO_FILE.matches(it) }) return@withContext null
         dataSource.connection.use { connection ->
             connection.prepareStatement("""
                 SELECT c.audio_file FROM interaction_events i
                 JOIN interaction_content c ON c.event_id = i.event_id
-                WHERE i.attempt_id = ? AND i.kind = 'audio' AND i.received_at > ? LIMIT 1
+                WHERE i.attempt_id = ? AND i.kind = 'audio' AND i.received_at > ?
+                  AND c.audio_file IN (?, ?)
+                LIMIT 1
             """.trimIndent()).use { statement ->
                 statement.setObject(1, id)
                 statement.setTimestamp(2, Timestamp.from(Instant.now().minusSeconds(CONTENT_SECONDS)))
+                statement.setString(3, names[0])
+                statement.setString(4, names.getOrElse(1) { names[0] })
                 statement.executeQuery().use { result ->
                     if (!result.next()) return@withContext null
                     val name = result.getString(1) ?: return@withContext null
-                    if (name != "$id.ogg") return@withContext null
-                    val path = audioDir.resolve(name)
-                    if (Files.isRegularFile(path)) Files.readAllBytes(path) else null
+                    if (name !in names) return@withContext null
+                    val path = audioDir.resolve(name).normalize()
+                    if (!path.startsWith(audioDir.normalize())) return@withContext null
+                    if (!Files.isRegularFile(path)) return@withContext null
+                    Files.readAllBytes(path) to auditAudioContentType(name)
                 }
             }
         }
@@ -446,7 +480,7 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
                     }
                 }
                 batch.forEach { (id, name) ->
-                    if (name != null && name.matches(Regex("[0-9a-f-]{36}\\.ogg"))) {
+                    if (name != null && STORED_AUDIO_FILE.matches(name)) {
                         Files.deleteIfExists(audioDir.resolve(name))
                     }
                     connection.prepareStatement("DELETE FROM interaction_content WHERE event_id = ?").use {
@@ -476,7 +510,7 @@ internal class InteractionAudit(databaseUrl: String, private val audioDir: Path)
             }
             Files.list(audioDir).use { files ->
                 files.filter { Files.isRegularFile(it) &&
-                    (it.fileName.toString().endsWith(".tmp") || it.fileName.toString().endsWith(".ogg")) &&
+                    (it.fileName.toString().endsWith(".tmp") || STORED_AUDIO_FILE.matches(it.fileName.toString())) &&
                     it.fileName.toString() !in referenced &&
                     Files.getLastModifiedTime(it).toInstant().isBefore(now.minusSeconds(86_400))
                 }.forEach { Files.deleteIfExists(it) }

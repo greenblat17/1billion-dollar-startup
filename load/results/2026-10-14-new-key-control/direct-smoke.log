@@ -1,0 +1,80 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: load/real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 2 max VUs, 1m16s max duration (incl. graceful stop):
+              * clips: 1.00 iterations/s for 1s (maxVUs: 2, gracefulStop: 1m15s)
+
+
+running (0m01.0s), 1/2 VUs, 0 complete and 0 interrupted iterations
+clips   [ 100% ] 1/2 VUs  1.0s/1s  1.00 iters/s
+
+running (0m02.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m03.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m04.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m05.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+running (0m06.0s), 2/2 VUs, 0 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 1/2 VUs  1s  1.00 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✓ 'count==0' count=0
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 2       0.321716/s
+    checks_succeeded...: 100.00% 2 out of 2
+    checks_failed......: 0.00%   0 out of 2
+
+    ✓ clip accepted
+
+    CUSTOM
+    clip_accepted..................: 2      0.321716/s
+    clip_completed.................: 2      0.321716/s
+    clip_e2e.......................: avg=5.34s    med=5.34s    p(95)=5.85s    p(99)=5.9s     max=5.91s    count=2 
+    clip_failed....................: 0      0/s
+
+    HTTP
+    http_req_duration..............: avg=151.46ms med=143.39ms p(95)=293.28ms p(99)=300.32ms max=302.08ms count=15
+      { expected_response:true }...: avg=151.46ms med=143.39ms p(95)=293.28ms p(99)=300.32ms max=302.08ms count=15
+    http_req_failed................: 0.00%  0 out of 15
+    http_reqs......................: 15     2.412874/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=5.63s    med=5.63s    p(95)=6.15s    p(99)=6.2s     max=6.21s    count=2 
+    iterations.....................: 2      0.321716/s
+    vus............................: 2      min=1       max=2
+    vus_max........................: 2      min=2       max=2
+
+    NETWORK
+    data_received..................: 4.2 kB 675 B/s
+    data_sent......................: 25 kB  4.0 kB/s
+
+
+
+
+running (0m06.2s), 0/2 VUs, 2 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 0/2 VUs  1s  1.00 iters/s

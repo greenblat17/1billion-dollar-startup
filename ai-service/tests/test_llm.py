@@ -6,9 +6,11 @@ import pytest
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
 from app.llm import (
-    Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply,
-    read_reasoning_tokens,
+    CompletionTokenLimitError, Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM,
+    REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply,
+    read_generation_time_ms, read_reasoning_tokens,
 )
+from app.load_test import bind_load_test, reset_load_test
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.metrics import MemoryMetricsStore, MetricRates
 from app.pipeline import ClipPipeline
@@ -32,6 +34,116 @@ def parse(notes, transcript="I am agree with you."):
 
 def test_parse_reply_reads_reply():
     assert parse_reply('{"reply":"Nice — what did you buy?"}') == "Nice — what did you buy?"
+
+
+def test_generation_time_uses_openrouter_metadata_only_when_valid():
+    assert read_generation_time_ms(SimpleNamespace(openrouter_metadata={"generation_time": 2500})) == 2500
+    assert read_generation_time_ms(SimpleNamespace(model_extra={"openrouter_metadata": {"generation_time": 1000}})) == 1000
+    for value in (None, 0, -1, True, "nan", "inf", "bad"):
+        assert read_generation_time_ms(SimpleNamespace(openrouter_metadata={"generation_time": value})) is None
+
+
+@pytest.mark.asyncio
+async def test_openrouter_uses_generation_metadata_for_telegram_tps(monkeypatch):
+    from app import llm
+    from app.metrics_v2 import bind_metrics, reset_metrics
+    from app.operational_metrics import LlmGenerationMetrics
+
+    class Completions:
+        async def create(self, **kwargs):
+            assert kwargs["extra_headers"] == {"X-OpenRouter-Metadata": "enabled"}
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"reply":"OK"}'))],
+                usage=SimpleNamespace(prompt_tokens=200, completion_tokens=100),
+                openrouter_metadata={"generation_time": 2000},
+            )
+
+    metrics = LlmGenerationMetrics()
+    monkeypatch.setattr(llm, "LLM_GENERATION_METRICS", metrics)
+    client = SimpleNamespace(base_url="https://openrouter.ai/api/v1", chat=SimpleNamespace(completions=Completions()))
+    token = bind_metrics("tg-1")
+    try:
+        assert await OpenAiChatModel(client, "test").complete_reply([], "Hi") == "OK"
+    finally:
+        reset_metrics(token)
+    assert 'speaking_llm_generation_tokens_total{client="telegram"} 100' in metrics.prometheus()
+    assert 'speaking_llm_generation_seconds_total{client="telegram"} 2.0' in metrics.prometheus()
+
+
+@pytest.mark.asyncio
+async def test_load_test_logs_provider_tokens_without_logging_normal_reply(caplog) -> None:
+    class Completions:
+        async def create(self, **kwargs):
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"reply":"OK"}'))],
+                usage=SimpleNamespace(prompt_tokens=123, completion_tokens=45),
+            )
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    model = OpenAiChatModel(client, "test-model")
+    with caplog.at_level("INFO", logger="app.llm"):
+        token = bind_load_test(True)
+        try:
+            assert await model.complete_reply([], "Hi") == "OK"
+        finally:
+            reset_load_test(token)
+        assert await model.complete_reply([], "Hi") == "OK"
+
+    usage_lines = [record.message for record in caplog.records if "load_test_llm_usage" in record.message]
+    assert len(usage_lines) == 1
+    assert "purpose=reply" in usage_lines[0]
+    assert "prompt_tokens=123 completion_tokens=45 usage_present=True" in usage_lines[0]
+
+
+@pytest.mark.asyncio
+async def test_reply_retries_malformed_json_once() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.calls = 0
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.calls += 1
+            return '{"reply":"broken' if self.calls == 1 else '{"reply":"OK"}'
+
+    model = Model()
+    assert await model.complete_reply([], "Hi") == "OK"
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reply_stops_after_second_malformed_json() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.calls = 0
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.calls += 1
+            return '{"reply":"broken'
+
+    model = Model()
+    with pytest.raises(json.JSONDecodeError):
+        await model.complete_reply([], "Hi")
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_reply_retries_token_limit_with_larger_budget() -> None:
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(None, "test")
+            self.limits = []
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.limits.append(kwargs["max_tokens"])
+            if len(self.limits) == 1:
+                raise CompletionTokenLimitError("llm response reached completion token limit")
+            return '{"reply":"OK"}'
+
+    model = Model()
+    assert await model.complete_reply([], "Hi") == "OK"
+    assert model.limits == [None, REPLY_RETRY_MAX_TOKENS]
 
 
 @pytest.mark.asyncio

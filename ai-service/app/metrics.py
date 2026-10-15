@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
+from app.load_test import load_test_active
+
 METRICS_TIMEZONE = "Europe/Moscow"
 LLM_WINDOW_SECONDS = 60
 LLM_RETAIN_SECONDS = 120
@@ -281,6 +283,8 @@ class MemoryMetricsStore:
         success: bool = True,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         if purpose not in LLM_PURPOSES:
             raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
@@ -302,6 +306,8 @@ class MemoryMetricsStore:
                 self._samples = [item for item in self._samples if moment - item.ts <= LLM_RETAIN_SECONDS]
 
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_correction_outcome(outcome)
         _check_correction_attempts(attempts)
         async with self._lock:
@@ -323,6 +329,8 @@ class MemoryMetricsStore:
         reason: str | None = None,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         moment = _moment(now)
         day_name = metrics_day(moment)
         field = _clip_result_field(error_code)
@@ -340,6 +348,8 @@ class MemoryMetricsStore:
                 self._recent_errors = self._recent_errors[:RECENT_ERROR_LIMIT]
 
     async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_partial(feature, outcome)
         moment = _moment(now)
         async with self._lock:
@@ -351,6 +361,8 @@ class MemoryMetricsStore:
                 self._partial_recent = self._partial_recent[:RECENT_ERROR_LIMIT]
 
     async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_provider(service, kind, result, provider)
         async with self._lock:
             counts = self._provider.setdefault(metrics_day(_moment(now)), {})
@@ -365,6 +377,8 @@ class MemoryMetricsStore:
         *,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         session = session_id.strip()
         if not session:
             return
@@ -379,6 +393,8 @@ class MemoryMetricsStore:
         *,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "start", source, now)
         session = session_id.strip()
         if session:
@@ -387,12 +403,18 @@ class MemoryMetricsStore:
                 self._chats.setdefault(session, ChatRow(session_id=session, turns=0, last_unix=moment))
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "voice", None, now)
 
     async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "exchange", None, now)
 
     async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None:
+        if load_test_active():
+            return
         session = session_id.strip()
         if not session:
             return
@@ -595,6 +617,8 @@ class RedisMetricsStore:
         reason: str | None = None,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         moment = _moment(now)
         key = _clip_results_key(metrics_day(moment))
         pipe = self._redis.pipeline()
@@ -614,6 +638,8 @@ class RedisMetricsStore:
         await pipe.execute()
 
     async def record_partial(self, feature: str, outcome: str, *, reason: str = "unknown", now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_partial(feature, outcome)
         key = _partial_key(metrics_day(_moment(now)))
         pipe = self._redis.pipeline()
@@ -626,6 +652,8 @@ class RedisMetricsStore:
         await pipe.execute()
 
     async def record_provider(self, service: str, kind: str, result: str, *, provider: str = "unknown", now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_provider(service, kind, result, provider)
         key = _provider_key(metrics_day(_moment(now)))
         pipe = self._redis.pipeline()
@@ -643,6 +671,8 @@ class RedisMetricsStore:
         success: bool = True,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         if purpose not in LLM_PURPOSES:
             raise ValueError(f"unknown LLM purpose: {purpose}")
         moment = _moment(now)
@@ -668,6 +698,8 @@ class RedisMetricsStore:
                 await self._prune_events(moment)
 
     async def record_correction(self, outcome: str, elapsed_ms: int, attempts: int = 0, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         _check_correction_outcome(outcome)
         _check_correction_attempts(attempts)
         pipe = self._redis.pipeline()
@@ -685,6 +717,8 @@ class RedisMetricsStore:
         *,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         session = session_id.strip()
         if not session:
             return
@@ -708,18 +742,26 @@ class RedisMetricsStore:
         *,
         now: float | None = None,
     ) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "start", source, now)
         session = session_id.strip()
         if session:
             await self._redis.zadd(_CHATS_KEY, {session: _moment(now)}, nx=True)
 
     async def record_voice(self, session_id: str, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "voice", None, now)
 
     async def record_exchange(self, session_id: str, *, now: float | None = None) -> None:
+        if load_test_active():
+            return
         await self._record_funnel(session_id, "exchange", None, now)
 
     async def record_profile(self, session_id: str, username: str | None, name: str | None) -> None:
+        if load_test_active():
+            return
         session = session_id.strip()
         if not session:
             return

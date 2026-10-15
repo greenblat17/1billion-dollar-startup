@@ -52,3 +52,44 @@ async def test_cancelled_operation_is_not_a_failure(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await cancelled(None, "tg-1")
     assert 'stage="tts",outcome="failure"} 0' in metrics.prometheus()
+
+
+def test_provider_calls_count_each_result_and_type():
+    metrics = operational_metrics.ProviderCallMetrics()
+    metrics.record("stt", "error")
+    metrics.record("stt", "success")
+    metrics.record("llm", "success")
+    metrics.record("tts", "cancelled")
+    result = metrics.prometheus()
+    assert 'type="stt",result="error"} 1' in result
+    assert 'type="stt",result="success"} 1' in result
+    assert 'type="llm",result="success"} 1' in result
+    assert 'type="tts",result="cancelled"} 1' in result
+    assert 'type="llm",result="error"} 0' in result
+
+
+def test_llm_generation_metrics_count_only_valid_output_generation():
+    metrics = operational_metrics.LlmGenerationMetrics()
+    metrics.record(120, 2000)
+    metrics.record(0, 1000)
+    metrics.record(100, 0)
+    result = metrics.prometheus()
+    assert 'speaking_llm_generation_tokens_total{client="telegram"} 120' in result
+    assert 'speaking_llm_generation_seconds_total{client="telegram"} 2.0' in result
+
+
+def test_voice_cost_keeps_missing_prices_out_of_spend_and_in_coverage():
+    usage = operational_metrics.VoiceModelUsage()
+    usage.record("stt", "success", None)
+    usage.record("llm", "success", 125)
+    usage.record("tts", "error", None)
+    usage.record("tts", "success", None)
+    usage.settle_tts(400)
+    metrics = operational_metrics.VoiceModelMetrics()
+    metrics.record(usage)
+    result = metrics.prometheus()
+    assert 'speaking_voice_model_cost_micro_total{component="llm"} 125' in result
+    assert 'speaking_voice_model_cost_micro_total{component="tts"} 400' in result
+    assert 'speaking_voice_model_calls_total{component="stt",price="missing"} 1' in result
+    assert 'speaking_voice_model_calls_total{component="tts",price="known"} 1' in result
+    assert 'speaking_voice_model_calls_total{component="tts",price="missing"} 1' in result

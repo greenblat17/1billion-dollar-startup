@@ -12,6 +12,7 @@ from typing import Any, Callable
 from app.dialogue import ChatMessage, DialogueStore
 from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
+from app.load_test import load_test_active
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
@@ -160,7 +161,13 @@ class ClipPipeline:
         on_stage: Callable[[str], None] | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
-        bound = bind_metrics(session_id)
+        platform = None
+        if session_id.startswith("app-") and self._v2 is not None:
+            try:
+                platform = await self._v2.platform_of(session_id)
+            except Exception:
+                logger.warning("could not resolve client platform for provider logs")
+        bound = bind_metrics(session_id, platform)
         try:
             return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
         finally:
@@ -200,8 +207,8 @@ class ClipPipeline:
             if self._v2 is not None:
                 await self._v2.record_turn(session_id)
             await self._metrics.record_exchange(session_id)
-            streak = await self._record_streak(session_id)
-            call = await self._call_summary(session_id)
+            streak = None if load_test_active() else await self._record_streak(session_id)
+            call = None if load_test_active() else await self._call_summary(session_id)
             timings["finalize"] = _elapsed_ms(finalize_started)
             timings["total"] = _elapsed_ms(started)
             logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
@@ -217,7 +224,10 @@ class ClipPipeline:
 
         context_started = time.perf_counter()
         stage("state")
+        history_started = time.perf_counter()
         history = await self._dialogue.history(session_id)
+        timings["contextHistory"] = _elapsed_ms(history_started)
+        call_started = time.perf_counter()
         scenario_call = None
         if self.calls is not None and await self.calls.is_open_today(session_id):
             call_summary = await self.calls.summary(session_id)
@@ -225,12 +235,15 @@ class ClipPipeline:
                 candidate = await self.calls.get(call_summary["callId"])
                 if candidate is not None and candidate.get("scenario"):
                     scenario_call = candidate
+        timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
             history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
             for turn in scenario_call.get("turns", []):
                 history.extend((ChatMessage("user", turn["transcript"]), ChatMessage("assistant", turn["reply"])))
+        personalization_started = time.perf_counter()
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
+        timings["contextPersonalization"] = _elapsed_ms(personalization_started)
         if scenario_call is not None:
             scenario = scenario_call["scenario"]
             verified_context = (profile_note or "").partition("Context data:\n")[2]
@@ -263,7 +276,7 @@ class ClipPipeline:
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
-            if scenario_call is None:
+            if scenario_call is None and not load_test_active():
                 await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
@@ -271,7 +284,8 @@ class ClipPipeline:
             if self.personalization is not None and scenario_call is None:
                 observation = await tasks[1]
                 save_started = time.perf_counter()
-                await self.personalization.save_observation(session_id, observation)
+                if not load_test_active():
+                    await self.personalization.save_observation(session_id, observation)
                 timings["memorySave"] = _elapsed_ms(save_started)
         finally:
             for task in tasks:
@@ -286,8 +300,8 @@ class ClipPipeline:
         if self._v2 is not None:
             await self._v2.record_turn(session_id)
         await self._metrics.record_exchange(session_id)
-        streak = await self._record_streak(session_id)
-        call = await self._record_call(session_id, stt_result, reply_text, corrections)
+        streak = None if load_test_active() else await self._record_streak(session_id)
+        call = None if load_test_active() else await self._record_call(session_id, stt_result, reply_text, corrections)
         timings["finalize"] = _elapsed_ms(finalize_started)
         timings["total"] = _elapsed_ms(started)
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
@@ -302,6 +316,8 @@ class ClipPipeline:
         )
 
     async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:
+        if load_test_active():
+            return None
         await self._metrics.record_turn(session_id, seconds, tts_chars)
         await self._metrics.record_exchange(session_id)
         if self._v2 is not None:

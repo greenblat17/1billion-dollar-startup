@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import math
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI, BadRequestError
 
 from app.audio import to_wav_mono_16k
+from app.load_test import load_test_active
+from app.metrics_v2 import current_session, read_provider_cost
 from app.retry import once_on_retryable
 from app.operational_metrics import telegram_stage
+from app.provider_call_log import logged_provider_call, provider_from_url
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -26,13 +33,28 @@ class SpeechToText(Protocol):
 
 
 class GroqSpeechToText:
-    def __init__(self, client: AsyncOpenAI, model: str, ffmpeg_bin: str) -> None:
+    def __init__(self, client: AsyncOpenAI, model: str, ffmpeg_bin: str, requires_wav: bool = False) -> None:
         self._client = client
         self._model = model
         self._ffmpeg_bin = ffmpeg_bin
+        self._requires_wav = requires_wav
 
     @telegram_stage("stt")
     async def transcribe(self, audio: bytes, content_type: str, filename: str, language: str | None = "en") -> SttResult:
+        if self._requires_wav:
+            conversion_started = time.perf_counter()
+            if not _is_wav(audio):
+                audio = await to_wav_mono_16k(self._ffmpeg_bin, audio, suffix=_suffix(filename))
+            conversion_ms = int((time.perf_counter() - conversion_started) * 1000)
+            provider_started = time.perf_counter()
+            try:
+                return await self._transcribe_file(audio, "voice.wav", "audio/wav", language)
+            finally:
+                if load_test_active():
+                    logger.info(
+                        "STT load timing session=%s conversion_ms=%d provider_ms=%d",
+                        current_session(), conversion_ms, int((time.perf_counter() - provider_started) * 1000),
+                    )
         try:
             return await self._transcribe_file(audio, filename, content_type, language)
         except BadRequestError:
@@ -41,12 +63,16 @@ class GroqSpeechToText:
 
     async def _transcribe_file(self, audio: bytes, filename: str, content_type: str, language: str | None) -> SttResult:
         async def call() -> Any:
-            return await self._client.audio.transcriptions.create(
-                model=self._model,
-                file=(filename, audio, content_type),
-                **({"language": language} if language else {}),
-                response_format="verbose_json",
-                timestamp_granularities=["word"],
+            return await logged_provider_call(
+                lambda: self._client.audio.transcriptions.create(
+                    model=self._model,
+                    file=(filename, audio, content_type),
+                    **({"language": language} if language else {}),
+                    response_format="verbose_json",
+                    timestamp_granularities=["word"],
+                ),
+                kind="stt", provider=provider_from_url(getattr(self._client, "base_url", None)),
+                model=self._model, cost_of=read_provider_cost,
             )
 
         response = await once_on_retryable(call, metric_service="stt", metric_provider="groq")
@@ -66,6 +92,10 @@ def _suffix(filename: str) -> str:
     if "." in filename:
         return "." + filename.rsplit(".", 1)[-1]
     return ".ogg"
+
+
+def _is_wav(audio: bytes) -> bool:
+    return audio[:4] == b"RIFF" and audio[8:12] == b"WAVE"
 
 
 def _as_dict(response: Any) -> dict[str, Any]:

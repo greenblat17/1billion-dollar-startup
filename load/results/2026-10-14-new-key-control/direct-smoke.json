@@ -1,0 +1,160 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "fails": 0,
+                    "name": "clip accepted",
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca",
+                    "passes": 2
+                }
+            }
+    },
+    "metrics": {
+        "clip_accepted": {
+            "count": 2,
+            "rate": 0.3217164732024655
+        },
+        "iterations": {
+            "count": 2,
+            "rate": 0.3217164732024655
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_sending": {
+            "avg": 0.035733333333333346,
+            "med": 0.023,
+            "p(95)": 0.07589999999999998,
+            "p(99)": 0.08318,
+            "max": 0.085,
+            "count": 15
+        },
+        "vus": {
+            "value": 2,
+            "min": 1,
+            "max": 2
+        },
+        "vus_max": {
+            "value": 2,
+            "min": 2,
+            "max": 2
+        },
+        "http_reqs": {
+            "count": 15,
+            "rate": 2.4128735490184914
+        },
+        "http_req_blocked": {
+            "count": 15,
+            "avg": 0.04446666666666667,
+            "med": 0.006,
+            "p(95)": 0.26849999999999996,
+            "p(99)": 0.2825,
+            "max": 0.286
+        },
+        "http_req_connecting": {
+            "avg": 0.0232,
+            "med": 0,
+            "p(95)": 0.174,
+            "p(99)": 0.174,
+            "max": 0.174,
+            "count": 15
+        },
+        "clip_e2e": {
+            "max": 5914,
+            "count": 2,
+            "avg": 5344,
+            "med": 5344,
+            "p(95)": 5857,
+            "p(99)": 5902.6
+        },
+        "data_sent": {
+            "rate": 4039.1503210569545,
+            "count": 25110
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 151.46566666666666,
+            "med": 143.393,
+            "p(95)": 293.2817,
+            "p(99)": 300.32034,
+            "max": 302.08,
+            "count": 15
+        },
+        "data_received": {
+            "count": 4193,
+            "rate": 674.4785860689689
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 15,
+            "value": 0
+        },
+        "http_req_waiting": {
+            "count": 15,
+            "avg": 151.01713333333336,
+            "med": 143.303,
+            "p(95)": 293.1346,
+            "p(99)": 300.13012000000003,
+            "max": 301.879
+        },
+        "http_req_receiving": {
+            "avg": 0.4128,
+            "med": 0.07,
+            "p(95)": 1.6072999999999968,
+            "p(99)": 3.343859999999998,
+            "max": 3.778,
+            "count": 15
+        },
+        "clip_completed": {
+            "count": 2,
+            "rate": 0.3217164732024655
+        },
+        "iteration_duration": {
+            "avg": 5639.9945735,
+            "med": 5639.9945735,
+            "p(95)": 6158.48325005,
+            "p(99)": 6204.57113241,
+            "max": 6216.093103,
+            "count": 2
+        },
+        "http_req_duration": {
+            "count": 15,
+            "avg": 151.46566666666666,
+            "med": 143.393,
+            "p(95)": 293.2817,
+            "p(99)": 300.32034,
+            "max": 302.08
+        },
+        "http_req_tls_handshaking": {
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0,
+            "max": 0,
+            "count": 15,
+            "avg": 0
+        },
+        "checks": {
+            "passes": 2,
+            "fails": 0,
+            "value": 1
+        }
+    },
+    "setup_data": {
+        "runId": "newkey-smoke"
+    }
+}

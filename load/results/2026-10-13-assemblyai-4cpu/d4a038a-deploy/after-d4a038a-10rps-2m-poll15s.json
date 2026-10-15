@@ -1,0 +1,160 @@
+{
+    "metrics": {
+        "http_req_sending": {
+            "p(95)": 0.11702634999999995,
+            "p(99)": 0.1833761300000009,
+            "max": 0.638928,
+            "count": 8298,
+            "avg": 0.04155610629067232,
+            "med": 0.027332
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 8298,
+            "value": 0
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "checks": {
+            "fails": 0,
+            "passes": 1201,
+            "value": 1
+        },
+        "vus": {
+            "value": 4,
+            "min": 4,
+            "max": 76
+        },
+        "iteration_duration": {
+            "p(95)": 7838.014606,
+            "p(99)": 9221.204119,
+            "max": 12131.794853,
+            "count": 1201,
+            "avg": 6849.795693668603,
+            "med": 6250.998058
+        },
+        "iterations": {
+            "rate": 9.426792044458805,
+            "count": 1201
+        },
+        "clip_accepted": {
+            "rate": 9.426792044458805,
+            "count": 1201
+        },
+        "clip_e2e": {
+            "p(95)": 7756,
+            "p(99)": 9189,
+            "max": 12128,
+            "count": 1201,
+            "avg": 6839.491257285596,
+            "med": 6210
+        },
+        "http_req_receiving": {
+            "p(99)": 15.775816420000057,
+            "max": 124.731135,
+            "count": 8298,
+            "avg": 1.5851489752952537,
+            "med": 0.40598650000000003,
+            "p(95)": 6.479259649999989
+        },
+        "vus_max": {
+            "value": 500,
+            "min": 500,
+            "max": 500
+        },
+        "http_req_connecting": {
+            "p(99)": 0.8851756000000002,
+            "max": 16.484696,
+            "count": 8298,
+            "avg": 0.09938945107254755,
+            "med": 0,
+            "p(95)": 0.6565433499999999
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "data_sent": {
+            "rate": 146836.58718745422,
+            "count": 18707397
+        },
+        "http_req_blocked": {
+            "p(99)": 0.9999892000000019,
+            "max": 16.570878,
+            "count": 8298,
+            "avg": 0.11942710978548994,
+            "med": 0.007061,
+            "p(95)": 0.7535814999999999
+        },
+        "http_req_waiting": {
+            "avg": 13.59350785526634,
+            "med": 6.425397,
+            "p(95)": 47.71100799999999,
+            "p(99)": 105.40900631000012,
+            "max": 226.48968,
+            "count": 8298
+        },
+        "http_req_tls_handshaking": {
+            "p(99)": 0,
+            "max": 0,
+            "count": 8298,
+            "avg": 0,
+            "med": 0,
+            "p(95)": 0
+        },
+        "http_req_duration": {
+            "p(99)": 115.63857550000004,
+            "max": 244.487588,
+            "count": 8298,
+            "avg": 15.220212936852267,
+            "med": 7.1754425,
+            "p(95)": 54.5830243
+        },
+        "clip_completed": {
+            "count": 1201,
+            "rate": 9.426792044458805
+        },
+        "data_received": {
+            "count": 2261875,
+            "rate": 17753.72627440488
+        },
+        "http_reqs": {
+            "count": 8298,
+            "rate": 65.13199032882528
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 15.220212936852267,
+            "med": 7.1754425,
+            "p(95)": 54.5830243,
+            "p(99)": 115.63857550000004,
+            "max": 244.487588,
+            "count": 8298
+        }
+    },
+    "setup_data": {
+        "runId": "d4a038a-poll15-1791913715"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "passes": 1201,
+                    "fails": 0,
+                    "name": "clip accepted",
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca"
+                }
+            }
+    }
+}

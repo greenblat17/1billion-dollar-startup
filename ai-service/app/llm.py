@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -14,9 +15,11 @@ from openai import AsyncOpenAI
 
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
+from app.load_test import load_test_active
 from app.metrics import MetricsStore
-from app.metrics_v2 import current_session, read_provider_cost
-from app.operational_metrics import telegram_stage
+from app.metrics_v2 import client_for, current_session, read_provider_cost
+from app.operational_metrics import LLM_GENERATION_METRICS, telegram_stage
+from app.provider_call_log import anonymous_user_id, logged_provider_call, provider_from_url
 from app.retry import is_retryable, once_on_retryable
 from app.voice import SPEAKY_MANNER
 from app.roleplay import ROLEPLAY_CONTEXT_PREFIX, ROLEPLAY_IDENTITY
@@ -41,6 +44,7 @@ Do not add stage directions, labels, quotation marks around the spoken line, or 
 """
 
 NOTES_MAX_TOKENS = 1200
+REPLY_RETRY_MAX_TOKENS = 2000
 CORRECTION_RETRY_DELAY_SECONDS = 0.5
 MIN_RETRY_SECONDS = 1.0
 RETRYABLE_CORRECTION_OUTCOMES = frozenset({
@@ -205,8 +209,25 @@ class OpenAiChatModel:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
         messages.append({"role": "user", "content": user_text})
-        text = await self._complete(messages, self._reply_temperature, purpose="reply")
-        return parse_reply(text)
+        for attempt in range(2):
+            try:
+                text = await self._complete(
+                    messages, self._reply_temperature,
+                    max_tokens=REPLY_RETRY_MAX_TOKENS if attempt else None,
+                    purpose="reply",
+                )
+            except CompletionTokenLimitError:
+                if attempt == 1:
+                    raise
+                logger.warning("Reply token limit reached; retrying once user_id=%s", anonymous_user_id())
+                continue
+            try:
+                return parse_reply(text)
+            except json.JSONDecodeError:
+                if attempt == 1:
+                    raise
+                logger.warning("Reply JSON invalid; retrying once user_id=%s", anonymous_user_id())
+        raise AssertionError("unreachable reply attempt")
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
         return (await self.complete_notes_result(user_text)).corrections
@@ -281,31 +302,55 @@ class OpenAiChatModel:
                 extra_body["reasoning"] = {"effort": reasoning_effort}
             started = time.perf_counter()
             try:
-                response = await self._client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    max_completion_tokens=token_limit,
-                    response_format=response_format or {"type": "json_object"},
-                    extra_body=extra_body or None,
+                response = await logged_provider_call(
+                    lambda: self._client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        temperature=temperature,
+                        max_completion_tokens=token_limit,
+                        response_format=response_format or {"type": "json_object"},
+                        extra_body=extra_body or None,
+                        extra_headers=(
+                            {"X-OpenRouter-Metadata": "enabled"}
+                            if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else None
+                        ),
+                    ),
+                    kind="llm", provider=provider_from_url(getattr(self._client, "base_url", None)),
+                    model=model_name, purpose=purpose, cost_of=read_provider_cost,
                 )
             except Exception as error:
+                if load_test_active():
+                    logger.info(
+                        "load_test_llm_usage session=%s purpose=%s model=%s outcome=error elapsed_ms=%d error_type=%s",
+                        current_session(), purpose, model_name, int((time.perf_counter() - started) * 1000),
+                        type(error).__name__,
+                    )
                 if operation:
                     logger.warning(
-                        "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                        "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
                         "finish_reason=unavailable prompt_tokens=unavailable completion_tokens=unavailable "
                         "reasoning_tokens=unavailable error_type=%s",
-                        current_session(), operation, model_name, token_limit, type(error).__name__,
+                        anonymous_user_id(), operation, model_name, token_limit, type(error).__name__,
                     )
                 await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
                 raise
             prompt_tokens, completion_tokens = read_usage(response)
+            generation_ms = read_generation_time_ms(response)
+            if client_for(current_session()) == "telegram" and not load_test_active() and generation_ms is not None:
+                LLM_GENERATION_METRICS.record(completion_tokens, generation_ms)
+            if load_test_active():
+                logger.info(
+                    "load_test_llm_usage session=%s purpose=%s model=%s outcome=ok elapsed_ms=%d "
+                    "prompt_tokens=%d completion_tokens=%d usage_present=%s",
+                    current_session(), purpose, model_name, int((time.perf_counter() - started) * 1000),
+                    prompt_tokens, completion_tokens, getattr(response, "usage", None) is not None,
+                )
             if operation:
                 choices = getattr(response, "choices", None) or []
                 logger.info(
-                    "llm completion session=%s operation=%s model=%s max_completion_tokens=%d "
+                    "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
                     "finish_reason=%s prompt_tokens=%d completion_tokens=%d reasoning_tokens=%s",
-                    current_session(), operation, model_name, token_limit,
+                    anonymous_user_id(), operation, model_name, token_limit,
                     getattr(choices[0], "finish_reason", None) if choices else None,
                     prompt_tokens, completion_tokens, read_reasoning_tokens(response),
                 )
@@ -413,6 +458,22 @@ def read_usage(response: Any) -> tuple[int, int]:
         prompt = getattr(usage, "prompt_tokens", None)
         completion = getattr(usage, "completion_tokens", None)
     return _nonneg_token(prompt), _nonneg_token(completion)
+
+
+def read_generation_time_ms(response: Any) -> float | None:
+    """Read OpenRouter's opt-in output generation time, in milliseconds."""
+    metadata = getattr(response, "openrouter_metadata", None)
+    if metadata is None:
+        extras = getattr(response, "model_extra", None) or {}
+        metadata = extras.get("openrouter_metadata") if isinstance(extras, dict) else None
+    raw = metadata.get("generation_time") if isinstance(metadata, dict) else getattr(metadata, "generation_time", None)
+    if isinstance(raw, bool):
+        return None
+    try:
+        duration = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return duration if math.isfinite(duration) and duration > 0 else None
 
 
 def read_reasoning_tokens(response: Any) -> int | None:

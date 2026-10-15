@@ -193,8 +193,14 @@ internal fun telegramProfile(chat: Chat): ChatProfile {
     )
 }
 
-internal fun speakingCoachTelegramBot(token: String, audit: InteractionAudit? = null) =
+internal fun speakingCoachTelegramBot(
+    token: String,
+    audit: InteractionAudit? = null,
+    metrics: TelegramOperationalMetrics? = null,
+    userIdHashKey: String = "",
+) =
     telegramBot(token) { logger = RedactingKSLog(DefaultKTgBotAPIKSLog, token) }
+        .let { if (metrics == null) it else MeasuredTelegramBot(it, metrics, userIdHashKey) }
         .let { if (audit == null) it else AuditedTelegramBot(it, audit) }
 
 internal fun BehaviourContext.installSpeakingCoachHandlers(
@@ -205,6 +211,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
     callEvents: CallEventRecorder? = null,
+    voiceCost: com.eliteteam.speakingcoach.analytics.VoiceCostStore? = null,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
@@ -929,6 +936,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     } catch (error: Throwable) {
                         log.warn("Voice content audit failed attempt_id={}", attemptId, error)
                     }
+                    result.reply.audio?.let { replyAudio ->
+                        try {
+                            if (audit?.saveReplyAudio(
+                                    chatId, message.messageId.long, receivedAt, replyAudio.bytes, replyAudio.contentType,
+                                ) == false
+                            ) {
+                                log.warn("Model voice was not archived attempt_id={}", attemptId)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Model voice archive failed attempt_id={}", attemptId, error)
+                        }
+                    }
                 }
                 completedFacts = result.reply.onboarding?.analytics?.withReview(result.reply.onboarding.review)
                 val callId = result.reply.call?.callId ?: practiceCallId
@@ -988,6 +1009,21 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     delivered && result.reply.audio != null -> "delivered"
                     delivered && result.reply.text.isNotBlank() -> "text_fallback"
                     else -> "other_failed"
+                }
+                if (deliveryOutcome == "delivered" && result.reply.transcript.isNotBlank()) {
+                    operationalMetrics?.recordCompletedVoiceExchange()
+                    val costAttemptId = telegramChatNumber(message.chat.id)?.let {
+                        voiceAttemptId(it, message.messageId.long)
+                    }
+                    if (voiceCost != null && costAttemptId != null) {
+                        try {
+                            voiceCost.recordExchange(costAttemptId, expectedCalls = result.reply.voiceCallCounts)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            log.error("Could not record voice cost exchange", error)
+                        }
+                    }
                 }
                 recordVoiceAttempt(message, receivedAt, eligible = true, outcome = deliveryOutcome,
                     stage = when (deliveryOutcome) {

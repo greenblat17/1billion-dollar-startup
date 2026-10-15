@@ -9,6 +9,7 @@ data class AudioClip(
     val durationSeconds: Double = 0.0,
     val attemptId: String? = null,
     val receivedAtEpoch: Double? = null,
+    val loadTest: Boolean = false,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -23,6 +24,7 @@ data class AudioClip(
         if (durationSeconds != other.durationSeconds) return false
         if (attemptId != other.attemptId) return false
         if (receivedAtEpoch != other.receivedAtEpoch) return false
+        if (loadTest != other.loadTest) return false
 
         return true
     }
@@ -36,6 +38,7 @@ data class AudioClip(
         result = 31 * result + durationSeconds.hashCode()
         result = 31 * result + (attemptId?.hashCode() ?: 0)
         result = 31 * result + (receivedAtEpoch?.hashCode() ?: 0)
+        result = 31 * result + loadTest.hashCode()
         return result
     }
 }

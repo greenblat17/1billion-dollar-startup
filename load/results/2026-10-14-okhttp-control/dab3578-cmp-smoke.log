@@ -1,0 +1,94 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: load/cmp-real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 20 max VUs, 1m40s max duration (incl. graceful stop):
+              * clips: 0.50 iterations/s for 10s (maxVUs: 20, gracefulStop: 1m30s)
+
+
+running (0m01.0s), 01/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  10% ] 01/20 VUs  01.0s/10s  0.50 iters/s
+
+running (0m02.0s), 01/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  20% ] 01/20 VUs  02.0s/10s  0.50 iters/s
+
+running (0m03.0s), 02/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  30% ] 02/20 VUs  03.0s/10s  0.50 iters/s
+
+running (0m04.0s), 02/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  40% ] 02/20 VUs  04.0s/10s  0.50 iters/s
+
+running (0m05.0s), 03/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  50% ] 03/20 VUs  05.0s/10s  0.50 iters/s
+
+running (0m06.0s), 03/20 VUs, 0 complete and 0 interrupted iterations
+clips   [  60% ] 03/20 VUs  06.0s/10s  0.50 iters/s
+
+running (0m07.0s), 03/20 VUs, 1 complete and 0 interrupted iterations
+clips   [  70% ] 03/20 VUs  07.0s/10s  0.50 iters/s
+
+running (0m08.0s), 02/20 VUs, 2 complete and 0 interrupted iterations
+clips   [  80% ] 02/20 VUs  08.0s/10s  0.50 iters/s
+
+running (0m09.0s), 03/20 VUs, 2 complete and 0 interrupted iterations
+clips   [  90% ] 03/20 VUs  09.0s/10s  0.50 iters/s
+
+running (0m10.0s), 03/20 VUs, 2 complete and 0 interrupted iterations
+clips   [ 100% ] 03/20 VUs  10.0s/10s  0.50 iters/s
+
+running (0m11.0s), 02/20 VUs, 3 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 03/20 VUs  10s  0.50 iters/s
+
+running (0m12.0s), 02/20 VUs, 3 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 03/20 VUs  10s  0.50 iters/s
+
+running (0m13.0s), 01/20 VUs, 4 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 03/20 VUs  10s  0.50 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✓ 'count==0' count=0
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    CUSTOM
+    clip_accepted..................: 5      0.378894/s
+    clip_e2e.......................: avg=5.66s med=6.28s p(95)=6.31s p(99)=6.31s max=6.31s count=5 
+    clip_failed....................: 0      0/s
+
+    HTTP
+    http_req_duration..............: avg=2.9s  med=2.43s p(95)=6.31s p(99)=6.31s max=6.31s count=10
+      { expected_response:true }...: avg=2.9s  med=2.43s p(95)=6.31s p(99)=6.31s max=6.31s count=10
+    http_req_failed................: 0.00%  0 out of 10
+    http_reqs......................: 10     0.757789/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=6.15s med=6.66s p(95)=6.92s p(99)=6.95s max=6.96s count=5 
+    iterations.....................: 5      0.378894/s
+    vus............................: 1      min=1       max=3 
+    vus_max........................: 20     min=20      max=20
+
+    NETWORK
+    data_received..................: 7.9 kB 598 B/s
+    data_sent......................: 62 kB  4.7 kB/s
+
+
+
+
+running (0m13.2s), 00/20 VUs, 5 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 00/20 VUs  10s  0.50 iters/s

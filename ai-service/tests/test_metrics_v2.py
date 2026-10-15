@@ -1,3 +1,6 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pytest
 from fakeredis import FakeAsyncRedis
 from fastapi.testclient import TestClient
@@ -47,6 +50,7 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
     assert telegram["promptTokens"] == 13
     assert telegram["completionTokens"] == 5
     assert telegram["calls"] == 3
+    assert telegram["llmCalls"] == 2
     assert telegram["ttsChars"] == 20
     assert telegram["sttSeconds"] == 1.5
     assert telegram["dau"] == 1
@@ -65,6 +69,176 @@ async def test_v2_keeps_money_tokens_and_clients_apart() -> None:
     assert "speaking_cost_micro" in text
     assert 'client="ios"' in text
     assert "speaking_cost_micro{client=\"ios\"" not in text
+    assert 'speaking_llm_requests{client="telegram",day="2026-10-02"} 2' in text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_admin_overview_counts_telegram_models_and_known_voice_llm_cost(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    moment = datetime(2026, 10, 13, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp()
+    await store.record_telegram_message("tg-1", "voice", "message:1", now=moment)
+    await store.record_llm("tg-1", "reply", "model", 100, 10, 4_000, now=moment)
+    await store.record_stt("tg-1", "stt", 5, now=moment)
+    await store.record_tts("tg-1", "tts", 20, None, now=moment)
+    await store.record_llm("app-1", "reply", "model", 100, 10, 9_000, platform="ios", now=moment)
+    await store.record_voice_llm_usage("tg-1", 2, 1, 4_000, now=moment)
+    report = await store.overview("2026-10-13", "2026-10-13")
+    assert report["modelSince"] == "2026-10-13"
+    assert report["voiceLlmSince"] == "2026-10-13"
+    assert report["days"][0]["llmCalls"] == 1
+    assert report["days"][0]["sttCalls"] == 1
+    assert report["days"][0]["ttsCalls"] == 1
+    assert report["days"][0]["llmCostMicro"] == 4_000
+    assert report["days"][0]["voiceLlmCalls"] == 2
+    assert report["days"][0]["voiceLlmPricedCalls"] == 1
+    assert report["days"][0]["voiceLlmCostMicro"] == 4_000
+    assert report["days"][0]["tracked"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_reads_legacy_days_without_inventing_model_calls() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.hset("metrics:day:2026-09-24", mapping={
+        "turns": 2, "prompt_tokens": 1346, "completion_tokens": 76,
+        "stt_ms": 17114, "tts_chars": 235,
+    })
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1", "tg-2")
+    await redis.hset("metrics:funnel:2026-09-24", mapping={"activated": 2, "start": 1})
+    report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-25")
+    assert report["legacyActiveChatsInPeriod"] == 2
+    assert report["legacyDays"][0] == {
+        "day": "2026-09-24", "tracked": True, "activeChatsWithTurn": 2,
+        "completedTurns": 2, "promptTokens": 1346, "completionTokens": 76,
+        "sttMs": 17114, "ttsChars": 235, "firstVoiceChats": 2,
+    }
+    assert report["legacyDays"][1]["tracked"] is False
+    assert report["days"][0]["llmCalls"] == 0
+    assert report["days"][0]["tracked"] is False
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_builds_chat_growth_and_redis_dau_across_october_sixth() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.hset("metrics:funnel:user:tg-1", mapping={"first_day": "2026-09-24"})
+    await redis.hset("metrics:funnel:user:tg-2", mapping={"first_day": "2026-09-25"})
+    await redis.hset("metrics:funnel:user:tg-3", mapping={"first_day": "2026-10-06"})
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-06", "tg-1", "tg-3", "app-1")
+
+    report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-10-07")
+    growth = {row["day"]: row for row in report["chatGrowthDays"]}
+    dau = {row["day"]: row for row in report["redisDauDays"]}
+    assert report["totalChats"] == 3
+    assert report["chatGrowthUnattributed"] == 0
+    assert growth["2026-09-24"] == {"day": "2026-09-24", "tracked": True,
+                                      "newChats": 1, "totalChatsToDate": 1}
+    assert growth["2026-10-05"]["totalChatsToDate"] == 2
+    assert growth["2026-10-06"]["totalChatsToDate"] == 3
+    assert dau["2026-09-24"]["activeChatsWithTurn"] == 1
+    assert dau["2026-09-25"] == {"day": "2026-09-25", "tracked": True,
+                                   "activeChatsWithTurn": 0}
+    assert dau["2026-10-06"]["activeChatsWithTurn"] == 2
+    assert dau["2026-10-07"]["activeChatsWithTurn"] == 0
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_history_uses_same_definition_before_and_after_october_sixth() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    base = "tg-ChatId(chatId=-7)"
+    topic = "tg-ChatIdWithThreadId(chatIdWithThreadId=(-7,12))"
+    await redis.hset(f"metrics:funnel:user:{base}", mapping={
+        "first_day": "2026-10-03", "start_day": "2026-10-03",
+        "activated_day": "2026-10-08", "engaged_day": "2026-10-14", "source": "campaign",
+    })
+    await redis.hset(f"metrics:funnel:user:{topic}", mapping={
+        "first_day": "2026-10-08", "activated_day": "2026-10-08", "source": "campaign",
+    })
+    for day, turns in (("2026-10-03", 1), ("2026-10-08", 3), ("2026-10-14", 4)):
+        await redis.hset(f"metrics:day:{day}", mapping={
+            "turns": turns, "prompt_tokens": turns * 10, "completion_tokens": turns * 2,
+            "stt_ms": turns * 1000, "tts_chars": turns * 20,
+        })
+    await redis.sadd("metrics:dau:2026-10-03", base)
+    await redis.sadd("metrics:dau:2026-10-08", base, topic)
+    await redis.sadd("metrics:dau:2026-10-14", topic)
+    report = await RedisMetricsV2(redis).overview("2026-10-03", "2026-10-14")
+    rows = {row["day"]: row for row in report["historyDays"]}
+    assert report["totalChats"] == 1
+    assert report["historyActiveChatsInPeriod"] == 1
+    assert report["historyActiveSessionsInPeriod"] == 1
+    assert rows["2026-10-03"]["newChats"] == 1
+    assert rows["2026-10-08"]["newChats"] == 0
+    assert rows["2026-10-08"]["activeChatsWithTurn"] == 1
+    assert rows["2026-10-08"]["chatsWithTurnToDate"] == 1
+    assert rows["2026-10-08"]["firstVoiceChats"] == 1
+    assert rows["2026-10-08"]["returningActiveChats"] == 1
+    assert rows["2026-10-14"]["firstVoiceChatsToDate"] == 1
+    assert rows["2026-10-14"]["engagedChats"] == 1
+    assert rows["2026-10-14"]["completedTurns"] == 4
+    assert rows["2026-10-14"]["activeChats7d"] == 1
+    assert rows["2026-10-14"]["chatsWithTurnToDate"] == 1
+    assert report["sourceBreakdown"] == [{"source": "campaign", "newChats": 1, "firstVoiceChats": 1}]
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_cumulative_turn_users_include_days_before_selected_period() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.sadd("metrics:dau:2026-10-03", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-08", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-10-14", "tg-2", "tg-3", "app-1")
+
+    report = await RedisMetricsV2(redis).overview("2026-10-14", "2026-10-14")
+    row = report["historyDays"][0]
+    assert row["activeChatsWithTurn"] == 2
+    assert row["chatsWithTurnToDate"] == 3
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_retention_and_full_rolling_windows(monkeypatch) -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    monkeypatch.setattr("app.metrics_v2.time.time", lambda: datetime(
+        2026, 10, 25, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp())
+    for chat in ("tg-1", "tg-2"):
+        await redis.hset(f"metrics:funnel:user:{chat}", mapping={
+            "first_day": "2026-09-24", "activated_day": "2026-09-24",
+        })
+    await redis.sadd("metrics:dau:2026-09-24", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-09-25", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-01", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-10-24", "tg-1")
+
+    cohort_report = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-24")
+    assert cohort_report["retention"] == [
+        {"day": 1, "eligible": 2, "returned": 1},
+        {"day": 7, "eligible": 2, "returned": 2},
+        {"day": 30, "eligible": 2, "returned": 1},
+    ]
+    report = await RedisMetricsV2(redis).overview("2026-10-24", "2026-10-24")
+    rows = {row["day"]: row for row in report["historyDays"]}
+    assert rows["2026-10-24"]["activeChats30d"] == 2
+    assert rows["2026-10-24"]["activeChats7d"] == 1
+    prior = await RedisMetricsV2(redis).overview("2026-10-22", "2026-10-22")
+    assert prior["historyDays"][0]["activeChats30d"] is None
+
+    monkeypatch.setattr("app.metrics_v2.time.time", lambda: datetime(
+        2026, 10, 24, 12, tzinfo=ZoneInfo("Europe/Moscow")).timestamp())
+    incomplete = await RedisMetricsV2(redis).overview("2026-09-24", "2026-09-24")
+    assert incomplete["retention"][2] == {"day": 30, "eligible": 0, "returned": 0}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_prometheus_exports_llm_requests_for_past_days(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    moscow = ZoneInfo("Europe/Moscow")
+    past = datetime(2025, 10, 5, 12, tzinfo=moscow).timestamp()
+    later = datetime(2025, 10, 18, 12, tzinfo=moscow).timestamp()
+    await store.record_llm("tg-1", "reply", "openai/gpt", 8, 2, None, now=past)
+    await store.record_llm("tg-1", "notes", "openai/gpt", 3, 1, None, now=past)
+    snap = await store.snapshot(now=later)
+    text = store.prometheus({**snap, "day": "2025-10-18"})
+    assert 'speaking_llm_requests{client="telegram",day="2025-10-05"} 2' in text
 
 
 @pytest.mark.asyncio
@@ -89,6 +263,41 @@ async def test_telegram_journey_counts_distinct_users_at_cumulative_voice_milest
         "onlyStart": 0,
         "atLeast": {"1": 3, "3": 1, "5": 1, "10": 1, "20": 1},
     }
+    assert "speaking_telegram_voice_users 3\n" in store.prometheus(await store.snapshot())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_telegram_voice_users_normalize_two_session_formats_for_one_chat(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    await store.record_telegram_message("tg-ChatId(chatId=42)", "voice", "message:1")
+    await store.record_telegram_message("tg-42", "voice", "message:2")
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["atLeast"]["1"] == 1
+    assert "speaking_telegram_voice_users 1\n" in store.prometheus(await store.snapshot())
+
+
+@pytest.mark.asyncio
+async def test_first_voice_backfill_uses_legacy_activation_without_inflating_higher_milestones() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = RedisMetricsV2(redis)
+    await redis.hset("metrics:funnel:user:tg-old", "activated_day", "2026-09-24")
+    await redis.hset("metrics:funnel:user:tg-overlap", "activated_day", "2026-09-25")
+    await redis.hset("metrics:funnel:user:tg-too-early", "activated_day", "2026-09-23")
+    await store.record_telegram_message("tg-old", "start", "message:1")
+    await store.record_telegram_message("tg-overlap", "voice", "message:1")
+
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["firstVoiceSince"] == "2026-09-24"
+    assert journey["atLeast"] == {"1": 2, "3": 0, "5": 0, "10": 0, "20": 0}
+    assert journey["onlyStart"] == 0
+    assert "speaking_telegram_voice_users 2\n" in store.prometheus(await store.snapshot())
+
+    await store.record_telegram_message("tg-old", "voice", "message:2")
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["atLeast"]["1"] == 2
+    assert journey["atLeast"]["3"] == 0
+    assert await redis.scard("metrics:v2:telegram:journey:historical-only") == 0
 
 
 def test_action_endpoint_records_telegram_message_id_once() -> None:

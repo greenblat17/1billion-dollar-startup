@@ -13,9 +13,22 @@ when changing product behavior, UI, navigation, or backend contracts. Put new de
 these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
+Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
+Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
+Plan for complete STT, LLM and delayed TTS cost accounting: `plans/2026-10-15-complete-voice-unit-cost.md`.
 Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
 Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
 Agreed interaction history and service logs: `architecture/2026-10-05-conversation-audit-logging.md`.
+Live monitoring versus the journal, model reply audio, and load-test exclusion: `architecture/2026-10-11-live-monitoring-journal-load-tests.md`.
+Cost of one voice day (onboarding or a 5/10/15 minute call): `architecture/2026-10-11-voice-loop-day-cost.md`.
+Provider ceilings for the configured Groq and OpenRouter models: `architecture/2026-10-11-provider-limits.md`.
+Real DEV voice load test and measured Groq RPM limit: `architecture/2026-10-13-real-voice-load-test.md`.
+Real DEV OGG load test with AssemblyAI and the 10 RPS failure: `architecture/2026-10-13-assemblyai-load-test.md`.
+DEV load test through the CMP queue and AI client: `architecture/2026-10-13-cmp-load-test.md`.
+Env catalog (GitHub blobs and per-host keys, no secret values): `integrations/2026-10-11-env.md`.
+DEV clip load and the VPS sizing note: `architecture/2026-10-11-vps-sizing.md`.
+Telegram MVP acceptance map: `architecture/2026-10-11-telegram-mvp-acceptance.md`.
 Implementation plan for that system: `plans/2026-10-05-interaction-history-and-service-logs.md`.
 Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
 Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.

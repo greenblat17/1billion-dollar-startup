@@ -3,11 +3,14 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
+import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.createCallEventStore
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
+import com.eliteteam.speakingcoach.load.installLoadTestRoutes
 import com.eliteteam.speakingcoach.app.AppApi
 import com.eliteteam.speakingcoach.app.createAppApi
 import com.eliteteam.speakingcoach.app.installAppPlugins
@@ -48,7 +51,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.ContentType
@@ -72,9 +75,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import okhttp3.ConnectionPool
 import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 
 private val tlsStorePassword = "ktor".toCharArray()
 
@@ -113,6 +118,33 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
+    val voiceCost = config.databaseUrl?.let(::VoiceCostStore)
+    if (voiceCost != null) webhookScope.launch {
+        while (true) {
+            try {
+                for (batch in 1..20) {
+                    val events = ai.voiceCostEvents().events
+                    if (events.isEmpty()) break
+                    voiceCost.upsert(events)
+                    ai.acknowledgeVoiceCost(events.map { VoiceCostReceipt(it.callId, it.revision) })
+                    if (events.size < 100) break
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.warn("Voice cost sync failed", error)
+            }
+            delay(10_000)
+        }
+    }
+    if (voiceCost != null) webhookScope.launch {
+        while (true) {
+            delay(24 * 60 * 60 * 1_000L)
+            try { voiceCost.prune() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { log.warn("Voice cost pruning failed", error) }
+        }
+    }
     val audit = config.databaseUrl?.let { InteractionAudit(it, Path.of(config.auditAudioDir)) }
     if (audit == null) log.warn("Interaction audit disabled: DATABASE_URL is not configured")
     else webhookScope.launch {
@@ -156,7 +188,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, telegramMetrics, audit,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, voiceCost,
+        telegramMetrics, audit, config.aiInternalToken,
     )
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
@@ -224,6 +257,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
         if (appApi != null) {
             installAppPlugins(appApi)
         }
+        val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
+            config.databaseUrl?.let(::PostgresAdminUsageStore)
+        adminUsage?.let { store -> monitor.subscribe(ApplicationStopped) { store.close() } }
         installSpeakingCoachHttp(
             metrics = metricsDashboard(
                 config,
@@ -234,6 +270,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 onboarding = onboardingAnalytics,
                 voiceAttempts = voiceAttempts,
                 callEvents = callEvents,
+                usage = adminUsage,
+                voiceCost = voiceCost,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -255,6 +293,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics)
             }.hide()
+            if (config.loadTestEnabled) {
+                installLoadTestRoutes(config, ai, sessionClipQueue)
+            }
             if (appApi != null) {
                 installAppRoutes(ktorApp, appApi)
             }
@@ -288,6 +329,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         aiHttp.close()
         onboardingAnalytics?.close()
         audit?.close()
+        voiceCost?.close()
     }
 }
 
@@ -310,10 +352,13 @@ internal fun Application.module(
     val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val voiceAttempts = source?.let { VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), voiceScope) }
     val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
+    val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
+        config.databaseUrl?.let(::PostgresAdminUsageStore)
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
         runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
         voiceScope.cancel()
+        adminUsage?.close()
     }
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
@@ -325,6 +370,7 @@ internal fun Application.module(
             onboarding = onboardingAnalytics,
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
+            usage = adminUsage,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -363,12 +409,15 @@ private fun Application.metricsDashboard(
     onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: CallEventRecorder? = null,
+    usage: AdminUsageStore? = null,
+    voiceCost: VoiceCostStore? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
+        config.openRouterRatesFile?.let(Path::of), voiceCost)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
@@ -384,8 +433,14 @@ private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
     )
 }
 
-internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(CIO) {
+internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(OkHttp) {
     expectSuccess = false
+    engine {
+        config {
+            // AI closes idle connections after 5 seconds; retire them on CMP first.
+            connectionPool(ConnectionPool(5, 3, TimeUnit.SECONDS))
+        }
+    }
     install(ContentNegotiation) {
         json(
             Json {

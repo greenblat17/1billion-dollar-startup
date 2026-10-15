@@ -17,6 +17,14 @@ LOKI_URL=$(env_get LOKI_PUSH_URL)
 TOKEN=$(env_get AI_INTERNAL_TOKEN)
 SPEAKY_ENV=$(env_get SPEAKY_ENV)
 SPEAKY_ENV=${SPEAKY_ENV:-unknown}
+# The redeploy blob does not carry these. A file under monitoring/ survives the next
+# .env overwrite, so log shipping stays on after Redeploy DEV.
+if [ -z "$LOKI_URL" ] && [ -s "$MON/loki.url" ]; then
+  LOKI_URL=$(tr -d '[:space:]' < "$MON/loki.url")
+fi
+if [ "$SPEAKY_ENV" = "unknown" ] && [ -s "$MON/speaky-env" ]; then
+  SPEAKY_ENV=$(tr -d '[:space:]' < "$MON/speaky-env")
+fi
 if [ -z "$LOKI_URL" ] || [ -z "$TOKEN" ]; then
   echo "LOKI_PUSH_URL or AI_INTERNAL_TOKEN missing; AI log shipping skipped" >&2
   exit 0

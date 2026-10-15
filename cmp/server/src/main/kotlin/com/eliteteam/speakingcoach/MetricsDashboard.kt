@@ -4,11 +4,13 @@ import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
+import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.JourneyMode
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.CorrectionMetrics
 import com.eliteteam.speakingcoach.ai.LegacyCampaignStatus
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
@@ -38,12 +40,15 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.nio.file.Path
+import java.nio.file.Files
 import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
+internal const val METRICS_DETAILS_PATH = "$METRICS_PATH/details"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
 internal const val ERRORS_PATH = "/admin/metrics/errors"
@@ -61,6 +66,7 @@ private const val METRICS_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60
 internal fun interface MetricsSource {
     suspend fun load(): MetricsSnapshot
     suspend fun llmRange(range: LlmRange): LlmRequestPeriod? = null
+    suspend fun adminOverview(range: LlmRange): AdminModelOverview? = null
     suspend fun reminderSummary(): ReminderClockSummary? = null
     suspend fun callFeedback(offset: Int, limit: Int): com.eliteteam.speakingcoach.ai.CallFeedbackList? = null
 }
@@ -76,12 +82,37 @@ internal class MetricsDashboard(
     val onboarding: OnboardingAnalytics? = null,
     val voiceAttempts: VoiceAttemptRecorder? = null,
     val callEvents: CallEventRecorder? = null,
+    val usage: AdminUsageStore? = null,
+    val openRouterRatesFile: Path? = null,
+    val voiceCost: VoiceCostStore? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
 internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
     val log = LoggerFactory.getLogger("MetricsDashboard")
     get("/admin/metrics") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val range = call.overviewRangeOrRespond() ?: return@get
+        val models = try { dashboard.source.adminOverview(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview model metrics unavailable", error); null }
+        val usage = try { dashboard.usage?.load(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
+        val voiceCost = try { dashboard.voiceCost?.load(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview voice cost unavailable", error); null }
+        val rates = try { dashboard.openRouterRatesFile?.takeIf(Files::isRegularFile)?.let(OpenRouterHistoricalRates::load) }
+            catch (error: Throwable) { log.warn("OpenRouter historical rates unavailable", error); null }
+        call.respondText(adminOverviewHtml(range, models, usage, rates,
+            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"], voiceCost),
+            ContentType.Text.Html)
+    }.hide()
+    get(METRICS_DETAILS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {
             call.respondText(metricsLoginHtml(), ContentType.Text.Html)
             return@get
@@ -398,6 +429,23 @@ private suspend fun ApplicationCall.llmRangeOrRespond(): LlmRange? {
     return range
 }
 
+private suspend fun ApplicationCall.overviewRangeOrRespond(): LlmRange? {
+    val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
+    val fromText = request.queryParameters["from"]
+    val toText = request.queryParameters["to"]
+    val range = try {
+        if (fromText == null && toText == null) LlmRange(today.minusDays(6), today)
+        else LlmRange(LocalDate.parse(requireNotNull(fromText)), LocalDate.parse(requireNotNull(toText)))
+    } catch (_: Exception) { null }
+    if (range == null || range.to < range.from || range.to > today ||
+        java.time.temporal.ChronoUnit.DAYS.between(range.from, range.to) >= 30
+    ) {
+        respondText("Неверный период: выберите до 30 дней", status = HttpStatusCode.BadRequest)
+        return null
+    }
+    return range
+}
+
 internal fun metricsSessionToken(password: String): String {
     val mac = Mac.getInstance("HmacSHA256")
     mac.init(SecretKeySpec(password.toByteArray(Charsets.UTF_8), "HmacSHA256"))
@@ -486,9 +534,9 @@ internal fun metricsReportHtml(
         </head>
         <body>
         <h1>Speaky</h1>
-        ${adminTabs(METRICS_PATH)}
+        ${adminTabs(METRICS_DETAILS_PATH)}
         <h2>Запросы к LLM</h2>
-        ${llmRangeForm(METRICS_PATH, range)}
+        ${llmRangeForm(METRICS_DETAILS_PATH, range)}
         <p class="meta">${range.from} — ${range.to} включительно · Europe/Moscow · все пользователи.</p>
         <dl>
         ${card("Запросы к LLM", llm?.requests?.toString() ?: "—")}
@@ -507,11 +555,11 @@ internal fun metricsReportHtml(
         ${card("TPM (60 с)", snapshot.tpm.toString())}
         ${card("TPS (60 с)", formatTps(snapshot.tps))}
         ${card("Ходы за день", snapshot.turns.toString())}
-        ${card("DAU", snapshot.dau.toString())}
+        ${card("Завершили ход AI сегодня", snapshot.dau.toString())}
         ${card("Секунды STT", formatSeconds(snapshot.sttSeconds))}
         ${card("Символы TTS", snapshot.ttsChars.toString())}
         ${card("₽ на ход", rubPerTurn)}
-        ${card("₽ на DAU", rubPerDau)}
+        ${card("₽ на завершившего ход AI", rubPerDau)}
         </dl>
         <h2>Исправления</h2>
         ${correctionReport(snapshot)}
@@ -648,6 +696,7 @@ internal fun card(label: String, value: String): String {
 internal fun adminTabs(active: String, root: String = "/admin/metrics"): String {
     val tabs = buildList {
         add(root to "Сводка")
+        if (root == METRICS_PATH) add(METRICS_DETAILS_PATH to "Подробная сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
         if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")

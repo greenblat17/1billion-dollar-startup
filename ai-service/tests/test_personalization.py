@@ -5,7 +5,7 @@ from fakeredis import FakeAsyncRedis
 
 from app.onboarding import OnboardingStore
 from app.onboarding_model import OnboardingModel
-from app.personalization import Personalization, context_note
+from app.personalization import Personalization
 
 
 class Streaks:

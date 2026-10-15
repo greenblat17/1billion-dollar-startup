@@ -5,7 +5,7 @@ import java.util.Locale
 internal fun telegramMetricsScrapeAllowed(localPort: Int, monitoringPort: Int): Boolean =
     monitoringPort > 0 && localPort == monitoringPort
 
-/** Process-local, bounded Prometheus metrics for the Telegram webhook. */
+/** Process-local, bounded Prometheus metrics for Telegram webhooks and Bot API calls. */
 internal class TelegramOperationalMetrics {
     private val lock = Any()
     private val bounds = doubleArrayOf(0.1, 0.25, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 240.0)
@@ -16,11 +16,17 @@ internal class TelegramOperationalMetrics {
     private var queueCount = 0L
     private var queueSum = 0.0
     private var webhookRequests = 0L
+    private var completedVoiceExchanges = 0L
     private val outcomes = mutableMapOf("delivered" to 0L, "failed" to 0L, "queue_full" to 0L)
     private val delivery = mutableMapOf("success" to 0L, "failure" to 0L)
+    private val apiCalls = mutableMapOf("success" to 0L, "error" to 0L, "cancelled" to 0L)
 
     fun recordWebhookRequest() = synchronized(lock) {
         webhookRequests++
+    }
+
+    fun recordCompletedVoiceExchange() = synchronized(lock) {
+        completedVoiceExchanges++
     }
 
     fun recordDelivered(responseSeconds: Double, queueSeconds: Double) = synchronized(lock) {
@@ -43,12 +49,18 @@ internal class TelegramOperationalMetrics {
         delivery[outcome] = delivery.getValue(outcome) + 1
     }
 
+    fun recordApiCall(result: String) = synchronized(lock) {
+        apiCalls[result] = apiCalls.getValue(result) + 1
+    }
+
     fun prometheus(): String = synchronized(lock) {
         buildString {
             histogram("telegram_voice_response_duration_seconds", responseBuckets, responseCount, responseSum)
             histogram("telegram_voice_queue_wait_seconds", queueBuckets, queueCount, queueSum)
             appendLine("# TYPE telegram_webhook_requests_total counter")
             appendLine("telegram_webhook_requests_total{client=\"telegram\"} $webhookRequests")
+            appendLine("# TYPE speaking_voice_exchanges_total counter")
+            appendLine("speaking_voice_exchanges_total{client=\"telegram\"} $completedVoiceExchanges")
             appendLine("# TYPE telegram_voice_requests_total counter")
             for ((outcome, value) in outcomes) {
                 appendLine("telegram_voice_requests_total{client=\"telegram\",outcome=\"$outcome\"} $value")
@@ -56,6 +68,10 @@ internal class TelegramOperationalMetrics {
             appendLine("# TYPE speaking_stage_attempts_total counter")
             for ((outcome, value) in delivery) {
                 appendLine("speaking_stage_attempts_total{client=\"telegram\",stage=\"delivery\",outcome=\"$outcome\"} $value")
+            }
+            appendLine("# TYPE speaking_provider_calls_total counter")
+            for ((result, value) in apiCalls) {
+                appendLine("speaking_provider_calls_total{type=\"telegram_api\",result=\"$result\"} $value")
             }
         }
     }

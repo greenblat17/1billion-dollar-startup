@@ -30,6 +30,7 @@ docker build -f Dockerfile.runtime -t speaking-coach:local "$BUILD"
 rm -rf "$BUILD"
 mkdir -p "$APP/logs"
 mkdir -p "$APP/audit-audio"
+mkdir -p "$APP/analytics"
 cat > /etc/logrotate.d/speaking-coach <<'EOF'
 /opt/speaking-coach/logs/app.log {
     daily
@@ -57,6 +58,7 @@ docker run -d --name speaking-coach --restart unless-stopped \
   -v "$APP/tls.key:$APP/tls.key:ro" \
   -v "$APP/logs:/opt/speaking-coach/logs" \
   -v "$APP/audit-audio:/opt/speaking-coach/audit-audio" \
+  -v "$APP/analytics:/opt/speaking-coach/analytics:ro" \
   speaking-coach:local
 
 if [ -f "$APP/monitoring/deploy-remote.sh" ]; then

@@ -1,0 +1,160 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "passes": 348,
+                    "fails": 0,
+                    "name": "clip accepted",
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca"
+                }
+            }
+    },
+    "metrics": {
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 5181,
+            "value": 0
+        },
+        "vus": {
+            "value": 250,
+            "min": 9,
+            "max": 250
+        },
+        "http_req_connecting": {
+            "avg": 0.045505429260760476,
+            "med": 0,
+            "p(95)": 0.507264,
+            "p(99)": 0.7609897999999999,
+            "max": 12.865659,
+            "count": 5181
+        },
+        "http_req_sending": {
+            "max": 1.764781,
+            "count": 5181,
+            "avg": 0.05183085639837869,
+            "med": 0.01852,
+            "p(95)": 0.213216,
+            "p(99)": 0.4996481999999964
+        },
+        "dropped_iterations": {
+            "rate": 0.19510810920876193,
+            "count": 7,
+            "thresholds": {
+                "count==0": true
+            }
+        },
+        "http_reqs": {
+            "count": 5181,
+            "rate": 144.40787340151365
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 441.5811635346458,
+            "med": 375.648847,
+            "p(95)": 1096.765557,
+            "p(99)": 1276.5044054,
+            "max": 1792.194409,
+            "count": 5181
+        },
+        "http_req_duration": {
+            "avg": 441.5811635346458,
+            "med": 375.648847,
+            "p(95)": 1096.765557,
+            "p(99)": 1276.5044054,
+            "max": 1792.194409,
+            "count": 5181
+        },
+        "data_sent": {
+            "count": 5323712,
+            "rate": 148385.62604171378
+        },
+        "clip_completed": {
+            "count": 102,
+            "rate": 2.8430038770419594
+        },
+        "iteration_duration": {
+            "avg": 13068.594729911763,
+            "med": 11589.393359,
+            "p(95)": 22908.427370699992,
+            "p(99)": 24775.89005793,
+            "max": 24890.471242,
+            "count": 102
+        },
+        "http_req_waiting": {
+            "med": 342.253981,
+            "p(95)": 1010.346251,
+            "p(99)": 1206.4485179999997,
+            "max": 1687.511982,
+            "count": 5181,
+            "avg": 405.0896750864692
+        },
+        "checks": {
+            "passes": 348,
+            "fails": 0,
+            "value": 1
+        },
+        "clip_e2e": {
+            "p(95)": 21753.64999999999,
+            "p(99)": 23762.18,
+            "max": 23960,
+            "count": 102,
+            "avg": 12790.882352941177,
+            "med": 11565.5
+        },
+        "http_req_blocked": {
+            "max": 12.939251,
+            "count": 5181,
+            "avg": 0.05737188149005977,
+            "med": 0.004529,
+            "p(95)": 0.586098,
+            "p(99)": 0.872499
+        },
+        "http_req_receiving": {
+            "med": 28.889286,
+            "p(95)": 94.661291,
+            "p(99)": 151.4803719999999,
+            "max": 326.313984,
+            "count": 5181,
+            "avg": 36.43965759177773
+        },
+        "clip_accepted": {
+            "rate": 9.69966028637845,
+            "count": 348
+        },
+        "iterations": {
+            "count": 102,
+            "rate": 2.8430038770419594
+        },
+        "http_req_tls_handshaking": {
+            "max": 0,
+            "count": 5181,
+            "avg": 0,
+            "med": 0,
+            "p(95)": 0,
+            "p(99)": 0
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "data_received": {
+            "count": 1091371,
+            "rate": 30419.3331793251
+        },
+        "vus_max": {
+            "value": 250,
+            "min": 250,
+            "max": 250
+        }
+    },
+    "setup_data": {
+        "runId": "assemblyai-ogg-4cpu-direct-10rps-2m"
+    }
+}

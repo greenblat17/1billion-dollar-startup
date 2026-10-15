@@ -1,3 +1,5 @@
+The live Telegram bot is the repository root README. This file is the Compose Multiplatform template.
+
 This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM), Server.
 
 * [/app/iosApp](./app/iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose

@@ -1,0 +1,649 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/speaky-load-verify/real-clips-4bb702e.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 500 max VUs, 3m15s max duration (incl. graceful stop):
+              * clips: 10.00 iterations/s for 2m0s (maxVUs: 500, gracefulStop: 1m15s)
+
+
+running (0m00.7s), 008/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   1% ] 008/500 VUs  0m00.7s/2m0s  10.00 iters/s
+
+running (0m01.7s), 018/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   1% ] 018/500 VUs  0m01.7s/2m0s  10.00 iters/s
+
+running (0m02.7s), 028/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   2% ] 028/500 VUs  0m02.7s/2m0s  10.00 iters/s
+
+running (0m03.7s), 038/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   3% ] 038/500 VUs  0m03.7s/2m0s  10.00 iters/s
+
+running (0m04.7s), 048/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   4% ] 048/500 VUs  0m04.7s/2m0s  10.00 iters/s
+
+running (0m05.7s), 058/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   5% ] 058/500 VUs  0m05.7s/2m0s  10.00 iters/s
+
+running (0m06.7s), 064/500 VUs, 4 complete and 0 interrupted iterations
+clips   [   6% ] 064/500 VUs  0m06.7s/2m0s  10.00 iters/s
+
+running (0m07.7s), 067/500 VUs, 11 complete and 0 interrupted iterations
+clips   [   6% ] 067/500 VUs  0m07.7s/2m0s  10.00 iters/s
+
+running (0m08.7s), 067/500 VUs, 21 complete and 0 interrupted iterations
+clips   [   7% ] 067/500 VUs  0m08.7s/2m0s  10.00 iters/s
+
+running (0m09.7s), 063/500 VUs, 35 complete and 0 interrupted iterations
+clips   [   8% ] 063/500 VUs  0m09.7s/2m0s  10.00 iters/s
+
+running (0m10.7s), 065/500 VUs, 43 complete and 0 interrupted iterations
+clips   [   9% ] 065/500 VUs  0m10.7s/2m0s  10.00 iters/s
+
+running (0m11.7s), 066/500 VUs, 52 complete and 0 interrupted iterations
+clips   [  10% ] 066/500 VUs  0m11.7s/2m0s  10.00 iters/s
+
+running (0m12.7s), 069/500 VUs, 59 complete and 0 interrupted iterations
+clips   [  11% ] 069/500 VUs  0m12.7s/2m0s  10.00 iters/s
+
+running (0m13.7s), 070/500 VUs, 68 complete and 0 interrupted iterations
+clips   [  11% ] 070/500 VUs  0m13.7s/2m0s  10.00 iters/s
+
+running (0m14.7s), 068/500 VUs, 80 complete and 0 interrupted iterations
+clips   [  12% ] 068/500 VUs  0m14.7s/2m0s  10.00 iters/s
+
+running (0m15.7s), 068/500 VUs, 90 complete and 0 interrupted iterations
+clips   [  13% ] 068/500 VUs  0m15.7s/2m0s  10.00 iters/s
+
+running (0m16.7s), 073/500 VUs, 95 complete and 0 interrupted iterations
+clips   [  14% ] 073/500 VUs  0m16.7s/2m0s  10.00 iters/s
+
+running (0m17.7s), 071/500 VUs, 107 complete and 0 interrupted iterations
+clips   [  15% ] 071/500 VUs  0m17.7s/2m0s  10.00 iters/s
+
+running (0m18.7s), 068/500 VUs, 120 complete and 0 interrupted iterations
+clips   [  16% ] 068/500 VUs  0m18.7s/2m0s  10.00 iters/s
+
+running (0m19.7s), 070/500 VUs, 128 complete and 0 interrupted iterations
+clips   [  16% ] 070/500 VUs  0m19.7s/2m0s  10.00 iters/s
+
+running (0m20.7s), 071/500 VUs, 137 complete and 0 interrupted iterations
+clips   [  17% ] 071/500 VUs  0m20.7s/2m0s  10.00 iters/s
+
+running (0m21.7s), 069/500 VUs, 149 complete and 0 interrupted iterations
+clips   [  18% ] 069/500 VUs  0m21.7s/2m0s  10.00 iters/s
+
+running (0m22.7s), 073/500 VUs, 155 complete and 0 interrupted iterations
+clips   [  19% ] 073/500 VUs  0m22.7s/2m0s  10.00 iters/s
+
+running (0m23.7s), 078/500 VUs, 160 complete and 0 interrupted iterations
+clips   [  20% ] 078/500 VUs  0m23.7s/2m0s  10.00 iters/s
+
+running (0m24.7s), 077/500 VUs, 171 complete and 0 interrupted iterations
+clips   [  21% ] 077/500 VUs  0m24.7s/2m0s  10.00 iters/s
+time="2026-10-13T16:45:49Z" level=error msg="clip failed: stage=llm reason=pipeline_failed" source=console
+
+running (0m25.7s), 078/500 VUs, 180 complete and 0 interrupted iterations
+clips   [  21% ] 078/500 VUs  0m25.7s/2m0s  10.00 iters/s
+
+running (0m26.7s), 081/500 VUs, 187 complete and 0 interrupted iterations
+clips   [  22% ] 081/500 VUs  0m26.7s/2m0s  10.00 iters/s
+
+running (0m27.7s), 084/500 VUs, 194 complete and 0 interrupted iterations
+clips   [  23% ] 084/500 VUs  0m27.7s/2m0s  10.00 iters/s
+
+running (0m28.7s), 086/500 VUs, 202 complete and 0 interrupted iterations
+clips   [  24% ] 086/500 VUs  0m28.7s/2m0s  10.00 iters/s
+
+running (0m29.7s), 090/500 VUs, 208 complete and 0 interrupted iterations
+clips   [  25% ] 090/500 VUs  0m29.7s/2m0s  10.00 iters/s
+
+running (0m30.7s), 096/500 VUs, 212 complete and 0 interrupted iterations
+clips   [  26% ] 096/500 VUs  0m30.7s/2m0s  10.00 iters/s
+
+running (0m31.7s), 100/500 VUs, 218 complete and 0 interrupted iterations
+clips   [  26% ] 100/500 VUs  0m31.7s/2m0s  10.00 iters/s
+
+running (0m32.7s), 105/500 VUs, 223 complete and 0 interrupted iterations
+clips   [  27% ] 105/500 VUs  0m32.7s/2m0s  10.00 iters/s
+
+running (0m33.7s), 113/500 VUs, 225 complete and 0 interrupted iterations
+clips   [  28% ] 113/500 VUs  0m33.7s/2m0s  10.00 iters/s
+
+running (0m34.7s), 119/500 VUs, 229 complete and 0 interrupted iterations
+clips   [  29% ] 119/500 VUs  0m34.7s/2m0s  10.00 iters/s
+
+running (0m35.7s), 124/500 VUs, 234 complete and 0 interrupted iterations
+clips   [  30% ] 124/500 VUs  0m35.7s/2m0s  10.00 iters/s
+
+running (0m36.7s), 129/500 VUs, 239 complete and 0 interrupted iterations
+clips   [  31% ] 129/500 VUs  0m36.7s/2m0s  10.00 iters/s
+
+running (0m37.7s), 137/500 VUs, 241 complete and 0 interrupted iterations
+clips   [  31% ] 137/500 VUs  0m37.7s/2m0s  10.00 iters/s
+
+running (0m38.7s), 135/500 VUs, 253 complete and 0 interrupted iterations
+clips   [  32% ] 135/500 VUs  0m38.7s/2m0s  10.00 iters/s
+
+running (0m39.7s), 133/500 VUs, 265 complete and 0 interrupted iterations
+clips   [  33% ] 133/500 VUs  0m39.7s/2m0s  10.00 iters/s
+
+running (0m40.7s), 135/500 VUs, 273 complete and 0 interrupted iterations
+clips   [  34% ] 135/500 VUs  0m40.7s/2m0s  10.00 iters/s
+
+running (0m41.7s), 138/500 VUs, 280 complete and 0 interrupted iterations
+clips   [  35% ] 138/500 VUs  0m41.7s/2m0s  10.00 iters/s
+
+running (0m42.7s), 144/500 VUs, 284 complete and 0 interrupted iterations
+clips   [  36% ] 144/500 VUs  0m42.7s/2m0s  10.00 iters/s
+
+running (0m43.7s), 149/500 VUs, 289 complete and 0 interrupted iterations
+clips   [  36% ] 149/500 VUs  0m43.7s/2m0s  10.00 iters/s
+
+running (0m44.7s), 154/500 VUs, 294 complete and 0 interrupted iterations
+clips   [  37% ] 154/500 VUs  0m44.7s/2m0s  10.00 iters/s
+
+running (0m45.7s), 158/500 VUs, 300 complete and 0 interrupted iterations
+clips   [  38% ] 158/500 VUs  0m45.7s/2m0s  10.00 iters/s
+
+running (0m46.7s), 164/500 VUs, 304 complete and 0 interrupted iterations
+clips   [  39% ] 164/500 VUs  0m46.7s/2m0s  10.00 iters/s
+
+running (0m47.7s), 170/500 VUs, 308 complete and 0 interrupted iterations
+clips   [  40% ] 170/500 VUs  0m47.7s/2m0s  10.00 iters/s
+
+running (0m48.7s), 173/500 VUs, 315 complete and 0 interrupted iterations
+clips   [  41% ] 173/500 VUs  0m48.7s/2m0s  10.00 iters/s
+
+running (0m49.7s), 181/500 VUs, 317 complete and 0 interrupted iterations
+clips   [  41% ] 181/500 VUs  0m49.7s/2m0s  10.00 iters/s
+
+running (0m50.7s), 179/500 VUs, 329 complete and 0 interrupted iterations
+clips   [  42% ] 179/500 VUs  0m50.7s/2m0s  10.00 iters/s
+
+running (0m51.7s), 180/500 VUs, 338 complete and 0 interrupted iterations
+clips   [  43% ] 180/500 VUs  0m51.7s/2m0s  10.00 iters/s
+
+running (0m52.7s), 181/500 VUs, 347 complete and 0 interrupted iterations
+clips   [  44% ] 181/500 VUs  0m52.7s/2m0s  10.00 iters/s
+
+running (0m53.7s), 183/500 VUs, 355 complete and 0 interrupted iterations
+clips   [  45% ] 183/500 VUs  0m53.7s/2m0s  10.00 iters/s
+
+running (0m54.7s), 184/500 VUs, 364 complete and 0 interrupted iterations
+clips   [  46% ] 184/500 VUs  0m54.7s/2m0s  10.00 iters/s
+
+running (0m55.7s), 192/500 VUs, 366 complete and 0 interrupted iterations
+clips   [  46% ] 192/500 VUs  0m55.7s/2m0s  10.00 iters/s
+
+running (0m56.7s), 192/500 VUs, 376 complete and 0 interrupted iterations
+clips   [  47% ] 192/500 VUs  0m56.7s/2m0s  10.00 iters/s
+
+running (0m57.7s), 198/500 VUs, 380 complete and 0 interrupted iterations
+clips   [  48% ] 198/500 VUs  0m57.7s/2m0s  10.00 iters/s
+
+running (0m58.7s), 204/500 VUs, 384 complete and 0 interrupted iterations
+clips   [  49% ] 204/500 VUs  0m58.7s/2m0s  10.00 iters/s
+
+running (0m59.7s), 212/500 VUs, 386 complete and 0 interrupted iterations
+clips   [  50% ] 212/500 VUs  0m59.7s/2m0s  10.00 iters/s
+
+running (1m00.7s), 222/500 VUs, 386 complete and 0 interrupted iterations
+clips   [  51% ] 222/500 VUs  1m00.7s/2m0s  10.00 iters/s
+
+running (1m01.7s), 232/500 VUs, 386 complete and 0 interrupted iterations
+clips   [  51% ] 232/500 VUs  1m01.7s/2m0s  10.00 iters/s
+
+running (1m02.7s), 241/500 VUs, 387 complete and 0 interrupted iterations
+clips   [  52% ] 241/500 VUs  1m02.7s/2m0s  10.00 iters/s
+
+running (1m03.7s), 249/500 VUs, 389 complete and 0 interrupted iterations
+clips   [  53% ] 249/500 VUs  1m03.7s/2m0s  10.00 iters/s
+
+running (1m04.7s), 257/500 VUs, 391 complete and 0 interrupted iterations
+clips   [  54% ] 257/500 VUs  1m04.7s/2m0s  10.00 iters/s
+
+running (1m05.7s), 261/500 VUs, 397 complete and 0 interrupted iterations
+clips   [  55% ] 261/500 VUs  1m05.7s/2m0s  10.00 iters/s
+
+running (1m06.7s), 270/500 VUs, 398 complete and 0 interrupted iterations
+clips   [  56% ] 270/500 VUs  1m06.7s/2m0s  10.00 iters/s
+
+running (1m07.7s), 280/500 VUs, 398 complete and 0 interrupted iterations
+clips   [  56% ] 280/500 VUs  1m07.7s/2m0s  10.00 iters/s
+
+running (1m08.7s), 288/500 VUs, 400 complete and 0 interrupted iterations
+clips   [  57% ] 288/500 VUs  1m08.7s/2m0s  10.00 iters/s
+
+running (1m09.7s), 295/500 VUs, 403 complete and 0 interrupted iterations
+clips   [  58% ] 295/500 VUs  1m09.7s/2m0s  10.00 iters/s
+
+running (1m10.7s), 305/500 VUs, 403 complete and 0 interrupted iterations
+clips   [  59% ] 305/500 VUs  1m10.7s/2m0s  10.00 iters/s
+
+running (1m11.7s), 299/500 VUs, 419 complete and 0 interrupted iterations
+clips   [  60% ] 299/500 VUs  1m11.7s/2m0s  10.00 iters/s
+
+running (1m12.7s), 285/500 VUs, 443 complete and 0 interrupted iterations
+clips   [  61% ] 285/500 VUs  1m12.7s/2m0s  10.00 iters/s
+
+running (1m13.7s), 283/500 VUs, 455 complete and 0 interrupted iterations
+clips   [  61% ] 283/500 VUs  1m13.7s/2m0s  10.00 iters/s
+
+running (1m14.7s), 289/500 VUs, 459 complete and 0 interrupted iterations
+clips   [  62% ] 289/500 VUs  1m14.7s/2m0s  10.00 iters/s
+
+running (1m15.7s), 298/500 VUs, 460 complete and 0 interrupted iterations
+clips   [  63% ] 298/500 VUs  1m15.7s/2m0s  10.00 iters/s
+
+running (1m16.7s), 302/500 VUs, 466 complete and 0 interrupted iterations
+clips   [  64% ] 302/500 VUs  1m16.7s/2m0s  10.00 iters/s
+
+running (1m17.7s), 308/500 VUs, 470 complete and 0 interrupted iterations
+clips   [  65% ] 308/500 VUs  1m17.7s/2m0s  10.00 iters/s
+
+running (1m18.7s), 314/500 VUs, 474 complete and 0 interrupted iterations
+clips   [  66% ] 314/500 VUs  1m18.7s/2m0s  10.00 iters/s
+
+running (1m19.7s), 318/500 VUs, 480 complete and 0 interrupted iterations
+clips   [  66% ] 318/500 VUs  1m19.7s/2m0s  10.00 iters/s
+
+running (1m20.7s), 327/500 VUs, 481 complete and 0 interrupted iterations
+clips   [  67% ] 327/500 VUs  1m20.7s/2m0s  10.00 iters/s
+
+running (1m21.7s), 335/500 VUs, 483 complete and 0 interrupted iterations
+clips   [  68% ] 335/500 VUs  1m21.7s/2m0s  10.00 iters/s
+
+running (1m22.7s), 344/500 VUs, 484 complete and 0 interrupted iterations
+clips   [  69% ] 344/500 VUs  1m22.7s/2m0s  10.00 iters/s
+
+running (1m23.7s), 353/500 VUs, 485 complete and 0 interrupted iterations
+clips   [  70% ] 353/500 VUs  1m23.7s/2m0s  10.00 iters/s
+
+running (1m24.7s), 358/500 VUs, 490 complete and 0 interrupted iterations
+clips   [  71% ] 358/500 VUs  1m24.7s/2m0s  10.00 iters/s
+
+running (1m25.7s), 359/500 VUs, 499 complete and 0 interrupted iterations
+clips   [  71% ] 359/500 VUs  1m25.7s/2m0s  10.00 iters/s
+
+running (1m26.7s), 351/500 VUs, 517 complete and 0 interrupted iterations
+clips   [  72% ] 351/500 VUs  1m26.7s/2m0s  10.00 iters/s
+
+running (1m27.7s), 347/500 VUs, 531 complete and 0 interrupted iterations
+clips   [  73% ] 347/500 VUs  1m27.7s/2m0s  10.00 iters/s
+
+running (1m28.7s), 355/500 VUs, 533 complete and 0 interrupted iterations
+clips   [  74% ] 355/500 VUs  1m28.7s/2m0s  10.00 iters/s
+
+running (1m29.7s), 360/500 VUs, 538 complete and 0 interrupted iterations
+clips   [  75% ] 360/500 VUs  1m29.7s/2m0s  10.00 iters/s
+
+running (1m30.7s), 366/500 VUs, 542 complete and 0 interrupted iterations
+clips   [  76% ] 366/500 VUs  1m30.7s/2m0s  10.00 iters/s
+
+running (1m31.7s), 373/500 VUs, 545 complete and 0 interrupted iterations
+clips   [  76% ] 373/500 VUs  1m31.7s/2m0s  10.00 iters/s
+
+running (1m32.7s), 377/500 VUs, 551 complete and 0 interrupted iterations
+clips   [  77% ] 377/500 VUs  1m32.7s/2m0s  10.00 iters/s
+
+running (1m33.7s), 375/500 VUs, 563 complete and 0 interrupted iterations
+clips   [  78% ] 375/500 VUs  1m33.7s/2m0s  10.00 iters/s
+
+running (1m34.7s), 372/500 VUs, 576 complete and 0 interrupted iterations
+clips   [  79% ] 372/500 VUs  1m34.7s/2m0s  10.00 iters/s
+
+running (1m35.7s), 366/500 VUs, 592 complete and 0 interrupted iterations
+clips   [  80% ] 366/500 VUs  1m35.7s/2m0s  10.00 iters/s
+
+running (1m36.7s), 363/500 VUs, 605 complete and 0 interrupted iterations
+clips   [  81% ] 363/500 VUs  1m36.7s/2m0s  10.00 iters/s
+
+running (1m37.7s), 369/500 VUs, 609 complete and 0 interrupted iterations
+clips   [  81% ] 369/500 VUs  1m37.7s/2m0s  10.00 iters/s
+
+running (1m38.7s), 373/500 VUs, 615 complete and 0 interrupted iterations
+clips   [  82% ] 373/500 VUs  1m38.7s/2m0s  10.00 iters/s
+
+running (1m39.7s), 376/500 VUs, 622 complete and 0 interrupted iterations
+clips   [  83% ] 376/500 VUs  1m39.7s/2m0s  10.00 iters/s
+
+running (1m40.7s), 378/500 VUs, 630 complete and 0 interrupted iterations
+clips   [  84% ] 378/500 VUs  1m40.7s/2m0s  10.00 iters/s
+
+running (1m41.7s), 379/500 VUs, 639 complete and 0 interrupted iterations
+clips   [  85% ] 379/500 VUs  1m41.7s/2m0s  10.00 iters/s
+
+running (1m42.7s), 379/500 VUs, 649 complete and 0 interrupted iterations
+clips   [  86% ] 379/500 VUs  1m42.7s/2m0s  10.00 iters/s
+
+running (1m43.7s), 384/500 VUs, 654 complete and 0 interrupted iterations
+clips   [  86% ] 384/500 VUs  1m43.7s/2m0s  10.00 iters/s
+
+running (1m44.7s), 387/500 VUs, 661 complete and 0 interrupted iterations
+clips   [  87% ] 387/500 VUs  1m44.7s/2m0s  10.00 iters/s
+
+running (1m45.7s), 387/500 VUs, 671 complete and 0 interrupted iterations
+clips   [  88% ] 387/500 VUs  1m45.7s/2m0s  10.00 iters/s
+
+running (1m46.7s), 388/500 VUs, 680 complete and 0 interrupted iterations
+clips   [  89% ] 388/500 VUs  1m46.7s/2m0s  10.00 iters/s
+
+running (1m47.7s), 392/500 VUs, 686 complete and 0 interrupted iterations
+clips   [  90% ] 392/500 VUs  1m47.7s/2m0s  10.00 iters/s
+
+running (1m48.7s), 398/500 VUs, 690 complete and 0 interrupted iterations
+clips   [  91% ] 398/500 VUs  1m48.7s/2m0s  10.00 iters/s
+
+running (1m49.7s), 402/500 VUs, 696 complete and 0 interrupted iterations
+clips   [  91% ] 402/500 VUs  1m49.7s/2m0s  10.00 iters/s
+
+running (1m50.7s), 398/500 VUs, 710 complete and 0 interrupted iterations
+clips   [  92% ] 398/500 VUs  1m50.7s/2m0s  10.00 iters/s
+
+running (1m51.7s), 407/500 VUs, 711 complete and 0 interrupted iterations
+clips   [  93% ] 407/500 VUs  1m51.7s/2m0s  10.00 iters/s
+
+running (1m52.7s), 406/500 VUs, 722 complete and 0 interrupted iterations
+clips   [  94% ] 406/500 VUs  1m52.7s/2m0s  10.00 iters/s
+time="2026-10-13T16:47:17Z" level=error msg="clip failed: stage=tts reason=timeout" source=console
+
+running (1m53.7s), 408/500 VUs, 730 complete and 0 interrupted iterations
+clips   [  95% ] 408/500 VUs  1m53.7s/2m0s  10.00 iters/s
+
+running (1m54.7s), 416/500 VUs, 732 complete and 0 interrupted iterations
+clips   [  96% ] 416/500 VUs  1m54.7s/2m0s  10.00 iters/s
+
+running (1m55.7s), 421/500 VUs, 737 complete and 0 interrupted iterations
+clips   [  96% ] 421/500 VUs  1m55.7s/2m0s  10.00 iters/s
+
+running (1m56.7s), 423/500 VUs, 745 complete and 0 interrupted iterations
+clips   [  97% ] 423/500 VUs  1m56.7s/2m0s  10.00 iters/s
+
+running (1m57.7s), 430/500 VUs, 748 complete and 0 interrupted iterations
+clips   [  98% ] 430/500 VUs  1m57.7s/2m0s  10.00 iters/s
+
+running (1m58.7s), 436/500 VUs, 752 complete and 0 interrupted iterations
+clips   [  99% ] 436/500 VUs  1m58.7s/2m0s  10.00 iters/s
+
+running (1m59.7s), 441/500 VUs, 757 complete and 0 interrupted iterations
+clips   [ 100% ] 441/500 VUs  1m59.7s/2m0s  10.00 iters/s
+
+running (2m00.7s), 441/500 VUs, 759 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m01.7s), 438/500 VUs, 762 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m02.7s), 422/500 VUs, 778 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m03.7s), 410/500 VUs, 790 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m04.7s), 407/500 VUs, 793 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m05.7s), 406/500 VUs, 794 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m06.7s), 399/500 VUs, 801 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m07.7s), 392/500 VUs, 808 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m08.7s), 382/500 VUs, 818 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m09.7s), 373/500 VUs, 827 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m10.7s), 350/500 VUs, 850 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:34Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:34Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m11.7s), 330/500 VUs, 870 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:35Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:35Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m12.7s), 307/500 VUs, 893 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:36Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:36Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m13.7s), 290/500 VUs, 910 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:37Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:37Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m14.7s), 265/500 VUs, 935 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:47:38Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:38Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+time="2026-10-13T16:47:39Z" level=warning msg="Request Failed" error="Post \"http://109.71.241.224:8090/v1/clips\": request timeout"
+time="2026-10-13T16:47:39Z" level=error msg="clip failed: stage=client reason=post_http_0" source=console
+
+running (2m15.7s), 259/500 VUs, 941 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m16.7s), 243/500 VUs, 957 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m17.7s), 233/500 VUs, 967 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m18.7s), 230/500 VUs, 970 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m19.7s), 225/500 VUs, 975 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m20.7s), 218/500 VUs, 982 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m21.7s), 209/500 VUs, 991 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m22.7s), 208/500 VUs, 992 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m23.7s), 207/500 VUs, 993 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m24.7s), 205/500 VUs, 995 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m25.7s), 202/500 VUs, 998 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m26.7s), 196/500 VUs, 1004 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m27.7s), 177/500 VUs, 1023 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m28.7s), 170/500 VUs, 1030 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m29.7s), 168/500 VUs, 1032 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m30.7s), 162/500 VUs, 1038 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m31.7s), 156/500 VUs, 1044 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m32.7s), 139/500 VUs, 1061 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m33.7s), 126/500 VUs, 1074 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m34.7s), 105/500 VUs, 1095 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m35.7s), 096/500 VUs, 1104 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m36.7s), 088/500 VUs, 1112 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m37.7s), 070/500 VUs, 1130 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m38.7s), 041/500 VUs, 1159 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m39.7s), 008/500 VUs, 1192 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+running (2m40.7s), 001/500 VUs, 1199 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 443/500 VUs  2m0s  10.00 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✗ 'count==0' count=52
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1200   7.44115/s
+    checks_succeeded...: 95.83% 1150 out of 1200
+    checks_failed......: 4.16%  50 out of 1200
+
+    ✗ clip accepted
+      ↳  95% — ✓ 1150 / ✗ 50
+
+    CUSTOM
+    clip_accepted..................: 1150   7.131103/s
+    clip_completed.................: 1148   7.118701/s
+    clip_e2e.......................: avg=31.34s   med=35.52s   p(95)=51.84s   p(99)=56.21s max=1m2s   count=1150 
+    clip_failed....................: 52     0.32245/s
+
+    HTTP
+    http_req_duration..............: avg=548.51ms med=375.02ms p(95)=813.42ms p(99)=8.09s  max=15s    count=25847
+      { expected_response:true }...: avg=520.5ms  med=374.34ms p(95)=801ms    p(99)=7.64s  max=14.45s count=25797
+    http_req_failed................: 0.19%  50 out of 25847
+    http_reqs......................: 25847  160.276179/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=30.99s   med=34.19s   p(95)=52.16s   p(99)=56.96s max=1m3s   count=1200 
+    iterations.....................: 1200   7.44115/s
+    vus............................: 1      min=1           max=441
+    vus_max........................: 500    min=500         max=500
+
+    NETWORK
+    data_received..................: 5.6 MB 35 kB/s
+    data_sent......................: 22 MB  138 kB/s
+
+
+
+
+running (2m41.3s), 000/500 VUs, 1200 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 000/500 VUs  2m0s  10.00 iters/s
+time="2026-10-13T16:48:05Z" level=error msg="thresholds on metrics 'clip_failed' have been crossed"

@@ -1,0 +1,215 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: load/real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 125 max VUs, 1m45s max duration (incl. graceful stop):
+              * clips: 5.00 iterations/s for 30s (maxVUs: 125, gracefulStop: 1m15s)
+
+
+running (0m01.0s), 005/125 VUs, 0 complete and 0 interrupted iterations
+clips   [   3% ] 005/125 VUs  01.0s/30s  5.00 iters/s
+
+running (0m02.0s), 010/125 VUs, 0 complete and 0 interrupted iterations
+clips   [   7% ] 010/125 VUs  02.0s/30s  5.00 iters/s
+
+running (0m03.0s), 015/125 VUs, 0 complete and 0 interrupted iterations
+clips   [  10% ] 015/125 VUs  03.0s/30s  5.00 iters/s
+
+running (0m04.0s), 020/125 VUs, 0 complete and 0 interrupted iterations
+clips   [  13% ] 020/125 VUs  04.0s/30s  5.00 iters/s
+
+running (0m05.0s), 025/125 VUs, 0 complete and 0 interrupted iterations
+clips   [  17% ] 025/125 VUs  05.0s/30s  5.00 iters/s
+
+running (0m06.0s), 030/125 VUs, 0 complete and 0 interrupted iterations
+clips   [  20% ] 030/125 VUs  06.0s/30s  5.00 iters/s
+
+running (0m07.0s), 032/125 VUs, 3 complete and 0 interrupted iterations
+clips   [  23% ] 032/125 VUs  07.0s/30s  5.00 iters/s
+
+running (0m08.0s), 036/125 VUs, 4 complete and 0 interrupted iterations
+clips   [  27% ] 036/125 VUs  08.0s/30s  5.00 iters/s
+
+running (0m09.0s), 039/125 VUs, 6 complete and 0 interrupted iterations
+clips   [  30% ] 039/125 VUs  09.0s/30s  5.00 iters/s
+
+running (0m10.0s), 039/125 VUs, 11 complete and 0 interrupted iterations
+clips   [  33% ] 039/125 VUs  10.0s/30s  5.00 iters/s
+
+running (0m11.0s), 044/125 VUs, 11 complete and 0 interrupted iterations
+clips   [  37% ] 044/125 VUs  11.0s/30s  5.00 iters/s
+
+running (0m12.0s), 045/125 VUs, 15 complete and 0 interrupted iterations
+clips   [  40% ] 045/125 VUs  12.0s/30s  5.00 iters/s
+
+running (0m13.0s), 044/125 VUs, 21 complete and 0 interrupted iterations
+clips   [  43% ] 044/125 VUs  13.0s/30s  5.00 iters/s
+
+running (0m14.0s), 048/125 VUs, 22 complete and 0 interrupted iterations
+clips   [  47% ] 048/125 VUs  14.0s/30s  5.00 iters/s
+
+running (0m15.0s), 050/125 VUs, 25 complete and 0 interrupted iterations
+clips   [  50% ] 050/125 VUs  15.0s/30s  5.00 iters/s
+
+running (0m16.0s), 050/125 VUs, 30 complete and 0 interrupted iterations
+clips   [  53% ] 050/125 VUs  16.0s/30s  5.00 iters/s
+
+running (0m17.0s), 054/125 VUs, 31 complete and 0 interrupted iterations
+clips   [  57% ] 054/125 VUs  17.0s/30s  5.00 iters/s
+
+running (0m18.0s), 053/125 VUs, 37 complete and 0 interrupted iterations
+clips   [  60% ] 053/125 VUs  18.0s/30s  5.00 iters/s
+
+running (0m19.0s), 058/125 VUs, 37 complete and 0 interrupted iterations
+clips   [  63% ] 058/125 VUs  19.0s/30s  5.00 iters/s
+
+running (0m20.0s), 062/125 VUs, 38 complete and 0 interrupted iterations
+clips   [  67% ] 062/125 VUs  20.0s/30s  5.00 iters/s
+
+running (0m21.0s), 065/125 VUs, 40 complete and 0 interrupted iterations
+clips   [  70% ] 065/125 VUs  21.0s/30s  5.00 iters/s
+
+running (0m22.0s), 070/125 VUs, 40 complete and 0 interrupted iterations
+clips   [  73% ] 070/125 VUs  22.0s/30s  5.00 iters/s
+
+running (0m23.0s), 075/125 VUs, 40 complete and 0 interrupted iterations
+clips   [  77% ] 075/125 VUs  23.0s/30s  5.00 iters/s
+
+running (0m24.0s), 074/125 VUs, 46 complete and 0 interrupted iterations
+clips   [  80% ] 074/125 VUs  24.0s/30s  5.00 iters/s
+
+running (0m25.0s), 079/125 VUs, 46 complete and 0 interrupted iterations
+clips   [  83% ] 079/125 VUs  25.0s/30s  5.00 iters/s
+
+running (0m26.0s), 084/125 VUs, 46 complete and 0 interrupted iterations
+clips   [  87% ] 084/125 VUs  26.0s/30s  5.00 iters/s
+
+running (0m27.0s), 087/125 VUs, 48 complete and 0 interrupted iterations
+clips   [  90% ] 087/125 VUs  27.0s/30s  5.00 iters/s
+
+running (0m28.0s), 092/125 VUs, 48 complete and 0 interrupted iterations
+clips   [  93% ] 092/125 VUs  28.0s/30s  5.00 iters/s
+
+running (0m29.0s), 093/125 VUs, 52 complete and 0 interrupted iterations
+clips   [  97% ] 093/125 VUs  29.0s/30s  5.00 iters/s
+
+running (0m30.0s), 097/125 VUs, 53 complete and 0 interrupted iterations
+clips   [ 100% ] 097/125 VUs  30.0s/30s  5.00 iters/s
+
+running (0m31.0s), 092/125 VUs, 59 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m32.0s), 086/125 VUs, 65 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m33.0s), 080/125 VUs, 71 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m34.0s), 080/125 VUs, 71 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m35.0s), 073/125 VUs, 78 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m36.0s), 064/125 VUs, 87 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m37.0s), 063/125 VUs, 88 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m38.0s), 061/125 VUs, 90 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m39.0s), 056/125 VUs, 95 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m40.0s), 055/125 VUs, 96 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m41.0s), 048/125 VUs, 103 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m42.0s), 047/125 VUs, 104 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m43.0s), 046/125 VUs, 105 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m44.0s), 045/125 VUs, 106 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m45.0s), 040/125 VUs, 111 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m46.0s), 036/125 VUs, 115 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m47.0s), 036/125 VUs, 115 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m48.0s), 031/125 VUs, 120 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m49.0s), 023/125 VUs, 128 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m50.0s), 015/125 VUs, 136 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+running (0m51.0s), 011/125 VUs, 140 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 098/125 VUs  30s  5.00 iters/s
+
+
+  █ THRESHOLDS 
+
+    clip_failed
+    ✓ 'count==0' count=0
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 151     2.912189/s
+    checks_succeeded...: 100.00% 151 out of 151
+    checks_failed......: 0.00%   0 out of 151
+
+    ✓ clip accepted
+
+    CUSTOM
+    clip_accepted..................: 151    2.912189/s
+    clip_completed.................: 151    2.912189/s
+    clip_e2e.......................: avg=16.75s   med=17.91s   p(95)=24.39s p(99)=27.11s max=28.01s count=151 
+    clip_failed....................: 0      0/s
+
+    HTTP
+    http_req_duration..............: avg=870.26ms med=646.01ms p(95)=2.22s  p(99)=5.26s  max=8.32s  count=2112
+      { expected_response:true }...: avg=870.26ms med=646.01ms p(95)=2.22s  p(99)=5.26s  max=8.32s  count=2112
+    http_req_failed................: 0.00%  0 out of 2112
+    http_reqs......................: 2112   40.732077/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=17.76s   med=18.83s   p(95)=27.11s p(99)=28.64s max=29.4s  count=151 
+    iterations.....................: 151    2.912189/s
+    vus............................: 11     min=5         max=97 
+    vus_max........................: 125    min=125       max=125
+
+    NETWORK
+    data_received..................: 501 kB 9.7 kB/s
+    data_sent......................: 2.2 MB 43 kB/s
+
+
+
+
+running (0m51.9s), 000/125 VUs, 151 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 000/125 VUs  30s  5.00 iters/s

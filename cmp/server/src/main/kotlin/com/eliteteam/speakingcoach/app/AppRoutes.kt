@@ -161,7 +161,7 @@ internal fun Route.installAppRoutes(app: Application, api: AppApi) {
                 }
                 app.launch {
                     try {
-                        val review = api.ai.review(turns)
+                        val review = api.ai.review(turns, session.id, session.platform)
                         api.store.saveReview(
                             session.id,
                             reviewJson.encodeToString(InternalReviewResponse.serializer(), review),

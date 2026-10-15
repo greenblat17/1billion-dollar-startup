@@ -32,6 +32,8 @@ Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio
 
 `status`: `pending` | `ok` | `error`.
 
+The CMP server polls a pending job once every 1.5 seconds. The AI job and HTTP response formats are unchanged.
+
 On `ok`, Kotlin reads `result.corrections` (falls back to `result.notes` when `corrections` is empty or absent), `result.transcript`, fallback top-level `transcript`. Extra fields `replyText`, `timingsMs` are ignored by Ktor (`ignoreUnknownKeys`).
 
 `corrections` is the typed list (`kind`: `grammar` | `word` | `natural`, optional `explanation`, max 3, sorted by that priority). `explanation` is a short Russian sentence for the Telegram card; old records and clients can omit it. `notes` is the same list as `wrong|||better` strings, kept so an older Ktor still works when `ai-server` is redeployed first. Either deploy order is safe.
@@ -63,7 +65,7 @@ For onboarding voice turns, correction generation starts alongside the next-ques
 
 ## `GET /v1/clips/{jobId}/audio` → 200 `audio/ogg` or `audio/mpeg`, or 404
 
-Ktor uses `reply.ogg` / `greeting.ogg` for OGG and `reply.mp3` / `greeting.mp3` for MP3 when calling Telegram `sendVoice`. Unsupported media types fail instead of being sent with a misleading extension. Audio bytes and `Content-Type` must agree. The OpenRouter TTS path produces OGG; direct Deepgram can produce OGG for the first rollout phase or pass MP3 through without ffmpeg. Deploy Ktor MP3 support before enabling MP3 output on AI.
+Ktor uses `reply.ogg` / `greeting.ogg` for OGG and `reply.mp3` / `greeting.mp3` for MP3 when calling Telegram `sendVoice`. Unsupported media types fail instead of being sent with a misleading extension. Audio bytes and `Content-Type` must agree. OpenRouter TTS passes through MP3 when `TTS_RESPONSE_FORMAT=mp3`, avoiding ffmpeg; other configured formats still produce OGG. Direct Deepgram can produce OGG or pass MP3 through without ffmpeg. Ktor MP3 support must be deployed before enabling MP3 output on AI.
 
 ## Session ids
 

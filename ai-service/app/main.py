@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from openai import AsyncOpenAI
 from redis.asyncio import Redis
@@ -23,10 +23,16 @@ from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
+from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
 from app.llm import OpenAiChatModel
+from app.logging_setup import configure_process_logging
+from app.provider_call_log import configure_user_id_hash_key
 from app.metrics import MetricsStore, build_metrics_store
-from app.metrics_v2 import build_metrics_v2
-from app.operational_metrics import STAGE_METRICS
+from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
+from app.operational_metrics import (
+    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, STAGE_METRICS, VOICE_MODEL_METRICS,
+    VoiceModelUsage, bind_voice_usage, reset_voice_usage,
+)
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import OnboardingModel
 from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_job_timings
@@ -38,6 +44,7 @@ from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
+from app.voice_cost import VoiceCostLedger, bind_voice_cost, reset_voice_cost
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +74,8 @@ def create_app(
     settings = settings or Settings.from_env()
     if not settings.ai_internal_token:
         raise RuntimeError("AI_INTERNAL_TOKEN is required")
-    logging.basicConfig(level=settings.log_level)
+    configure_process_logging(settings.log_level, settings.log_file)
+    configure_user_id_hash_key(settings.ai_internal_token)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
     onboarding = OnboardingService(
@@ -95,6 +103,8 @@ def create_app(
     greeting_lock = asyncio.Lock()
     campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
     audit_artifacts = AuditArtifacts(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    voice_cost = VoiceCostLedger(Redis.from_url(settings.redis_url, decode_responses=True),
+                                 settings.openai_base_url, settings.openai_api_key) if settings.redis_url else None
     tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
@@ -114,12 +124,16 @@ def create_app(
                     logger.exception("raw conversation retention sweep failed")
                 await asyncio.sleep(60 * 60)
         retention_task = asyncio.create_task(prune_raw_content())
+        cost_task = asyncio.create_task(voice_cost.run()) if voice_cost is not None else None
         try:
             yield
         finally:
             intro_warmup.cancel()
             retention_task.cancel()
-            await asyncio.gather(intro_warmup, retention_task, return_exceptions=True)
+            if cost_task is not None:
+                cost_task.cancel()
+            await asyncio.gather(intro_warmup, retention_task, *( [cost_task] if cost_task else [] ),
+                                 return_exceptions=True)
         await onboarding.store.aclose()
         if owns_calls:
             await calls.aclose()
@@ -129,6 +143,8 @@ def create_app(
         if campaign_redis is not None:
             await campaign_redis.aclose()
         await audit_artifacts.aclose()
+        if voice_cost is not None:
+            await voice_cost.aclose()
         await first_call_feedback.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
@@ -199,7 +215,25 @@ def create_app(
             v2_snapshot = await v2.snapshot()
             v2_snapshot["day"] = payload.get("day", "")
             body = v2.prometheus(v2_snapshot)
-        return Response(content=body + STAGE_METRICS.prometheus(), media_type="text/plain; version=0.0.4")
+        return Response(
+            content=body + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
+            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus(),
+            media_type="text/plain; version=0.0.4",
+        )
+
+    @app.get("/internal/voice-cost/events")
+    async def voice_cost_events(limit: int = Query(100, ge=1, le=100)) -> dict[str, Any]:
+        return {"events": await voice_cost.batch(limit) if voice_cost is not None else []}
+
+    @app.post("/internal/voice-cost/ack")
+    async def voice_cost_ack(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        receipts = payload.get("receipts")
+        if not isinstance(receipts, list) or len(receipts) > 100:
+            raise HTTPException(status_code=400, detail="invalid receipts")
+        if voice_cost is not None:
+            await voice_cost.acknowledge(receipts)
+        return {"ok": True}
 
     @app.post("/internal/metrics/action")
     async def metrics_action(request: Request) -> dict[str, bool]:
@@ -226,6 +260,18 @@ def create_app(
         if to_day < from_day or to_day > today or (to_day - from_day).days >= 366:
             raise HTTPException(status_code=400, detail="LLM period must be 1-366 days ending no later than today")
         return await clip_pipeline.metrics.llm_range(from_day, to_day)
+
+    @app.get("/internal/metrics/overview")
+    async def metrics_overview(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 30:
+            raise HTTPException(status_code=400, detail="Overview period must be 1-30 days ending no later than today")
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is None:
+            raise HTTPException(status_code=503, detail="Metrics unavailable")
+        return await v2.overview(from_day.isoformat(), to_day.isoformat())
 
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
@@ -533,6 +579,7 @@ def create_app(
         attemptId: str | None = Form(default=None),
         receivedAtEpoch: float | None = Form(default=None),
         durationSeconds: float = Form(default=0),
+        x_speaky_load_test: str | None = Header(default=None),
     ) -> dict[str, str]:
         if not await sessions.exists(sessionId):
             raise HTTPException(status_code=404, detail="unknown session")
@@ -554,14 +601,15 @@ def create_app(
         filename = audio.filename or "voice.ogg"
         task = asyncio.create_task(
             _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
-                     onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch),
+                     onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch,
+                     load_test_requested(x_speaky_load_test), voice_cost),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
         return {"jobId": job.job_id}
 
     @app.get("/v1/clips/{job_id}")
-    def get_clip(job_id: str) -> JSONResponse:
+    async def get_clip(job_id: str) -> JSONResponse:
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="unknown job")
@@ -577,7 +625,7 @@ def create_app(
         return await audit_artifacts.get(normalized)
 
     @app.get("/v1/clips/{job_id}/audio")
-    def get_audio(job_id: str) -> Response:
+    async def get_audio(job_id: str) -> Response:
         job = jobs.get(job_id)
         if job is None or job.status != "ok" or job.reply_audio is None:
             return Response(status_code=404)
@@ -621,7 +669,11 @@ def create_app(
             for item in turns_raw
             if isinstance(item, dict)
         ]
-        return await session_reviewer.review(turns)
+        bound = bind_metrics(str(payload.get("sessionId") or ""), str(payload.get("platform") or ""))
+        try:
+            return await session_reviewer.review(turns)
+        finally:
+            reset_metrics(bound)
 
     return app
 
@@ -683,7 +735,10 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         default_speed=settings.tts_speed,
     )
     return ClipPipeline(
-        stt=GroqSpeechToText(groq, settings.stt_model, settings.ffmpeg_bin),
+        stt=GroqSpeechToText(
+            groq, settings.stt_model, settings.ffmpeg_bin,
+            requires_wav=settings.stt_model.startswith("assemblyai/"),
+        ),
         llm=model,
         tts=tts,
         speech=speech,
@@ -769,8 +824,14 @@ async def _run_job(
     duration: float = 0.0,
     audit_artifacts: AuditArtifacts | None = None,
     received_at_epoch: float | None = None,
+    load_test: bool = False,
+    voice_cost: VoiceCostLedger | None = None,
 ) -> None:
     started = time.perf_counter()
+    load_test_token = bind_load_test(load_test)
+    voice_usage = VoiceModelUsage() if job.session_id.startswith("tg-") and not load_test else None
+    voice_usage_token = bind_voice_usage(voice_usage)
+    voice_cost_token = bind_voice_cost(voice_cost, job.attempt_id if voice_usage is not None else None)
     provider_metrics_token = bind_provider_metrics(pipeline.metrics)
     job_timings: dict[str, int] = {}
     timings_token = bind_job_timings(job_timings)
@@ -779,9 +840,10 @@ async def _run_job(
             job.transcript = value
         elif field == "reply":
             job.reply_text = value
-        if job.attempt_id and audit_artifacts is not None:
-            await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
-    audit_token = bind_writer(audit_stage if job.attempt_id else None)
+        if load_test_active() or not job.attempt_id or audit_artifacts is None:
+            return
+        await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
+    audit_token = bind_writer(None if load_test else audit_stage if job.attempt_id else None)
     receipt_token = bind_receipt_time(received_at_epoch)
     stage = "onboarding" if onboarding is not None and run_id else "stt"
 
@@ -799,6 +861,8 @@ async def _run_job(
             await audit_stage("transcript", result.transcript)
         if result.reply_text:
             await audit_stage("reply", result.reply_text)
+        if voice_usage is not None:
+            job.voice_call_counts = voice_usage.attempts.copy()
         _complete_job(job, result)
         await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
         logger.info(
@@ -817,10 +881,24 @@ async def _run_job(
         await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id,
                                   job_id=job.job_id, attempt_id=job.attempt_id, reason=reason)
     finally:
+        if voice_usage is not None:
+            VOICE_MODEL_METRICS.record(voice_usage)
+            v2 = getattr(pipeline, "_v2", None)
+            if v2 is not None:
+                try:
+                    await v2.record_voice_llm_usage(
+                        job.session_id, voice_usage.attempts["llm"], voice_usage.priced["llm"],
+                        voice_usage.cost_micro["llm"], now=received_at_epoch,
+                    )
+                except Exception:
+                    logger.exception("failed to record voice LLM cost")
+        reset_voice_usage(voice_usage_token)
+        reset_voice_cost(voice_cost_token)
         reset_writer(audit_token)
         reset_receipt_time(receipt_token)
         reset_job_timings(timings_token)
         reset_provider_metrics(provider_metrics_token)
+        reset_load_test(load_test_token)
 
 
 async def _record_clip_result(

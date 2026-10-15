@@ -1,0 +1,848 @@
+
+         /\      Grafana   /‾‾/
+    /\  /  \     |\  __   /  /
+   /  \/    \    | |/ /  /   ‾‾\
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/
+
+
+     execution: local
+        script: load/real-clips.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 500 max VUs, 2m15s max duration (incl. graceful stop):
+              * clips: 10.00 iterations/s for 1m0s (maxVUs: 500, gracefulStop: 1m15s)
+
+
+running (0m01.0s), 010/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   2% ] 010/500 VUs  0m00.9s/1m0s  10.00 iters/s
+
+running (0m02.0s), 020/500 VUs, 0 complete and 0 interrupted iterations
+clips   [   3% ] 020/500 VUs  0m02.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m03.0s), 027/500 VUs, 3 complete and 0 interrupted iterations
+clips   [   5% ] 027/500 VUs  0m02.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:44+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m04.0s), 028/500 VUs, 12 complete and 0 interrupted iterations
+clips   [   7% ] 028/500 VUs  0m03.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:45+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m05.0s), 028/500 VUs, 22 complete and 0 interrupted iterations
+clips   [   8% ] 028/500 VUs  0m05.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:46+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m06.0s), 030/500 VUs, 30 complete and 0 interrupted iterations
+clips   [  10% ] 030/500 VUs  0m05.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:47+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m07.0s), 029/500 VUs, 41 complete and 0 interrupted iterations
+clips   [  12% ] 029/500 VUs  0m06.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:48+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m08.0s), 031/500 VUs, 49 complete and 0 interrupted iterations
+clips   [  13% ] 031/500 VUs  0m08.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:49+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m09.0s), 037/500 VUs, 53 complete and 0 interrupted iterations
+clips   [  15% ] 037/500 VUs  0m08.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:50+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:51+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m10.0s), 034/500 VUs, 66 complete and 0 interrupted iterations
+clips   [  17% ] 034/500 VUs  0m10.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m11.0s), 026/500 VUs, 84 complete and 0 interrupted iterations
+clips   [  18% ] 026/500 VUs  0m10.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:52+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m12.0s), 031/500 VUs, 89 complete and 0 interrupted iterations
+clips   [  20% ] 031/500 VUs  0m12.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:53+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m13.0s), 033/500 VUs, 97 complete and 0 interrupted iterations
+clips   [  22% ] 033/500 VUs  0m13.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:54+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m14.0s), 037/500 VUs, 103 complete and 0 interrupted iterations
+clips   [  23% ] 037/500 VUs  0m14.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:55+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m15.0s), 039/500 VUs, 111 complete and 0 interrupted iterations
+clips   [  25% ] 039/500 VUs  0m15.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:56+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m16.0s), 039/500 VUs, 121 complete and 0 interrupted iterations
+clips   [  27% ] 039/500 VUs  0m16.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m17.0s), 043/500 VUs, 127 complete and 0 interrupted iterations
+clips   [  28% ] 043/500 VUs  0m17.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:58+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:36:59+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m18.0s), 038/500 VUs, 142 complete and 0 interrupted iterations
+clips   [  30% ] 038/500 VUs  0m17.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m19.0s), 043/500 VUs, 147 complete and 0 interrupted iterations
+clips   [  32% ] 043/500 VUs  0m18.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:00+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m20.0s), 030/500 VUs, 170 complete and 0 interrupted iterations
+clips   [  33% ] 030/500 VUs  0m20.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:01+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m21.0s), 028/500 VUs, 182 complete and 0 interrupted iterations
+clips   [  35% ] 028/500 VUs  0m21.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:02+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m22.0s), 028/500 VUs, 192 complete and 0 interrupted iterations
+clips   [  37% ] 028/500 VUs  0m22.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:03+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m23.0s), 033/500 VUs, 197 complete and 0 interrupted iterations
+clips   [  38% ] 033/500 VUs  0m22.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:04+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m24.0s), 028/500 VUs, 212 complete and 0 interrupted iterations
+clips   [  40% ] 028/500 VUs  0m24.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:05+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:06+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m25.0s), 027/500 VUs, 223 complete and 0 interrupted iterations
+clips   [  42% ] 027/500 VUs  0m25.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:06+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m26.0s), 036/500 VUs, 224 complete and 0 interrupted iterations
+clips   [  43% ] 036/500 VUs  0m26.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:07+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m27.0s), 031/500 VUs, 239 complete and 0 interrupted iterations
+clips   [  45% ] 031/500 VUs  0m26.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:08+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m28.0s), 040/500 VUs, 240 complete and 0 interrupted iterations
+clips   [  47% ] 040/500 VUs  0m28.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:09+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m29.0s), 042/500 VUs, 248 complete and 0 interrupted iterations
+clips   [  48% ] 042/500 VUs  0m28.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:10+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m30.0s), 031/500 VUs, 269 complete and 0 interrupted iterations
+clips   [  50% ] 031/500 VUs  0m29.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:11+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m31.0s), 026/500 VUs, 284 complete and 0 interrupted iterations
+clips   [  52% ] 026/500 VUs  0m31.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:12+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:13+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:13+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m32.0s), 030/500 VUs, 290 complete and 0 interrupted iterations
+clips   [  53% ] 030/500 VUs  0m32.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:13+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:13+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:13+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m33.0s), 029/500 VUs, 301 complete and 0 interrupted iterations
+clips   [  55% ] 029/500 VUs  0m33.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:14+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m34.0s), 030/500 VUs, 310 complete and 0 interrupted iterations
+clips   [  57% ] 030/500 VUs  0m33.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:15+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m35.0s), 026/500 VUs, 324 complete and 0 interrupted iterations
+clips   [  58% ] 026/500 VUs  0m35.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:16+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m36.0s), 029/500 VUs, 331 complete and 0 interrupted iterations
+clips   [  60% ] 029/500 VUs  0m36.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:17+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m37.0s), 028/500 VUs, 342 complete and 0 interrupted iterations
+clips   [  62% ] 028/500 VUs  0m37.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:18+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m38.0s), 029/500 VUs, 351 complete and 0 interrupted iterations
+clips   [  63% ] 029/500 VUs  0m38.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:19+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:20+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:20+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:20+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m39.0s), 025/500 VUs, 365 complete and 0 interrupted iterations
+clips   [  65% ] 025/500 VUs  0m39.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:20+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:20+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m40.0s), 033/500 VUs, 367 complete and 0 interrupted iterations
+clips   [  67% ] 033/500 VUs  0m40.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:21+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m41.0s), 034/500 VUs, 376 complete and 0 interrupted iterations
+clips   [  68% ] 034/500 VUs  0m41.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:22+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m42.0s), 026/500 VUs, 394 complete and 0 interrupted iterations
+clips   [  70% ] 026/500 VUs  0m41.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:23+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m43.0s), 030/500 VUs, 400 complete and 0 interrupted iterations
+clips   [  72% ] 030/500 VUs  0m43.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:24+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:24+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:24+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m44.0s), 033/500 VUs, 407 complete and 0 interrupted iterations
+clips   [  73% ] 033/500 VUs  0m44.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:25+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:26+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m45.0s), 027/500 VUs, 423 complete and 0 interrupted iterations
+clips   [  75% ] 027/500 VUs  0m44.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:26+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:26+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:26+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:26+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:27+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m46.0s), 032/500 VUs, 428 complete and 0 interrupted iterations
+clips   [  77% ] 032/500 VUs  0m46.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m47.0s), 026/500 VUs, 444 complete and 0 interrupted iterations
+clips   [  78% ] 026/500 VUs  0m47.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:28+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:29+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m48.0s), 023/500 VUs, 457 complete and 0 interrupted iterations
+clips   [  80% ] 023/500 VUs  0m48.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m49.0s), 031/500 VUs, 459 complete and 0 interrupted iterations
+clips   [  82% ] 031/500 VUs  0m49.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:30+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m50.0s), 026/500 VUs, 474 complete and 0 interrupted iterations
+clips   [  83% ] 026/500 VUs  0m50.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:31+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m51.0s), 026/500 VUs, 484 complete and 0 interrupted iterations
+clips   [  85% ] 026/500 VUs  0m50.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:32+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m52.0s), 024/500 VUs, 496 complete and 0 interrupted iterations
+clips   [  87% ] 024/500 VUs  0m52.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:33+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m53.0s), 023/500 VUs, 507 complete and 0 interrupted iterations
+clips   [  88% ] 023/500 VUs  0m53.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:34+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m54.0s), 022/500 VUs, 518 complete and 0 interrupted iterations
+clips   [  90% ] 022/500 VUs  0m54.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:35+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:36+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m55.0s), 020/500 VUs, 530 complete and 0 interrupted iterations
+clips   [  92% ] 020/500 VUs  0m55.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:36+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:36+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:36+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:36+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m56.0s), 026/500 VUs, 534 complete and 0 interrupted iterations
+clips   [  93% ] 026/500 VUs  0m56.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m57.0s), 023/500 VUs, 547 complete and 0 interrupted iterations
+clips   [  95% ] 023/500 VUs  0m57.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:38+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:39+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:39+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m58.0s), 025/500 VUs, 555 complete and 0 interrupted iterations
+clips   [  97% ] 025/500 VUs  0m58.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:39+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:40+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:40+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:40+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (0m59.0s), 031/500 VUs, 559 complete and 0 interrupted iterations
+clips   [  98% ] 031/500 VUs  0m58.9s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (1m00.0s), 024/500 VUs, 576 complete and 0 interrupted iterations
+clips   [ 100% ] 024/500 VUs  1m00.0s/1m0s  10.00 iters/s
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:41+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (1m01.0s), 017/500 VUs, 583 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 024/500 VUs  1m0s  10.00 iters/s
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+running (1m02.0s), 015/500 VUs, 585 complete and 0 interrupted iterations
+clips ↓ [ 100% ] 024/500 VUs  1m0s  10.00 iters/s
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+time="2026-10-13T21:37:43+03:00" level=error msg="clip failed: stage=stt reason=pipeline_failed" source=console
+
+
+  █ THRESHOLDS
+
+    clip_failed
+    ✗ 'count==0' count=600
+
+    dropped_iterations
+    ✓ 'count==0' count=0
+
+
+  █ TOTAL RESULTS
+
+    checks_total.......: 600     9.613333/s
+    checks_succeeded...: 100.00% 600 out of 600
+    checks_failed......: 0.00%   0 out of 600
+
+    ✓ clip accepted
+
+    CUSTOM
+    clip_accepted..................: 600    9.613333/s
+    clip_e2e.......................: avg=2.44s   med=2.4s     p(95)=3.53s p(99)=3.99s max=4.74s count=600
+    clip_failed....................: 600    9.613333/s
+
+    HTTP
+    http_req_duration..............: avg=467.9ms med=372.18ms p(95)=1.14s p(99)=1.57s max=2.01s count=2217
+      { expected_response:true }...: avg=467.9ms med=372.18ms p(95)=1.14s p(99)=1.57s max=2.01s count=2217
+    http_req_failed................: 0.00%  0 out of 2217
+    http_reqs......................: 2217   35.521264/s
+
+    EXECUTION
+    dropped_iterations.............: 0      0/s
+    iteration_duration.............: avg=3.02s   med=2.96s    p(95)=4.26s p(99)=4.71s max=5.63s count=600
+    iterations.....................: 600    9.613333/s
+    vus............................: 15     min=10        max=43
+    vus_max........................: 500    min=500       max=500
+
+    NETWORK
+    data_received..................: 711 kB 11 kB/s
+    data_sent......................: 7.6 MB 122 kB/s
+
+
+
+
+running (1m02.4s), 000/500 VUs, 600 complete and 0 interrupted iterations
+clips ✓ [ 100% ] 000/500 VUs  1m0s  10.00 iters/s
+time="2026-10-13T21:37:44+03:00" level=error msg="thresholds on metrics 'clip_failed' have been crossed"

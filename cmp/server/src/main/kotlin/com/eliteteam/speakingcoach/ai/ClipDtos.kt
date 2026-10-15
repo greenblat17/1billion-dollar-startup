@@ -62,6 +62,7 @@ data class ClipStatusResponse(
     val transcript: String? = null,
     val replyText: String = "",
     val timingsMs: Map<String, Long> = emptyMap(),
+    val voiceCallCounts: Map<String, Int>? = null,
 )
 
 @Serializable
@@ -182,8 +183,101 @@ data class MetricsV2Snapshot(
 )
 
 @Serializable
+data class AdminModelOverview(
+    val totalChats: Long = 0,
+    val modelSince: String = "",
+    val voiceLlmSince: String = "",
+    val days: List<AdminModelDay> = emptyList(),
+    val legacyActiveChatsInPeriod: Long = 0,
+    val legacyDays: List<AdminLegacyDay> = emptyList(),
+    val redisDauDays: List<AdminRedisDauDay> = emptyList(),
+    val chatGrowthDays: List<AdminChatGrowthDay> = emptyList(),
+    val chatGrowthUnattributed: Long = 0,
+    val historySince: String = "",
+    val historyActiveChatsInPeriod: Long = 0,
+    val historyActiveSessionsInPeriod: Long = 0,
+    val historyDays: List<AdminHistoryDay> = emptyList(),
+    val retention: List<AdminRetentionDay> = emptyList(),
+    val sourceBreakdown: List<AdminSourceBreakdown> = emptyList(),
+)
+
+@Serializable
+data class AdminRetentionDay(val day: Int, val eligible: Long = 0, val returned: Long = 0)
+
+@Serializable
+data class AdminHistoryDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+    val completedTurns: Long = 0,
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val sttMs: Long = 0,
+    val ttsChars: Long = 0,
+    val newChats: Long = 0,
+    val totalChatsToDate: Long = 0,
+    val chatsWithTurnToDate: Long? = null,
+    val firstVoiceChats: Long = 0,
+    val firstVoiceChatsToDate: Long = 0,
+    val firstStarts: Long = 0,
+    val engagedChats: Long = 0,
+    val returningActiveChats: Long = 0,
+    val activeChats7d: Long? = null,
+    val activeChats30d: Long? = null,
+)
+
+@Serializable
+data class AdminSourceBreakdown(
+    val source: String,
+    val newChats: Long = 0,
+    val firstVoiceChats: Long = 0,
+)
+
+@Serializable
+data class AdminRedisDauDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+)
+
+@Serializable
+data class AdminChatGrowthDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val newChats: Long = 0,
+    val totalChatsToDate: Long = 0,
+)
+
+@Serializable
+data class AdminLegacyDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val activeChatsWithTurn: Long = 0,
+    val completedTurns: Long = 0,
+    val promptTokens: Long = 0,
+    val completionTokens: Long = 0,
+    val sttMs: Long = 0,
+    val ttsChars: Long = 0,
+    val firstVoiceChats: Long = 0,
+)
+
+@Serializable
+data class AdminModelDay(
+    val day: String,
+    val tracked: Boolean = false,
+    val llmCalls: Long = 0,
+    val sttCalls: Long = 0,
+    val ttsCalls: Long = 0,
+    val llmCostMicro: Long = 0,
+    val voiceLlmCalls: Long = 0,
+    val voiceLlmPricedCalls: Long = 0,
+    val voiceLlmCostMicro: Long = 0,
+)
+
+@Serializable
 data class TelegramJourneySnapshot(
     val since: String = "",
+    val firstVoiceSince: String = "",
     val onlyStart: Long = 0,
     val atLeast: Map<String, Long> = emptyMap(),
 )

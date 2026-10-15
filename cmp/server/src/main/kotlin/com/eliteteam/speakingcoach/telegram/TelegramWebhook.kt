@@ -45,17 +45,20 @@ internal suspend fun buildTelegramWebhookBehaviour(
     analytics: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: com.eliteteam.speakingcoach.analytics.CallEventRecorder? = null,
+    voiceCost: com.eliteteam.speakingcoach.analytics.VoiceCostStore? = null,
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
+    userIdHashKey: String = "",
 ): BehaviourContext {
-    val bot = speakingCoachTelegramBot(token, audit)
+    val bot = speakingCoachTelegramBot(token, audit, operationalMetrics, userIdHashKey)
     return bot.buildBehaviour(
         scope = scope,
         defaultExceptionsHandler = { error ->
             log.error("Telegram behaviour failed", error)
         },
     ) {
-        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents)
+        installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents,
+            voiceCost)
     }
 }
 

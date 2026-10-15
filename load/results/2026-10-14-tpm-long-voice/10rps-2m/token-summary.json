@@ -1,0 +1,34 @@
+{
+  "successful_llm_calls": 3592,
+  "failed_llm_attempts": 0,
+  "calls_without_provider_usage": 0,
+  "prompt_tokens_total": 3185313,
+  "completion_tokens_total": 357491,
+  "peak_rolling_60s_tokens": {
+    "prompt": 1659989,
+    "completion": 184840,
+    "total": 1844829,
+    "ending_at_utc": "2026-10-14T07:04:09.849000+00:00"
+  },
+  "peak_output_tokens_per_second": 3080.67,
+  "by_purpose": {
+    "notes": {
+      "calls": 1198,
+      "prompt": 2055187,
+      "completion": 19168
+    },
+    "onboarding": {
+      "calls": 1192,
+      "prompt": 258115,
+      "completion": 118371
+    },
+    "reply": {
+      "calls": 1202,
+      "prompt": 872011,
+      "completion": 219952
+    }
+  },
+  "first_llm_response_utc": "2026-10-14T07:02:17.560000+00:00",
+  "last_llm_response_utc": "2026-10-14T07:04:22.614000+00:00",
+  "method": "Token usage is attributed to the timestamp of each completed provider response. Output TPS is peak completion tokens in a rolling 60-second window divided by 60; it is aggregate system throughput, not per-request generation speed."
+}

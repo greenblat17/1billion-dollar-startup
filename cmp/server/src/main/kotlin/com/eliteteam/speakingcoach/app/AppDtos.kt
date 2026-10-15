@@ -102,6 +102,8 @@ internal data class InternalRealtimeResponse(
 @Serializable
 internal data class InternalReviewRequest(
     val turns: List<CompleteTurnDto>,
+    val sessionId: String = "",
+    val platform: String? = null,
 )
 
 @Serializable

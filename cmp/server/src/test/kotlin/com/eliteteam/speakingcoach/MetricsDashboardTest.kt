@@ -11,6 +11,10 @@ import com.eliteteam.speakingcoach.ai.RecentError
 import com.eliteteam.speakingcoach.ai.FunnelSource
 import com.eliteteam.speakingcoach.ai.MetricsChat
 import com.eliteteam.speakingcoach.ai.MetricsSnapshot
+import com.eliteteam.speakingcoach.ai.AdminModelDay
+import com.eliteteam.speakingcoach.ai.AdminModelOverview
+import com.eliteteam.speakingcoach.ai.AdminHistoryDay
+import com.eliteteam.speakingcoach.ai.AdminRetentionDay
 import com.eliteteam.speakingcoach.ai.MetricsV2Chat
 import com.eliteteam.speakingcoach.ai.MetricsV2Client
 import com.eliteteam.speakingcoach.ai.MetricsV2Snapshot
@@ -52,6 +56,7 @@ import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import java.time.Instant
+import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -154,7 +159,7 @@ class MetricsDashboardTest {
         application {
             module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(snapshot))
         }
-        val html = client.get("/admin/metrics") {
+        val html = client.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(html.contains("<h2>Исправления</h2>"))
@@ -246,7 +251,7 @@ class MetricsDashboardTest {
         assertEquals("8", llm.getValue("requests").jsonPrimitive.content)
         assertEquals("3", llm.getValue("by_purpose").jsonObject.getValue("onboarding").jsonPrimitive.content)
 
-        val mainPage = client.get("$METRICS_PATH?$selected") {
+        val mainPage = client.get("$METRICS_DETAILS_PATH?$selected") {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }.bodyAsText()
         assertTrue(mainPage.contains("2026-09-23 — 2026-09-24 включительно"))
@@ -271,6 +276,204 @@ class MetricsDashboardTest {
     }
 
     @Test
+    fun newOverviewLabelsVoiceSendersAndShowsRecordedCallsPerSender() {
+        val day = "2026-10-13"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", voiceLlmSince = "2026-10-12",
+                historySince = "2026-09-24", historyDays = listOf(AdminHistoryDay(day, tracked = true, totalChatsToDate = 197)),
+                days = listOf(AdminModelDay(day, tracked = true,
+                llmCalls = 1565, sttCalls = 573, ttsCalls = 590, voiceLlmCalls = 4,
+                voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000, llmCostMicro = 500_000))),
+            AdminUsageOverview(49, listOf(AdminUsageDay(day, activeChats = 49, voices = 584,
+                exchanges = 10, voiceErrors = 2, telegramApiCalls = 1717)), "2026-10-12"),
+        )
+        assertTrue(html.contains("<dt>Активных пользователей · отправили ГС</dt><dd>49</dd>"))
+        assertTrue(html.contains("<dt>Вызовов / активного пользователя</dt><dd>90.7</dd>"))
+        assertTrue(html.contains("<h2>Отправили голосовое · по дням</h2>"))
+        assertTrue(html.contains("конкурсный показатель не подтверждён"))
+        assertTrue(html.contains("<dd>\$0.0500</dd>"))
+        assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
+        assertTrue(html.contains("<dd>197</dd>"))
+        assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>—</dd>"))
+        assertFalse(html.contains("Loki"))
+        val costChart = html.substringAfter("<h2>Известная стоимость LLM · USD</h2>").substringBefore("</section>")
+        assertTrue(costChart.contains(">0.2</text>"))
+        assertTrue(costChart.contains("text-anchor=\"middle\">13.10</text>"))
+
+        val incomplete = adminOverviewHtml(
+            LlmRange(LocalDate.parse("2026-10-12"), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 197, modelSince = day, voiceLlmSince = day,
+                days = listOf(AdminModelDay(day, tracked = true, llmCalls = 265))),
+            AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, exchanges = 10)), day),
+        )
+        assertTrue(incomplete.contains("<dt>Вызовов / активного пользователя</dt><dd>—</dd>"))
+        assertTrue(incomplete.contains("<dt>LLM-cost / обмен</dt><dd>—</dd>"))
+
+        val quietDay = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse("2026-10-14")),
+            AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", days = listOf(
+                AdminModelDay(day, tracked = true, llmCalls = 2), AdminModelDay("2026-10-14"))),
+            AdminUsageOverview(1, listOf(AdminUsageDay(day, activeChats = 1),
+                AdminUsageDay("2026-10-14")), "2026-10-12"),
+        )
+        assertTrue(quietDay.contains("<dt>Вызовов / активного пользователя</dt><dd>2.0</dd>"))
+    }
+
+    @Test
+    fun overviewShowsRetentionStickinessAndIncomingMessagesWithCoverage() {
+        val day = "2026-10-24"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(historySince = "2026-09-24", modelSince = "2026-10-06",
+                historyDays = listOf(AdminHistoryDay(day, tracked = true, activeChatsWithTurn = 2,
+                    activeChats7d = 4, activeChats30d = 8)),
+                retention = listOf(AdminRetentionDay(1, 4, 2), AdminRetentionDay(7, 2, 1),
+                    AdminRetentionDay(30, 0, 0))),
+            AdminUsageOverview(2, listOf(AdminUsageDay(day, incomingMessages = 5, callbacks = 3)),
+                "2026-10-06"),
+        )
+        assertTrue(html.contains("<dt>Stickiness · 7 дней</dt><dd>50.0%</dd>"))
+        assertTrue(html.contains("<dt>Stickiness · 30 дней</dt><dd>25.0%</dd>"))
+        assertTrue(html.contains("<dt>Retention D1</dt><dd>50.0%</dd>"))
+        assertTrue(html.contains("<dt>Retention D30</dt><dd>—</dd>"))
+        assertTrue(html.contains("<dt>Входящих сообщений</dt><dd>5</dd>"))
+        assertTrue(html.contains("2026-10-24 · Сообщения: 5.000"))
+        assertTrue(html.indexOf("id=\"audience-heading\"") < html.indexOf("id=\"return-heading\""))
+        assertTrue(html.indexOf("id=\"return-heading\"") < html.indexOf("id=\"usage-heading\""))
+        assertTrue(html.contains("class=\"metric-lead\""))
+    }
+
+    @Test
+    fun overviewShowsAvailableLegacyRedisHistoryWithDifferentDefinitions() {
+        val day = "2026-09-24"
+        val html = adminOverviewHtml(
+            LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
+            AdminModelOverview(totalChats = 198, modelSince = "2026-10-06",
+                historySince = day, historyActiveChatsInPeriod = 2,
+                historyDays = listOf(AdminHistoryDay(
+                    day, tracked = true, activeChatsWithTurn = 2, completedTurns = 2,
+                    promptTokens = 1346, completionTokens = 76, sttMs = 17114,
+                    ttsChars = 235, firstVoiceChats = 2, firstVoiceChatsToDate = 2, chatsWithTurnToDate = 2,
+                ))),
+            AdminUsageOverview(0, listOf(AdminUsageDay(day)), "2026-10-06"),
+        )
+        assertTrue(html.contains("Аудитория и использование AI"))
+        assertTrue(html.contains("<dt>Завершили ход AI за период</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Токены LLM · вход</dt><dd>1\u202F346</dd>"))
+        assertTrue(html.contains("<dt>Токены LLM · выход</dt><dd>76</dd>"))
+        assertTrue(html.contains("<dt>Входных токенов / ход</dt><dd>673.0</dd>"))
+        assertTrue(html.contains("<dt>Выходных токенов / ход</dt><dd>38.0</dd>"))
+        assertFalse(html.contains("<dt>Токенов LLM</dt>"))
+        assertTrue(html.contains("<td>17.1</td>"))
+        assertFalse(html.contains("<dt>Голосовых</dt>"))
+        val audioChart = html.substringAfter("<h2>Аудио STT · минуты</h2>").substringBefore("</section>")
+        assertTrue(audioChart.contains(">0.1</text>"))
+    }
+
+    @Test
+    fun overviewShowsRedisAudienceGrowthAndDauAcrossOldAndNewPeriods() {
+        val from = LocalDate.parse("2026-09-24")
+        val to = LocalDate.parse("2026-10-06")
+        val html = adminOverviewHtml(
+            LlmRange(from, to),
+            AdminModelOverview(totalChats = 3, modelSince = "2026-10-06", historySince = "2026-09-24",
+                historyDays = listOf(
+                    AdminHistoryDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1, activeChatsWithTurn = 1, chatsWithTurnToDate = 1),
+                    AdminHistoryDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3, activeChatsWithTurn = 2, chatsWithTurnToDate = 2))),
+            AdminUsageOverview(0, emptyList(), "2026-10-06"),
+        )
+        assertTrue(html.contains("Рост пользователей"))
+        assertTrue(html.contains("Завершили ход AI · день и 7 дней"))
+        assertTrue(html.contains("2026-09-24 · Всего: 1.000"))
+        assertTrue(html.contains("2026-10-06 · Всего: 3.000"))
+        assertTrue(html.contains("2026-10-06 · Завершили голосовой ход AI: 2.000"))
+        assertTrue(html.contains("2026-10-06 · За день: 2.000"))
+        val growthChart = html.substringAfter("<h2>Рост пользователей</h2>").substringBefore("</section>")
+        assertTrue(growthChart.contains("class=\"axis-y\""))
+        assertTrue(growthChart.contains("class=\"axis-x\""))
+        assertTrue(growthChart.contains(">2</text>"))
+        assertTrue(growthChart.contains(">01.10</text>"))
+    }
+
+    @Test
+    fun historicalOpenRouterRatesUseMoscowDayAndIdentifyTestTraffic() {
+        val file = Files.createTempFile("openrouter-rates", ".json")
+        try {
+            Files.writeString(file, """{
+                "schema":1,"scope":"test","source":"OpenRouter Analytics API",
+                "from_utc":"2026-09-24T20:00:00Z","to_utc":"2026-09-25T20:00:00Z",
+                "models":["openai/gpt-test"],"minutes":[
+                  {"minute_utc":"2026-09-24T21:30:00Z","calls":2,"timed_calls":2,
+                   "tpm":120,"tps_milli":17500}
+                ]
+            }""".trimIndent())
+            val rates = OpenRouterHistoricalRates.load(file)
+            val range = LlmRange(LocalDate.parse("2026-09-24"), LocalDate.parse("2026-09-25"))
+            val byDay = rates.days(range)
+            assertEquals(0, byDay[0].peakTpm)
+            assertEquals(120, byDay[1].peakTpm)
+            assertEquals(17500, byDay[1].peakTpsMilli)
+            assertEquals(1380, byDay[1].coveredMinutes)
+            val html = adminOverviewHtml(range, null, null, rates)
+            assertTrue(html.contains("ТЕСТОВЫЙ аккаунт OpenRouter"))
+            assertTrue(html.contains("TPM (токенов/мин) · OpenRouter"))
+            assertTrue(html.contains("TPS (токенов/с) · OpenRouter"))
+            assertTrue(html.contains("25.09 00:30 · 120.000"))
+            assertTrue(html.contains("25.09 00:30 · 17.500"))
+            assertTrue(html.contains("2 из 2 вызовов"))
+            val currentPeriodHtml = adminOverviewHtml(
+                LlmRange(LocalDate.parse("2026-10-09"), LocalDate.parse("2026-10-15")),
+                null, null, rates,
+            )
+            assertTrue(currentPeriodHtml.contains("Архив за 2026-09-24 — 2026-09-25"))
+            assertTrue(currentPeriodHtml.contains("25.09 00:30 · 120.000"))
+            assertTrue(currentPeriodHtml.contains("25.09 00:30 · 17.500"))
+            val withAudience = adminOverviewHtml(range,
+                AdminModelOverview(totalChats = 1, historySince = "2026-09-25",
+                    historyDays = listOf(AdminHistoryDay("2026-09-25", tracked = true))),
+                null, rates)
+            assertTrue(withAudience.indexOf("Рост пользователей") < withAudience.indexOf("TPM (токенов/мин)"))
+            assertTrue(withAudience.indexOf("TPM (токенов/мин)") < withAudience.indexOf("Источники новых пользователей"))
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
+    fun historicalOpenRouterScaleFiltersBothChartsAndRecalculatesAxis() {
+        val file = Files.createTempFile("openrouter-rates-scale", ".json")
+        try {
+            Files.writeString(file, """{
+                "schema":1,"scope":"production","source":"OpenRouter Analytics API",
+                "from_utc":"2026-09-24T20:00:00Z","to_utc":"2026-09-26T20:00:00Z",
+                "models":["openai/gpt-test"],"minutes":[
+                  {"minute_utc":"2026-09-24T21:30:00Z","calls":1,"tpm":120,"tps_milli":10000},
+                  {"minute_utc":"2026-09-25T21:30:00Z","calls":1,"tpm":120000,"tps_milli":100000}
+                ]
+            }""".trimIndent())
+            val range = LlmRange(LocalDate.parse("2026-10-09"), LocalDate.parse("2026-10-15"))
+            val rates = OpenRouterHistoricalRates.load(file)
+            val day = adminOverviewHtml(range, null, null, rates, "day", "2026-09-25")
+            val dayTpm = day.substringAfter("<h2>TPM (токенов/мин) · OpenRouter</h2>").substringBefore("</section>")
+            val dayTps = day.substringAfter("<h2>TPS (токенов/с) · OpenRouter</h2>").substringBefore("</section>")
+            assertTrue(dayTpm.contains("25.09 00:30 · 120.000"))
+            assertFalse(dayTpm.contains("26.09 00:30 · 120000.000"))
+            assertTrue(dayTpm.contains(">150</text>"))
+            assertTrue(dayTps.contains("25.09 00:30 · 10.000"))
+            assertFalse(dayTps.contains("26.09 00:30 · 100.000"))
+            assertTrue(day.contains("name=\"from\" value=\"2026-10-09\""))
+            val all = adminOverviewHtml(range, null, null, rates, "all", "2026-09-25")
+            val allTpm = all.substringAfter("<h2>TPM (токенов/мин) · OpenRouter</h2>").substringBefore("</section>")
+            assertTrue(allTpm.contains("26.09 00:30 · 120000.000"))
+            assertTrue(allTpm.contains(">150k</text>"))
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
     fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
@@ -279,7 +482,7 @@ class MetricsDashboardTest {
             ))
         }
         for (path in listOf(
-            "$METRICS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
+            "$METRICS_DETAILS_PATH?llmFrom=2026-09-24&llmTo=2026-09-23",
             "$ONBOARDING_ANALYTICS_PATH?llmFrom=2026-09-23",
             "$ONBOARDING_AGENT_PATH?llmFrom=2020-01-01&llmTo=2026-10-01",
         )) {
@@ -389,7 +592,7 @@ class MetricsDashboardTest {
         val token = setCookie.substringAfter("$METRICS_COOKIE=").substringBefore(";")
         assertEquals(metricsSessionToken(PASSWORD), token)
 
-        val page = anonymous.get("/admin/metrics") {
+        val page = anonymous.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, token)
         }
         val html = page.bodyAsText()
@@ -412,7 +615,7 @@ class MetricsDashboardTest {
         application {
             module(dashboardConfig(password = PASSWORD), metricsSource = FailingMetricsSource())
         }
-        val page = client.get("/admin/metrics") {
+        val page = client.get(METRICS_DETAILS_PATH) {
             cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD))
         }
         val html = page.bodyAsText()
@@ -551,7 +754,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<a href=\"#\" id=\"history-tab\">История</a>"))
         assertTrue(html.contains("window.location.hostname + ':8443/admin/monitoring/history'"))
         assertFalse(html.contains("Отправить всем сейчас"))
-        assertTrue(html.contains("<th>Игнор подряд</th>"))
+        assertTrue(html.contains("Главные показатели"))
         assertTrue(anonymous.contains("type=\"password\""))
         assertFalse(anonymous.contains("Отправить всем сейчас"))
     }
@@ -647,7 +850,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("≥3 ГС"))
         assertTrue(html.contains("20+ ГС"))
         assertFalse(html.contains("₽ на ход"))
-        assertFalse(html.contains("₽ на DAU"))
+        assertFalse(html.contains("₽ на завершившего ход AI"))
         assertFalse(html.contains(">100<"))
         val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
         assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))

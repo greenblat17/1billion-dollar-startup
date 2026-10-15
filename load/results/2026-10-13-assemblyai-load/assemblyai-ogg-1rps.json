@@ -1,0 +1,160 @@
+{
+    "metrics": {
+        "clip_accepted": {
+            "count": 31,
+            "rate": 0.8480207796823412
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 8
+        },
+        "data_sent": {
+            "count": 439617,
+            "rate": 12025.946809729412
+        },
+        "http_req_connecting": {
+            "avg": 0.033349112426035506,
+            "med": 0,
+            "p(95)": 0.2703,
+            "p(99)": 0.30463,
+            "max": 3.594,
+            "count": 338
+        },
+        "http_req_waiting": {
+            "p(99)": 690.76213,
+            "max": 875.325,
+            "count": 338,
+            "avg": 234.87071597633135,
+            "med": 210.9085,
+            "p(95)": 507.0748499999997
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(99)": 691.27436,
+            "max": 886.35,
+            "count": 338,
+            "avg": 243.50303846153844,
+            "med": 218.667,
+            "p(95)": 507.2312499999997
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 338,
+            "value": 0
+        },
+        "iteration_duration": {
+            "avg": 6709.83244019355,
+            "med": 6544.265103,
+            "p(95)": 8087.3536145,
+            "p(99)": 8688.5562232,
+            "max": 8877.061609,
+            "count": 31
+        },
+        "http_req_tls_handshaking": {
+            "p(99)": 0,
+            "max": 0,
+            "count": 338,
+            "avg": 0,
+            "med": 0,
+            "p(95)": 0
+        },
+        "clip_completed": {
+            "count": 31,
+            "rate": 0.8480207796823412
+        },
+        "clip_e2e": {
+            "avg": 6371.741935483871,
+            "med": 6226,
+            "p(95)": 7570.5,
+            "p(99)": 8047.599999999999,
+            "max": 8233,
+            "count": 31
+        },
+        "iterations": {
+            "rate": 0.8480207796823412,
+            "count": 31
+        },
+        "dropped_iterations": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "clip_failed": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count==0": false
+            }
+        },
+        "http_req_duration": {
+            "max": 886.35,
+            "count": 338,
+            "avg": 243.50303846153844,
+            "med": 218.667,
+            "p(95)": 507.2312499999997,
+            "p(99)": 691.27436
+        },
+        "http_reqs": {
+            "count": 338,
+            "rate": 9.24616204943972
+        },
+        "http_req_blocked": {
+            "p(99)": 0.38089,
+            "max": 4.902,
+            "count": 338,
+            "avg": 0.04812130177514807,
+            "med": 0.005,
+            "p(95)": 0.339
+        },
+        "checks": {
+            "passes": 31,
+            "fails": 0,
+            "value": 1
+        },
+        "data_received": {
+            "count": 84349,
+            "rate": 2307.4098304976064
+        },
+        "http_req_sending": {
+            "avg": 0.02792899408284021,
+            "med": 0.018,
+            "p(95)": 0.06714999999999999,
+            "p(99)": 0.13118999999999995,
+            "max": 0.49,
+            "count": 338
+        },
+        "http_req_receiving": {
+            "avg": 8.60439349112426,
+            "med": 0.06,
+            "p(95)": 55.02399999999995,
+            "p(99)": 155.9390299999999,
+            "max": 172.136,
+            "count": 338
+        },
+        "vus_max": {
+            "value": 25,
+            "min": 25,
+            "max": 25
+        }
+    },
+    "setup_data": {
+        "runId": "assemblyai-ogg-1rps"
+    },
+    "root_group": {
+        "groups": {},
+        "checks": {
+                "clip accepted": {
+                    "passes": 31,
+                    "fails": 0,
+                    "name": "clip accepted",
+                    "path": "::clip accepted",
+                    "id": "9a6089d19d49e147e5c59e838cacf7ca"
+                }
+            },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e"
+    }
+}

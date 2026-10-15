@@ -1,0 +1,42 @@
+[
+  {
+    "path": "./fixtures/librispeech-test-clean/01-short-5639-40744-0010.ogg",
+    "durationSeconds": 4.127
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/02-short-1320-122617-0030.ogg",
+    "durationSeconds": 3.986
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/03-short-6930-81414-0020.ogg",
+    "durationSeconds": 5.006
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/04-short-260-123288-0008.ogg",
+    "durationSeconds": 5.521
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/05-short-3575-170457-0029.ogg",
+    "durationSeconds": 6.061
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/06-medium-7127-75946-0006.ogg",
+    "durationSeconds": 7.987
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/07-medium-7729-102255-0024.ogg",
+    "durationSeconds": 10.236
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/08-medium-2961-960-0005.ogg",
+    "durationSeconds": 10.361
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/09-long-2094-142345-0011.ogg",
+    "durationSeconds": 16.267
+  },
+  {
+    "path": "./fixtures/librispeech-test-clean/10-long-5639-40744-0027.ogg",
+    "durationSeconds": 23.267
+  }
+]
