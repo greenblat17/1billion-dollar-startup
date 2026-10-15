@@ -84,7 +84,9 @@ def cost_micro(value: Any) -> int | None:
 
 
 def read_provider_cost(response: Any) -> int | None:
-    usage = getattr(response, "usage", None)
+    if not isinstance(response, dict):
+        response = response.model_dump() if callable(getattr(response, "model_dump", None)) else response
+    usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
     if usage is None:
         return None
     raw = usage.get("cost") if isinstance(usage, dict) else getattr(usage, "cost", None)

@@ -86,13 +86,13 @@ CI проверяет Kotlin и Python код в [CMP](.github/workflows/cmp.yml
 
 ## Метрики задания
 
-Доска Grafana Speaky, файл `infra/monitoring/grafana/dashboards/speaky.json`. Только Telegram, московский день. Стоимость на человека — usage.cost за день / DAU: распознавание, ответ, заметки и озвучка.
+Доска Grafana Speaky, файл `infra/monitoring/grafana/dashboards/speaky.json`. Только Telegram, московский день. Историческая метрика `speaking_dau` считает пользователей с завершённым ходом AI, а не всех отправителей голосовых. Активные пользователи по голосовым показаны на `/admin/metrics` с начала журнала PostgreSQL. Стоимость в Grafana включает только возвращённые цены моделей; STT без цены не входит.
 
 | Метрика | Панель | Ряд |
 | --- | --- | --- |
-| DAU | DAU по дням | `speaking_dau{client="telegram"}` |
-| Частотность взаимодействия | Частотность: ходов на человека по дням | `speaking_turns{client="telegram"} / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
+| Завершили ход AI | Завершили голосовой ход AI по дням | `speaking_dau{client="telegram"}` |
+| Частотность взаимодействия | Частотность: ходов на завершившего ход AI | `speaking_turns{client="telegram"} / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
 | Ошибки сервисов | Ошибки сервисов по дням | `speaking_errors{client="telegram"}` |
-| Стоимость на человека | LLM-cost / DAU по дням, $ | `(speaking_cost_micro{client="telegram"} / 1000000) / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
+| Известная стоимость на завершившего ход AI | Учтённые расходы / завершившего ход AI по дням, $ | `(speaking_cost_micro{client="telegram"} / 1000000) / speaking_dau{client="telegram"}`; ноль, если в этот день никого не было |
 
 Инженерные решения лежат в `ai_docs/`, не в этом файле.

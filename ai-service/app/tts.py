@@ -9,11 +9,10 @@ import httpx
 from openai import APIStatusError, AsyncOpenAI
 
 from app.audio import to_ogg_opus
-from app.metrics_v2 import cost_micro, current_session
+from app.metrics_v2 import current_session
 from app.load_test import load_test_active
 from app.retry import once_on_retryable
 from app.provider_call_log import anonymous_user_id, logged_provider_call
-from app.operational_metrics import current_voice_usage
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +85,11 @@ class OpenAiTextToSpeech:
         try:
             provider = "openrouter" if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else "openai"
             provider_started = time.perf_counter()
-            response, headers = await once_on_retryable(
-                lambda: logged_provider_call(call, kind="tts", provider=provider, model=self._model),
+            response, _headers = await once_on_retryable(
+                lambda: logged_provider_call(
+                    call, kind="tts", provider=provider, model=self._model,
+                    generation_id_of=lambda item: item[1].get("x-generation-id") or item[1].get("generation-id"),
+                ),
                 metric_service="tts", metric_provider=provider,
             )
         except Exception:
@@ -97,17 +99,11 @@ class OpenAiTextToSpeech:
         payload = await _audio_bytes(response)
         provider_ms = int((time.perf_counter() - provider_started) * 1000)
         if self._v2 is not None:
-            cost_started = time.perf_counter()
-            cost = await _openrouter_cost(self._client, headers)
-            cost_ms = int((time.perf_counter() - cost_started) * 1000)
-            voice_usage = current_voice_usage()
-            if voice_usage is not None:
-                voice_usage.settle_tts(cost)
-            await self._v2.record_tts("", self._model, len(text), cost)
+            await self._v2.record_tts("", self._model, len(text), None)
             if load_test_active():
                 logger.info(
-                    "TTS load timing session=%s provider_ms=%d cost_lookup_ms=%d",
-                    current_session(), provider_ms, cost_ms,
+                    "TTS load timing session=%s provider_ms=%d",
+                    current_session(), provider_ms,
                 )
         if self._response_format == "mp3":
             return TtsAudio(payload, "audio/mpeg")
@@ -174,20 +170,3 @@ async def _audio_bytes(response: Any) -> bytes:
     if isinstance(content, (bytes, bytearray)):
         return bytes(content)
     raise RuntimeError("tts response had no audio bytes")
-
-
-async def _openrouter_cost(client: AsyncOpenAI, headers: dict[str, str]) -> int | None:
-    base = str(client.base_url)
-    generation_id = headers.get("generation-id") or headers.get("x-generation-id")
-    if "openrouter.ai" not in base or not generation_id:
-        return None
-    token = client.api_key
-    url = base.rstrip("/") + "/generation?id=" + generation_id
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            response = await http.get(url, headers={"Authorization": f"Bearer {token}"})
-        if response.status_code != 200:
-            return None
-        return cost_micro((response.json().get("data") or {}).get("total_cost"))
-    except (httpx.HTTPError, ValueError):
-        return None

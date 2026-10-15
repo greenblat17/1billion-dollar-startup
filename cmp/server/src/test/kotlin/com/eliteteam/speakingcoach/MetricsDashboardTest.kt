@@ -276,19 +276,22 @@ class MetricsDashboardTest {
     }
 
     @Test
-    fun newOverviewShowsMeasuredCallsPerActiveChatAndKnownVoiceCost() {
+    fun newOverviewLabelsVoiceSendersAndShowsRecordedCallsPerSender() {
         val day = "2026-10-13"
         val html = adminOverviewHtml(
             LlmRange(LocalDate.parse(day), LocalDate.parse(day)),
             AdminModelOverview(totalChats = 197, modelSince = "2026-10-12", voiceLlmSince = "2026-10-12",
                 historySince = "2026-09-24", historyDays = listOf(AdminHistoryDay(day, tracked = true, totalChatsToDate = 197)),
                 days = listOf(AdminModelDay(day, tracked = true,
-                llmCalls = 265, sttCalls = 94, ttsCalls = 96, voiceLlmCalls = 4,
+                llmCalls = 1565, sttCalls = 573, ttsCalls = 590, voiceLlmCalls = 4,
                 voiceLlmPricedCalls = 3, voiceLlmCostMicro = 500_000, llmCostMicro = 500_000))),
-            AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, voices = 94,
-                exchanges = 10, voiceErrors = 2, telegramApiCalls = 235)), "2026-10-12"),
+            AdminUsageOverview(49, listOf(AdminUsageDay(day, activeChats = 49, voices = 584,
+                exchanges = 10, voiceErrors = 2, telegramApiCalls = 1717)), "2026-10-12"),
         )
-        assertTrue(html.contains("<dd>69.0</dd>"))
+        assertTrue(html.contains("<dt>Активных пользователей · отправили ГС</dt><dd>49</dd>"))
+        assertTrue(html.contains("<dt>Вызовов / активного пользователя</dt><dd>90.7</dd>"))
+        assertTrue(html.contains("<h2>Отправили голосовое · по дням</h2>"))
+        assertTrue(html.contains("конкурсный показатель не подтверждён"))
         assertTrue(html.contains("<dd>\$0.0500</dd>"))
         assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
         assertTrue(html.contains("<dd>197</dd>"))
@@ -356,7 +359,7 @@ class MetricsDashboardTest {
             AdminUsageOverview(0, listOf(AdminUsageDay(day)), "2026-10-06"),
         )
         assertTrue(html.contains("Аудитория и использование AI"))
-        assertTrue(html.contains("<dt>Активных пользователей за период</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Завершили ход AI за период</dt><dd>2</dd>"))
         assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>2</dd>"))
         assertTrue(html.contains("<dt>Токены LLM · вход</dt><dd>1\u202F346</dd>"))
         assertTrue(html.contains("<dt>Токены LLM · выход</dt><dd>76</dd>"))
@@ -382,11 +385,11 @@ class MetricsDashboardTest {
             AdminUsageOverview(0, emptyList(), "2026-10-06"),
         )
         assertTrue(html.contains("Рост пользователей"))
-        assertTrue(html.contains("DAU и активные за 7 дней"))
+        assertTrue(html.contains("Завершили ход AI · день и 7 дней"))
         assertTrue(html.contains("2026-09-24 · Всего: 1.000"))
         assertTrue(html.contains("2026-10-06 · Всего: 3.000"))
         assertTrue(html.contains("2026-10-06 · Завершили голосовой ход AI: 2.000"))
-        assertTrue(html.contains("2026-10-06 · DAU: 2.000"))
+        assertTrue(html.contains("2026-10-06 · За день: 2.000"))
         val growthChart = html.substringAfter("<h2>Рост пользователей</h2>").substringBefore("</section>")
         assertTrue(growthChart.contains("class=\"axis-y\""))
         assertTrue(growthChart.contains("class=\"axis-x\""))
@@ -847,7 +850,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("≥3 ГС"))
         assertTrue(html.contains("20+ ГС"))
         assertFalse(html.contains("₽ на ход"))
-        assertFalse(html.contains("₽ на DAU"))
+        assertFalse(html.contains("₽ на завершившего ход AI"))
         assertFalse(html.contains(">100<"))
         val reminders = client.get("/admin/monitoring/reminders").bodyAsText()
         assertTrue(reminders.contains("action=\"/admin/monitoring/reminders/test\""))

@@ -37,6 +37,7 @@ data class ClipReply(
     val call: CallProgress? = null,
     val jobId: String? = null,
     val timingsMs: Map<String, Long> = emptyMap(),
+    val voiceCallCounts: Map<String, Int>? = null,
 )
 
 enum class CorrectionKind(val wire: String) {

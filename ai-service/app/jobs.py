@@ -19,6 +19,7 @@ class ClipJob:
     notes: list[str] = field(default_factory=list)
     corrections: list[dict[str, str]] = field(default_factory=list)
     timings_ms: dict[str, int] | None = None
+    voice_call_counts: dict[str, int] | None = None
     streak: dict[str, Any] | None = None
     onboarding: dict[str, Any] | None = None
     call: dict[str, Any] | None = None
@@ -51,6 +52,8 @@ class ClipJob:
             payload["replyText"] = self.reply_text
         if self.timings_ms is not None:
             payload["timingsMs"] = self.timings_ms
+        if self.voice_call_counts is not None:
+            payload["voiceCallCounts"] = self.voice_call_counts
         return payload
 
 

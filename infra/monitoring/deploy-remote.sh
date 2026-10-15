@@ -25,6 +25,8 @@ AI_URL=$(env_get AI_SERVICE_BASE_URL)
 TOKEN=$(env_get AI_INTERNAL_TOKEN)
 GRAFANA_PASSWORD=$(env_get GRAFANA_ADMIN_PASSWORD)
 GRAFANA_ROOT=$(env_get GRAFANA_ROOT_URL)
+VOICE_COST_DB_NAME=$(env_get POSTGRES_DB)
+VOICE_COST_DB_USER=$(env_get POSTGRES_USER)
 SPEAKY_ENV=$(env_get SPEAKY_ENV)
 SPEAKY_ENV=${SPEAKY_ENV:-unknown}
 
@@ -39,6 +41,47 @@ if [ "$AI_SCHEME" = "$AI_URL" ]; then
   AI_SCHEME=http
 fi
 GRAFANA_ROOT=${GRAFANA_ROOT:-https://127.0.0.1:8443}
+VOICE_COST_DB_NAME=${VOICE_COST_DB_NAME:-speaking_coach}
+VOICE_COST_DB_USER=${VOICE_COST_DB_USER:-speaking}
+
+if [ -n "$GRAFANA_PASSWORD" ]; then
+  # The Grafana account can read only the two cost tables. Its password is
+  # generated on the CMP host and never stored in the deployment environment.
+  if [ ! -s "$MON/voice_cost_db_password" ]; then
+    umask 077
+    openssl rand -hex 32 > "$MON/voice_cost_db_password"
+  fi
+  chmod 600 "$MON/voice_cost_db_password"
+  export VOICE_COST_DB_PASSWORD
+  VOICE_COST_DB_PASSWORD=$(cat "$MON/voice_cost_db_password")
+  export VOICE_COST_DB_NAME
+  if docker inspect postgres >/dev/null 2>&1; then
+    voice_cost_tables_ready=false
+    for attempt in $(seq 1 30); do
+      if docker exec postgres psql -U "$VOICE_COST_DB_USER" -d "$VOICE_COST_DB_NAME" -Atqc \
+        "SELECT to_regclass('public.voice_cost_calls') IS NOT NULL AND to_regclass('public.voice_cost_exchanges') IS NOT NULL" 2>/dev/null | grep -qx t; then
+        voice_cost_tables_ready=true
+        docker exec -i postgres psql -X -v ON_ERROR_STOP=1 -U "$VOICE_COST_DB_USER" \
+          -d "$VOICE_COST_DB_NAME" -v cost_password="$VOICE_COST_DB_PASSWORD" <<'SQL'
+SELECT format('CREATE ROLE speaking_cost_ro LOGIN PASSWORD %L', :'cost_password')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'speaking_cost_ro') \gexec
+ALTER ROLE speaking_cost_ro PASSWORD :'cost_password';
+GRANT USAGE ON SCHEMA public TO speaking_cost_ro;
+GRANT SELECT ON voice_cost_calls, voice_cost_exchanges TO speaking_cost_ro;
+SQL
+        break
+      fi
+      sleep 1
+    done
+    if [ "$voice_cost_tables_ready" != true ]; then
+      echo "Voice cost tables did not appear; Grafana PostgreSQL access was not configured" >&2
+      exit 1
+    fi
+  else
+    echo "PostgreSQL container missing; Grafana PostgreSQL access was not configured" >&2
+    exit 1
+  fi
+fi
 
 umask 077
 printf '%s' "$TOKEN" > "$MON/ai_token"
@@ -220,6 +263,8 @@ EOF
       GF_SECURITY_ADMIN_USER: admin
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT}
+      VOICE_COST_DB_PASSWORD: \${VOICE_COST_DB_PASSWORD}
+      VOICE_COST_DB_NAME: \${VOICE_COST_DB_NAME}
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro

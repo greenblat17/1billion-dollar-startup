@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
+import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.JourneyMode
 import com.eliteteam.speakingcoach.analytics.onboardingAgentJson
@@ -83,6 +84,7 @@ internal class MetricsDashboard(
     val callEvents: CallEventRecorder? = null,
     val usage: AdminUsageStore? = null,
     val openRouterRatesFile: Path? = null,
+    val voiceCost: VoiceCostStore? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -101,10 +103,13 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val usage = try { dashboard.usage?.load(range) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
+        val voiceCost = try { dashboard.voiceCost?.load(range) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Overview voice cost unavailable", error); null }
         val rates = try { dashboard.openRouterRatesFile?.takeIf(Files::isRegularFile)?.let(OpenRouterHistoricalRates::load) }
             catch (error: Throwable) { log.warn("OpenRouter historical rates unavailable", error); null }
         call.respondText(adminOverviewHtml(range, models, usage, rates,
-            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"]),
+            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"], voiceCost),
             ContentType.Text.Html)
     }.hide()
     get(METRICS_DETAILS_PATH) {
@@ -550,11 +555,11 @@ internal fun metricsReportHtml(
         ${card("TPM (60 с)", snapshot.tpm.toString())}
         ${card("TPS (60 с)", formatTps(snapshot.tps))}
         ${card("Ходы за день", snapshot.turns.toString())}
-        ${card("DAU", snapshot.dau.toString())}
+        ${card("Завершили ход AI сегодня", snapshot.dau.toString())}
         ${card("Секунды STT", formatSeconds(snapshot.sttSeconds))}
         ${card("Символы TTS", snapshot.ttsChars.toString())}
         ${card("₽ на ход", rubPerTurn)}
-        ${card("₽ на DAU", rubPerDau)}
+        ${card("₽ на завершившего ход AI", rubPerDau)}
         </dl>
         <h2>Исправления</h2>
         ${correctionReport(snapshot)}

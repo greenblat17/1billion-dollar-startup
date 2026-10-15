@@ -477,7 +477,7 @@ private fun clientColumnHtml(column: MetricsV2Client): String {
         ${card("Секунды STT", formatSeconds(column.sttSeconds))}
         ${card("Символы TTS", column.ttsChars.toString())}
         ${card("Ходы", column.turns.toString())}
-        ${card("DAU", column.dau.toString())}
+        ${card("Завершили ход AI сегодня", column.dau.toString())}
         </dl>
         <h3>Чаты</h3>
         <table>

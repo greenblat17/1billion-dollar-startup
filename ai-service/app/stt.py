@@ -10,7 +10,7 @@ from openai import AsyncOpenAI, BadRequestError
 
 from app.audio import to_wav_mono_16k
 from app.load_test import load_test_active
-from app.metrics_v2 import current_session
+from app.metrics_v2 import current_session, read_provider_cost
 from app.retry import once_on_retryable
 from app.operational_metrics import telegram_stage
 from app.provider_call_log import logged_provider_call, provider_from_url
@@ -72,7 +72,7 @@ class GroqSpeechToText:
                     timestamp_granularities=["word"],
                 ),
                 kind="stt", provider=provider_from_url(getattr(self._client, "base_url", None)),
-                model=self._model,
+                model=self._model, cost_of=read_provider_cost,
             )
 
         response = await once_on_retryable(call, metric_service="stt", metric_provider="groq")

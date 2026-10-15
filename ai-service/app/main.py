@@ -44,6 +44,7 @@ from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
+from app.voice_cost import VoiceCostLedger, bind_voice_cost, reset_voice_cost
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,8 @@ def create_app(
     greeting_lock = asyncio.Lock()
     campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
     audit_artifacts = AuditArtifacts(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    voice_cost = VoiceCostLedger(Redis.from_url(settings.redis_url, decode_responses=True),
+                                 settings.openai_base_url, settings.openai_api_key) if settings.redis_url else None
     tasks: set[asyncio.Task[None]] = set()
 
     @asynccontextmanager
@@ -121,12 +124,16 @@ def create_app(
                     logger.exception("raw conversation retention sweep failed")
                 await asyncio.sleep(60 * 60)
         retention_task = asyncio.create_task(prune_raw_content())
+        cost_task = asyncio.create_task(voice_cost.run()) if voice_cost is not None else None
         try:
             yield
         finally:
             intro_warmup.cancel()
             retention_task.cancel()
-            await asyncio.gather(intro_warmup, retention_task, return_exceptions=True)
+            if cost_task is not None:
+                cost_task.cancel()
+            await asyncio.gather(intro_warmup, retention_task, *( [cost_task] if cost_task else [] ),
+                                 return_exceptions=True)
         await onboarding.store.aclose()
         if owns_calls:
             await calls.aclose()
@@ -136,6 +143,8 @@ def create_app(
         if campaign_redis is not None:
             await campaign_redis.aclose()
         await audit_artifacts.aclose()
+        if voice_cost is not None:
+            await voice_cost.aclose()
         await first_call_feedback.aclose()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
@@ -211,6 +220,20 @@ def create_app(
             + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus(),
             media_type="text/plain; version=0.0.4",
         )
+
+    @app.get("/internal/voice-cost/events")
+    async def voice_cost_events(limit: int = Query(100, ge=1, le=100)) -> dict[str, Any]:
+        return {"events": await voice_cost.batch(limit) if voice_cost is not None else []}
+
+    @app.post("/internal/voice-cost/ack")
+    async def voice_cost_ack(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        receipts = payload.get("receipts")
+        if not isinstance(receipts, list) or len(receipts) > 100:
+            raise HTTPException(status_code=400, detail="invalid receipts")
+        if voice_cost is not None:
+            await voice_cost.acknowledge(receipts)
+        return {"ok": True}
 
     @app.post("/internal/metrics/action")
     async def metrics_action(request: Request) -> dict[str, bool]:
@@ -579,7 +602,7 @@ def create_app(
         task = asyncio.create_task(
             _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
                      onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch,
-                     load_test_requested(x_speaky_load_test)),
+                     load_test_requested(x_speaky_load_test), voice_cost),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -802,11 +825,13 @@ async def _run_job(
     audit_artifacts: AuditArtifacts | None = None,
     received_at_epoch: float | None = None,
     load_test: bool = False,
+    voice_cost: VoiceCostLedger | None = None,
 ) -> None:
     started = time.perf_counter()
     load_test_token = bind_load_test(load_test)
     voice_usage = VoiceModelUsage() if job.session_id.startswith("tg-") and not load_test else None
     voice_usage_token = bind_voice_usage(voice_usage)
+    voice_cost_token = bind_voice_cost(voice_cost, job.attempt_id if voice_usage is not None else None)
     provider_metrics_token = bind_provider_metrics(pipeline.metrics)
     job_timings: dict[str, int] = {}
     timings_token = bind_job_timings(job_timings)
@@ -836,6 +861,8 @@ async def _run_job(
             await audit_stage("transcript", result.transcript)
         if result.reply_text:
             await audit_stage("reply", result.reply_text)
+        if voice_usage is not None:
+            job.voice_call_counts = voice_usage.attempts.copy()
         _complete_job(job, result)
         await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
         logger.info(
@@ -866,6 +893,7 @@ async def _run_job(
                 except Exception:
                     logger.exception("failed to record voice LLM cost")
         reset_voice_usage(voice_usage_token)
+        reset_voice_cost(voice_cost_token)
         reset_writer(audit_token)
         reset_receipt_time(receipt_token)
         reset_job_timings(timings_token)

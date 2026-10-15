@@ -62,6 +62,7 @@ data class ClipStatusResponse(
     val transcript: String? = null,
     val replyText: String = "",
     val timingsMs: Map<String, Long> = emptyMap(),
+    val voiceCallCounts: Map<String, Int>? = null,
 )
 
 @Serializable

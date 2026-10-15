@@ -3,6 +3,8 @@ package com.eliteteam.speakingcoach
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
+import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
+import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.createCallEventStore
@@ -116,6 +118,33 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
+    val voiceCost = config.databaseUrl?.let(::VoiceCostStore)
+    if (voiceCost != null) webhookScope.launch {
+        while (true) {
+            try {
+                for (batch in 1..20) {
+                    val events = ai.voiceCostEvents().events
+                    if (events.isEmpty()) break
+                    voiceCost.upsert(events)
+                    ai.acknowledgeVoiceCost(events.map { VoiceCostReceipt(it.callId, it.revision) })
+                    if (events.size < 100) break
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                log.warn("Voice cost sync failed", error)
+            }
+            delay(10_000)
+        }
+    }
+    if (voiceCost != null) webhookScope.launch {
+        while (true) {
+            delay(24 * 60 * 60 * 1_000L)
+            try { voiceCost.prune() }
+            catch (error: CancellationException) { throw error }
+            catch (error: Exception) { log.warn("Voice cost pruning failed", error) }
+        }
+    }
     val audit = config.databaseUrl?.let { InteractionAudit(it, Path.of(config.auditAudioDir)) }
     if (audit == null) log.warn("Interaction audit disabled: DATABASE_URL is not configured")
     else webhookScope.launch {
@@ -159,7 +188,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     )
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
-        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents,
+        token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, voiceCost,
         telegramMetrics, audit, config.aiInternalToken,
     )
     val reminderRunner = ReminderRunner(
@@ -242,6 +271,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 voiceAttempts = voiceAttempts,
                 callEvents = callEvents,
                 usage = adminUsage,
+                voiceCost = voiceCost,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -299,6 +329,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         aiHttp.close()
         onboardingAnalytics?.close()
         audit?.close()
+        voiceCost?.close()
     }
 }
 
@@ -379,13 +410,14 @@ private fun Application.metricsDashboard(
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: CallEventRecorder? = null,
     usage: AdminUsageStore? = null,
+    voiceCost: VoiceCostStore? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
     return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
-        config.openRouterRatesFile?.let(Path::of))
+        config.openRouterRatesFile?.let(Path::of), voiceCost)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

@@ -14,6 +14,9 @@ import com.eliteteam.speakingcoach.speaking.parseCorrections
 import com.eliteteam.speakingcoach.speaking.SessionGreeting
 import com.eliteteam.speakingcoach.speaking.SessionId
 import com.eliteteam.speakingcoach.speaking.TurnStreak
+import com.eliteteam.speakingcoach.analytics.VoiceCostAcknowledge
+import com.eliteteam.speakingcoach.analytics.VoiceCostEvents
+import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.request.HttpRequestBuilder
@@ -50,6 +53,22 @@ class HttpClipClient(
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
     private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
+
+    internal suspend fun voiceCostEvents(): VoiceCostEvents {
+        val response = http.get("$root/internal/voice-cost/events?limit=100") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service voice cost events returned ${response.status}" }
+        return response.body()
+    }
+
+    internal suspend fun acknowledgeVoiceCost(receipts: List<VoiceCostReceipt>) {
+        if (receipts.isEmpty()) return
+        val response = http.post("$root/internal/voice-cost/ack") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(VoiceCostAcknowledge(receipts))
+        }
+        check(response.status.isSuccess()) { "ai-service voice cost ack returned ${response.status}" }
+    }
 
     suspend fun startSession(sessionId: SessionId? = null): SessionGreeting {
         val created = createSession(sessionId)
@@ -456,6 +475,7 @@ class HttpClipClient(
                         },
                         jobId = jobId,
                         timingsMs = status.timingsMs,
+                        voiceCallCounts = status.voiceCallCounts,
                     )
                 }
                 is ClipJobStatus.Failed -> {
@@ -524,6 +544,7 @@ class HttpClipClient(
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
                 timingsMs = body.timingsMs,
+                voiceCallCounts = body.voiceCallCounts,
             )
             "error" -> ClipJobStatus.Failed(body.error?.code ?: "unknown", body.error?.message ?: "unknown error",
                 body.error?.stage ?: "other", body.error?.reason ?: "unknown", body.timingsMs)
@@ -588,6 +609,7 @@ private sealed interface ClipJobStatus {
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
         val timingsMs: Map<String, Long>,
+        val voiceCallCounts: Map<String, Int>?,
     ) : ClipJobStatus
     data class Failed(val code: String, val message: String, val stage: String = "other",
                       val reason: String = "unknown", val timingsMs: Map<String, Long> = emptyMap()) : ClipJobStatus

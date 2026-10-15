@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.ai.AdminModelOverview
 import com.eliteteam.speakingcoach.ai.AdminHistoryDay
+import com.eliteteam.speakingcoach.analytics.VoiceCostOverview
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -20,6 +21,7 @@ internal fun adminOverviewHtml(
     historicalRates: OpenRouterHistoricalRates? = null,
     ratesWindow: String? = null,
     ratesDay: String? = null,
+    voiceCost: VoiceCostOverview? = null,
 ): String {
     val byModel = models?.days?.filter { models.modelSince.isNotBlank() && it.day >= models.modelSince }
         ?.associateBy { it.day }.orEmpty()
@@ -50,6 +52,10 @@ internal fun adminOverviewHtml(
     val journalSince = usage?.firstObservedDay ?: "нет данных"
     val costCoverage = if (voiceLlmCalls > 0) "$pricedLlmCalls из $voiceLlmCalls вызовов с известной ценой"
         else "нет вызовов с сохранённой ценой"
+    val confirmedVoiceCost = voiceCost?.takeIf { it.exchanges > 0 }
+        ?.let { dollars(it.knownCostMicro.toDouble() / it.exchanges) } ?: "—"
+    val confirmedVoiceCoverage = voiceCost?.takeIf { it.exchanges > 0 }
+        ?.let { decimal(it.completeExchanges * 100.0 / it.exchanges, 1) + "%" } ?: "—"
     val periodStatus = if (range.to == LocalDate.now(ZoneId.of("Europe/Moscow"))) "Текущий день ещё не завершён." else "Завершённые дни."
     val rows = days.joinToString("") { day ->
         val model = byModel[day]
@@ -73,19 +79,21 @@ internal fun adminOverviewHtml(
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
-          ${overviewCard("Активных пользователей", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные Telegram ID с голосом, текстом или нажатием кнопки за период")}
+          ${overviewCard("Активных пользователей · отправили ГС", if (fullJournal) usage.activeChatsInPeriod.toString() else "—", "Уникальные Telegram ID, отправившие хотя бы одно голосовое за период")}
           ${overviewCard("Входящих сообщений", if (fullJournal) usage.days.sumOf { it.incomingMessages }.toString() else "—", "Голосовые, текстовые и фото; без нажатий кнопок. Журнал с $journalSince")}
           ${overviewCard("Голосовых", if (fullJournal) usage.days.sumOf { it.voices }.toString() else "—", "Уникальные входящие голосовые сообщения")}
           ${overviewCard("Успешных обменов", if (fullJournal) usage.days.sumOf { it.exchanges }.toString() else "—", "Голосовое и доставленный голосовой ответ с распознанной репликой")}
-          ${overviewCard("Вызовов / активного пользователя", callsPerUser, "Учтённые LLM + STT + TTS + Telegram API. Неполный показатель")}
+          ${overviewCard("Вызовов / активного пользователя", callsPerUser, "Все учтённые LLM + STT + TTS + Telegram API / отправители ГС. Вызовы других пользователей не отделены; конкурсный показатель не подтверждён")}
           ${overviewCard("LLM-cost / обмен", llmCostPerExchange, "Известная стоимость LLM при обработке голосовых / успешные обмены. $costCoverage")}
+          ${overviewCard("STT + LLM + TTS / обмен", confirmedVoiceCost, "Подтверждённые цены вызовов только по доставленным голосовым ответам. При неполной цене это нижняя граница. Начало полного учёта: ${voiceCost?.trackingSince ?: "нет данных"}")}
+          ${overviewCard("Обменов с полной ценой", confirmedVoiceCoverage, "Записаны STT, LLM и TTS и известна цена каждого вызова; неизвестных цен: ${voiceCost?.unknownPrices ?: "—"}")}
           ${overviewCard("Ошибок голосового пути", if (fullJournal) usage.days.sumOf { it.voiceErrors }.toString() else "—", "Неуспешные конечные исходы голосовых")}
         </section>
         <p class="coverage">История действий: с ${escapeHtml(journalSince)} (PostgreSQL хранит 30 дней).
         История моделей: с ${escapeHtml(modelSince)} (Redis хранит 30 дней); дни без вызовов после этой даты показаны нулями.
         Стоимость LLM для голосовых собирается с ${escapeHtml(models?.voiceLlmSince?.ifBlank { "первого измеренного обращения" } ?: "первого измеренного обращения")}; первый день каждого источника может быть неполным и не входит в расчёт итоговых карточек. Неизвестная цена не считается нулём.</p>
         <div class="chart-grid">
-          ${overviewChart("Активные пользователи", days, listOf(ChartLine("Пользователи", "#2563eb", days.map { byUsage[it]?.activeChats })), usage != null)}
+          ${overviewChart("Отправили голосовое · по дням", days, listOf(ChartLine("Пользователи", "#2563eb", days.map { byUsage[it]?.activeChats })), usage != null)}
           ${overviewChart("Голосовые и ответы", days, listOf(
               ChartLine("Отправлено", "#2563eb", days.map { byUsage[it]?.voices }),
               ChartLine("Успешно", "#16a34a", days.map { byUsage[it]?.exchanges })), usage != null)}
@@ -107,7 +115,7 @@ internal fun adminOverviewHtml(
           ${overviewChart("Ошибки голосового пути", days, listOf(
               ChartLine("Ошибки", "#dc2626", days.map { byUsage[it]?.voiceErrors })), usage != null)}
         </div>
-        <h2>Данные по дням</h2><div class="table-wrap"><table><thead><tr><th>День</th><th>Активные</th><th>Сообщения</th><th>Кнопки</th><th>ГС</th>
+        <h2>Данные по дням</h2><div class="table-wrap"><table><thead><tr><th>День</th><th>Отправили ГС</th><th>Сообщения</th><th>Кнопки</th><th>ГС</th>
         <th>Обмены</th><th>LLM</th><th>STT</th><th>TTS</th><th>Telegram API</th><th>Ошибки</th></tr></thead>
         <tbody>$rows</tbody></table></div>
         <p class="coverage">Вызовы LLM, STT и TTS — успешно учтённые ответы провайдеров; ошибочные попытки до нового счётчика не восстановлены.
@@ -287,7 +295,7 @@ private fun historicalOverviewHtml(
         <h2>Аудитория и использование AI</h2>
         <p class="coverage">С ${escapeHtml(overview.historySince)} · ежедневные записи Redis за весь выбранный период.
         Пользователь здесь — уникальный Telegram ID чата: в личном диалоге он соответствует одному человеку; групповой чат считается одним ID.
-        DAU — пользователи, для которых завершился хотя бы один голосовой ход AI за день. Это не число всех входящих сообщений.
+        В этом блоке показаны завершённые голосовые ходы AI, а не все отправители голосовых. Точное число отправителей по дням доступно ниже только с начала PostgreSQL-журнала голосовых.
         Ход AI фиксируется до доставки ответа. Токены, STT и TTS охватывают все клиентские платформы.
         ${if (overview.chatGrowthUnattributed > 0) "${overview.chatGrowthUnattributed} Telegram ID без даты первого обращения не включены в график роста." else ""}</p>
         <div class="metric-layout">
@@ -299,20 +307,20 @@ private fun historicalOverviewHtml(
               <div class="metric-lead">${overviewCard("Завершили голосовой ход AI · всего", through.chatsWithTurnToDate?.toString() ?: "—", "Уникальные пользователи за всю сохранённую историю; доставка ответа не подтверждена")}</div>
               <div class="metric-grid audience-grid">
                 ${overviewCard("Всего пользователей на конец периода", through.totalChatsToDate.toString(), "Накопленно с первого сохранённого обращения")}
-                ${overviewCard("Активных пользователей за период", active.toString(), "Уникальные Telegram ID с завершённым голосовым ходом AI")}
-                ${overviewCard("DAU в последний день", through.activeChatsWithTurn.toString(), "Пользователи с завершённым голосовым ходом AI")}
+                ${overviewCard("Завершили ход AI за период", active.toString(), "Уникальные Telegram ID с завершённым голосовым ходом AI")}
+                ${overviewCard("Завершили ход AI в последний день", through.activeChatsWithTurn.toString(), "Пользователи с завершённым голосовым ходом AI")}
                 ${overviewCard("Отправили первое голосовое · всего", through.firstVoiceChatsToDate.toString(), "Накопленно на конец периода")}
               </div>
             </div>
           </section>
           <section class="metric-section" aria-labelledby="return-heading">
             <div class="metric-section-head"><span class="metric-index">02</span><div>
-              <h3 id="return-heading">Возврат пользователей</h3><p>Регулярность активности и возврат после первого голоса</p>
+              <h3 id="return-heading">Возврат пользователей</h3><p>Повторные завершённые ходы AI после первого голоса</p>
             </div></div>
             <div class="engagement-layout">
               <div class="metric-subgroup"><h4>Stickiness</h4><div class="metric-grid stickiness-grid">
-                ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "DAU / уникальные активные за 7 дней на конец периода")}
-                ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "DAU / уникальные активные за 30 дней; появится после полного окна")}
+                ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "Завершили ход AI за день / уникальные с завершённым ходом за 7 дней")}
+                ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "Завершили ход AI за день / уникальные с завершённым ходом за 30 дней")}
               </div></div>
               <div class="metric-subgroup"><h4>Retention</h4><div class="metric-grid retention-grid">
                 ${listOf(1, 7, 30).joinToString("") { offset ->
@@ -344,15 +352,15 @@ private fun historicalOverviewHtml(
               ChartLine("Всего", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.totalChatsToDate }),
               ChartLine("Завершили голосовой ход AI", "#a855f7", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.chatsWithTurnToDate }),
               ChartLine("С первым голосовым", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstVoiceChatsToDate })), true)}
-          ${overviewChart("DAU и активные за 7 дней", days, listOf(
-              ChartLine("DAU", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChatsWithTurn }),
-              ChartLine("7 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChats7d })), true)}
-          ${overviewChart("Stickiness · DAU / активные, %", days, listOf(
+          ${overviewChart("Завершили ход AI · день и 7 дней", days, listOf(
+              ChartLine("За день", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChatsWithTurn }),
+              ChartLine("За 7 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.activeChats7d })), true)}
+          ${overviewChart("Stickiness · завершённые ходы AI, %", days, listOf(
               ChartLine("7 дней", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.let { row -> ratioBasisPoints(row.activeChatsWithTurn, row.activeChats7d) } }),
               ChartLine("30 дней", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.let { row -> ratioBasisPoints(row.activeChatsWithTurn, row.activeChats30d) } })), true, valueDivisor = 100)}
           ${overviewChart("Новые и вернувшиеся", days, listOf(
               ChartLine("Новые пользователи", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.newChats }),
-              ChartLine("Активные повторно", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.returningActiveChats })), true)}
+              ChartLine("Повторно завершили ход AI", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.returningActiveChats })), true)}
           ${overviewChart("Первые шаги", days, listOf(
               ChartLine("Первый /start", "#2563eb", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstStarts }),
               ChartLine("Первый голос", "#16a34a", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.firstVoiceChats }),
@@ -367,10 +375,10 @@ private fun historicalOverviewHtml(
           ${overviewChart("Текст TTS · символы", days, listOf(
               ChartLine("Символы", "#a855f7", days.map { byDay[it]?.takeIf(AdminHistoryDay::tracked)?.ttsChars })), true)}
         </div>
-        <p class="coverage">Stickiness — DAU / уникальные активные за последние 7 или 30 календарных суток; до заполнения окна значение не показывается.
+        <p class="coverage">Stickiness — завершили ход AI за день / уникальные пользователи с завершённым ходом за последние 7 или 30 календарных суток; до заполнения окна значение не показывается.
         Retention D1/D7/D30 — доля пользователей, впервые отправивших голосовое в выбранном периоде и завершивших ход AI ровно через 1/7/30 дней. В знаменатель входят только пользователи, у которых этот день уже завершился по Москве.
-        «7 дней» — уникальные активные пользователи за последние семь календарных суток; первые шесть дней истории не отображаются.
-        Возврат — пользователь, активный сегодня и хотя бы в один более ранний сохранённый день. Новые пользователи и первые голосовые считаются по первой дате Telegram ID.
+        «7 дней» — уникальные пользователи с завершённым ходом AI за последние семь календарных суток; первые шесть дней истории не отображаются.
+        Возврат — пользователь с завершённым ходом AI сегодня и хотя бы в один более ранний сохранённый день. Новые пользователи и первые голосовые считаются по первой дате Telegram ID.
         «Завершили голосовой ход AI» — приближение к числу пользователей с целевым действием за всю историю. Оно не подтверждает доставку ответа; доставка учтена только в детальном блоке с 6 октября.</p>
         $ratesHtml
         <h2>Источники новых пользователей за период</h2>
@@ -378,7 +386,7 @@ private fun historicalOverviewHtml(
         <tbody>${sources.ifBlank { "<tr><td colspan=\"3\">Нет данных</td></tr>" }}</tbody></table></div>
         <h2>Данные по дням · сохранённая история</h2>
         <div class="table-wrap"><table><thead><tr><th>День</th><th>Всего пользователей</th><th>Завершили голосовой ход AI · всего</th><th>Новые</th>
-        <th>DAU</th><th>7 дней</th><th>Вернулись</th><th>Первый голос</th><th>Ходы AI</th>
+        <th>Завершили ход AI</th><th>За 7 дней</th><th>Вернулись</th><th>Первый голос</th><th>Ходы AI</th>
         <th>Токены вход</th><th>Токены выход</th><th>STT, с</th><th>TTS, символы</th></tr></thead><tbody>$rows</tbody></table></div>
         </section>
     """.trimIndent()

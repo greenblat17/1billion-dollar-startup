@@ -180,7 +180,7 @@
     },
     {
       "type": "barchart",
-      "title": "DAU по дням",
+      "title": "Завершили голосовой ход AI по дням",
       "description": "Человек с хотя бы одним завершённым голосовым ходом за московский день.",
       "gridPos": {
         "h": 7,
@@ -361,8 +361,8 @@
     },
     {
       "type": "barchart",
-      "title": "Частотность: ходов на человека по дням",
-      "description": "Завершённые ходы за московский день / DAU. Ноль, если в этот день никого не было.",
+      "title": "Частотность: ходов на завершившего ход AI",
+      "description": "Завершённые ходы за московский день / пользователи с завершённым ходом AI. Это не все отправители голосовых.",
       "gridPos": {
         "h": 7,
         "w": 24,
@@ -543,8 +543,8 @@
     },
     {
       "type": "barchart",
-      "title": "Учтённые расходы / DAU по дням, $",
-      "description": "Сумма возвращённых провайдерами цен LLM и TTS за московский день / DAU. STT без цены не входит. Ноль, если в этот день никого не было.",
+      "title": "Учтённые расходы / завершившего ход AI по дням, $",
+      "description": "Сумма возвращённых провайдерами цен LLM и TTS за московский день / пользователи с завершённым ходом AI. Это не все отправители голосовых. STT без цены не входит.",
       "gridPos": {
         "h": 7,
         "w": 24,
@@ -1164,18 +1164,24 @@
     },
     {
       "type": "stat",
-      "title": "Подтверждённые расходы / обмен, 24 ч",
-      "description": "Сумма цен, возвращённых провайдерами STT/LLM/TTS при обработке входящих голосовых, делённая на число распознанных голосовых с доставленным голосовым ответом. Нижняя граница реальных затрат: вызовы без цены не включены.",
+      "title": "Стоимость успешного голосового обмена",
+      "description": "Фактические известные расходы STT + LLM + TTS только по голосовым с распознанной речью и доставленным голосовым ответом, делённые на число таких обменов за выбранный период. При неполных ценах это нижняя граница. История начинается после включения нового учёта.",
       "gridPos": {
         "h": 7,
-        "w": 12,
+        "w": 8,
         "x": 0,
         "y": 107
       },
       "targets": [
         {
-          "expr": "(sum(increase(speaking_voice_model_cost_micro_total[24h])) / 1000000 / (sum(increase(speaking_voice_exchanges_total[24h])) > 0)) and on() (sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) > 0)",
-          "instant": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(known_micro)::double precision / 1000000 / nullif(count(*), 0) AS value FROM per_exchange",
           "refId": "A"
         }
       ],
@@ -1201,22 +1207,32 @@
           "values": false
         }
       },
-      "id": 35
+      "id": 35,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
     },
     {
       "type": "stat",
-      "title": "Вызовов с известной ценой, 24 ч",
-      "description": "Доля вызовов STT/LLM/TTS, для которых получена цена провайдера. Это доля вызовов, а не доля денег; STT сейчас обычно без цены.",
+      "title": "Обменов с полной ценой",
+      "description": "Доля успешных обменов, для которых записаны STT, LLM и TTS и известна цена каждого фактического вызова. 100% возможно только без неизвестных цен и пропавших компонентов.",
       "gridPos": {
         "h": 7,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 8,
         "y": 107
       },
       "targets": [
         {
-          "expr": "sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) / (sum(increase(speaking_voice_model_calls_total[24h])) > 0)",
-          "instant": true,
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(CASE WHEN expected_stt > 0 AND expected_llm > 0 AND expected_tts > 0 AND stt = expected_stt AND llm = expected_llm AND tts = expected_tts AND calls = priced THEN 1 ELSE 0 END)::double precision / nullif(count(*), 0) AS value FROM per_exchange",
           "refId": "A"
         }
       ],
@@ -1242,23 +1258,132 @@
           "values": false
         }
       },
-      "id": 36
+      "id": 36,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
     },
     {
-      "type": "timeseries",
-      "title": "Подтверждённые расходы на обмен по дням",
-      "description": "Каждая точка: подтверждённые расходы на обработку входящих голосовых за предыдущие 24 часа / доставленные голосовые ответы на распознанные сообщения за те же 24 часа. Шаг графика — 1 день. Неизвестные цены не считаются нулевыми затратами; см. долю вызовов с известной ценой.",
+      "type": "stat",
+      "title": "Неизвестные цены и расхождения",
+      "description": "Число вызовов без цены плюс несовпадения между ожидаемым числом вызовов и сохранёнными записями STT, LLM и TTS. Если AI не передал счётчики, обмен тоже считается неполным.",
       "gridPos": {
         "h": 7,
-        "w": 24,
+        "w": 8,
+        "x": 16,
+        "y": 107
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT coalesce(sum(calls - priced + CASE WHEN expected_stt IS NULL OR expected_llm IS NULL OR expected_tts IS NULL THEN 1 ELSE abs(expected_stt - stt) + abs(expected_llm - llm) + abs(expected_tts - tts) END), 0) AS value FROM per_exchange",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 38,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Начало полного учёта",
+      "description": "Московская дата первого доставленного голосового обмена, для которого AI передал ожидаемое число STT, LLM и TTS вызовов. С более ранних дат цена может быть неполной.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
         "x": 0,
         "y": 114
       },
       "targets": [
         {
-          "expr": "(sum(increase(speaking_voice_model_cost_micro_total[24h])) / 1000000 / (sum(increase(speaking_voice_exchanges_total[24h])) > 0)) and on() (sum(increase(speaking_voice_model_calls_total{price=\"known\"}[24h])) > 0)",
-          "interval": "1d",
-          "legendFormat": "$ за обмен",
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_char(min(delivered_at AT TIME ZONE 'Europe/Moscow'), 'DD.MM.YYYY') AS value FROM voice_cost_exchanges WHERE expected_stt IS NOT NULL AND expected_llm IS NOT NULL AND expected_tts IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "id": 39,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Стоимость успешного обмена по дням",
+      "description": "Московские календарные дни доставки. Каждая точка пересчитывается, когда провайдер позже возвращает цену TTS. При неполном покрытии показана нижняя граница; см. долю обменов с полной ценой.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 118
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "voice-cost-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT day AS \"time\", sum(known_micro)::double precision / 1000000 / count(*) AS value FROM per_exchange GROUP BY day ORDER BY day",
           "refId": "A"
         }
       ],
@@ -1279,7 +1404,11 @@
           "placement": "bottom"
         }
       },
-      "id": 37
+      "id": 37,
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      }
     },
     {
       "type": "row",
@@ -1289,7 +1418,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 121
+        "y": 125
       },
       "id": 31
     },
@@ -1300,7 +1429,7 @@
         "h": 7,
         "w": 16,
         "x": 0,
-        "y": 122
+        "y": 126
       },
       "targets": [
         {
@@ -1330,7 +1459,7 @@
         "h": 7,
         "w": 8,
         "x": 16,
-        "y": 122
+        "y": 126
       },
       "targets": [
         {
@@ -1375,7 +1504,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 129
+        "y": 133
       },
       "panels": [
         {

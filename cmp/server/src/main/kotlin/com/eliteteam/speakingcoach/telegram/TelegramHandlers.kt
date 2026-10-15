@@ -211,6 +211,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
     callEvents: CallEventRecorder? = null,
+    voiceCost: com.eliteteam.speakingcoach.analytics.VoiceCostStore? = null,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
@@ -1011,6 +1012,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
                 if (deliveryOutcome == "delivered" && result.reply.transcript.isNotBlank()) {
                     operationalMetrics?.recordCompletedVoiceExchange()
+                    val costAttemptId = telegramChatNumber(message.chat.id)?.let {
+                        voiceAttemptId(it, message.messageId.long)
+                    }
+                    if (voiceCost != null && costAttemptId != null) {
+                        try {
+                            voiceCost.recordExchange(costAttemptId, expectedCalls = result.reply.voiceCallCounts)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            log.error("Could not record voice cost exchange", error)
+                        }
+                    }
                 }
                 recordVoiceAttempt(message, receivedAt, eligible = true, outcome = deliveryOutcome,
                     stage = when (deliveryOutcome) {

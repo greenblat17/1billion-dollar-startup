@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 
 internal data class AdminUsageDay(
     val day: String,
+    /** Уникальные отправители голосовых, включая попытки без успешного ответа. */
     val activeChats: Long = 0,
     val incomingMessages: Long = 0,
     val callbacks: Long = 0,
@@ -20,6 +21,7 @@ internal data class AdminUsageDay(
 )
 
 internal data class AdminUsageOverview(
+    /** Уникальные отправители голосовых за весь интервал, не сумма по дням. */
     val activeChatsInPeriod: Long,
     val days: List<AdminUsageDay>,
     val firstObservedDay: String?,
@@ -48,7 +50,7 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
         dataSource.connection.use { connection ->
             connection.prepareStatement("""
                 SELECT min((received_at AT TIME ZONE 'Europe/Moscow')::date)
-                FROM interaction_events WHERE direction = 'incoming'
+                FROM telegram_voice_attempts
             """.trimIndent()).use { statement ->
                 statement.executeQuery().use { result ->
                     if (result.next()) firstObservedDay = result.getString(1)
@@ -56,10 +58,8 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
             }
             connection.prepareStatement("""
                 SELECT count(DISTINCT chat_id)
-                FROM interaction_events
-                WHERE occurred_at >= ? AND occurred_at < ?
-                  AND direction = 'incoming' AND status = 'received'
-                  AND kind IN ('voice', 'text', 'callback') AND chat_id IS NOT NULL
+                FROM telegram_voice_attempts
+                WHERE received_at >= ? AND received_at < ? AND chat_id IS NOT NULL
             """.trimIndent()).use { statement ->
                 statement.setTimestamp(1, start)
                 statement.setTimestamp(2, end)
@@ -69,7 +69,6 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
             }
             connection.prepareStatement("""
                 SELECT (occurred_at AT TIME ZONE 'Europe/Moscow')::date AS day,
-                       count(DISTINCT chat_id) FILTER (WHERE kind IN ('voice', 'text', 'callback')) AS active_chats,
                        count(*) FILTER (WHERE kind IN ('voice', 'text', 'photo')) AS incoming_messages,
                        count(*) FILTER (WHERE kind = 'callback') AS callbacks
                 FROM interaction_events
@@ -83,8 +82,7 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
                 statement.executeQuery().use { result ->
                     while (result.next()) {
                         val day = result.getString("day")
-                        rows[day] = AdminUsageDay(day, activeChats = result.getLong("active_chats"),
-                            incomingMessages = result.getLong("incoming_messages"),
+                        rows[day] = AdminUsageDay(day, incomingMessages = result.getLong("incoming_messages"),
                             callbacks = result.getLong("callbacks"))
                     }
                 }
@@ -92,6 +90,7 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
             connection.prepareStatement("""
                 SELECT (v.received_at AT TIME ZONE 'Europe/Moscow')::date AS day,
                        count(*) AS voices,
+                       count(DISTINCT v.chat_id) AS active_chats,
                        count(*) FILTER (WHERE v.outcome = 'delivered' AND EXISTS (
                            SELECT 1 FROM interaction_events e
                            WHERE e.attempt_id = v.attempt_id AND e.direction = 'internal'
@@ -109,7 +108,8 @@ internal class PostgresAdminUsageStore(databaseUrl: String) : AdminUsageStore, A
                     while (result.next()) {
                         val day = result.getString("day")
                         val old = rows[day] ?: AdminUsageDay(day)
-                        rows[day] = old.copy(voices = result.getLong("voices"),
+                        rows[day] = old.copy(activeChats = result.getLong("active_chats"),
+                            voices = result.getLong("voices"),
                             exchanges = result.getLong("exchanges"), voiceErrors = result.getLong("voice_errors"))
                     }
                 }
