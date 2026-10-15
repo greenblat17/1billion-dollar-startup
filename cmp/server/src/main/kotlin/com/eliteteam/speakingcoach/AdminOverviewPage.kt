@@ -66,8 +66,7 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
-        ${historicalRatesHtml(historicalRates)}
-        ${historicalOverviewHtml(days, models)}
+        ${historicalOverviewHtml(days, models, historicalRates)}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
@@ -217,11 +216,14 @@ private fun openRouterMinuteChart(
       $paths$dots</svg></div></section>"""
 }
 
-private fun historicalOverviewHtml(days: List<String>, models: AdminModelOverview?): String {
-    val overview = models ?: return "<p class=\"coverage\">Данные Redis сейчас недоступны.</p>"
+private fun historicalOverviewHtml(
+    days: List<String>, models: AdminModelOverview?, historicalRates: OpenRouterHistoricalRates?,
+): String {
+    val ratesHtml = historicalRatesHtml(historicalRates)
+    val overview = models ?: return "<p class=\"coverage\">Данные Redis сейчас недоступны.</p>$ratesHtml"
     val byDay = overview.historyDays.associateBy { it.day }
     val observed = overview.historyDays.filter(AdminHistoryDay::tracked)
-    if (observed.isEmpty()) return "<p class=\"coverage\">За выбранный период сохранённых данных Redis нет.</p>"
+    if (observed.isEmpty()) return "<p class=\"coverage\">За выбранный период сохранённых данных Redis нет.</p>$ratesHtml"
     val through = observed.last()
     val rows = days.joinToString("") { day ->
         val row = byDay[day]?.takeIf(AdminHistoryDay::tracked)
@@ -287,6 +289,7 @@ private fun historicalOverviewHtml(days: List<String>, models: AdminModelOvervie
         <p class="coverage">«7 дней» — уникальные активные пользователи за последние семь календарных суток; первые шесть дней истории не отображаются.
         Возврат — пользователь, активный сегодня и хотя бы в один более ранний сохранённый день. Новые пользователи и первые голосовые считаются по первой дате Telegram ID.
         «Завершили голосовой ход AI» — приближение к числу пользователей с целевым действием за всю историю. Оно не подтверждает доставку ответа; доставка учтена только в детальном блоке с 6 октября.</p>
+        $ratesHtml
         <h2>Источники новых пользователей за период</h2>
         <div class="table-wrap"><table><thead><tr><th>Источник</th><th>Новые пользователи</th><th>Первый голос</th></tr></thead>
         <tbody>${sources.ifBlank { "<tr><td colspan=\"3\">Нет данных</td></tr>" }}</tbody></table></div>

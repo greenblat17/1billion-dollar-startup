@@ -398,6 +398,12 @@ class MetricsDashboardTest {
             assertTrue(currentPeriodHtml.contains("Архив за 2026-09-24 — 2026-09-25"))
             assertTrue(currentPeriodHtml.contains("25.09 00:30 · 120.000"))
             assertTrue(currentPeriodHtml.contains("25.09 00:30 · 17.500"))
+            val withAudience = adminOverviewHtml(range,
+                AdminModelOverview(totalChats = 1, historySince = "2026-09-25",
+                    historyDays = listOf(AdminHistoryDay("2026-09-25", tracked = true))),
+                null, rates)
+            assertTrue(withAudience.indexOf("Рост пользователей") < withAudience.indexOf("TPM по минутам"))
+            assertTrue(withAudience.indexOf("TPM по минутам") < withAudience.indexOf("Источники новых пользователей"))
         } finally {
             Files.deleteIfExists(file)
         }
