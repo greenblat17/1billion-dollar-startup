@@ -18,6 +18,8 @@ internal fun adminOverviewHtml(
     models: AdminModelOverview?,
     usage: AdminUsageOverview?,
     historicalRates: OpenRouterHistoricalRates? = null,
+    ratesWindow: String? = null,
+    ratesDay: String? = null,
 ): String {
     val byModel = models?.days?.filter { models.modelSince.isNotBlank() && it.day >= models.modelSince }
         ?.associateBy { it.day }.orEmpty()
@@ -66,7 +68,7 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
-        ${historicalOverviewHtml(days, models, historicalRates)}
+        ${historicalOverviewHtml(days, models, historicalRates, range, ratesWindow, ratesDay)}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
@@ -115,15 +117,34 @@ internal fun adminOverviewHtml(
     """.trimIndent()
 }
 
-private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
+private fun historicalRatesHtml(
+    rates: OpenRouterHistoricalRates?, range: LlmRange, requestedWindow: String?, requestedDay: String?,
+): String {
     val imported = rates ?: return ""
     val zone = ZoneId.of("Europe/Moscow")
-    val archiveFrom = Instant.parse(imported.fromUtc).atZone(zone).toLocalDate()
-    val archiveTo = Instant.parse(imported.toUtc).minusNanos(1).atZone(zone).toLocalDate()
+    val archiveStart = Instant.parse(imported.fromUtc)
+    val archiveEnd = Instant.parse(imported.toUtc)
+    val archiveFrom = archiveStart.atZone(zone).toLocalDate()
+    val archiveTo = archiveEnd.minusNanos(1).atZone(zone).toLocalDate()
     val archiveDays = imported.days(LlmRange(archiveFrom, archiveTo))
     val days = archiveDays.map { it.day.toString() }
     val byDay = archiveDays.associateBy { it.day.toString() }
     val minutes = imported.minutes.sortedBy { it.minuteUtc }
+    val window = requestedWindow?.takeIf { it in setOf("day", "week", "all") } ?: "day"
+    val lastActiveDay = minutes.lastOrNull()?.let { Instant.parse(it.minuteUtc).atZone(zone).toLocalDate() } ?: archiveTo
+    val selectedDay = requestedDay?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+        ?.coerceIn(archiveFrom, archiveTo) ?: lastActiveDay
+    val visibleStart = when (window) {
+        "all" -> archiveStart
+        "week" -> maxOf(archiveStart, selectedDay.minusDays(6).atStartOfDay(zone).toInstant())
+        else -> maxOf(archiveStart, selectedDay.atStartOfDay(zone).toInstant())
+    }
+    val visibleEnd = if (window == "all") archiveEnd
+        else minOf(archiveEnd, selectedDay.plusDays(1).atStartOfDay(zone).toInstant())
+    val visibleMinutes = minutes.filter {
+        val time = Instant.parse(it.minuteUtc)
+        time >= visibleStart && time < visibleEnd
+    }
     val scope = if (imported.scope == "test") "ТЕСТОВЫЙ аккаунт" else "рабочий аккаунт"
     val timedCalls = minutes.sumOf { it.timedCalls }
     val allCalls = minutes.sumOf { it.calls }
@@ -131,19 +152,30 @@ private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
         <td>${it.peakTpm}</td><td>${it.peakTpsMilli?.let { value -> decimal(value / 1000.0, 2) } ?: "—"}</td></tr>""" } }
         .joinToString("")
     return """
-        <section aria-label="Исторические TPM и TPS OpenRouter">
+        <section id="historical-rates" aria-label="Исторические TPM и TPS OpenRouter">
         <h2>TPM и TPS · ${escapeHtml(scope)} OpenRouter</h2>
         <p class="coverage">Архив за $archiveFrom — $archiveTo по Москве; фильтр дат выше на него не влияет.
         Источник: OpenRouter Analytics API · ${escapeHtml(imported.fromUtc)} — ${escapeHtml(imported.toUtc)} UTC.
         Модели LLM: ${escapeHtml(imported.models.joinToString(", "))}.
-        Графики показывают значения за каждую минуту с вызовами; промежутки без вызовов показаны разрывами. Время на оси — московское.
+        Графики показывают значения за каждую минуту с вызовами; промежутки без вызовов показаны разрывами. Время на оси — московское. Ось Y подстраивается под выбранное окно.
         TPM — входные и выходные токены за минуту. TPS — выходные токены / суммарное время генерации вызовов этой минуты.
         Это вызовы выбранного аккаунта OpenRouter, включая его тесты; вызовы через других провайдеров сюда не входят.
         Время генерации известно для $timedCalls из $allCalls вызовов; TPS учитывает только их.
         Дневные максимумы и неполные дни видны в таблице.</p>
+        <form method="get" action="$METRICS_PATH#historical-rates" class="rates-scale">
+          <input type="hidden" name="from" value="${range.from}"><input type="hidden" name="to" value="${range.to}">
+          <label>Масштаб <select name="rates_window">
+            <option value="day" ${if (window == "day") "selected" else ""}>1 день</option>
+            <option value="week" ${if (window == "week") "selected" else ""}>7 дней</option>
+            <option value="all" ${if (window == "all") "selected" else ""}>Весь архив</option>
+          </select></label>
+          <label>День окончания <input type="date" name="rates_day" min="$archiveFrom" max="$archiveTo" value="$selectedDay"></label>
+          <button type="submit">Показать</button>
+          <span class="meta">Видимое окно: ${visibleStart.atZone(zone).format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))} — ${visibleEnd.atZone(zone).format(DateTimeFormatter.ofPattern("dd.MM HH:mm"))} МСК</span>
+        </form>
         <div class="chart-grid">
-          ${openRouterMinuteChart("TPM (токенов/мин) · OpenRouter", minutes, { it.tpm }, "#2563eb")}
-          ${openRouterMinuteChart("TPS (токенов/с) · OpenRouter", minutes, { it.tpsMilli }, "#16a34a", 1000)}
+          ${openRouterMinuteChart("TPM (токенов/мин) · OpenRouter", visibleMinutes, { it.tpm }, "#2563eb", from = visibleStart, to = visibleEnd)}
+          ${openRouterMinuteChart("TPS (токенов/с) · OpenRouter", visibleMinutes, { it.tpsMilli }, "#16a34a", 1000, visibleStart, visibleEnd)}
         </div>
         <h2>TPM и TPS · дневные максимумы и покрытие</h2><div class="table-wrap"><table><thead><tr>
         <th>День по Москве</th><th>Минут в выгрузке</th><th>Пиковый TPM</th><th>Пиковый TPS</th>
@@ -157,6 +189,8 @@ private fun openRouterMinuteChart(
     value: (OpenRouterRateMinute) -> Long?,
     color: String,
     valueDivisor: Long = 1,
+    from: Instant,
+    to: Instant,
 ): String {
     val points = minutes.map { Instant.parse(it.minuteUtc) to value(it) }.sortedBy { it.first }
     if (points.none { it.second != null })
@@ -166,8 +200,8 @@ private fun openRouterMinuteChart(
     val right = 704.0
     val top = 16.0
     val bottom = 160.0
-    val firstMillis = points.first().first.toEpochMilli()
-    val lastMillis = points.last().first.toEpochMilli()
+    val firstMillis = from.toEpochMilli()
+    val lastMillis = to.toEpochMilli()
     val duration = (lastMillis - firstMillis).toDouble()
     val x = { instant: Instant ->
         if (duration == 0.0) (left + right) / 2
@@ -222,8 +256,9 @@ private fun openRouterMinuteChart(
 
 private fun historicalOverviewHtml(
     days: List<String>, models: AdminModelOverview?, historicalRates: OpenRouterHistoricalRates?,
+    range: LlmRange, ratesWindow: String?, ratesDay: String?,
 ): String {
-    val ratesHtml = historicalRatesHtml(historicalRates)
+    val ratesHtml = historicalRatesHtml(historicalRates, range, ratesWindow, ratesDay)
     val overview = models ?: return "<p class=\"coverage\">Данные Redis сейчас недоступны.</p>$ratesHtml"
     val byDay = overview.historyDays.associateBy { it.day }
     val observed = overview.historyDays.filter(AdminHistoryDay::tracked)
@@ -453,6 +488,11 @@ private fun overviewStyle(): String = """
   .period label { color:#57534e; font-size:12px; display:grid; gap:4px; }
   .period input, .period button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:white; }
   .period button { background:#1d4ed8; border-color:#1d4ed8; color:white; cursor:pointer; }
+  .rates-scale { display:flex; align-items:end; gap:10px; flex-wrap:wrap; margin:16px 0; }
+  .rates-scale label { display:grid; gap:4px; color:#57534e; font-size:12px; }
+  .rates-scale select, .rates-scale input, .rates-scale button { font:inherit; border:1px solid #d6d3d1; border-radius:8px; padding:8px 10px; background:#fff; }
+  .rates-scale button { background:#1d4ed8; border-color:#1d4ed8; color:#fff; cursor:pointer; }
+  .rates-scale .meta { align-self:center; margin:0; }
   .overview-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(205px,1fr)); gap:12px; margin:22px 0 14px; }
   .overview-card { background:white; border:1px solid #e7e5e4; border-radius:12px; padding:17px; min-height:132px; }
   .overview-card dt { color:#57534e; font-size:13px; font-weight:600; }

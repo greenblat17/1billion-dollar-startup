@@ -103,7 +103,9 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
         val rates = try { dashboard.openRouterRatesFile?.takeIf(Files::isRegularFile)?.let(OpenRouterHistoricalRates::load) }
             catch (error: Throwable) { log.warn("OpenRouter historical rates unavailable", error); null }
-        call.respondText(adminOverviewHtml(range, models, usage, rates), ContentType.Text.Html)
+        call.respondText(adminOverviewHtml(range, models, usage, rates,
+            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"]),
+            ContentType.Text.Html)
     }.hide()
     get(METRICS_DETAILS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {

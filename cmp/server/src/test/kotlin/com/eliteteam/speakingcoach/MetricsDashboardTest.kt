@@ -439,6 +439,38 @@ class MetricsDashboardTest {
     }
 
     @Test
+    fun historicalOpenRouterScaleFiltersBothChartsAndRecalculatesAxis() {
+        val file = Files.createTempFile("openrouter-rates-scale", ".json")
+        try {
+            Files.writeString(file, """{
+                "schema":1,"scope":"production","source":"OpenRouter Analytics API",
+                "from_utc":"2026-09-24T20:00:00Z","to_utc":"2026-09-26T20:00:00Z",
+                "models":["openai/gpt-test"],"minutes":[
+                  {"minute_utc":"2026-09-24T21:30:00Z","calls":1,"tpm":120,"tps_milli":10000},
+                  {"minute_utc":"2026-09-25T21:30:00Z","calls":1,"tpm":120000,"tps_milli":100000}
+                ]
+            }""".trimIndent())
+            val range = LlmRange(LocalDate.parse("2026-10-09"), LocalDate.parse("2026-10-15"))
+            val rates = OpenRouterHistoricalRates.load(file)
+            val day = adminOverviewHtml(range, null, null, rates, "day", "2026-09-25")
+            val dayTpm = day.substringAfter("<h2>TPM (токенов/мин) · OpenRouter</h2>").substringBefore("</section>")
+            val dayTps = day.substringAfter("<h2>TPS (токенов/с) · OpenRouter</h2>").substringBefore("</section>")
+            assertTrue(dayTpm.contains("25.09 00:30 · 120.000"))
+            assertFalse(dayTpm.contains("26.09 00:30 · 120000.000"))
+            assertTrue(dayTpm.contains(">150</text>"))
+            assertTrue(dayTps.contains("25.09 00:30 · 10.000"))
+            assertFalse(dayTps.contains("26.09 00:30 · 100.000"))
+            assertTrue(day.contains("name=\"from\" value=\"2026-10-09\""))
+            val all = adminOverviewHtml(range, null, null, rates, "all", "2026-09-25")
+            val allTpm = all.substringAfter("<h2>TPM (токенов/мин) · OpenRouter</h2>").substringBefore("</section>")
+            assertTrue(allTpm.contains("26.09 00:30 · 120000.000"))
+            assertTrue(allTpm.contains(">150k</text>"))
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
     fun invalidLlmPeriodIsRejectedBeforeReadingMetrics() = testApplication {
         application {
             installSpeakingCoachHttp(MetricsDashboard(
