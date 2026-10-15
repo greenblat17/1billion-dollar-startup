@@ -265,7 +265,8 @@ class MemoryMetricsV2(MetricsV2):
         return {
             "clients": columns,
             "telegramJourney": _telegram_journey_snapshot(
-                self._telegram_since, len(self._telegram_only_start), self._telegram_milestones,
+                self._telegram_since,
+                *_normalized_telegram_journey(self._telegram_voice_counts, self._telegram_only_start, set()),
             ),
             "llmRequestsByDay": _llm_requests_from_memory(self.days, now if now is not None else time.time()),
         }
@@ -484,17 +485,28 @@ class RedisMetricsV2(MetricsV2):
             columns.append(column)
         async with self._redis.pipeline() as pipe:
             pipe.get(_TELEGRAM_JOURNEY_SINCE)
-            pipe.scard(_TELEGRAM_JOURNEY_ONLY_START)
-            pipe.hgetall(_TELEGRAM_JOURNEY_MILESTONES)
-            pipe.scard(_TELEGRAM_HISTORICAL_VOICE_USERS)
+            pipe.smembers(_TELEGRAM_JOURNEY_ONLY_START)
+            pipe.smembers(_TELEGRAM_HISTORICAL_VOICE_USERS)
             pipe.get(_TELEGRAM_HISTORICAL_BACKFILL_DONE)
-            since, only_start, milestones, historical_only, historical_backfill = await pipe.execute()
-        milestones = {int(key): int(value) for key, value in milestones.items()}
-        milestones[1] = milestones.get(1, 0) + int(historical_only)
+            since, only_start, historical_only, historical_backfill = await pipe.execute()
+        journey_keys = [key async for key in self._redis.scan_iter(
+            match="metrics:v2:telegram:journey:user:*", count=200)]
+        voice_counts: dict[str, int] = {}
+        if journey_keys:
+            async with self._redis.pipeline() as pipe:
+                for key in journey_keys:
+                    pipe.hget(key, "voices")
+                values = await pipe.execute()
+            voice_counts = {
+                str(key).removeprefix("metrics:v2:telegram:journey:user:"): int(value or 0)
+                for key, value in zip(journey_keys, values, strict=True)
+            }
+        normalized_only_start, milestones = _normalized_telegram_journey(
+            voice_counts, only_start, historical_only)
         return {
             "clients": columns,
             "telegramJourney": {
-                **_telegram_journey_snapshot(since or "", int(only_start), milestones),
+                **_telegram_journey_snapshot(since or "", normalized_only_start, milestones),
                 **({"firstVoiceSince": _TELEGRAM_HISTORICAL_VOICE_SINCE} if historical_backfill == "1" else {}),
             },
             "llmRequestsByDay": await self._llm_requests_history(now if now is not None else time.time()),
@@ -741,6 +753,24 @@ def _telegram_journey_snapshot(since: str, only_start: int, milestones: dict[int
         "since": since,
         "onlyStart": only_start,
         "atLeast": {str(threshold): milestones.get(threshold, 0) for threshold in _TELEGRAM_VOICE_MILESTONES},
+    }
+
+
+def _normalized_telegram_journey(
+    voice_counts: dict[str, int], only_start: set[str], historical_only: set[str],
+) -> tuple[int, dict[int, int]]:
+    per_chat: dict[str, int] = {}
+    for session, count in voice_counts.items():
+        if count <= 0:
+            continue
+        chat = _telegram_chat_id(session)
+        per_chat[chat] = per_chat.get(chat, 0) + count
+    for session in historical_only:
+        per_chat.setdefault(_telegram_chat_id(session), 1)
+    starts = {_telegram_chat_id(session) for session in only_start} - per_chat.keys()
+    return len(starts), {
+        threshold: sum(count >= threshold for count in per_chat.values())
+        for threshold in _TELEGRAM_VOICE_MILESTONES
     }
 
 

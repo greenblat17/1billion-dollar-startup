@@ -1117,7 +1117,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Все вызовы в минуту",
+      "title": "Туллколы в минуту",
       "description": "Попытки STT, LLM, TTS и Telegram API, включая ошибки и повторы; среднее за 5 минут. Нагрузочные тесты исключены из AI-вызовов. История каждой серии начинается с выката её счётчика.",
       "gridPos": {
         "h": 7,
@@ -1283,7 +1283,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT coalesce(sum(calls - priced + CASE WHEN expected_stt IS NULL OR expected_llm IS NULL OR expected_tts IS NULL THEN 1 ELSE abs(expected_stt - stt) + abs(expected_llm - llm) + abs(expected_tts - tts) END), 0) AS value FROM per_exchange",
+          "rawSql": "WITH per_exchange AS (\n  SELECT e.attempt_id, e.expected_stt, e.expected_llm, e.expected_tts,\n         date_trunc('day', e.delivered_at AT TIME ZONE 'Europe/Moscow') AT TIME ZONE 'Europe/Moscow' AS day,\n         coalesce(sum(c.cost_micro_usd), 0) AS known_micro,\n         count(c.call_id) AS calls,\n         count(c.call_id) FILTER (WHERE c.price_status = 'known') AS priced,\n         count(c.call_id) FILTER (WHERE c.component = 'stt') AS stt,\n         count(c.call_id) FILTER (WHERE c.component = 'llm') AS llm,\n         count(c.call_id) FILTER (WHERE c.component = 'tts') AS tts\n  FROM voice_cost_exchanges e\n  LEFT JOIN voice_cost_calls c ON c.attempt_id = e.attempt_id\n  WHERE $__timeFilter(e.delivered_at)\n  GROUP BY e.attempt_id, day\n)\nSELECT sum(calls - priced + CASE WHEN expected_stt IS NULL OR expected_llm IS NULL OR expected_tts IS NULL THEN 1 ELSE abs(expected_stt - stt) + abs(expected_llm - llm) + abs(expected_tts - tts) END) AS value FROM per_exchange",
           "refId": "A"
         }
       ],

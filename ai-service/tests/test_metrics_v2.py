@@ -267,6 +267,17 @@ async def test_telegram_journey_counts_distinct_users_at_cumulative_voice_milest
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("redis_backed", [False, True])
+async def test_telegram_voice_users_normalize_two_session_formats_for_one_chat(redis_backed: bool) -> None:
+    store = RedisMetricsV2(FakeAsyncRedis(decode_responses=True)) if redis_backed else MemoryMetricsV2()
+    await store.record_telegram_message("tg-ChatId(chatId=42)", "voice", "message:1")
+    await store.record_telegram_message("tg-42", "voice", "message:2")
+    journey = (await store.snapshot())["telegramJourney"]
+    assert journey["atLeast"]["1"] == 1
+    assert "speaking_telegram_voice_users 1\n" in store.prometheus(await store.snapshot())
+
+
+@pytest.mark.asyncio
 async def test_first_voice_backfill_uses_legacy_activation_without_inflating_higher_milestones() -> None:
     redis = FakeAsyncRedis(decode_responses=True)
     store = RedisMetricsV2(redis)
