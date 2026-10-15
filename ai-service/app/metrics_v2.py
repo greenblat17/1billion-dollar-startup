@@ -597,6 +597,7 @@ class RedisMetricsV2(MetricsV2):
                 "tracked": tracked,
                 "newChats": first_seen.get(day, 0),
                 "totalChatsToDate": sum(count for first, count in first_seen.items() if first <= day),
+                "chatsWithTurnToDate": len(prior_active | active),
                 "firstVoiceChats": first_voice.get(day, int(funnel.get("activated") or 0) if not first_voice else 0),
                 "firstVoiceChatsToDate": sum(count for first, count in first_voice.items() if first <= day),
                 "firstStarts": first_start.get(day, int(funnel.get("start") or 0) if not first_start else 0),

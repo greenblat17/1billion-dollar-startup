@@ -39,6 +39,8 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.nio.file.Path
+import java.nio.file.Files
 import java.util.Locale
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -80,6 +82,7 @@ internal class MetricsDashboard(
     val voiceAttempts: VoiceAttemptRecorder? = null,
     val callEvents: CallEventRecorder? = null,
     val usage: AdminUsageStore? = null,
+    val openRouterRatesFile: Path? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -98,7 +101,9 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val usage = try { dashboard.usage?.load(range) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Overview usage metrics unavailable", error); null }
-        call.respondText(adminOverviewHtml(range, models, usage), ContentType.Text.Html)
+        val rates = try { dashboard.openRouterRatesFile?.takeIf(Files::isRegularFile)?.let(OpenRouterHistoricalRates::load) }
+            catch (error: Throwable) { log.warn("OpenRouter historical rates unavailable", error); null }
+        call.respondText(adminOverviewHtml(range, models, usage, rates), ContentType.Text.Html)
     }.hide()
     get(METRICS_DETAILS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {

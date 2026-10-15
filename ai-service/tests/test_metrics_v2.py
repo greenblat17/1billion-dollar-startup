@@ -170,13 +170,28 @@ async def test_admin_overview_history_uses_same_definition_before_and_after_octo
     assert rows["2026-10-03"]["newChats"] == 1
     assert rows["2026-10-08"]["newChats"] == 0
     assert rows["2026-10-08"]["activeChatsWithTurn"] == 1
+    assert rows["2026-10-08"]["chatsWithTurnToDate"] == 1
     assert rows["2026-10-08"]["firstVoiceChats"] == 1
     assert rows["2026-10-08"]["returningActiveChats"] == 1
     assert rows["2026-10-14"]["firstVoiceChatsToDate"] == 1
     assert rows["2026-10-14"]["engagedChats"] == 1
     assert rows["2026-10-14"]["completedTurns"] == 4
     assert rows["2026-10-14"]["activeChats7d"] == 1
+    assert rows["2026-10-14"]["chatsWithTurnToDate"] == 1
     assert report["sourceBreakdown"] == [{"source": "campaign", "newChats": 1, "firstVoiceChats": 1}]
+
+
+@pytest.mark.asyncio
+async def test_admin_overview_cumulative_turn_users_include_days_before_selected_period() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.sadd("metrics:dau:2026-10-03", "tg-1")
+    await redis.sadd("metrics:dau:2026-10-08", "tg-1", "tg-2")
+    await redis.sadd("metrics:dau:2026-10-14", "tg-2", "tg-3", "app-1")
+
+    report = await RedisMetricsV2(redis).overview("2026-10-14", "2026-10-14")
+    row = report["historyDays"][0]
+    assert row["activeChatsWithTurn"] == 2
+    assert row["chatsWithTurnToDate"] == 3
 
 
 @pytest.mark.asyncio

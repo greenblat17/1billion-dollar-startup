@@ -384,7 +384,8 @@ private fun Application.metricsDashboard(
     if (source == null) {
         return null
     }
-    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage)
+    return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
+        config.openRouterRatesFile?.let(Path::of))
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

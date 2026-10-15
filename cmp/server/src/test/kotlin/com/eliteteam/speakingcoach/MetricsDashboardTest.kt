@@ -55,6 +55,7 @@ import java.time.ZoneId
 import kotlinx.serialization.json.Json
 import com.eliteteam.speakingcoach.ai.LlmRequestPeriod
 import java.time.Instant
+import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -290,6 +291,7 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<dd>\$0.0500</dd>"))
         assertTrue(html.contains("3 из 4 вызовов с известной ценой"))
         assertTrue(html.contains("<dd>197</dd>"))
+        assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>—</dd>"))
         assertFalse(html.contains("Loki"))
         val costChart = html.substringAfter("<h2>Известная стоимость LLM · USD</h2>").substringBefore("</section>")
         assertTrue(costChart.contains(">0.2</text>"))
@@ -301,7 +303,7 @@ class MetricsDashboardTest {
                 days = listOf(AdminModelDay(day, tracked = true, llmCalls = 265))),
             AdminUsageOverview(10, listOf(AdminUsageDay(day, activeChats = 10, exchanges = 10)), day),
         )
-        assertTrue(incomplete.contains("<dt>Вызовов / активный чат</dt><dd>—</dd>"))
+        assertTrue(incomplete.contains("<dt>Вызовов / активного пользователя</dt><dd>—</dd>"))
         assertTrue(incomplete.contains("<dt>LLM-cost / обмен</dt><dd>—</dd>"))
 
         val quietDay = adminOverviewHtml(
@@ -311,7 +313,7 @@ class MetricsDashboardTest {
             AdminUsageOverview(1, listOf(AdminUsageDay(day, activeChats = 1),
                 AdminUsageDay("2026-10-14")), "2026-10-12"),
         )
-        assertTrue(quietDay.contains("<dt>Вызовов / активный чат</dt><dd>2.0</dd>"))
+        assertTrue(quietDay.contains("<dt>Вызовов / активного пользователя</dt><dd>2.0</dd>"))
     }
 
     @Test
@@ -324,12 +326,13 @@ class MetricsDashboardTest {
                 historyDays = listOf(AdminHistoryDay(
                     day, tracked = true, activeChatsWithTurn = 2, completedTurns = 2,
                     promptTokens = 1346, completionTokens = 76, sttMs = 17114,
-                    ttsChars = 235, firstVoiceChats = 2, firstVoiceChatsToDate = 2,
+                    ttsChars = 235, firstVoiceChats = 2, firstVoiceChatsToDate = 2, chatsWithTurnToDate = 2,
                 ))),
             AdminUsageOverview(0, listOf(AdminUsageDay(day)), "2026-10-06"),
         )
         assertTrue(html.contains("Аудитория и использование AI"))
-        assertTrue(html.contains("<dt>Активных чатов за период</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Активных пользователей за период</dt><dd>2</dd>"))
+        assertTrue(html.contains("<dt>Завершили голосовой ход AI · всего</dt><dd>2</dd>"))
         assertTrue(html.contains("<dt>Токенов LLM</dt><dd>1422</dd>"))
         assertTrue(html.contains("<td>17.1</td>"))
         assertFalse(html.contains("<dt>Голосовых</dt>"))
@@ -345,20 +348,50 @@ class MetricsDashboardTest {
             LlmRange(from, to),
             AdminModelOverview(totalChats = 3, modelSince = "2026-10-06", historySince = "2026-09-24",
                 historyDays = listOf(
-                    AdminHistoryDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1, activeChatsWithTurn = 1),
-                    AdminHistoryDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3, activeChatsWithTurn = 2))),
+                    AdminHistoryDay("2026-09-24", tracked = true, newChats = 1, totalChatsToDate = 1, activeChatsWithTurn = 1, chatsWithTurnToDate = 1),
+                    AdminHistoryDay("2026-10-06", tracked = true, newChats = 1, totalChatsToDate = 3, activeChatsWithTurn = 2, chatsWithTurnToDate = 2))),
             AdminUsageOverview(0, emptyList(), "2026-10-06"),
         )
-        assertTrue(html.contains("Рост пользователей · Telegram-чаты"))
+        assertTrue(html.contains("Рост пользователей"))
         assertTrue(html.contains("DAU и активные за 7 дней"))
-        assertTrue(html.contains("2026-09-24 · Всего чатов: 1.000"))
-        assertTrue(html.contains("2026-10-06 · Всего чатов: 3.000"))
+        assertTrue(html.contains("2026-09-24 · Всего: 1.000"))
+        assertTrue(html.contains("2026-10-06 · Всего: 3.000"))
+        assertTrue(html.contains("2026-10-06 · Завершили голосовой ход AI: 2.000"))
         assertTrue(html.contains("2026-10-06 · DAU: 2.000"))
-        val growthChart = html.substringAfter("<h2>Рост пользователей · Telegram-чаты</h2>").substringBefore("</section>")
+        val growthChart = html.substringAfter("<h2>Рост пользователей</h2>").substringBefore("</section>")
         assertTrue(growthChart.contains("class=\"axis-y\""))
         assertTrue(growthChart.contains("class=\"axis-x\""))
         assertTrue(growthChart.contains(">2</text>"))
         assertTrue(growthChart.contains(">01.10</text>"))
+    }
+
+    @Test
+    fun historicalOpenRouterRatesUseMoscowDayAndIdentifyTestTraffic() {
+        val file = Files.createTempFile("openrouter-rates", ".json")
+        try {
+            Files.writeString(file, """{
+                "schema":1,"scope":"test","source":"OpenRouter Analytics API",
+                "from_utc":"2026-09-24T20:00:00Z","to_utc":"2026-09-25T20:00:00Z",
+                "models":["openai/gpt-test"],"minutes":[
+                  {"minute_utc":"2026-09-24T21:30:00Z","calls":2,"timed_calls":2,
+                   "tpm":120,"tps_milli":17500}
+                ]
+            }""".trimIndent())
+            val rates = OpenRouterHistoricalRates.load(file)
+            val range = LlmRange(LocalDate.parse("2026-09-24"), LocalDate.parse("2026-09-25"))
+            val byDay = rates.days(range)
+            assertEquals(0, byDay[0].peakTpm)
+            assertEquals(120, byDay[1].peakTpm)
+            assertEquals(17500, byDay[1].peakTpsMilli)
+            assertEquals(1380, byDay[1].coveredMinutes)
+            val html = adminOverviewHtml(range, null, null, rates)
+            assertTrue(html.contains("ТЕСТОВЫЙ аккаунт OpenRouter"))
+            assertTrue(html.contains("2026-09-25 · Токенов / мин: 120.000"))
+            assertTrue(html.contains("2026-09-25 · Выходных токенов / с: 17.500"))
+            assertTrue(html.contains("2 из 2 вызовов"))
+        } finally {
+            Files.deleteIfExists(file)
+        }
     }
 
     @Test

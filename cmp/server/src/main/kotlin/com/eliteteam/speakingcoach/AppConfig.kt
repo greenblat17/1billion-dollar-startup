@@ -16,6 +16,7 @@ data class AppConfig(
     val auditAudioDir: String = "/opt/speaking-coach/audit-audio",
     val loadTestToken: String? = null,
     val speakyEnv: String? = null,
+    val openRouterRatesFile: String? = null,
 ) {
     val usesWebhook: Boolean
         get() = !telegramWebhookUrl.isNullOrBlank()
@@ -50,6 +51,7 @@ data class AppConfig(
     companion object {
         const val DEFAULT_TLS_CERT_PATH = "/opt/speaking-coach/tls.crt"
         const val DEFAULT_TLS_KEY_PATH = "/opt/speaking-coach/tls.key"
+        const val DEFAULT_OPENROUTER_RATES_FILE = "/opt/speaking-coach/analytics/openrouter-llm-rates.json"
 
         fun fromEnv(): AppConfig = AppConfig(
             telegramBotToken = env("TELEGRAM_BOT_TOKEN")?.takeIf { it.isNotBlank() },
@@ -67,6 +69,8 @@ data class AppConfig(
             auditAudioDir = env("AUDIT_AUDIO_DIR")?.takeIf { it.isNotBlank() } ?: "/opt/speaking-coach/audit-audio",
             loadTestToken = env("LOAD_TEST_TOKEN")?.takeIf { it.isNotBlank() },
             speakyEnv = env("SPEAKY_ENV"),
+            openRouterRatesFile = env("OPENROUTER_RATES_FILE")?.takeIf { it.isNotBlank() }
+                ?: DEFAULT_OPENROUTER_RATES_FILE,
         )
 
         private fun env(name: String): String? = System.getenv(name)?.trim()

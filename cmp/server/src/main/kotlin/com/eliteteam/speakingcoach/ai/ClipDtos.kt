@@ -211,6 +211,7 @@ data class AdminHistoryDay(
     val ttsChars: Long = 0,
     val newChats: Long = 0,
     val totalChatsToDate: Long = 0,
+    val chatsWithTurnToDate: Long? = null,
     val firstVoiceChats: Long = 0,
     val firstVoiceChatsToDate: Long = 0,
     val firstStarts: Long = 0,
