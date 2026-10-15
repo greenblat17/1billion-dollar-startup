@@ -389,6 +389,13 @@ class MetricsDashboardTest {
             assertTrue(html.contains("2026-09-25 · Токенов / мин: 120.000"))
             assertTrue(html.contains("2026-09-25 · Выходных токенов / с: 17.500"))
             assertTrue(html.contains("2 из 2 вызовов"))
+            val currentPeriodHtml = adminOverviewHtml(
+                LlmRange(LocalDate.parse("2026-10-09"), LocalDate.parse("2026-10-15")),
+                null, null, rates,
+            )
+            assertTrue(currentPeriodHtml.contains("Архив за 2026-09-24 — 2026-09-25"))
+            assertTrue(currentPeriodHtml.contains("2026-09-25 · Токенов / мин: 120.000"))
+            assertTrue(currentPeriodHtml.contains("2026-09-25 · Выходных токенов / с: 17.500"))
         } finally {
             Files.deleteIfExists(file)
         }

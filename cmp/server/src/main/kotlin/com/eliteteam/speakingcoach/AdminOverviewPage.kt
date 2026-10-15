@@ -66,8 +66,8 @@ internal fun adminOverviewHtml(
         <form method="get" action="$METRICS_PATH" class="period"><label>От <input type="date" name="from" value="${range.from}" required></label>
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
+        ${historicalRatesHtml(historicalRates)}
         ${historicalOverviewHtml(days, models)}
-        ${historicalRatesHtml(range, days, historicalRates)}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
         <section class="overview-cards" aria-label="Итоги">
@@ -112,25 +112,25 @@ internal fun adminOverviewHtml(
     """.trimIndent()
 }
 
-private fun historicalRatesHtml(
-    range: LlmRange, days: List<String>, rates: OpenRouterHistoricalRates?,
-): String {
+private fun historicalRatesHtml(rates: OpenRouterHistoricalRates?): String {
     val imported = rates ?: return ""
-    val byDay = imported.days(range).associateBy { it.day.toString() }
-    if (byDay.isEmpty()) return ""
+    val zone = ZoneId.of("Europe/Moscow")
+    val archiveFrom = Instant.parse(imported.fromUtc).atZone(zone).toLocalDate()
+    val archiveTo = Instant.parse(imported.toUtc).minusNanos(1).atZone(zone).toLocalDate()
+    val archiveDays = imported.days(LlmRange(archiveFrom, archiveTo))
+    val days = archiveDays.map { it.day.toString() }
+    val byDay = archiveDays.associateBy { it.day.toString() }
     val scope = if (imported.scope == "test") "ТЕСТОВЫЙ аккаунт" else "рабочий аккаунт"
-    val selectedMinutes = imported.minutes.filter {
-        Instant.parse(it.minuteUtc).atZone(ZoneId.of("Europe/Moscow")).toLocalDate().toString() in byDay
-    }
-    val timedCalls = selectedMinutes.sumOf { it.timedCalls }
-    val allCalls = selectedMinutes.sumOf { it.calls }
+    val timedCalls = imported.minutes.sumOf { it.timedCalls }
+    val allCalls = imported.minutes.sumOf { it.calls }
     val rows = days.mapNotNull { day -> byDay[day]?.let { """<tr><td>$day</td><td>${it.coveredMinutes} / 1440</td>
         <td>${it.peakTpm}</td><td>${it.peakTpsMilli?.let { value -> decimal(value / 1000.0, 2) } ?: "—"}</td></tr>""" } }
         .joinToString("")
     return """
         <section aria-label="Исторические TPM и TPS OpenRouter">
         <h2>TPM и TPS · ${escapeHtml(scope)} OpenRouter</h2>
-        <p class="coverage">Источник: OpenRouter Analytics API · ${escapeHtml(imported.fromUtc)} — ${escapeHtml(imported.toUtc)} UTC.
+        <p class="coverage">Архив за $archiveFrom — $archiveTo по Москве; фильтр дат выше на него не влияет.
+        Источник: OpenRouter Analytics API · ${escapeHtml(imported.fromUtc)} — ${escapeHtml(imported.toUtc)} UTC.
         Модели LLM: ${escapeHtml(imported.models.joinToString(", "))}.
         Пик TPM за день — наибольшее число входных и выходных токенов за одну календарную минуту.
         Пик TPS за день — наибольшее отношение выходных токенов к сумме времени генерации среди вызовов той же минуты.
