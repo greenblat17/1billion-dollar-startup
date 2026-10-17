@@ -5,6 +5,9 @@ import pytest
 from app.dialogue import MemoryDialogueStore
 from app.calls import CallStore
 from app.llm import CorrectionRun
+from app.jobs import ClipJob
+from app.main import _run_job
+from app.memory_jobs import MemoryJobRunner, MemoryJobStore
 from app.pipeline import NOTES_TIMEOUT_SECONDS, ClipPipeline
 from app.stt import SttResult
 from app.tts import TtsAudio
@@ -58,6 +61,7 @@ class Personalization:
     def __init__(self):
         self.extracted = asyncio.Event()
         self.saved = False
+        self.contact_recorded = False
 
     async def prepare(self, session):
         return "context"
@@ -68,6 +72,9 @@ class Personalization:
 
     async def save_observation(self, session, observation):
         self.saved = True
+
+    async def record_contact(self, session):
+        self.contact_recorded = True
 
 
 def pipeline(llm, tts, personalization, notes_timeout_seconds=NOTES_TIMEOUT_SECONDS):
@@ -81,20 +88,71 @@ def pipeline(llm, tts, personalization, notes_timeout_seconds=NOTES_TIMEOUT_SECO
 
 
 @pytest.mark.asyncio
-async def test_tts_starts_before_notes_and_memory_is_saved_only_after_success():
+async def test_voice_finishes_without_waiting_for_personal_memory():
     llm, tts, memory = Llm(), Tts(), Personalization()
     turn = asyncio.create_task(pipeline(llm, tts, memory).run("tg-1", b"voice", "audio/ogg", "voice.ogg"))
     await asyncio.wait_for(tts.started.wait(), 1)
-    await asyncio.wait_for(memory.extracted.wait(), 1)
     assert not llm.notes_release.is_set()
     assert not memory.saved
     llm.notes_release.set()
     tts.release.set()
     result = await asyncio.wait_for(turn, 1)
-    assert memory.saved
+    assert not memory.extracted.is_set()
+    assert not memory.saved
+    assert result.memory_eligible
     assert result.audio == TtsAudio(b"OggS", "audio/ogg")
-    assert {"stt", "context", "reply", "notes", "memoryExtract", "tts", "memorySave", "finalize", "total"} <= result.timings_ms.keys()
+    assert {"stt", "context", "reply", "notes", "tts", "finalize", "total"} <= result.timings_ms.keys()
+    assert "memoryExtract" not in result.timings_ms
     assert result.timings_ms["total"] >= result.timings_ms["tts"]
+
+
+@pytest.mark.asyncio
+async def test_next_turn_uses_previous_words_before_memory_worker_runs():
+    llm, tts, memory = Llm(), Tts(), Personalization()
+    service = pipeline(llm, tts, memory)
+    llm.notes_release.set()
+    tts.release.set()
+    await service.run("tg-1", b"voice", "audio/ogg", "voice.ogg")
+    await service.run("tg-1", b"voice", "audio/ogg", "voice.ogg")
+    assert [message.content for message in llm.reply_contexts[1][0]] == [
+        "I work in design.", "Tell me more about your work.",
+    ]
+    assert not memory.extracted.is_set()
+
+
+@pytest.mark.asyncio
+async def test_successful_clip_enqueues_memory_without_running_extraction():
+    llm, tts, memory = Llm(), Tts(), Personalization()
+    service = pipeline(llm, tts, memory)
+    jobs = MemoryJobStore()
+    runner = MemoryJobRunner(jobs, memory)
+    llm.notes_release.set()
+    tts.release.set()
+    job = ClipJob("job-1", "tg-1", attempt_id="attempt-1")
+    await _run_job(job, b"voice", "audio/ogg", "voice.ogg", service, 2,
+                   memory_jobs=runner)
+    assert job.status == "ok"
+    assert memory.contact_recorded
+    assert not memory.extracted.is_set()
+    pending = await jobs.claim("tg-1", "inspect")
+    assert pending.id == "attempt-1"
+    assert pending.transcript == "I work in design."
+    await jobs.release("tg-1", "inspect")
+
+
+@pytest.mark.asyncio
+async def test_failed_tts_does_not_enqueue_memory():
+    llm, tts, memory = Llm(), Tts(fail=True), Personalization()
+    service = pipeline(llm, tts, memory)
+    runner = MemoryJobRunner(MemoryJobStore(), memory)
+    llm.notes_release.set()
+    tts.release.set()
+    job = ClipJob("job-2", "tg-1")
+    await _run_job(job, b"voice", "audio/ogg", "voice.ogg", service, 2,
+                   memory_jobs=runner)
+    assert job.status == "error"
+    assert not memory.contact_recorded
+    assert (await runner.store.pending())[0] == 0
 
 
 @pytest.mark.asyncio
@@ -132,7 +190,7 @@ async def test_notes_deadline_returns_ready_audio_and_cancels_correction_request
     assert result.corrections == []
     assert llm.notes_cancelled
     assert result.timings_ms["notes"] < 200
-    assert memory.saved
+    assert not memory.saved
     snapshot = await service.metrics.snapshot()
     assert snapshot["corrections"]["deadline"]["count"] == 1
 

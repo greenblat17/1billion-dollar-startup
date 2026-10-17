@@ -27,6 +27,7 @@ import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import com.eliteteam.speakingcoach.TelegramOperationalMetrics
 import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
+import dev.inmo.tgbotapi.bot.exceptions.BotException
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
@@ -72,6 +73,17 @@ import kotlin.time.TimeSource
 
 internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 private const val CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
+private const val TELEGRAM_DOWNLOAD_LIMIT_BYTES = 20L * 1024 * 1024
+
+internal class VoiceFileTooLargeException(cause: Throwable? = null) : Exception("Telegram voice file is too large", cause)
+
+internal fun exceedsTelegramDownloadLimit(bytes: ULong?): Boolean =
+    bytes != null && bytes > TELEGRAM_DOWNLOAD_LIMIT_BYTES.toULong()
+
+internal fun isTelegramFileTooLarge(error: Throwable): Boolean = generateSequence(error) { it.cause }.any { cause ->
+    cause is BotException && cause.response?.errorCode == 400 &&
+        cause.response?.description?.contains("file is too big", ignoreCase = true) == true
+}
 
 internal fun telegramSessionId(chatId: Any): SessionId = SessionId("tg-$chatId")
 private val telegramChatIdPattern = Regex("(?:ChatId\\(chatId=)?(-?\\d+)\\)?")
@@ -843,11 +855,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     log.info("Downloading voice")
                     val downloadStarted = TimeSource.Monotonic.markNow()
                     val bytes = try {
+                        if (exceedsTelegramDownloadLimit(content.media.fileSize?.bytes)) {
+                            throw VoiceFileTooLargeException()
+                        }
                         downloadFile(content.media)
                     } catch (error: CancellationException) {
                         throw error
                     } catch (error: Throwable) {
-                        log.warn("Voice download failed", error)
+                        val failure = when {
+                            error is VoiceFileTooLargeException -> error
+                            isTelegramFileTooLarge(error) -> VoiceFileTooLargeException(error)
+                            else -> error
+                        }
+                        log.warn("Voice download failed", failure)
                         downloadFailed = true
                         telegramChatNumber(message.chat.id)?.let { chatId ->
                             try { audit?.record(InteractionEvent(
@@ -859,7 +879,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 log.warn("Could not record voice download failure", auditError)
                             }
                         }
-                        throw error
+                        throw failure
                     }
                     downloadMs.set(downloadStarted.elapsedNow().inWholeMilliseconds)
                     telegramChatNumber(message.chat.id)?.let { chatId ->
@@ -1112,7 +1132,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 error is ClipJobFailure -> "ai_failed" to aiFailureStage(error.stage)
                 else -> "other_failed" to "other"
             }
-            telegramChatNumber(message.chat.id)?.let { chatId ->
+            if (!downloadFailed) telegramChatNumber(message.chat.id)?.let { chatId ->
                 val attemptId = voiceAttemptId(chatId, message.messageId.long)
                 try {
                     val artifacts = ai.auditAttempt(attemptId)
@@ -1136,9 +1156,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     log.warn("Failed to recover AI audit artifacts attempt_id={}", attemptId, artifactError)
                 }
             }
-            val failureCode = (error as? ClipJobFailure)?.reason?.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
-                    ?: (error as? ClipUploadFailure)?.reason
-                    ?: if (failedAt.first == "ai_timeout") "timeout" else localFailureReason(error)
+            val failureCode = when {
+                error is VoiceFileTooLargeException -> "file_too_large"
+                error is ClipJobFailure -> error.reason.takeIf { it in setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal") }
+                    ?: localFailureReason(error)
+                error is ClipUploadFailure -> error.reason
+                failedAt.first == "ai_timeout" -> "timeout"
+                else -> localFailureReason(error)
+            }
             recordVoiceAttempt(message, receivedAt, eligible = true, outcome = failedAt.first, stage = failedAt.second,
                 reason = failureCode,
                 setupMs = setupMs, downloadMs = downloadMs.get(), totalMs = voiceStarted.elapsedNow().inWholeMilliseconds,
@@ -1245,14 +1270,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             outcome = "error"
             if (isVoice) recordVoiceAttempt(message, receivedAt, eligible = true,
-                outcome = "other_failed", stage = "other", reason = localFailureReason(error),
+                outcome = if (error is VoiceFileTooLargeException) "download_failed" else "other_failed",
+                stage = if (error is VoiceFileTooLargeException) "telegram_download" else "other",
+                reason = if (error is VoiceFileTooLargeException) "file_too_large" else localFailureReason(error),
                 totalMs = handleStarted.elapsedNow().inWholeMilliseconds)
             log.error("Telegram message failed for {}", message.chat.id, error)
-            val state = if (isVoice) {
+            val state = if (isVoice && error !is VoiceFileTooLargeException) {
                 runCatching { ai.onboardingState(telegramSessionId(message.chat.id), "error:${message.messageId}") }.getOrNull()
             } else null
             reply(
-                message, if (state?.retryAvailable == true) "Something went wrong. Tap the button to retry with your saved answer." else ERROR_TEXT,
+                message, when {
+                    error is VoiceFileTooLargeException -> VOICE_TOO_LARGE_TEXT
+                    state?.retryAvailable == true -> "Something went wrong. Tap the button to retry with your saved answer."
+                    else -> ERROR_TEXT
+                },
                 allowSendingWithoutReply = true,
                 replyMarkup = state?.takeIf { it.retryAvailable }
                     ?.let { onboardingKeyboard("retry", it.runId) },

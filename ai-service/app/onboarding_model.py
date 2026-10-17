@@ -18,6 +18,30 @@ ASSESSMENT_RETRY_MAX_TOKENS = 2000
 REVIEW_MAX_TOKENS = 2400
 REVIEW_RETRY_MAX_TOKENS = 3200
 CLOSING_CALLBACK_MAX_TOKENS = 160
+PERSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "learner_person",
+        "strict": True,
+        "schema": {
+            "type": "object", "additionalProperties": False, "required": ["person"],
+            "properties": {"person": {
+                "type": "object", "additionalProperties": False,
+                "required": ["name", "work", "leisure", "goal", "facts"],
+                "properties": {
+                    **{key: {"type": ["string", "null"]} for key in ("name", "work", "leisure", "goal")},
+                    "facts": {"type": "array", "items": {"type": "string"}},
+                },
+            }},
+        },
+    },
+}
+
+
+class PersonValidationError(ValueError):
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
 STRICT_REVIEW_MODELS = frozenset({"google/gemini-3.5-flash-lite", "openai/gpt-4o-mini"})
 
 CLOSING_CALLBACK_SYSTEM = """You are Speaky saying goodbye after an English practice introduction.
@@ -278,7 +302,11 @@ class OnboardingModel:
             raise ValueError("invalid closing callback")
         return value
 
-    async def update_person(self, person: dict, transcripts: list[str]) -> dict:
+    async def update_person_once(self, person: dict, transcripts: list[str]) -> dict:
+        return await self.update_person(person, transcripts, retry=False, structured=True)
+
+    async def update_person(self, person: dict, transcripts: list[str], retry: bool = True,
+                            structured: bool = False) -> dict:
         raw = await self.llm.complete_json(
             "Return JSON {\"person\":{\"name\":string|null,\"work\":string|null,"
             "\"leisure\":string|null,\"goal\":string|null,\"facts\":[string]}}. "
@@ -290,21 +318,35 @@ class OnboardingModel:
             "Prefer recent explicit statements. Do not store language mistakes as personal facts.",
             json.dumps({"existingPerson": person, "transcripts": transcripts}, ensure_ascii=False),
             temperature=0.0, max_tokens=1200,
+            response_format=PERSON_SCHEMA if structured else None, retry=retry,
         )
-        value = _load_json(raw).get("person")
+        try:
+            value = _load_json(raw).get("person")
+        except (ValueError, TypeError):
+            raise PersonValidationError("invalid_json") from None
         if not isinstance(value, dict):
-            raise ValueError("invalid person memory")
+            raise PersonValidationError("person_missing")
         result = {}
         for key in ("name", "work", "leisure", "goal"):
             item = value.get(key)
-            if key not in value or (item is not None and (not isinstance(item, str) or len(item) > 240)):
-                raise ValueError("invalid person field")
+            if key not in value:
+                raise PersonValidationError("field_missing")
+            if item is not None and not isinstance(item, str):
+                raise PersonValidationError("field_type")
+            if isinstance(item, str) and len(item) > 240:
+                raise PersonValidationError("field_too_long")
             result[key] = item.strip() or None if isinstance(item, str) else None
         facts = value.get("facts")
-        if not isinstance(facts, list) or len(facts) > 12 or any(
-            not isinstance(item, str) or not item.strip() or len(item) > 240 for item in facts
-        ):
-            raise ValueError("invalid person facts")
+        if "facts" not in value:
+            raise PersonValidationError("facts_missing")
+        if not isinstance(facts, list) or any(not isinstance(item, str) for item in facts):
+            raise PersonValidationError("facts_type")
+        if len(facts) > 12:
+            raise PersonValidationError("facts_too_many")
+        if any(not item.strip() for item in facts):
+            raise PersonValidationError("facts_empty")
+        if any(len(item) > 240 for item in facts):
+            raise PersonValidationError("facts_too_long")
         result["facts"] = list(dict.fromkeys(item.strip() for item in facts))
         return result
 

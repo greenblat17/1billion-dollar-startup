@@ -29,7 +29,7 @@ private const val RETAIN_DAYS = 30L
 private const val STALE_SECONDS = 180L
 private val outcomes = setOf("delivered", "text_fallback", "queue_full", "download_failed", "upload_rejected", "ai_timeout", "ai_failed", "delivery_failed", "other_failed", "not_eligible", "unknown")
 private val stages = setOf("telegram_download", "queue", "upload", "stt", "reply_llm", "correction_llm", "tts", "state", "telegram_delivery", "other")
-private val reasons = setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "internal", "unknown")
+private val reasons = setOf("timeout", "rate_limit", "provider_5xx", "provider_4xx", "network", "invalid_input", "file_too_large", "internal", "unknown")
 
 internal fun voiceAttemptId(chatId: Long, messageId: Long): String =
     UUID.nameUUIDFromBytes("speaky-voice:$chatId:$messageId".toByteArray(StandardCharsets.UTF_8)).toString()
