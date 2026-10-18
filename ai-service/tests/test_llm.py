@@ -7,7 +7,7 @@ from app.config import Settings
 from app.dialogue import MemoryDialogueStore
 from app.llm import (
     CompletionTokenLimitError, Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM,
-    REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply,
+    REPLY_RETRY_MAX_TOKENS, FREE_CALL_REPLY_SYSTEM, OpenAiChatModel, parse_corrections, parse_reply,
     read_generation_time_ms, read_reasoning_tokens,
 )
 from app.load_test import bind_load_test, reset_load_test
@@ -154,11 +154,34 @@ async def test_roleplay_uses_counterpart_system_instead_of_teacher_persona():
             return '{"reply":"Tell me more about your experience."}'
 
     model = CaptureModel(None, "test")
-    await model.complete_reply([], "I led a project.", ROLEPLAY_CONTEXT_PREFIX + '{"kind":"job"}')
+    await model.complete_reply([], "I led a project.", ROLEPLAY_CONTEXT_PREFIX + '{"kind":"job"}', mode="roleplay")
     assert "employer's interviewer" in model.messages[0]["content"]
     assert "You are Speaky" not in model.messages[0]["content"]
     await model.complete_reply([], "I led a project.")
     assert "You are Speaky" in model.messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_free_call_uses_buddy_persona_with_history_and_personal_context():
+    class CaptureModel(OpenAiChatModel):
+        async def _complete(self, messages, *args, **kwargs):
+            self.messages = messages
+            return '{"reply":"There is another side to that."}'
+
+    from app.dialogue import ChatMessage
+
+    model = CaptureModel(None, "test")
+    history = [ChatMessage("assistant", "What do you think about remote work?")]
+    context = 'Context data:\n{"person":{"work":"designer"}}'
+    await model.complete_reply(history, "It makes me tired.", context, mode="free_call")
+
+    assert model.messages[0]["content"] == FREE_CALL_REPLY_SYSTEM
+    assert "One question, last" not in model.messages[0]["content"]
+    assert model.messages[1:] == [
+        {"role": "system", "content": context},
+        {"role": "assistant", "content": history[0].content},
+        {"role": "user", "content": "It makes me tired."},
+    ]
 
 
 def test_default_reply_and_notes_models_are_luna(monkeypatch):

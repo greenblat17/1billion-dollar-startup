@@ -12,6 +12,10 @@ Agents: start here, then open the linked docs for the current task. Do not skip 
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
 these files, not only in chat.
 
+Speaky's agreed Friendly Buddy persona for free `🎙 Start call` conversations: [Persona v1](product/2026-10-18-speaky-persona-v1.md) (source implementation; local model comparison complete, live voice quality pending).
+Implementation plan for that persona in free Telegram calls: [Friendly Buddy free-call plan](plans/2026-10-18-speaky-friendly-buddy-free-call.md).
+Local model comparison and remaining quality risks: [Friendly Buddy evaluation](researches/2026-10-18-free-call-persona-model-eval.md).
+
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.

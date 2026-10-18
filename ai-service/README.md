@@ -34,6 +34,8 @@ On two hosts, Ktor’s `AI_SERVICE_BASE_URL` is `http://<ai-server>:8090` (deplo
 pytest
 ```
 
+To compare the old and Friendly Buddy free-call prompts on the real configured LLM, use the [paired scenario evaluation](evals/free_call_persona.md). It does not require a running FastAPI server.
+
 ## Docker
 
 Image is `ai-service/Dockerfile`. Runtime on the server is Redeploy (`infra/ai-service/deploy-remote.sh`), not local compose.

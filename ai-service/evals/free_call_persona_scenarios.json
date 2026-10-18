@@ -1,0 +1,114 @@
+[
+  {
+    "id": "workday",
+    "title": "Tired after work",
+    "level": "B1",
+    "opening": "Hi! How was your day?",
+    "initial_user": "I've been working all day, and I'm tired.",
+    "person": {"work": "office employee"},
+    "brief": "Mention too many meetings, then that you prefer working alone. See whether Speaky contributes ideas instead of interviewing you."
+  },
+  {
+    "id": "short_answers",
+    "title": "One-word answers",
+    "level": "A2",
+    "opening": "Hi! Did you have a quiet weekend or a busy one?",
+    "initial_user": "Quiet.",
+    "person": {},
+    "brief": "Keep most replies to one or two words. Do not explain yourself unless Speaky gives you an interesting idea to react to."
+  },
+  {
+    "id": "stalled",
+    "title": "Cannot think of a topic",
+    "level": "A2",
+    "opening": "Hi! How are you today?",
+    "initial_user": "I don't know what to talk about.",
+    "person": {},
+    "brief": "Stay hesitant at first. See whether Speaky offers an easy specific direction rather than asking you to invent a topic."
+  },
+  {
+    "id": "finding_word",
+    "title": "Looking for a word",
+    "level": "A2",
+    "opening": "Hi! What would you like to get better at this year?",
+    "initial_user": "I want to improve my... уверенность? In English, I forget the word.",
+    "person": {"goal": "speak English more confidently"},
+    "brief": "Try to explain an idea with simple English and one missing word. See whether Speaky helps briefly without starting a grammar lesson."
+  },
+  {
+    "id": "upset",
+    "title": "Bad experience with a boss",
+    "level": "B1",
+    "opening": "Hi! How has your day been?",
+    "initial_user": "I had a terrible day. My boss was really rude.",
+    "person": {"work": "office employee"},
+    "brief": "Explain one concrete frustrating thing. See whether Speaky responds to your mood before changing the subject."
+  },
+  {
+    "id": "bored",
+    "title": "The conversation is boring",
+    "level": "B1",
+    "opening": "Hi! How are you doing today?",
+    "initial_user": "This is boring.",
+    "person": {},
+    "brief": "Reject one safe suggestion if needed. See whether Speaky acknowledges the problem and proposes a concrete new angle."
+  },
+  {
+    "id": "disagreement",
+    "title": "Disagree about remote work",
+    "level": "B2",
+    "opening": "Hi! I think remote work is convenient, but something gets lost when a team never meets. What do you think?",
+    "initial_user": "No, that's completely wrong. Offices waste people's time.",
+    "person": {"work": "remote designer"},
+    "brief": "Defend your view with one example, then concede a small point. See whether Speaky can disagree without arguing for its own sake."
+  },
+  {
+    "id": "social_media",
+    "title": "Opinion about social media",
+    "level": "B2",
+    "opening": "Hi! I have a small question: has social media made our lives better?",
+    "initial_user": "I think social media is a waste of time.",
+    "person": {},
+    "brief": "Offer a nuanced argument and ask Speaky for its position. Watch for automatic agreement or a generic follow-up question."
+  },
+  {
+    "id": "movie",
+    "title": "Science fiction without a forced persona",
+    "level": "B1",
+    "opening": "Hi! Seen anything worth watching lately?",
+    "initial_user": "I watched Interstellar yesterday. I liked it a lot.",
+    "person": {"leisure": "movies"},
+    "brief": "Discuss what you liked and then disagree with a possible criticism. See whether Speaky has an opinion without repeating its interests as a script."
+  },
+  {
+    "id": "returning",
+    "title": "Return to a previous topic",
+    "level": "B1",
+    "opening": "Hi, welcome back! You mentioned a job interview last time. How did it go?",
+    "initial_user": "It went badly, but I learned something from it.",
+    "person": {"work": "looking for a new job", "goal": "speak confidently in English interviews"},
+    "prior_turns": [
+      {"role": "user", "content": "I have a job interview on Friday."},
+      {"role": "assistant", "content": "That sounds like a big step. I hope it goes well."}
+    ],
+    "brief": "Explain what you learned, then move to a different topic. See whether Speaky uses the real history without inventing what happened."
+  },
+  {
+    "id": "about_speaky",
+    "title": "Ask Speaky about its life",
+    "level": "B2",
+    "opening": "Hi! What have you been thinking about lately?",
+    "initial_user": "What did you do last weekend? Do you have friends?",
+    "person": {},
+    "brief": "Ask one follow-up about Speaky's tastes. See whether it answers honestly without fabricated human memories or a stiff disclaimer."
+  },
+  {
+    "id": "teaching_english",
+    "title": "Upcoming teaching in English",
+    "level": "C1",
+    "opening": "Hi! What's on your mind today?",
+    "initial_user": "Next year I'll be teaching university classes in English. I understand it well, but I worry my speech sounds too simple.",
+    "person": {"work": "university lecturer", "goal": "teach classes in English"},
+    "brief": "Discuss the difference between clear speech and sophisticated vocabulary. See whether Speaky engages with the idea rather than reducing it to grammar advice."
+  }
+]

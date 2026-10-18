@@ -11,7 +11,7 @@ from typing import Any, Callable
 
 from app.dialogue import ChatMessage, DialogueStore
 from app.audit_artifacts import record_artifact
-from app.llm import ChatModel, Correction, CorrectionRun
+from app.llm import ChatModel, Correction, CorrectionRun, ReplyMode
 from app.load_test import load_test_active
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
@@ -229,13 +229,13 @@ class ClipPipeline:
         history = await self._dialogue.history(session_id)
         timings["contextHistory"] = _elapsed_ms(history_started)
         call_started = time.perf_counter()
-        scenario_call = None
-        if self.calls is not None and await self.calls.is_open_today(session_id):
-            call_summary = await self.calls.summary(session_id)
-            if call_summary is not None:
-                candidate = await self.calls.get(call_summary["callId"])
-                if candidate is not None and candidate.get("scenario"):
-                    scenario_call = candidate
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        scenario_call = active_call if active_call is not None and active_call.get("scenario") else None
+        reply_mode: ReplyMode = "ordinary"
+        if scenario_call is not None:
+            reply_mode = "roleplay"
+        elif active_call is not None:
+            reply_mode = "free_call"
         timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
             history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
@@ -267,7 +267,9 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
+            reply_text = await measured("reply", self._llm.complete_reply(
+                history, stt_result.text, profile_note, mode=reply_mode,
+            ))
             await record_artifact("reply", reply_text)
             tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)

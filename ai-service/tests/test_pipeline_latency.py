@@ -23,9 +23,11 @@ class Llm:
         self.notes_release = asyncio.Event()
         self.notes_cancelled = False
         self.reply_contexts = []
+        self.reply_modes = []
 
-    async def complete_reply(self, history, user_text, profile_note=None):
+    async def complete_reply(self, history, user_text, profile_note=None, *, mode="ordinary"):
         self.reply_contexts.append((history, profile_note))
+        self.reply_modes.append(mode)
         return "Tell me more about your work."
 
     async def complete_notes(self, user_text):
@@ -215,6 +217,24 @@ async def test_scenario_turns_stay_in_role_and_out_of_personal_memory():
         "Tell me about yourself?", "I work in design.", "Tell me more about your work.",
     ]
     assert llm.reply_contexts[0][1].startswith("Role-play context data:\n")
+    assert llm.reply_modes == ["roleplay", "roleplay"]
     assert not memory.extracted.is_set()
     assert not memory.saved
     assert await service.dialogue.history("tg-role") == []
+
+
+@pytest.mark.asyncio
+async def test_free_call_persona_starts_with_first_direct_voice_and_stays_outside_legacy_voice():
+    llm, tts, memory = Llm(), Tts(), Personalization()
+    service = pipeline(llm, tts, memory)
+    calls = CallStore()
+    service.calls = calls
+    await calls.open("tg-free")  # No starter has been delivered and no turn has been saved yet.
+    llm.notes_release.set()
+    tts.release.set()
+
+    await service.run("tg-free", b"voice", "audio/ogg", "voice.ogg")
+    await service.run("tg-legacy", b"voice", "audio/ogg", "voice.ogg")
+
+    assert llm.reply_modes == ["free_call", "ordinary"]
+    assert llm.reply_contexts[0][1] == "context"
