@@ -10,7 +10,8 @@ from typing import Any
 from app.calls import CallStore
 from app.onboarding import OnboardingStore
 from app.onboarding_review import (
-    REVIEW_COPY_POLICY, correction_candidates, explained_examples, fluency_metrics, select_examples,
+    EXAMPLE_LIMIT, REVIEW_COPY_POLICY, correction_candidates, explained_examples, fluency_metrics,
+    select_examples,
 )
 from app.onboarding_score import placed_level, step_score
 from app.metrics_v2 import bind_metrics, reset_metrics
@@ -48,7 +49,7 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
     explanations = {}
     for name in ("grammar", "vocabulary"):
         value = payload.get(f"{name}Explanations")
-        if not isinstance(value, list) or len(value) > 2 or any(not isinstance(item, str) for item in value):
+        if not isinstance(value, list) or len(value) > EXAMPLE_LIMIT or any(not isinstance(item, str) for item in value):
             raise ValueError(f"call review invalid {name} explanations")
         explanations[name] = [" ".join(item.split()) for item in value]
     return {
@@ -198,7 +199,7 @@ class CallReviews:
                 accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
             except Exception:
                 logger.exception("call correction verification failed; omitting examples")
-        examples = select_examples(candidates, accepted, limit=2)
+        examples = select_examples(candidates, accepted)
         metrics = fluency_metrics(call.get("turns") or [])
         transcripts = [str(turn.get("transcript") or "").strip() for turn in call.get("turns") or []]
         raw = await self.model.compose_call_review({

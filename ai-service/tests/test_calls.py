@@ -350,6 +350,45 @@ def test_call_review_requires_one_explanation_per_verified_example():
 
 
 @pytest.mark.asyncio
+async def test_call_review_shows_up_to_five_verified_examples_per_skill():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    corrections = [
+        {"wrong": wrong, "better": better, "kind": "grammar"}
+        for wrong, better in (
+            ("I builds", "I build"), ("she go", "she goes"),
+            ("we was", "we were"), ("he do", "he does"),
+            ("they is", "they are"), ("it have", "it has"),
+        )
+    ]
+    vocabulary = [
+        {"wrong": wrong, "better": better, "kind": "word"}
+        for wrong, better in (
+            ("do a decision", "make a decision"), ("strong rain", "heavy rain"),
+            ("make a photo", "take a photo"), ("big mistake", "serious mistake"),
+            ("fast shower", "quick shower"), ("do progress", "make progress"),
+        )
+    ]
+    transcript = (
+        "I builds, she go, we was, he do, they is, and it have. "
+        "I do a decision in strong rain, make a photo, big mistake, fast shower, do progress."
+    )
+    await calls.append_turn("tg-1", transcript, "Tell me more.", corrections + vocabulary, 12, [])
+    await calls.seal("tg-1")
+    review = await CallReviews(calls, store, Scorer(), Streaks()).review(opened["callId"])
+    examples = review["grammar"]["examples"]
+    assert len(examples) == 5
+    assert [item["wrong"] for item in examples] == [item["wrong"] for item in corrections[:5]]
+    assert all(item["explanation"] == "Use the base verb with I." for item in examples)
+    vocabulary_examples = review["vocabulary"]["examples"]
+    assert len(vocabulary_examples) == 5
+    assert [item["wrong"] for item in vocabulary_examples] == [item["wrong"] for item in vocabulary[:5]]
+    assert all(item["explanation"] == "Use the more natural word here." for item in vocabulary_examples)
+
+
+@pytest.mark.asyncio
 async def test_call_review_retries_invalid_explanations_with_review_fallback_model():
     class Llm:
         def __init__(self):
