@@ -7,12 +7,13 @@ from zoneinfo import ZoneInfo
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from app.call_review import CallReviews, apply_call_level, parse_call_moves
+from app.call_review import CallReviews, apply_call_level, parse_call_moves, validate_call_review_response
 from app.calls import CallStore, moscow_day
 from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore
 from app.onboarding import OnboardingStore
+from app.onboarding_model import CALL_REVIEW_RESPONSE_FORMAT, OnboardingModel, REVIEW_MAX_TOKENS, REVIEW_RETRY_MAX_TOKENS
 from app.onboarding_score import placed_level, step_score
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
@@ -47,6 +48,8 @@ class Scorer:
             "levelText": "This conversation sits just above your current level.",
             "recap": "That was a good talk about your startup.",
             "overallMove": self.move,
+            "grammarExplanations": ["Use the base verb with I."] * len(payload["grammarExamples"]),
+            "vocabularyExplanations": ["Use the more natural word here."] * len(payload["vocabularyExamples"]),
             "grammar": {"text": "Grammar is a little steadier.", "move": self.move},
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
             "fluency": {"text": "The turns are a little more connected.", "move": self.move},
@@ -214,6 +217,8 @@ def test_one_call_cannot_jump_the_level():
             "levelText": "A small step.",
             "recap": "We talked about your week. Then we got into the product launch. And the team.",
             "overallMove": 30,
+            "grammarExplanations": ["Use the correct tense here."],
+            "vocabularyExplanations": [],
             "grammar": {"text": "A bit clearer.", "move": 30},
             "vocabulary": {"text": "Same range.", "move": 0},
             "fluency": {"text": "A bit smoother.", "move": -30},
@@ -225,6 +230,7 @@ def test_one_call_cannot_jump_the_level():
     assert moved["assessment"]["cefr"] == "B1"
     assert moved["assessment"]["grammar"] <= 54
     assert moved["public"]["previousScore"] == 52
+    assert moved["public"]["grammar"]["examples"][0]["explanation"] == "Use the correct tense here."
     assert moved["public"]["recap"] == "We talked about your week. Then we got into the product launch."
     assert moved["public"]["fluency"]["score"] >= 50
 
@@ -301,6 +307,7 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert scorer.calls == 1
     assert first["overallScore"] == second["overallScore"] == 53
     assert first["streak"] == 4
+    assert first["grammar"]["examples"][0]["explanation"] == "Use the base verb with I."
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
 
 
@@ -321,6 +328,60 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert (await store.get_assessment("tg-2"))["overallScore"] == 52
     healed = CallReviews(failing, store, Scorer(move=1), Streaks())
     assert (await healed.review(other["callId"]))["retry"] is False
+
+
+def test_call_review_requires_one_explanation_per_verified_example():
+    request = {"grammarExamples": [{"wrong": "I builds", "better": "I build"}], "vocabularyExamples": []}
+    response = {
+        "levelText": "You link your ideas clearly.", "recap": "I enjoyed talking about your work.",
+        "overallMove": 1, "grammarExplanations": ["Use the base verb with I."],
+        "vocabularyExplanations": [], "grammar": {"text": "You use clear sentences.", "move": 1},
+        "vocabulary": {"text": "You choose familiar words.", "move": 0},
+        "fluency": {"text": "Your turns flow well.", "move": 0}, "vocabularySuggestions": [],
+    }
+    validate_call_review_response(json.dumps(response), request)
+    response["grammarExplanations"] = []
+    with pytest.raises(ValueError, match="explanation count"):
+        validate_call_review_response(json.dumps(response), request)
+    response["grammarExplanations"] = [""]
+    moves = parse_call_moves(json.dumps(response))
+    review = apply_call_level(baseline(), moves, {"grammar": request["grammarExamples"], "vocabulary": []}, {})
+    assert review["public"]["grammar"]["examples"] == []
+
+
+@pytest.mark.asyncio
+async def test_call_review_retries_invalid_explanations_with_review_fallback_model():
+    class Llm:
+        def __init__(self):
+            self.calls = []
+
+        async def complete_json(self, system, data, **kwargs):
+            self.calls.append((system, kwargs))
+            response = {
+                "levelText": "You connect ideas and explain why.",
+                "recap": "I enjoyed talking about your work.", "overallMove": 1,
+                "grammarExplanations": [] if len(self.calls) == 1 else ["Use the base verb with I."],
+                "vocabularyExplanations": [],
+                "grammar": {"text": "You make clear statements. One verb form needs work.", "move": 1},
+                "vocabulary": {"text": "You use familiar words accurately. Your range is steady.", "move": 0},
+                "fluency": {"text": "Your ideas connect. Your pace is steady.", "move": 0},
+                "vocabularySuggestions": [],
+            }
+            return json.dumps(response)
+
+    llm = Llm()
+    result = await OnboardingModel(
+        llm, "google/gemini-3.5-flash-lite", "openai/gpt-4o-mini",
+    ).compose_call_review({
+        "grammarExamples": [{"wrong": "I builds", "better": "I build"}],
+        "vocabularyExamples": [],
+    })
+    assert result["grammarExplanations"] == ["Use the base verb with I."]
+    assert [(call[1]["model"], call[1]["max_tokens"], call[1]["response_format"]) for call in llm.calls] == [
+        ("google/gemini-3.5-flash-lite", REVIEW_MAX_TOKENS, CALL_REVIEW_RESPONSE_FORMAT),
+        ("openai/gpt-4o-mini", REVIEW_RETRY_MAX_TOKENS, CALL_REVIEW_RESPONSE_FORMAT),
+    ]
+    assert all("exact excerpts" in call[0] and "matching Explanations array" in call[0] for call in llm.calls)
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,9 @@ from typing import Any
 
 from app.calls import CallStore
 from app.onboarding import OnboardingStore
-from app.onboarding_review import correction_candidates, fluency_metrics, select_examples
+from app.onboarding_review import (
+    REVIEW_COPY_POLICY, correction_candidates, explained_examples, fluency_metrics, select_examples,
+)
 from app.onboarding_score import placed_level, step_score
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.vocabulary_suggestions import VOCABULARY_SUGGESTION_POLICY, select_vocabulary_suggestions
@@ -20,18 +22,20 @@ CALL_REVIEW_SYSTEM = """You compare one finished English conversation with the l
 The current scores are the baseline. Judge only whether this conversation is a little weaker,
 about the same, or a little stronger than that baseline.
 Always reply with a JSON object only:
-{"levelText": string, "recap": string, "overallMove": int, "grammar": {"text": string, "move": int},
+{"levelText": string, "recap": string, "overallMove": int,
+ "grammarExplanations":string[], "vocabularyExplanations":string[],
+ "grammar": {"text": string, "move": int},
  "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int},
  "vocabularySuggestions":[{"original":string,"alternative":string,"explanation":string}]}
 Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
 Do not return a CEFR label or a 0-100 score. Do not invent a new level.
-levelText is two short sentences about this conversation, relative to the current level.
+levelText is two or three short diagnostic sentences about the English demonstrated in this
+conversation relative to the current level. Explain the result using one or two exact excerpts
+from the transcripts when available. Explain what they show, not just what topics were discussed.
+Only mention a limitation when the speech demonstrates it. If evidence is thin, say so.
 recap is one or two sentences Speaky says to close the call. Say you enjoyed talking and name the specific things you discussed, using only the transcripts. No score, no CEFR level, no mistakes, and no advice.
-Each skill text is one short sentence. Do not include a number or a CEFR letter in any sentence.
-Use only the supplied examples for claims about mistakes. An empty list is not error-free speech.
-""" + VOCABULARY_SUGGESTION_POLICY + """
-Fluency text may mention pace, pauses, and fillers in words, not with a new number.
-"""
+The recap is a separate closing, not part of the diagnostic assessment.
+""" + REVIEW_COPY_POLICY + VOCABULARY_SUGGESTION_POLICY
 
 
 def parse_call_moves(raw: str) -> dict[str, Any]:
@@ -41,6 +45,12 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
     level = payload.get("levelText")
     if not isinstance(level, str) or not level.strip():
         raise ValueError("call review missing levelText")
+    explanations = {}
+    for name in ("grammar", "vocabulary"):
+        value = payload.get(f"{name}Explanations")
+        if not isinstance(value, list) or len(value) > 2 or any(not isinstance(item, str) for item in value):
+            raise ValueError(f"call review invalid {name} explanations")
+        explanations[name] = [" ".join(item.split()) for item in value]
     return {
         "levelText": " ".join(level.split()),
         "recap": _recap(payload.get("recap")),
@@ -48,8 +58,38 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
         "grammar": _skill_move(payload.get("grammar")),
         "vocabulary": _skill_move(payload.get("vocabulary")),
         "fluency": _skill_move(payload.get("fluency")),
+        "grammarExplanations": explanations["grammar"],
+        "vocabularyExplanations": explanations["vocabulary"],
         "vocabularySuggestions": payload.get("vocabularySuggestions"),
     }
+
+
+def validate_call_review_response(raw: str, request: dict) -> None:
+    """Check the full contract when a provider ignores the response schema."""
+    payload = json.loads(_strip_fence(raw))
+    expected = {
+        "levelText", "recap", "overallMove", "grammarExplanations",
+        "vocabularyExplanations", "grammar", "vocabulary", "fluency", "vocabularySuggestions",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected:
+        raise ValueError("invalid call review fields")
+    parse_call_moves(raw)
+    if type(payload["overallMove"]) is not int or not -2 <= payload["overallMove"] <= 2:
+        raise ValueError("invalid overall move")
+    for name in ("grammar", "vocabulary", "fluency"):
+        skill = payload[name]
+        if (not isinstance(skill, dict) or set(skill) != {"text", "move"}
+                or type(skill["move"]) is not int or not -2 <= skill["move"] <= 2):
+            raise ValueError(f"invalid {name} move")
+    for name in ("grammar", "vocabulary"):
+        if len(payload[f"{name}Explanations"]) != len(request.get(f"{name}Examples") or []):
+            raise ValueError(f"invalid {name} explanation count")
+    suggestions = payload["vocabularySuggestions"]
+    if (not isinstance(suggestions, list) or len(suggestions) > 3 or any(
+        not isinstance(item, dict) or set(item) != {"original", "alternative", "explanation"}
+        or any(not isinstance(part, str) for part in item.values()) for item in suggestions
+    )):
+        raise ValueError("invalid vocabulary suggestions")
 
 
 def apply_call_level(
@@ -72,7 +112,8 @@ def apply_call_level(
         skill = {
             "score": stepped if stepped is not None else prior,
             "text": moves[name]["text"],
-            "examples": examples.get(name) or [],
+            "examples": (explained_examples(examples.get(name) or [], moves[f"{name}Explanations"])
+                         if name in ("grammar", "vocabulary") else []),
             "suggestions": (vocabulary_suggestions or []) if name == "vocabulary" else [],
         }
         skills[name] = skill

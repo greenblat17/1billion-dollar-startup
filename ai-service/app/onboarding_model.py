@@ -5,6 +5,7 @@ import logging
 from typing import Any
 
 from app.personalization import CONVERSATION_POLICY
+from app.onboarding_review import REVIEW_COPY_POLICY
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.llm import CompletionTokenLimitError, OpenAiChatModel, _load_json
 from app.onboarding_score import SHADES, SKILL_FLAGS
@@ -93,6 +94,26 @@ REVIEW_RESPONSE_FORMAT = {
         "strict": True,
         "schema": {"type": "object", "properties": _review_properties,
                    "required": list(_review_properties), "additionalProperties": False},
+    },
+}
+_call_skill_properties = {"text": {"type": "string"}, "move": {"type": "integer"}}
+_call_review_properties = {
+    "levelText": {"type": "string"},
+    "recap": {"type": "string"},
+    "overallMove": {"type": "integer"},
+    "grammarExplanations": {"type": "array", "items": {"type": "string"}},
+    "vocabularyExplanations": {"type": "array", "items": {"type": "string"}},
+    **{name: {"type": "object", "properties": _call_skill_properties,
+              "required": list(_call_skill_properties), "additionalProperties": False}
+       for name in ("grammar", "vocabulary", "fluency")},
+    "vocabularySuggestions": _review_properties["vocabularySuggestions"],
+}
+CALL_REVIEW_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "call_review", "strict": True,
+        "schema": {"type": "object", "properties": _call_review_properties,
+                   "required": list(_call_review_properties), "additionalProperties": False},
     },
 }
 
@@ -232,30 +253,7 @@ Use fewer excerpts or none when the sample cannot support them.
 Do not repeat CEFR letters, numeric scores, or internal low/mid/high labels in levelText;
 the card already shows the assessment.
 
-Grammar and vocabulary "text" must each be exactly two concise diagnostic sentences:
-describe observed ability and, only when supported, its main limitation. Give concrete
-evidence without repeating correction examples, recapping topics, or adding advice.
-Fluency "text" is two concise sentences about demonstrated flow. Do not include CEFR letters.
-Ignore garbled fragments and probable transcription artifacts when assessing all skills.
-Do not treat an immediate self-correction as an error; judge the completed phrase.
-Only describe speaking pace or hesitation when supplied fluency timings support it.
-Connected written sentences and the learner's own report of searching for words are not pace evidence.
-The supplied grammar/vocabulary examples have passed a conservative verification step.
-An empty list means no sufficiently reliable correction was selected, not error-free speech.
-Do not invent mistake examples or counts.
-For each supplied grammar/vocabulary example, return one short English explanation in the
-matching Explanations array, in the same order. Explain precisely why its local replacement
-is needed in this context, using simple language. Do not explain a different error, guess
-the intended meaning, or suggest another rewrite. Return [] when that skill has no examples.
-If an example cannot be explained confidently, put an empty string at its position; it will
-not be shown. These explanations appear beneath the marked local correction.
-Claims about grammar mistakes must use only the supplied grammar examples.
-Claims about vocabulary mistakes must use only the supplied vocabulary examples.
-When examples are empty, describe supported ability from the transcripts or insufficient evidence;
-do not invent a weakness to fill the sentence.
-""" + VOCABULARY_SUGGESTION_POLICY + """
-Fluency text may refer to the supplied pace, pauses, and fillers in words, not with a new number.
-Fillers are only detections in ASR output, not a complete count; null or zero never proves their absence.
+""" + REVIEW_COPY_POLICY + VOCABULARY_SUGGESTION_POLICY + """
 "notes" is one short sentence of qualitative evidence for the band, position, and shade, and is not shown to the user.
 """
 
@@ -427,15 +425,24 @@ class OnboardingModel:
         return set(accepted)
 
     async def compose_call_review(self, payload: dict) -> dict:
-        from app.call_review import CALL_REVIEW_SYSTEM, parse_call_moves
-
-        raw = await self.llm.complete_json(
-            CALL_REVIEW_SYSTEM,
-            json.dumps(payload, ensure_ascii=False),
-            temperature=0.0,
-            max_tokens=1100,
-        )
-        return parse_call_moves(raw)
+        from app.call_review import CALL_REVIEW_SYSTEM, parse_call_moves, validate_call_review_response
+        data = json.dumps(payload, ensure_ascii=False)
+        attempts = ((self.review_model, REVIEW_MAX_TOKENS),
+                    (self.review_fallback_model or self.review_model, REVIEW_RETRY_MAX_TOKENS))
+        last_error: Exception | None = None
+        for attempt, (model, max_tokens) in enumerate(attempts, start=1):
+            try:
+                raw = await self.llm.complete_json(
+                    CALL_REVIEW_SYSTEM, data, temperature=0.0, max_tokens=max_tokens,
+                    response_format=CALL_REVIEW_RESPONSE_FORMAT if model in STRICT_REVIEW_MODELS else None,
+                    model=model,
+                )
+                validate_call_review_response(raw, payload)
+                return parse_call_moves(raw)
+            except Exception as exc:
+                last_error = exc
+                logger.warning("call review attempt %s failed: %s", attempt, type(exc).__name__)
+        raise RuntimeError("call review unavailable after two attempts") from last_error
 
     async def compose_review(self, payload: dict) -> dict:
         data = json.dumps(payload, ensure_ascii=False)
