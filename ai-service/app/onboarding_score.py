@@ -68,22 +68,16 @@ def _bounds(index: int) -> tuple[int, int]:
 
 
 def owning_cell(score: int) -> tuple[str, str, int, int, int]:
-    """The band, position, anchor, and inclusive bounds that already contain this score."""
-    contained = []
-    for index, (band, position, anchor) in enumerate(_CELLS):
-        lower, upper = _bounds(index)
-        if lower <= score <= upper:
-            contained.append((band, position, anchor, lower, upper))
-    if not contained:
-        index = min(range(len(_CELLS)), key=lambda item: abs(_CELLS[item][2] - score))
-        band, position, anchor = _CELLS[index]
-        lower, upper = _bounds(index)
-        return band, position, anchor, lower, upper
-    return min(contained, key=lambda item: abs(item[2] - score))
+    """Map every score to its nearest level anchor; ties stay with the lower anchor."""
+    index = min(range(len(_CELLS)), key=lambda item: abs(_CELLS[item][2] - score))
+    band, position, anchor = _CELLS[index]
+    lower = _CELLS[0][2] - 2 if index == 0 else (_CELLS[index - 1][2] + anchor) // 2 + 1
+    upper = _CELLS[-1][2] + 2 if index + 1 == len(_CELLS) else (anchor + _CELLS[index + 1][2]) // 2
+    return band, position, anchor, lower, upper
 
 
 def step_score(previous: int | None, move: int) -> int | None:
-    """Move a stored score by at most two points and keep it inside its current cell."""
+    """Accumulate at most two points per call across level boundaries."""
     if previous is None:
         return None
     try:
@@ -91,15 +85,20 @@ def step_score(previous: int | None, move: int) -> int | None:
     except (TypeError, ValueError):
         return None
     step = max(-2, min(2, int(move)))
-    _band, _position, _anchor, lower, upper = owning_cell(current)
-    return min(max(current + step, lower), upper)
+    return min(max(current + step, _CELLS[0][2] - 2), _CELLS[-1][2] + 2)
 
 
 def placed_level(score: int) -> dict:
-    """Band and shade implied by a score that already sits inside one cell."""
+    """Place an accumulated score without snapping it back to an onboarding anchor."""
     band, position, anchor, _lower, _upper = owning_cell(score)
     shade = next(name for name, value in SHADES.items() if value == max(-2, min(2, score - anchor)))
-    return {"cefr": band, "position": position, "shade": shade, **overall_progress(band, position, shade)}
+    progress = overall_progress(band, position, shade)
+    return {
+        "cefr": band, "position": position, "shade": shade,
+        **progress,
+        "overallScore": score,
+        "pointsToNext": band_start(progress["nextBand"]) - score if progress["nextBand"] else None,
+    }
 
 
 def skill_score(band: str | None, position: str | None, shade: str = "0") -> int | None:

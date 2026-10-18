@@ -12,6 +12,33 @@ CLOSING_MID = "I feel like I know you a little better now."
 CLOSING_TAIL = "And I can already hear your English a little. Let me show you what I noticed."
 CLOSING_SMILE = "😊"
 _CONTENT = re.compile(r"[a-z0-9']+")
+REVIEW_COPY_POLICY = """
+The assessment is diagnostic: do not ask questions or add social praise.
+Use warm, direct English addressed to "you". Do not recap topics in the assessment text.
+Ground claims in demonstrated English. Ignore garbled fragments and probable transcription
+artifacts. Do not treat an immediate self-correction as an error; judge the completed phrase.
+Do not infer missing abilities from constructions the learner did not use or pronunciation
+from transcripts. Only describe speaking pace or hesitation when supplied timings support it.
+Grammar and vocabulary "text" must each be exactly two concise diagnostic sentences:
+describe observed ability and, only when supported, its main limitation. Give concrete
+evidence without repeating correction examples or adding advice.
+Fluency "text" is two concise sentences about demonstrated flow.
+Do not include scores, CEFR letters, or internal low/mid/high labels in these texts.
+The supplied grammar/vocabulary examples have passed a conservative verification step.
+An empty list means no sufficiently reliable correction was selected, not error-free speech.
+Do not invent mistake examples or counts. Claims about grammar or vocabulary mistakes must
+use only the supplied examples for that skill.
+For each supplied grammar/vocabulary example, return one short English explanation in the
+matching Explanations array, in the same order. Explain precisely why its local replacement
+is needed in this context, using simple language. Do not explain a different error, guess
+the intended meaning, or suggest another rewrite. Return [] when that skill has no examples.
+If an example cannot be explained confidently, put an empty string at its position; it will
+not be shown. These explanations appear beneath the marked local correction.
+When examples are empty, describe supported ability or insufficient evidence; do not invent
+a weakness to fill the sentence.
+Fluency text may refer to supplied pace, pauses, and fillers in words, not with a new number.
+Fillers are only detections in ASR output; null or zero never proves their absence.
+"""
 _STOP = frozenset({
     "about", "and", "are", "been", "from", "have", "hope", "into", "just", "like",
     "more", "really", "some", "sometime", "sounds", "tell", "that", "them", "then",
