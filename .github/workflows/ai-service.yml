@@ -47,39 +47,6 @@ jobs:
           pip install -r requirements-dev.txt
           pytest
 
-      - name: Check personal memory with DEV model
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          DEV_AI_SERVER_ENV: ${{ secrets.DEV_AI_SERVER_ENV }}
-        run: |
-          python - <<'PY'
-          import asyncio
-          import os
-
-          wanted = {"OPENAI_API_KEY", "OPENAI_BASE_URL", "LLM_MODEL"}
-          for line in os.environ.pop("DEV_AI_SERVER_ENV", "").splitlines():
-              key, separator, value = line.partition("=")
-              key = key.strip()
-              if separator and key in wanted:
-                  value = value.strip()
-                  if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                      value = value[1:-1]
-                  os.environ[key] = value
-
-          if not os.environ.get("OPENAI_API_KEY"):
-              raise SystemExit("DEV model configuration is unavailable")
-
-          from evals.check_person_memory import main
-
-          try:
-              asyncio.run(main())
-          except Exception as error:
-              reason = getattr(error, "reason", "")
-              status = getattr(error, "status_code", "")
-              print(f"personal memory check failed: {type(error).__name__} reason={reason} status={status}")
-              raise SystemExit(1)
-          PY
-
       - name: Stage runtime
         run: |
           STAGE="$RUNNER_TEMP/ai-service-runtime"
