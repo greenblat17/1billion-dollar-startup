@@ -59,7 +59,7 @@ def apply_call_level(
     fluency: dict[str, Any],
     vocabulary_suggestions: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Step every shown score from the stored baseline and keep the same cell."""
+    """Step every shown score from the stored baseline by at most two points."""
     previous = assessment.get("overallScore")
     overall = step_score(previous if isinstance(previous, int) else None, moves["overallMove"])
     if overall is None:
@@ -202,7 +202,11 @@ class CallReviews:
         proficiency["overall_score"] = assessment.get("overallScore")
         for skill in ("grammar", "vocabulary", "fluency"):
             current = dict(proficiency.get(skill) or {})
-            current["score"] = assessment.get(skill)
+            score = assessment.get(skill)
+            current["score"] = score
+            if isinstance(score, int):
+                level = placed_level(score)
+                current.update(band=level["cefr"], position=level["position"], shade=level["shade"])
             proficiency[skill] = current
         memory["proficiency"] = proficiency
         await self.store.save_learner(session_id, memory)

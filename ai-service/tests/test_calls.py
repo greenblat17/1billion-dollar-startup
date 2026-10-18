@@ -13,7 +13,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore
 from app.onboarding import OnboardingStore
-from app.onboarding_score import step_score
+from app.onboarding_score import placed_level, step_score
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
 from tests.conftest import FakeLlm, FakeTts
@@ -207,7 +207,7 @@ async def test_telegram_voice_reactions_follow_each_call_and_survive_restart():
 def test_one_call_cannot_jump_the_level():
     assert step_score(52, 30) == 54
     assert step_score(52, -30) == 50
-    assert step_score(50, 2) <= 52
+    assert step_score(50, 2) == 52
     moved = apply_call_level(
         baseline(),
         parse_call_moves(json.dumps({
@@ -227,6 +227,60 @@ def test_one_call_cannot_jump_the_level():
     assert moved["public"]["previousScore"] == 52
     assert moved["public"]["recap"] == "We talked about your week. Then we got into the product launch."
     assert moved["public"]["fluency"]["score"] >= 50
+
+
+def test_accumulated_scores_cross_position_and_band_boundaries():
+    score = 56
+    observed = []
+    for _ in range(4):
+        score = step_score(score, 2)
+        level = placed_level(score)
+        observed.append((level["overallScore"], level["cefr"], level["position"], level["pointsToNext"]))
+    assert observed == [
+        (58, "B1", "high", 3),
+        (60, "B1", "high", 1),
+        (62, "B2", "low", 19),
+        (64, "B2", "low", 17),
+    ]
+    assert placed_level(54)["position"] == "mid"
+    assert placed_level(55)["position"] == "high"
+    assert placed_level(59)["overallScore"] == 59
+    assert placed_level(61)["cefr"] == "B2"
+    assert placed_level(step_score(61, -2))["cefr"] == "B1"
+    assert placed_level(29)["cefr"] == "A1"
+    assert placed_level(30)["cefr"] == "A2"
+    assert step_score(95, 2) == 96
+    assert step_score(11, -2) == 10
+
+
+@pytest.mark.asyncio
+async def test_successive_call_reviews_save_accumulated_level_and_skill_progress():
+    store = OnboardingStore()
+    initial = {**baseline(), "overallScore": 56, "position": "high", "shade": "-", "pointsToNext": 5,
+               "grammar": 56, "fluency": 56}
+    await store.save_assessment("tg-1", initial)
+    await store.save_learner("tg-1", {
+        "person": {}, "proficiency": {
+            "overall_cefr": "B1", "position": "high", "overall_score": 56,
+            "grammar": {"band": "B1", "position": "high", "score": 56},
+        },
+    })
+    calls = CallStore(goal_of=_goal(10))
+    scorer = Scorer(move=2)
+    reviews = CallReviews(calls, store, scorer, Streaks())
+    for expected in (58, 60, 62):
+        opened = await calls.open("tg-1")
+        await calls.append_turn("tg-1", "I explain my work.", "Tell me more.", [], 12, [])
+        await calls.seal("tg-1")
+        review = await reviews.review(opened["callId"])
+        assert review["overallScore"] == expected
+        assert (await store.get_assessment("tg-1"))["overallScore"] == expected
+    assert review["cefr"] == "B2"
+    assert review["grammar"]["score"] == 62
+    proficiency = (await store.get_learner("tg-1"))["proficiency"]
+    assert proficiency["overall_cefr"] == "B2"
+    assert proficiency["grammar"]["band"] == "B2"
+    assert proficiency["grammar"]["score"] == 62
 
 
 @pytest.mark.asyncio
