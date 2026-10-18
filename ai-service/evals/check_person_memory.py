@@ -1,6 +1,6 @@
-"""Live structured-output smoke check for the configured personal-memory model.
+"""Live structured-output smoke check for the fixed background-memory model.
 
-Run with OPENAI_API_KEY, OPENAI_BASE_URL and LLM_MODEL from the target environment.
+Run with OPENAI_API_KEY and OPENAI_BASE_URL from the target environment.
 Only synthetic facts are sent; no real user data is printed.
 """
 import asyncio

@@ -18,6 +18,7 @@ ASSESSMENT_RETRY_MAX_TOKENS = 2000
 REVIEW_MAX_TOKENS = 2400
 REVIEW_RETRY_MAX_TOKENS = 3200
 CLOSING_CALLBACK_MAX_TOKENS = 160
+BACKGROUND_MEMORY_MODEL = "google/gemini-3.5-flash-lite"
 PERSON_SCHEMA = {
     "type": "json_schema",
     "json_schema": {
@@ -303,10 +304,12 @@ class OnboardingModel:
         return value
 
     async def update_person_once(self, person: dict, transcripts: list[str]) -> dict:
-        return await self.update_person(person, transcripts, retry=False, structured=True)
+        return await self.update_person(
+            person, transcripts, retry=False, structured=True, model=BACKGROUND_MEMORY_MODEL,
+        )
 
     async def update_person(self, person: dict, transcripts: list[str], retry: bool = True,
-                            structured: bool = False) -> dict:
+                            structured: bool = False, model: str | None = None) -> dict:
         raw = await self.llm.complete_json(
             "Return JSON {\"person\":{\"name\":string|null,\"work\":string|null,"
             "\"leisure\":string|null,\"goal\":string|null,\"facts\":[string]}}. "
@@ -318,7 +321,7 @@ class OnboardingModel:
             "Prefer recent explicit statements. Do not store language mistakes as personal facts.",
             json.dumps({"existingPerson": person, "transcripts": transcripts}, ensure_ascii=False),
             temperature=0.0, max_tokens=1200,
-            response_format=PERSON_SCHEMA if structured else None, retry=retry,
+            response_format=PERSON_SCHEMA if structured else None, retry=retry, model=model,
         )
         try:
             value = _load_json(raw).get("person")
