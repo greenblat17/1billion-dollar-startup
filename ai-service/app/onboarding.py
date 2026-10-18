@@ -161,6 +161,29 @@ class OnboardingStore:
         else:
             self._learners[session_id] = deepcopy(memory)
 
+    async def save_learner_if_current(self, session_id: str, expected: dict,
+                                      updated: dict) -> bool:
+        """Avoid overwriting assessment/contact writes made during fact extraction."""
+        if self._redis is None:
+            if self._learners.get(session_id) != expected:
+                return False
+            self._learners[session_id] = deepcopy(updated)
+            return True
+        from redis.exceptions import WatchError
+        key = f"learner:{session_id}"
+        async with self._redis.pipeline(transaction=True) as pipe:
+            try:
+                await pipe.watch(key)
+                raw = await pipe.get(key)
+                if (json.loads(raw) if raw else None) != expected:
+                    return False
+                pipe.multi()
+                pipe.set(key, json.dumps(updated))
+                await pipe.execute()
+                return True
+            except WatchError:
+                return False
+
     async def claim_legacy_invitation(self, session_id: str) -> bool:
         if self._redis is not None:
             return bool(await self._redis.set(f"legacy-invitation:{session_id}", "1", nx=True))

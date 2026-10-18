@@ -24,6 +24,7 @@ from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
 from app.legacy_onboarding_campaign import campaign_status, claim_batch, report_delivery
 from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
+from app.memory_jobs import MemoryJobRunner, MemoryJobStore
 from app.llm import OpenAiChatModel
 from app.logging_setup import configure_process_logging
 from app.provider_call_log import configure_user_id_hash_key
@@ -85,6 +86,7 @@ def create_app(
             settings.onboarding_review_fallback_model,
         ),
     )
+    memory_jobs = MemoryJobRunner(MemoryJobStore(onboarding.store._redis), onboarding.personalization)
     owns_calls = call_store is None
     calls = call_store or CallStore(
         redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
@@ -110,6 +112,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await streaks.backfill()
+        memory_task = asyncio.create_task(memory_jobs.run())
         intro_warmup = asyncio.create_task(onboarding.warm_intro(settings.pipeline_timeout_seconds))
         async def prune_raw_content() -> None:
             while True:
@@ -128,6 +131,9 @@ def create_app(
         try:
             yield
         finally:
+            memory_task.cancel()
+            await asyncio.gather(memory_task, return_exceptions=True)
+            await memory_jobs.stop()
             intro_warmup.cancel()
             retention_task.cancel()
             if cost_task is not None:
@@ -160,6 +166,7 @@ def create_app(
     app.state.jobs = jobs
     app.state.pipeline = clip_pipeline
     app.state.onboarding = onboarding
+    app.state.memory_jobs = memory_jobs
 
     @app.middleware("http")
     async def require_internal_token(request: Request, call_next):
@@ -215,9 +222,14 @@ def create_app(
             v2_snapshot = await v2.snapshot()
             v2_snapshot["day"] = payload.get("day", "")
             body = v2.prometheus(v2_snapshot)
+        try:
+            memory_pending, memory_oldest = await memory_jobs.store.pending()
+        except Exception:
+            memory_pending, memory_oldest = -1, -1.0
         return Response(
             content=body + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
-            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus(),
+            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus()
+            + memory_jobs.metrics.prometheus(memory_pending, memory_oldest),
             media_type="text/plain; version=0.0.4",
         )
 
@@ -602,7 +614,7 @@ def create_app(
         task = asyncio.create_task(
             _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
                      onboarding, onboardingRunId, requestId, durationSeconds, audit_artifacts, receivedAtEpoch,
-                     load_test_requested(x_speaky_load_test), voice_cost),
+                     load_test_requested(x_speaky_load_test), voice_cost, memory_jobs),
         )
         tasks.add(task)
         task.add_done_callback(tasks.discard)
@@ -826,6 +838,7 @@ async def _run_job(
     received_at_epoch: float | None = None,
     load_test: bool = False,
     voice_cost: VoiceCostLedger | None = None,
+    memory_jobs: MemoryJobRunner | None = None,
 ) -> None:
     started = time.perf_counter()
     load_test_token = bind_load_test(load_test)
@@ -863,6 +876,13 @@ async def _run_job(
             await audit_stage("reply", result.reply_text)
         if voice_usage is not None:
             job.voice_call_counts = voice_usage.attempts.copy()
+        if result.memory_eligible and not run_id and not load_test and memory_jobs is not None:
+            try:
+                await asyncio.wait_for(pipeline.personalization.record_contact(job.session_id), 0.25)
+            except Exception:
+                memory_jobs.metrics.record("contact_failed", "save_failed")
+                logger.warning("personal contact timestamp failed job_id=%s", job.job_id)
+            await memory_jobs.enqueue(job.attempt_id or job.job_id, job.session_id, result.transcript)
         _complete_job(job, result)
         await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
         logger.info(

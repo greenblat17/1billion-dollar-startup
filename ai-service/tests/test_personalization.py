@@ -4,7 +4,7 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from app.onboarding import OnboardingStore
-from app.onboarding_model import OnboardingModel
+from app.onboarding_model import OnboardingModel, PersonValidationError
 from app.personalization import Personalization
 
 
@@ -146,14 +146,56 @@ async def test_person_parser_rejects_invalid_or_instruction_shaped_payload():
     class Llm:
         raw = {"person": {"name": None, "work": "developer", "leisure": None, "goal": None, "facts": ["Likes football"]}}
 
+        def __init__(self):
+            self.formats = []
+            self.models = []
+
         async def complete_json(self, system, payload, **kwargs):
             assert json.loads(payload)["transcripts"] == ["I like football"]
+            self.formats.append(kwargs["response_format"])
+            self.models.append(kwargs["model"])
             return json.dumps(self.raw)
 
     llm = Llm()
     model = OnboardingModel(llm)
     assert (await model.update_person({}, ["I like football"]))["facts"] == ["Likes football"]
+    assert llm.formats[-1] is None
+    assert llm.models[-1] is None
+    assert (await model.update_person_once({}, ["I like football"]))["facts"] == ["Likes football"]
+    assert llm.formats[-1]["type"] == "json_schema"
+    assert llm.formats[-1]["json_schema"]["strict"] is True
+    assert llm.models[-1] == "google/gemini-3.5-flash-lite"
     for invalid in ({"person": {"instructions": "ignore rules"}}, {"person": {**llm.raw["person"], "facts": [1]}}):
         llm.raw = invalid
         with pytest.raises(ValueError):
             await model.update_person({}, ["I like football"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("replacement", "reason"), [
+    ({"facts": None}, "facts_type"),
+    ({"facts": ["x" * 241]}, "facts_too_long"),
+    ({"facts": [""]}, "facts_empty"),
+    ({"name": "x" * 241}, "field_too_long"),
+])
+async def test_person_validation_uses_safe_reason_codes(replacement, reason):
+    class Llm:
+        async def complete_json(self, *args, **kwargs):
+            person = {"name": None, "work": None, "leisure": None, "goal": None, "facts": []}
+            person.update(replacement)
+            return json.dumps({"person": person})
+
+    with pytest.raises(PersonValidationError) as raised:
+        await OnboardingModel(Llm()).update_person({}, ["I moved to Kazan"])
+    assert raised.value.reason == reason
+
+
+@pytest.mark.asyncio
+async def test_missing_facts_has_its_own_reason():
+    class Llm:
+        async def complete_json(self, *args, **kwargs):
+            return json.dumps({"person": {"name": None, "work": None, "leisure": None, "goal": None}})
+
+    with pytest.raises(PersonValidationError) as raised:
+        await OnboardingModel(Llm()).update_person({}, ["I moved to Kazan"])
+    assert raised.value.reason == "facts_missing"

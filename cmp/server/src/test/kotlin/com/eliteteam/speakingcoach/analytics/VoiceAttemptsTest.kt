@@ -12,6 +12,17 @@ import kotlin.test.assertTrue
 
 class VoiceAttemptsTest {
     @Test
+    fun preservesFileTooLargeReasonInReport() = runTest {
+        val store = MemoryVoiceAttemptStore()
+        val now = Instant.now()
+        store.record(VoiceAttempt(123, 42, now, eligible = true, outcome = "download_failed",
+            stage = "telegram_download", reason = "file_too_large"))
+        val report = store.report(now)
+        assertEquals("file_too_large", report.recent.single().reason)
+        assertEquals(1, report.breakdown.single { it.reason == "file_too_large" }.count)
+    }
+
+    @Test
     fun countsOneTerminalResultPerTelegramMessageAndSeparatesPending() = runTest {
         val store = MemoryVoiceAttemptStore()
         val now = Instant.now()

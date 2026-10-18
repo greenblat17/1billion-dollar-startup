@@ -52,6 +52,7 @@ class PipelineResult:
     streak: StreakUpdate | None = None
     onboarding: dict | None = None
     call: dict | None = None
+    memory_eligible: bool = False
 
     @property
     def notes(self) -> list[str]:
@@ -264,10 +265,6 @@ class ClipPipeline:
                 timings[name] = _elapsed_ms(step_started)
 
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
-        if self.personalization is not None and scenario_call is None:
-            tasks.append(asyncio.create_task(measured(
-                "memoryExtract", self.personalization.extract_person(session_id, stt_result.text),
-            )))
         try:
             stage("llm")
             reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
@@ -281,12 +278,6 @@ class ClipPipeline:
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
-            if self.personalization is not None and scenario_call is None:
-                observation = await tasks[1]
-                save_started = time.perf_counter()
-                if not load_test_active():
-                    await self.personalization.save_observation(session_id, observation)
-                timings["memorySave"] = _elapsed_ms(save_started)
         finally:
             for task in tasks:
                 if not task.done():
@@ -313,6 +304,7 @@ class ClipPipeline:
             corrections=list(corrections),
             streak=streak,
             call=call,
+            memory_eligible=scenario_call is None and not load_test_active(),
         )
 
     async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:

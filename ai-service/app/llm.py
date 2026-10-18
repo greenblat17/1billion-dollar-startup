@@ -277,7 +277,7 @@ class OpenAiChatModel:
 
     async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None,
                             response_format: dict | None = None, model: str | None = None,
-                            operation: str | None = None) -> str:
+                            operation: str | None = None, retry: bool = True) -> str:
         return await self._complete(
             [{"role": "system", "content": system}, {"role": "user", "content": data}],
             temperature,
@@ -286,6 +286,7 @@ class OpenAiChatModel:
             response_format=response_format,
             purpose="onboarding",
             operation=operation,
+            retry=retry,
         )
 
     @telegram_stage("llm")
