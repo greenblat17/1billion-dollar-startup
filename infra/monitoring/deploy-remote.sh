@@ -59,7 +59,7 @@ if [ -n "$GRAFANA_PASSWORD" ]; then
     voice_cost_tables_ready=false
     for attempt in $(seq 1 30); do
       if docker exec postgres psql -U "$VOICE_COST_DB_USER" -d "$VOICE_COST_DB_NAME" -Atqc \
-        "SELECT to_regclass('public.voice_cost_calls') IS NOT NULL AND to_regclass('public.voice_cost_exchanges') IS NOT NULL" 2>/dev/null | grep -qx t; then
+        "SELECT to_regclass('public.voice_cost_calls') IS NOT NULL AND to_regclass('public.voice_cost_exchanges') IS NOT NULL AND to_regclass('public.habit_call_daily') IS NOT NULL" 2>/dev/null | grep -qx t; then
         voice_cost_tables_ready=true
         docker exec -i postgres psql -X -v ON_ERROR_STOP=1 -U "$VOICE_COST_DB_USER" \
           -d "$VOICE_COST_DB_NAME" -v cost_password="$VOICE_COST_DB_PASSWORD" <<'SQL'
@@ -68,6 +68,7 @@ WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'speaking_cost_ro') \ge
 ALTER ROLE speaking_cost_ro PASSWORD :'cost_password';
 GRANT USAGE ON SCHEMA public TO speaking_cost_ro;
 GRANT SELECT ON voice_cost_calls, voice_cost_exchanges TO speaking_cost_ro;
+GRANT SELECT ON habit_call_daily TO speaking_cost_ro;
 SQL
         break
       fi

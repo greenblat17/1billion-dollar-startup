@@ -22,6 +22,7 @@ internal fun adminOverviewHtml(
     ratesWindow: String? = null,
     ratesDay: String? = null,
     voiceCost: VoiceCostOverview? = null,
+    habitDuration: com.eliteteam.speakingcoach.analytics.HabitDuration? = null,
 ): String {
     val byModel = models?.days?.filter { models.modelSince.isNotBlank() && it.day >= models.modelSince }
         ?.associateBy { it.day }.orEmpty()
@@ -75,6 +76,7 @@ internal fun adminOverviewHtml(
         <label>До <input type="date" name="to" value="${range.to}" required></label><button type="submit">Показать</button></form></header>
         ${adminTabs(METRICS_PATH)}
         <a class="grafana-link" href="https://89.19.214.50:8443/d/speaky-v2/speaky" target="_blank" rel="noopener noreferrer">Открыть Grafana ↗</a>
+        ${habitDashboardHtml(models?.habits, habitDuration)}
         ${historicalOverviewHtml(days, models, historicalRates, range, ratesWindow, ratesDay)}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) "<h2>Детальный учёт · с ${escapeHtml(listOfNotNull(models?.modelSince?.takeIf { it.isNotBlank() }, usage?.firstObservedDay).minOrNull() ?: "6 октября")}</h2>" else ""}
         ${if (days.any { byModel.containsKey(it) || byUsage.containsKey(it) }) """
@@ -322,7 +324,7 @@ private fun historicalOverviewHtml(
                 ${overviewCard("Stickiness · 7 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats7d), "Завершили ход AI за день / уникальные с завершённым ходом за 7 дней")}
                 ${overviewCard("Stickiness · 30 дней", ratioPercent(through.activeChatsWithTurn, through.activeChats30d), "Завершили ход AI за день / уникальные с завершённым ходом за 30 дней")}
               </div></div>
-              <div class="metric-subgroup"><h4>Retention</h4><div class="metric-grid retention-grid">
+              <div class="metric-subgroup"><h4>Исторический retention · от первого голоса</h4><div class="metric-grid retention-grid">
                 ${listOf(1, 7, 30).joinToString("") { offset ->
                     val cohort = retention[offset]
                     overviewCard("Retention D$offset", ratioPercent(cohort?.returned, cohort?.eligible),
@@ -392,7 +394,7 @@ private fun historicalOverviewHtml(
     """.trimIndent()
 }
 
-private fun overviewCard(title: String, value: String, note: String): String =
+internal fun overviewCard(title: String, value: String, note: String): String =
     """<article class="overview-card"><dt>${escapeHtml(title)}</dt><dd>${escapeHtml(value)}</dd>
     <p>${escapeHtml(note)}</p></article>"""
 
@@ -404,10 +406,10 @@ private fun ratioBasisPoints(part: Long, total: Long?): Long? =
 
 private fun groupedCount(value: Long): String = String.format(Locale.US, "%,d", value).replace(',', '\u202F')
 
-private data class ChartLine(val label: String, val color: String, val values: List<Long?>)
+internal data class ChartLine(val label: String, val color: String, val values: List<Long?>)
 private val chartDateFormat = DateTimeFormatter.ofPattern("dd.MM")
 
-private fun overviewChart(
+internal fun overviewChart(
     title: String, days: List<String>, lines: List<ChartLine>, available: Boolean, valueDivisor: Long = 1,
 ): String {
     if (!available || lines.all { line -> line.values.all { it == null } })

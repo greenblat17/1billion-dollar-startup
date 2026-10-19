@@ -14,6 +14,7 @@ these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
+Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
 Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
 Plan for complete STT, LLM and delayed TTS cost accounting: `plans/2026-10-15-complete-voice-unit-cost.md`.

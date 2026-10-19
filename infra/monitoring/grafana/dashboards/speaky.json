@@ -1950,6 +1950,868 @@
         }
       ],
       "id": 17
+    },
+    {
+      "id": 40,
+      "title": "Регулярность Speaky",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 134,
+        "w": 24,
+        "h": 1
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 41,
+      "title": "DAU · вчера",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 135,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Завершённый голосовой ход AI до доставки Telegram, включая уточнение. Окно заканчивается вчера; глобальный диапазон не меняет его.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(speaking_habit_current_dau and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 42,
+      "title": "WAU · семь завершённых московских дней",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 139,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Завершённый голосовой ход AI до доставки Telegram, включая уточнение. Окно заканчивается вчера; глобальный диапазон не меняет его.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(speaking_habit_current_wau and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 43,
+      "title": "DAU / WAU · вчера",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 143,
+        "w": 24,
+        "h": 4
+      },
+      "description": "Завершённый голосовой ход AI до доставки Telegram, включая уточнение. Окно заканчивается вчера; глобальный диапазон не меняет его.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max(speaking_habit_current_ratio and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 44,
+      "title": "DAU и WAU · последние 30 дневных окон",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 147,
+        "w": 24,
+        "h": 9
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DAU / WAU"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (day) (speaking_habit_dau and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (day) (speaking_habit_wau and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (day) (speaking_habit_ratio and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "day",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "DAU",
+              "Value #B": "WAU",
+              "Value #C": "DAU / WAU"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "day",
+                "desc": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "title": "Активных дней за неделю · 1, 2, 3, 4–7",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 156,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Число разных активных дней, не непрерывный стрик. Сумма групп равна WAU.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Доля WAU"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (bucket) (speaking_habit_active_days and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (bucket) (speaking_habit_active_days / on() group_left speaking_habit_current_wau and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "bucket",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Пользователей",
+              "Value #B": "Доля WAU",
+              "bucket": "Активных дней"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "title": "Когорты · D1 от первого завершённого хода",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 163,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Недели понедельник–воскресенье. Только завершённые целевые дни. eligible < размера когорты означает частичную зрелость. Неполная история = 1 у первой недели. Нет зрелой выборки — процент отсутствует.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "D1"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (week) (speaking_habit_cohort_size and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_eligible{offset=\"1\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_returned{offset=\"1\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "expr": "max by (week, offset) ((speaking_habit_retention_returned{offset=\"1\"} / speaking_habit_retention_eligible{offset=\"1\"}) and (speaking_habit_retention_eligible{offset=\"1\"} > 0) and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "expr": "max by (week) (speaking_habit_cohort_partial_history and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "week",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "offset 1": true,
+              "offset 2": true,
+              "offset 3": true,
+              "offset 4": true,
+              "offset 5": true,
+              "Time": true,
+              "offset": true
+            },
+            "renameByName": {
+              "Value #A": "Размер",
+              "Value #B": "Зрелых",
+              "Value #C": "Вернулись",
+              "Value #D": "D1",
+              "Value #E": "Неполная история",
+              "week": "Неделя"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Неделя",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "title": "Когорты · D3 от первого завершённого хода",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 171,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Недели понедельник–воскресенье. Только завершённые целевые дни. eligible < размера когорты означает частичную зрелость. Неполная история = 1 у первой недели. Нет зрелой выборки — процент отсутствует.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "D3"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (week) (speaking_habit_cohort_size and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_eligible{offset=\"3\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_returned{offset=\"3\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "expr": "max by (week, offset) ((speaking_habit_retention_returned{offset=\"3\"} / speaking_habit_retention_eligible{offset=\"3\"}) and (speaking_habit_retention_eligible{offset=\"3\"} > 0) and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "expr": "max by (week) (speaking_habit_cohort_partial_history and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "week",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "offset 1": true,
+              "offset 2": true,
+              "offset 3": true,
+              "offset 4": true,
+              "offset 5": true,
+              "Time": true,
+              "offset": true
+            },
+            "renameByName": {
+              "Value #A": "Размер",
+              "Value #B": "Зрелых",
+              "Value #C": "Вернулись",
+              "Value #D": "D3",
+              "Value #E": "Неполная история",
+              "week": "Неделя"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Неделя",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "title": "Когорты · D7 от первого завершённого хода",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 179,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Недели понедельник–воскресенье. Только завершённые целевые дни. eligible < размера когорты означает частичную зрелость. Неполная история = 1 у первой недели. Нет зрелой выборки — процент отсутствует.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "D7"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (week) (speaking_habit_cohort_size and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_eligible{offset=\"7\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_returned{offset=\"7\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "expr": "max by (week, offset) ((speaking_habit_retention_returned{offset=\"7\"} / speaking_habit_retention_eligible{offset=\"7\"}) and (speaking_habit_retention_eligible{offset=\"7\"} > 0) and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "expr": "max by (week) (speaking_habit_cohort_partial_history and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "week",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "offset 1": true,
+              "offset 2": true,
+              "offset 3": true,
+              "offset 4": true,
+              "offset 5": true,
+              "Time": true,
+              "offset": true
+            },
+            "renameByName": {
+              "Value #A": "Размер",
+              "Value #B": "Зрелых",
+              "Value #C": "Вернулись",
+              "Value #D": "D7",
+              "Value #E": "Неполная история",
+              "week": "Неделя"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Неделя",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "title": "Когорты · D30 от первого завершённого хода",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 187,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Недели понедельник–воскресенье. Только завершённые целевые дни. eligible < размера когорты означает частичную зрелость. Неполная история = 1 у первой недели. Нет зрелой выборки — процент отсутствует.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "D30"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "expr": "max by (week) (speaking_habit_cohort_size and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_eligible{offset=\"30\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (week, offset) (speaking_habit_retention_returned{offset=\"30\"} and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "expr": "max by (week, offset) ((speaking_habit_retention_returned{offset=\"30\"} / speaking_habit_retention_eligible{offset=\"30\"}) and (speaking_habit_retention_eligible{offset=\"30\"} > 0) and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "expr": "max by (week) (speaking_habit_cohort_partial_history and on() (speaking_habit_source_healthy == 1) and on() (time() - speaking_habit_updated_seconds < 180))",
+          "instant": true,
+          "format": "table",
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "week",
+            "mode": "outerTabular"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "offset 1": true,
+              "offset 2": true,
+              "offset 3": true,
+              "offset 4": true,
+              "offset 5": true,
+              "Time": true,
+              "offset": true
+            },
+            "renameByName": {
+              "Value #A": "Размер",
+              "Value #B": "Зрелых",
+              "Value #C": "Вернулись",
+              "Value #D": "D30",
+              "Value #E": "Неполная история",
+              "week": "Неделя"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Неделя",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "title": "Речь пользователя на разговор · по дате начала",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 195,
+        "w": 24,
+        "h": 7
+      },
+      "description": "Закрытые практические звонки с распознанной речью и полными фактами. Не длительность открытого звонка. Московские календарные даты глобального диапазона. Первый день может быть неполным; сырая история до начала сбора не восстановлена.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "voice-cost-postgres"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT SUM(speech_seconds) / NULLIF(SUM(calls), 0) / 60 AS \"Минут речи / разговор\",\nSUM(calls) AS \"Звонков\", SUM(excluded) AS \"Исключено\", SUM(incomplete) AS \"Неполных\",\n(SELECT MIN(day) FROM habit_call_daily) AS \"История с\"\nFROM habit_call_daily\nWHERE day BETWEEN (to_timestamp($__unixEpochFrom()) AT TIME ZONE 'Europe/Moscow')::date\nAND (to_timestamp($__unixEpochTo()) AT TIME ZONE 'Europe/Moscow')::date"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Источник регулярности · 1 = доступен",
+      "gridPos": {
+        "x": 0,
+        "y": 202,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "speaking_habit_source_healthy",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Регулярность · обновлено",
+      "gridPos": {
+        "x": 8,
+        "y": 202,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "speaking_habit_updated_seconds * 1000",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 53,
+      "type": "stat",
+      "title": "Регулярность · дата среза",
+      "gridPos": {
+        "x": 16,
+        "y": 202,
+        "w": 8,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dateTimeAsIso"
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "speaking_habit_as_of_seconds * 1000",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
     }
-  ]
+  ],
+  "version": 1
 }

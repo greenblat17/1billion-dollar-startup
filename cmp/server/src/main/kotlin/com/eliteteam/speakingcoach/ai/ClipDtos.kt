@@ -184,6 +184,7 @@ data class MetricsV2Snapshot(
 
 @Serializable
 data class AdminModelOverview(
+    val habits: HabitSnapshot? = null,
     val totalChats: Long = 0,
     val modelSince: String = "",
     val voiceLlmSince: String = "",
@@ -557,6 +558,7 @@ data class RetentionSnapshot(
 
 @Serializable
 data class StreaksSnapshot(
+    val habits: HabitSnapshot? = null,
     val buckets: List<StreakBucket> = emptyList(),
     val reminderBuckets: List<StreakReminderBucket> = emptyList(),
     val retention: RetentionSnapshot = RetentionSnapshot(),
