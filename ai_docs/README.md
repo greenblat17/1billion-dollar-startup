@@ -37,6 +37,7 @@ Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
 Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.
+Incomplete onboarding reminder analytics and dashboard: `plans/2026-10-19-onboarding-nudge-analytics.md`.
 Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
 
 ## Structure

@@ -26,6 +26,7 @@ internal fun remindersPageHtml(
     clock: ReminderClockSummary? = null,
     offers: ReminderOfferSummary? = null,
     days: Int = 7,
+    nudges: com.eliteteam.speakingcoach.analytics.NudgeReport? = null,
 ): String = """
     <!doctype html>
     <html lang="ru">
@@ -40,6 +41,8 @@ internal fun remindersPageHtml(
     ${adminTabs("$summaryRoot/reminders", summaryRoot)}
     <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow. Время отправки задаёт пользователь.</p>
     ${reminderAnalyticsHtml(snapshot?.reminders, clock, offers, days, summaryRoot)}
+    ${onboardingNudgeHtml(nudges, summaryRoot, days)}
+    <h2>Ежедневная практика: рассылки и управление</h2>
     ${remindersSectionHtml(snapshot?.reminders, notice, controls, summaryRoot)}
     </body>
     </html>

@@ -68,6 +68,17 @@ import kotlin.test.assertTrue
 
 class MetricsDashboardTest {
     @Test
+    fun nudgeExportRequiresAdminAndReportsUnavailableStorage() = testApplication {
+        application { module(dashboardConfig(password = PASSWORD), metricsSource = FixedMetricsSource(sampleSnapshot())) }
+        val path = "$REMINDERS_PATH/onboarding.json"
+        assertTrue(client.get(path).bodyAsText().contains("Пароль"))
+        val response = client.get(path) { cookie(METRICS_COOKIE, metricsSessionToken(PASSWORD)) }
+        assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+        assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
+        assertTrue(response.bodyAsText().contains("analytics_unavailable"))
+    }
+
+    @Test
     fun callDashboardDisplaysSavedFeedbackOnlyWithAdminSession() = testApplication {
         val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry("tg-42", "alex", "liked", "Great chat")))
         application {

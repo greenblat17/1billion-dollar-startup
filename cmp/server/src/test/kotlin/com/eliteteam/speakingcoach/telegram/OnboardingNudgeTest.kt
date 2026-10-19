@@ -19,8 +19,8 @@ class OnboardingNudgeTest {
         val runner = OnboardingNudgeRunner(
             candidates = { _, _ -> listOf(candidate) },
             state = { it.runId to "waiting" },
-            claim = { _, date, _, _ -> claimed.add(date) },
-            send = { _, action -> sent += action },
+            claim = { _, date, _, _, _ -> claimed.add(date) },
+            send = { _, action -> sent += action; 1L },
             clock = { now },
         )
         assertEquals(0, runner.runRound())
@@ -41,8 +41,8 @@ class OnboardingNudgeTest {
         val runner = OnboardingNudgeRunner(
             candidates = { _, _ -> listOf(candidate) },
             state = { runId to state },
-            claim = { _, _, _, _ -> true },
-            send = { _, action -> sent += action },
+            claim = { _, _, _, _, _ -> true },
+            send = { _, action -> sent += action; 1L },
             clock = { ZonedDateTime.parse("2026-10-06T20:00:00+03:00[Europe/Moscow]") },
         )
         assertEquals(0, runner.runRound())
@@ -50,6 +50,42 @@ class OnboardingNudgeTest {
         runId = "new-run"
         assertEquals(0, runner.runRound())
         assertEquals(emptyList(), sent)
+    }
+
+    @Test
+    fun recordsAcceptedMessageAndDoesNotResendWhenReportFails() = runTest {
+        var claimed = false
+        var sends = 0
+        val outcomes = mutableListOf<com.eliteteam.speakingcoach.analytics.NudgeOutcome>()
+        val runner = OnboardingNudgeRunner(
+            candidates = { _, _ -> listOf(candidate) },
+            state = { it.runId to "waiting" },
+            claim = { _, _, _, _, _ -> if (claimed) false else { claimed = true; true } },
+            send = { _, _ -> sends++; 42L },
+            report = { outcomes += it; error("Database unavailable after Telegram accepted") },
+            clock = { ZonedDateTime.parse("2026-10-06T20:00:00+03:00[Europe/Moscow]") },
+        )
+        assertEquals(1, runner.runRound())
+        assertEquals(0, runner.runRound())
+        assertEquals(1, sends)
+        assertEquals("sent", outcomes.single().status)
+        assertEquals(42L, outcomes.single().messageId)
+    }
+
+    @Test
+    fun transportFailureIsUnknownAndNotConfirmedFailure() = runTest {
+        val outcomes = mutableListOf<com.eliteteam.speakingcoach.analytics.NudgeOutcome>()
+        val runner = OnboardingNudgeRunner(
+            candidates = { _, _ -> listOf(candidate) },
+            state = { it.runId to "waiting" },
+            claim = { _, _, _, _, _ -> true },
+            send = { _, _ -> throw java.io.IOException("Connection reset after send") },
+            report = { outcomes += it },
+            clock = { ZonedDateTime.parse("2026-10-06T20:00:00+03:00[Europe/Moscow]") },
+        )
+        assertEquals(0, runner.runRound())
+        assertEquals("unknown", outcomes.single().status)
+        assertEquals(null, outcomes.single().messageId)
     }
 
     @Test

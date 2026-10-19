@@ -154,10 +154,19 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val offers: ReminderOfferSummary? = try { dashboard.onboarding?.reminderOffers(days) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Reminder offers unavailable", error); null }
+        val nudges = loadNudgeDashboard(dashboard.onboarding, days)
         val html = remindersPageHtml(snapshot,
             notice = call.request.queryParameters["notice"], controls = dashboard.reminders != null,
-            clock = clock, offers = offers, days = days)
+            clock = clock, offers = offers, days = days, nudges = nudges)
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$REMINDERS_PATH/onboarding.json") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        call.respondNudgeExport(dashboard.onboarding)
     }.hide()
     get(STREAKS_PATH) {
         if (!call.hasMetricsSession(dashboard.password)) {

@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.analytics.OnboardingNudgeCandidate
+import com.eliteteam.speakingcoach.analytics.NudgeOutcome
+import dev.inmo.tgbotapi.bot.exceptions.RequestException
 import com.eliteteam.speakingcoach.withRequestLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -33,8 +35,9 @@ internal fun nudgeText(action: String): String = when (action) {
 internal class OnboardingNudgeRunner(
     private val candidates: suspend (LocalDate, Instant) -> List<OnboardingNudgeCandidate>,
     private val state: suspend (OnboardingNudgeCandidate) -> Pair<String, String>,
-    private val claim: suspend (String, LocalDate, Instant, Instant) -> Boolean,
-    private val send: suspend (OnboardingNudgeCandidate, String) -> Unit,
+    private val claim: suspend (String, LocalDate, Instant, Instant, String) -> Boolean,
+    private val send: suspend (OnboardingNudgeCandidate, String) -> Long,
+    private val report: suspend (NudgeOutcome) -> Unit = {},
     private val clock: () -> ZonedDateTime = { ZonedDateTime.now(REMINDER_ZONE) },
 ) {
     suspend fun runRound(): Int {
@@ -48,9 +51,23 @@ internal class OnboardingNudgeRunner(
                 val (runId, status) = state(candidate)
                 if (runId != candidate.runId) continue
                 val action = nudgeAction(status, candidate.began) ?: continue
-                if (!claim(candidate.runId, day, inactiveSince, clock().toInstant())) continue
-                withRequestLog(candidate.sessionId, "onboarding:nudge") { send(candidate, action) }
-                sent++
+                if (!claim(candidate.runId, day, inactiveSince, clock().toInstant(), action)) continue
+                val outcome = try {
+                    val messageId = withRequestLog(candidate.sessionId, "onboarding:nudge") { send(candidate, action) }
+                    sent++
+                    NudgeOutcome(candidate.runId, day, "sent", clock().toInstant(), messageId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Onboarding nudge send failed for run {}", candidate.runId, error)
+                    val status = when {
+                        error is RequestException && error.response.errorCode == 403 -> "blocked"
+                        error is RequestException -> "failed"
+                        else -> "unknown" // A transport failure may follow a successful Telegram send.
+                    }
+                    NudgeOutcome(candidate.runId, day, status, clock().toInstant())
+                }
+                report(outcome)
                 delay(50)
             } catch (error: CancellationException) {
                 throw error

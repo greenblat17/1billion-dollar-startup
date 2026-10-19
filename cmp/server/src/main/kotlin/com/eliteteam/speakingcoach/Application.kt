@@ -214,11 +214,12 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 current.runId to current.status
             },
             claim = analytics::claimNudge,
+            report = analytics::recordNudgeOutcome,
             send = { candidate, action ->
                 behaviourContext.sendMessage(
                     ChatId(RawChatId(candidate.chatId)), nudgeText(action),
                     replyMarkup = if (action == "voice") null else onboardingKeyboard(action, candidate.runId),
-                )
+                ).messageId.long
             },
         )
     }
