@@ -53,7 +53,8 @@ private fun streaksSectionHtml(streaks: StreaksSnapshot?): String {
         ${reminderRows(streaks.reminderBuckets)}
         </tbody>
         </table>
-        <h2>Retention</h2>
+        ${streaks.habits?.let(::habitCohortsHtml) ?: "<p>Когорты регулярности недоступны.</p>"}
+        <h2>Исторический retention от первого отправленного голосового</h2>
         <p class="meta">Недельные когорты по дню активации. DN — доля активных ровно в день N. $released</p>
         <table>
         <thead><tr><th>Неделя</th><th>Размер</th><th>D1</th><th>D7</th><th>D30</th></tr></thead>

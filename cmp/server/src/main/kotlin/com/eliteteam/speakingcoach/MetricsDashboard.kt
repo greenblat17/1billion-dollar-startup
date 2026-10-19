@@ -106,10 +106,13 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val voiceCost = try { dashboard.voiceCost?.load(range) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Overview voice cost unavailable", error); null }
+        val duration = try { dashboard.callEvents?.duration(range.from, range.to) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Habit duration unavailable", error); null }
         val rates = try { dashboard.openRouterRatesFile?.takeIf(Files::isRegularFile)?.let(OpenRouterHistoricalRates::load) }
             catch (error: Throwable) { log.warn("OpenRouter historical rates unavailable", error); null }
         call.respondText(adminOverviewHtml(range, models, usage, rates,
-            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"], voiceCost),
+            call.request.queryParameters["rates_window"], call.request.queryParameters["rates_day"], voiceCost, duration),
             ContentType.Text.Html)
     }.hide()
     get(METRICS_DETAILS_PATH) {
@@ -434,7 +437,7 @@ private suspend fun ApplicationCall.overviewRangeOrRespond(): LlmRange? {
     val fromText = request.queryParameters["from"]
     val toText = request.queryParameters["to"]
     val range = try {
-        if (fromText == null && toText == null) LlmRange(today.minusDays(6), today)
+        if (fromText == null && toText == null) LlmRange(today.minusDays(7), today.minusDays(1))
         else LlmRange(LocalDate.parse(requireNotNull(fromText)), LocalDate.parse(requireNotNull(toText)))
     } catch (_: Exception) { null }
     if (range == null || range.to < range.from || range.to > today ||

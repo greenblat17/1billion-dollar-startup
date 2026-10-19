@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import java.sql.Timestamp
 import java.time.Instant
+import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -56,12 +57,14 @@ internal interface CallEventStore : AutoCloseable {
     suspend fun byCall(callId: String): List<CallEvent>
     suspend fun callIdForBot(chatId: Long, botMessageId: Long): String?
     suspend fun prune(now: Instant = Instant.now()) {}
+    suspend fun duration(from: LocalDate, to: LocalDate): HabitDuration? = null
     override fun close() {}
 }
 
 internal class MemoryCallEventStore : CallEventStore {
     private val lock = Mutex()
     private val rows = linkedMapOf<String, CallEvent>()
+    private val habitFacts = linkedMapOf<String, CallEvent>()
 
     override suspend fun record(event: CallEvent) = lock.withLock {
         val safe = event.safe()
@@ -77,7 +80,18 @@ internal class MemoryCallEventStore : CallEventStore {
             scenarioKind = if (safe.scenarioKind == null || safe.scenarioKind == "free")
                 old.scenarioKind ?: safe.scenarioKind else safe.scenarioKind,
         )
+        if (safe.callId != null && safe.kind in setOf("call_open", "call_closed", "voice_received", "voice_processed")) {
+            val suffix = if (safe.kind.startsWith("call_")) "call" else (safe.messageId ?: safe.id).toString()
+            val key = "${safe.callId}:${safe.kind}:$suffix"
+            val prior = habitFacts[key]
+            habitFacts[key] = CallEvent(key, safe.kind, 0, minOf(prior?.at ?: safe.at, safe.at),
+                callId = safe.callId, messageId = safe.messageId, seconds = prior?.seconds ?: safe.seconds)
+        }
         Unit
+    }
+
+    override suspend fun duration(from: LocalDate, to: LocalDate): HabitDuration = lock.withLock {
+        memoryHabitDuration(habitFacts.values, from, to)
     }
 
     override suspend fun snapshot(since: Instant, writeFailures: Long): CallEventsSnapshot = lock.withLock {
@@ -96,6 +110,10 @@ internal class MemoryCallEventStore : CallEventStore {
     override suspend fun prune(now: Instant) = lock.withLock {
         val oldest = now.minusSeconds(RETAIN_DAYS * 86_400)
         rows.entries.removeIf { it.value.at.isBefore(oldest) }
+        val keepCalls = habitFacts.values.groupBy { it.callId }.filterValues { facts ->
+            facts.maxOf { it.at } >= now.minusSeconds(365L * 86_400)
+        }.keys
+        habitFacts.entries.removeIf { it.value.callId !in keepCalls }
         Unit
     }
 }
@@ -150,6 +168,10 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
         Unit
     }
 
+    override suspend fun duration(from: LocalDate, to: LocalDate): HabitDuration = withContext(Dispatchers.IO) {
+        pool.connection.use { it.habitDuration(from, to) }
+    }
+
     override suspend fun snapshot(since: Instant, writeFailures: Long): CallEventsSnapshot = withContext(Dispatchers.IO) {
         val events = pool.connection.use { connection ->
             connection.prepareStatement("""
@@ -198,6 +220,11 @@ internal class PostgresCallEventStore(databaseUrl: String) : CallEventStore {
 
     override suspend fun prune(now: Instant) = withContext(Dispatchers.IO) {
         pool.connection.use { connection ->
+            connection.prepareStatement("DELETE FROM habit_call_summaries WHERE call_id IN " +
+                "(SELECT call_id FROM habit_call_summaries WHERE last_event_at < ? LIMIT 1000)").use { statement ->
+                statement.setTimestamp(1, Timestamp.from(now.minusSeconds(365L * 86_400)))
+                statement.executeUpdate()
+            }
             connection.prepareStatement("""
                 DELETE FROM telegram_call_events WHERE event_id IN
                   (SELECT event_id FROM telegram_call_events WHERE occurred_at < ? LIMIT 1000)
@@ -253,6 +280,9 @@ internal class CallEventRecorder(private val store: CallEventStore, scope: Corou
             log.warn("Call analytics queue full")
         }
     }
+
+    suspend fun duration(from: LocalDate, to: LocalDate): HabitDuration? =
+        store.duration(from, to)?.copy(writeFailures = failed.get())
 
     suspend fun snapshot(since: Instant): CallEventsSnapshot {
         val stored = store.snapshot(since, failed.get())

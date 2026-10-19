@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -28,6 +28,7 @@ from app.memory_jobs import MemoryJobRunner, MemoryJobStore
 from app.llm import OpenAiChatModel
 from app.logging_setup import configure_process_logging
 from app.provider_call_log import configure_user_id_hash_key
+from app.habit_analytics import HabitAnalytics
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
 from app.operational_metrics import (
@@ -98,6 +99,7 @@ def create_app(
     sessions = clip_pipeline.dialogue
     call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech)
     streaks = clip_pipeline.streaks
+    habits = HabitAnalytics(clip_pipeline.metrics)
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
     realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
     session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings, clip_pipeline.metrics)
@@ -113,6 +115,7 @@ def create_app(
     async def lifespan(_app: FastAPI):
         await streaks.backfill()
         memory_task = asyncio.create_task(memory_jobs.run())
+        habit_task = asyncio.create_task(habits.run())
         intro_warmup = asyncio.create_task(onboarding.warm_intro(settings.pipeline_timeout_seconds))
         async def prune_raw_content() -> None:
             while True:
@@ -136,6 +139,8 @@ def create_app(
             await memory_jobs.stop()
             intro_warmup.cancel()
             retention_task.cancel()
+            habit_task.cancel()
+            await asyncio.gather(habit_task, return_exceptions=True)
             if cost_task is not None:
                 cost_task.cancel()
             await asyncio.gather(intro_warmup, retention_task, *( [cost_task] if cost_task else [] ),
@@ -202,7 +207,10 @@ def create_app(
         }
         reminders["trackingSince"] = await clip_pipeline.metrics.reminder_tracking_since()
         payload["reminders"] = {**reminders, **await clip_pipeline.metrics.reminder_overview()}
+        await habits.refresh()
+        habit_end = datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=1)
         payload["streaks"] = {
+            "habits": habits.report(habit_end - timedelta(days=6), habit_end),
             **await streaks.snapshot(),
             "reminderBuckets": await reminder_ledger.week_streak_buckets(),
         }
@@ -227,7 +235,7 @@ def create_app(
         except Exception:
             memory_pending, memory_oldest = -1, -1.0
         return Response(
-            content=body + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
+            content=body + habits.prometheus() + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
             + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus()
             + memory_jobs.metrics.prometheus(memory_pending, memory_oldest),
             media_type="text/plain; version=0.0.4",
@@ -283,7 +291,9 @@ def create_app(
         v2 = getattr(clip_pipeline, "_v2", None)
         if v2 is None:
             raise HTTPException(status_code=503, detail="Metrics unavailable")
-        return await v2.overview(from_day.isoformat(), to_day.isoformat())
+        await habits.refresh()
+        return {**await v2.overview(from_day.isoformat(), to_day.isoformat()),
+                "habits": habits.report(from_day, to_day, today)}
 
     @app.post("/internal/funnel/start")
     async def funnel_start(request: Request) -> dict[str, bool]:
