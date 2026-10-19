@@ -76,13 +76,13 @@ class HabitAnalytics:
         self.since = ""
         self.updated = 0.0
         self.healthy = False
-        self._attempted = 0.0
+        self._attempted: float | None = None
         self._lock = asyncio.Lock()
         self.export: dict | None = None
 
     async def refresh(self) -> None:
         async with self._lock:
-            if time.monotonic() - self._attempted < 60:
+            if self._attempted is not None and time.monotonic() - self._attempted < 60:
                 return
             self._attempted = time.monotonic()
             try:

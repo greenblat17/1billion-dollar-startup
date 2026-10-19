@@ -40,7 +40,9 @@ def test_partial_history_empty_and_current_target_are_not_zero_retention():
 
 
 @pytest.mark.asyncio
-async def test_redis_normalizes_identity_and_caches_failure_without_false_zero():
+async def test_redis_normalizes_identity_and_caches_failure_without_false_zero(monkeypatch):
+    # Fresh CI hosts can have a monotonic clock below the cache interval.
+    monkeypatch.setattr("app.habit_analytics.time.monotonic", lambda: 10.0)
     redis = FakeRedis(decode_responses=True)
     await redis.sadd("metrics:dau:2026-10-01", "tg-123", "tg-ChatId(chatId=123)", "app-123")
     service = HabitAnalytics(RedisMetricsStore(redis, DEFAULT_RATES))
@@ -49,7 +51,7 @@ async def test_redis_normalizes_identity_and_caches_failure_without_false_zero()
     await redis.sadd("metrics:dau:2026-10-01", "tg-456")
     await service.refresh()
     assert service.active == {"2026-10-01": {123}}
-    service._attempted = 0
+    service._attempted = None
     async def broken(*args, **kwargs):
         raise RuntimeError("source offline")
         yield
