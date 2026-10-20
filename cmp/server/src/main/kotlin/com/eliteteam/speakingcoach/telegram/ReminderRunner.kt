@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.ReminderReport
 import com.eliteteam.speakingcoach.withRequestLog
 import com.eliteteam.speakingcoach.ai.ReminderSendResult
 import com.eliteteam.speakingcoach.ai.ReminderTarget
+import com.eliteteam.speakingcoach.ai.PersonalizedReminderResponse
 import dev.inmo.tgbotapi.bot.exceptions.RequestException
 import dev.inmo.tgbotapi.bot.exceptions.TooMuchRequestsException
 import kotlinx.coroutines.CancellationException
@@ -59,13 +60,13 @@ internal interface ReminderAdmin {
 internal class ReminderRunner(
     private val claim: suspend (ReminderMode) -> List<ReminderTarget>,
     private val report: suspend (ReminderReport) -> Unit,
-    private val send: suspend (chatId: Long, text: String) -> Unit,
+    private val send: suspend (sessionId: String, chatId: Long, copy: PracticeReminderCopy) -> Unit,
     private val clock: () -> ZonedDateTime = { ZonedDateTime.now(REMINDER_ZONE) },
     private val pause: Duration = 50.milliseconds,
     private val classify: (Throwable) -> SendFailure = ::telegramSendFailure,
     private val streakOf: suspend (Long) -> Int = { 0 },
     private val followup: suspend (String) -> FollowupDelivery? = { null },
-    private val personalize: suspend (String) -> String? = { null },
+    private val personalize: suspend (String) -> PersonalizedReminderResponse? = { null },
 ) {
     private val mutex = Mutex()
 
@@ -102,12 +103,14 @@ internal class ReminderRunner(
                     continue
                 }
                 val template = reminderTemplate(chatId, day, target.streak)
+                val genericText = renderReminder(template, reminderFirstName(target.name), target.streak)
+                val opening = practiceOpeningQuestion(template.id)
                 val copy = if (mode == ReminderMode.AUTO) practiceReminderCopy(
-                    target.sessionId, day, renderReminder(template, reminderFirstName(target.name), target.streak),
+                    target.sessionId, day, genericText, opening,
                     personalize,
-                ) else PracticeReminderCopy(renderReminder(template, reminderFirstName(target.name), target.streak), "general")
+                ) else PracticeReminderCopy(genericText, "general", opening)
                 val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
-                    deliver(chatId, copy.text)
+                    deliver(target.sessionId, chatId, copy)
                 }
                 val copyId = if (mode != ReminderMode.AUTO) template.id
                     else if (copy.kind == "personalized") "practice_personalized"
@@ -151,15 +154,17 @@ internal class ReminderRunner(
         } else {
             reminderTemplateById(templateId) ?: return false
         }
-        return deliver(chatId, renderReminder(template, null, streak)) == STATUS_SENT
+        val copy = PracticeReminderCopy(renderReminder(template, null, streak), "general",
+            practiceOpeningQuestion(template.id))
+        return deliver("tg-$chatId", chatId, copy) == STATUS_SENT
     }
 
-    private suspend fun deliver(chatId: Long, text: String): String {
+    private suspend fun deliver(sessionId: String, chatId: Long, copy: PracticeReminderCopy): String {
         var retried = false
         while (true) {
             log.info("Sending reminder")
             try {
-                send(chatId, text)
+                send(sessionId, chatId, copy)
                 return STATUS_SENT
             } catch (error: CancellationException) {
                 throw error

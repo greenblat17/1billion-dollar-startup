@@ -44,6 +44,36 @@ class FailingTts(FakeTts):
 
 
 @pytest.mark.asyncio
+async def test_reminder_button_starts_with_its_topic_and_menu_start_stays_free():
+    calls = CallStore(goal_of=lambda _: _goal())
+    model = Model()
+    starter = CallStarter(calls, model, Personalization(),
+                          MemoryDialogueStore(max_messages=40, ttl_seconds=86400), SessionSpeech(FakeTts()))
+    first = await starter.start("tg-1", "Alex", reminder_question="What music have you enjoyed lately?")
+    assert first["question"] == "Hi, Alex! What music have you enjoyed lately?"
+    assert model.calls == 0
+    await starter.delivered(first["callId"])
+    assert (await starter.start("tg-1", "Alex", reminder_question="What did you cook?"))["status"] == "active"
+    await calls.seal("tg-1")
+    free = await starter.start("tg-1")
+    assert free["question"] != first["question"]
+    assert model.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_menu_start_after_failed_reminder_opening_chooses_free_topic():
+    calls = CallStore(goal_of=lambda _: _goal())
+    model = Model()
+    starter = CallStarter(calls, model, Personalization(),
+                          MemoryDialogueStore(max_messages=40, ttl_seconds=86400), SessionSpeech(FailingTts()))
+    with pytest.raises(RuntimeError, match="tts unavailable"):
+        await starter.start("tg-1", reminder_question="What music do you like?")
+    free = await starter.start("tg-1")
+    assert free["question"] != "Hi! What music do you like?"
+    assert model.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_starter_reuses_question_and_marks_delivery_once():
     redis = FakeAsyncRedis(decode_responses=True)
     calls = CallStore(redis=redis, goal_of=lambda _: _goal())

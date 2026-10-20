@@ -2,8 +2,10 @@ package com.eliteteam.speakingcoach.telegram
 
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import java.time.Instant
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class FollowupTimingTest {
     @Test
@@ -85,5 +87,14 @@ class FollowupTimingTest {
         assertEquals("Continue 🎙", followupKeyboard("resume", "run", "speech_60")
             .keyboard.flatten().single().text)
         assertEquals(4, followupKeyboard("goal", "run").keyboard.flatten().size)
+    }
+
+    @Test
+    fun practiceButtonCarriesOnlyItsReminderToken() {
+        val token = UUID.randomUUID()
+        val callback = (followupKeyboard("practice", "run", reminderToken = token)
+            .keyboard.flatten().single() as CallbackDataInlineKeyboardButton).callbackData
+        assertEquals(token, reminderPracticeToken(callback))
+        assertNull(reminderPracticeToken("fu:practice:not-a-token"))
     }
 }

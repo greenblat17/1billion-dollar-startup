@@ -8,7 +8,9 @@ import re
 logger = logging.getLogger(__name__)
 _COMMON_WORDS = {"about", "after", "again", "been", "from", "have", "just", "like", "that",
                  "them", "then", "there", "these", "this", "were", "what", "when", "where",
-                 "which", "with", "would", "your"}
+                 "which", "with", "would", "your", "today", "lately", "recently", "tell",
+                 "talk", "speak", "english", "speaky", "could", "you", "are", "did",
+                 "can", "and", "the", "for", "how"}
 
 
 def _grounded(text: str, source: str) -> bool:
@@ -16,8 +18,8 @@ def _grounded(text: str, source: str) -> bool:
     return bool(terms.intersection(re.findall(r"[a-zA-Z]{3,}", text.lower())))
 
 
-async def personal_reminder(session_id: str, personalization, dialogue, model) -> str | None:
-    """Return None when there is no usable memory or the model cannot ground its text."""
+async def personal_reminder(session_id: str, personalization, dialogue, model) -> dict[str, str] | None:
+    """Return a paired invitation and spoken opener, or None when grounding fails."""
     llm = getattr(model, "llm", None)
     if llm is None:
         return None
@@ -33,7 +35,10 @@ async def personal_reminder(session_id: str, personalization, dialogue, model) -
             return None
         raw = await llm.complete_json(
             'Write one short, warm A2-English Telegram invitation to speak with Speaky. '
-            'Return JSON {"text":string,"source":string}. The source must be copied exactly '
+            'Return JSON {"text":string,"openingQuestion":string,"source":string}. '
+            'The openingQuestion is the first spoken question after the user taps Start call: '
+            'it must continue the same topic naturally, without a greeting or repeating the text verbatim. '
+            'The source must be copied exactly '
             'from one supplied fact or user turn. Refer naturally to that real topic, but never '
             'invent what happened since, presume an outcome, mention scores, guilt the user, '
             'or claim you miss them. Avoid health, money, relationships, politics, religion, '
@@ -44,13 +49,15 @@ async def personal_reminder(session_id: str, personalization, dialogue, model) -
                        ensure_ascii=False), temperature=0.7,
         )
         result = json.loads(raw)
-        text, source = result.get("text"), result.get("source")
-        if (not isinstance(text, str) or not isinstance(source, str)
+        text, opener, source = result.get("text"), result.get("openingQuestion"), result.get("source")
+        if (not isinstance(text, str) or not isinstance(opener, str) or not isinstance(source, str)
                 or source not in sources[-12:] or not text.strip()
                 or len(text.strip()) > 220 or "\n" in text or text.count("?") != 1
-                or not _grounded(text, source)):
+                or not opener.strip() or len(opener.strip()) > 220 or "\n" in opener
+                or opener.count("?") != 1 or not _grounded(text, source)
+                or not _grounded(opener, source) or not _grounded(opener, text)):
             return None
-        return text.strip()
+        return {"text": text.strip(), "openingQuestion": opener.strip()}
     except Exception:
         logger.exception("Unable to create personal reminder")
         return None

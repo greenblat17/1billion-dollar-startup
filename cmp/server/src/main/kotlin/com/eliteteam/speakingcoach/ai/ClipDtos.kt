@@ -504,7 +504,10 @@ data class ReminderTimeResponse(
 )
 
 @Serializable
-data class PersonalizedReminderResponse(val text: String? = null)
+data class PersonalizedReminderResponse(
+    val text: String? = null,
+    val openingQuestion: String? = null,
+)
 
 @Serializable
 data class PersonalizedReminderRequest(val sessionId: String)
@@ -699,6 +702,7 @@ data class StartCallRequest(
     val firstName: String? = null,
     val scenarioKind: String? = null,
     val scenarioDescription: String? = null,
+    val reminderOpeningQuestion: String? = null,
 )
 
 @Serializable

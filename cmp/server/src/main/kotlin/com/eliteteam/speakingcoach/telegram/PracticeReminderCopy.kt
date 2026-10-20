@@ -1,8 +1,9 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.ai.PersonalizedReminderResponse
 import java.time.LocalDate
 
-internal data class PracticeReminderCopy(val text: String, val kind: String)
+internal data class PracticeReminderCopy(val text: String, val kind: String, val openingQuestion: String)
 
 /** A user alternates daily; hash offset puts both kinds on each calendar day. */
 internal fun personalCopyDay(sessionId: String, day: LocalDate): Boolean =
@@ -12,13 +13,16 @@ internal suspend fun practiceReminderCopy(
     sessionId: String,
     day: LocalDate,
     generic: String,
-    personalize: suspend (String) -> String?,
+    genericOpeningQuestion: String,
+    personalize: suspend (String) -> PersonalizedReminderResponse?,
 ): PracticeReminderCopy {
     if (personalCopyDay(sessionId, day)) {
-        val text = try { personalize(sessionId)?.trim()?.takeIf { it.isNotEmpty() } }
+        val pair = try { personalize(sessionId) }
             catch (error: kotlinx.coroutines.CancellationException) { throw error }
             catch (_: Throwable) { null }
-        if (text != null) return PracticeReminderCopy(text, "personalized")
+        val text = pair?.text?.trim()?.takeIf { it.isNotEmpty() }
+        val question = pair?.openingQuestion?.trim()?.takeIf { it.isNotEmpty() }
+        if (text != null && question != null) return PracticeReminderCopy(text, "personalized", question)
     }
-    return PracticeReminderCopy(generic, "general")
+    return PracticeReminderCopy(generic, "general", genericOpeningQuestion)
 }
