@@ -82,7 +82,7 @@ class FollowupTimingTest {
         }
         assertEquals("Let’s chat 👋", followupKeyboard("resume", "run", "invitation")
             .keyboard.flatten().single().text)
-        assertEquals("Continue our chat 🎙", followupKeyboard("resume", "run", "speech_60")
+        assertEquals("Continue 🎙", followupKeyboard("resume", "run", "speech_60")
             .keyboard.flatten().single().text)
         assertEquals(4, followupKeyboard("goal", "run").keyboard.flatten().size)
     }

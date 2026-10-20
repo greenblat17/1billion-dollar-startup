@@ -14,7 +14,7 @@ internal fun followupKeyboard(action: String, runId: String, stage: String? = nu
                     "retry" -> "Retry"
                     "level" -> "🔥 See my results"
                     "resume" -> if (stage in setOf("start", "invitation", "begin")) "Let’s chat 👋"
-                        else "Continue our chat 🎙"
+                        else "Continue 🎙"
                     else -> "See what I noticed →"
                 }
                 dataButton(label, if (action == "resume") "fu:resume:$runId" else "ob:$action:$runId")
