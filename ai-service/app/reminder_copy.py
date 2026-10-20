@@ -54,7 +54,9 @@ async def personal_reminder(session_id: str, personalization, dialogue, model) -
                 or source not in sources[-12:] or not text.strip()
                 or len(text.strip()) > 220 or "\n" in text or text.count("?") != 1
                 or not opener.strip() or len(opener.strip()) > 220 or "\n" in opener
-                or opener.count("?") != 1 or not _grounded(text, source)
+                or opener.count("?") != 1
+                or re.match(r"^(hi|hello|hey)\b", opener.strip(), re.IGNORECASE)
+                or not _grounded(text, source)
                 or not _grounded(opener, source) or not _grounded(opener, text)):
             return None
         return {"text": text.strip(), "openingQuestion": opener.strip()}

@@ -76,6 +76,17 @@ async def test_personal_reminder_rejects_two_different_topics_from_same_memory()
     assert await personal_reminder("tg-1", memory, dialogue, model) is None
 
 
+@pytest.mark.asyncio
+async def test_personal_reminder_rejects_spoken_greeting_that_would_be_doubled():
+    fact = "I like music"
+    memory = SimpleNamespace(prepare=lambda _session: async_value(
+        'Context data:\n' + json.dumps({"person": {"facts": [fact]}, "proficiency": {}})))
+    dialogue = SimpleNamespace(history=lambda _session: async_value([]))
+    model = SimpleNamespace(llm=FakeLlm({"text": "What music do you like?",
+                                         "openingQuestion": "Hi! What music do you like?", "source": fact}))
+    assert await personal_reminder("tg-1", memory, dialogue, model) is None
+
+
 async def async_value(value):
     return value
 
