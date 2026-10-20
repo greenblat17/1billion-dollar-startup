@@ -42,6 +42,7 @@ Personalized incomplete-onboarding reminder time: `plans/2026-10-20-personal-onb
 Stage-specific onboarding and practice follow-ups: `plans/2026-10-20-onboarding-stage-followups.md` (implemented locally).
 Ongoing practice reminder rules and copy comparison: `plans/2026-10-20-ongoing-practice-reminders.md` (implemented locally).
 Reminder-topic call opening and one active reminder button: `plans/2026-10-20-reminder-to-call-continuity.md` (implemented locally).
+One-shot soft nudges for interrupted onboarding and calls: `plans/2026-10-20-soft-conversation-nudges.md` (implemented locally).
 English follow-up copy by journey stage: `product/2026-10-20-onboarding-followup-copy.md`.
 Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
 

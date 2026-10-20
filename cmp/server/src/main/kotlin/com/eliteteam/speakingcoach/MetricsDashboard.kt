@@ -50,6 +50,7 @@ internal const val METRICS_COOKIE = "metrics_session"
 internal const val METRICS_PATH = "/admin/metrics"
 internal const val METRICS_DETAILS_PATH = "$METRICS_PATH/details"
 internal const val REMINDERS_PATH = "/admin/metrics/reminders"
+internal const val SOFT_NUDGES_PATH = "/admin/metrics/soft-nudges"
 internal const val STREAKS_PATH = "/admin/metrics/streaks"
 internal const val ERRORS_PATH = "/admin/metrics/errors"
 internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
@@ -85,6 +86,7 @@ internal class MetricsDashboard(
     val usage: AdminUsageStore? = null,
     val openRouterRatesFile: Path? = null,
     val voiceCost: VoiceCostStore? = null,
+    val softNudges: com.eliteteam.speakingcoach.telegram.SoftNudgeStore? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -158,6 +160,43 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         val html = remindersPageHtml(snapshot,
             notice = call.request.queryParameters["notice"], controls = dashboard.reminders != null,
             clock = clock, offers = offers, days = days, nudges = nudges)
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(SOFT_NUDGES_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val days = call.request.queryParameters["days"]?.toIntOrNull()?.takeIf { it == 7 || it == 30 } ?: 7
+        val stats = try { dashboard.softNudges?.stats(java.time.Instant.now(), days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Soft nudge metrics unavailable", error); null }
+        val rows = stats?.joinToString("") { row ->
+            val label = if (row.kind == "onboarding") "Онбординг" else "Незавершённый звонок"
+            val rate = if (row.mature > 0) "${row.matureReturned * 100 / row.mature}%" else "—"
+            "<tr><td>$label</td><td>${row.sent}</td><td>${row.recipients}</td>" +
+                "<td>${row.returned}</td><td>${row.returnedPeople}</td>" +
+                "<td>${row.matureReturned} / ${row.mature} · $rate</td>" +
+                "<td>${row.failed}</td><td>${row.blocked}</td></tr>"
+        }?.ifEmpty { "<tr><td colspan=\"8\">За период отправок не было</td></tr>" }
+            ?: "<tr><td colspan=\"8\">Данные недоступны</td></tr>"
+        val html = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">${pageStyle()}
+            <title>Мягкие напоминания — Speaky</title></head><body>
+            ${adminTabs(SOFT_NUDGES_PATH)}<h1>Мягкие напоминания</h1>
+            <p>Одно сообщение после 5 минут тишины в активном онбординге или звонке. Это отдельная цепочка.</p>
+            <p><a href="$SOFT_NUDGES_PATH?days=7">7 дней</a> ·
+               <a href="$SOFT_NUDGES_PATH?days=30">30 дней</a> · выбран период: $days дней</p>
+            <table><thead><tr><th>Сценарий</th><th>Отправлено</th><th>Получателей</th>
+                <th>Возвратов</th><th>Людей вернулось</th>
+                <th>Возврат за 24 ч, полное окно</th><th>Ошибки / неизвестно</th><th>Блокировки</th>
+                </tr></thead><tbody>$rows</tbody></table>
+            <p>Возврат = новое голосовое сообщение после принятого Telegram напоминания.
+                Показатель по полному окну исключает отправки моложе 24 часов.
+                Это связь во времени, а не доказательство эффекта напоминания.
+                Чтение сообщения Telegram не подтверждает.</p>
+            </body></html>""".trimIndent()
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get("$REMINDERS_PATH/onboarding.json") {
@@ -713,6 +752,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
         if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")
         add("$root/reminders" to "Напоминания")
+        if (root == METRICS_PATH) add(SOFT_NUDGES_PATH to "Мягкие напоминания")
         add("$root/streaks" to "Стрики")
         add("$root/errors" to "Ошибки")
         if (root == MONITORING_PATH) add("$root/history" to "История")

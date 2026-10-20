@@ -36,6 +36,11 @@ import com.eliteteam.speakingcoach.telegram.noInlineKeyboard
 import com.eliteteam.speakingcoach.telegram.followupKeyboard
 import com.eliteteam.speakingcoach.telegram.practiceReminderCopy
 import com.eliteteam.speakingcoach.telegram.launchFollowups
+import com.eliteteam.speakingcoach.telegram.SoftNudgeStore
+import com.eliteteam.speakingcoach.telegram.SoftNudgeRunner
+import com.eliteteam.speakingcoach.telegram.softNudgeText
+import com.eliteteam.speakingcoach.telegram.softNudgeKeyboard
+import com.eliteteam.speakingcoach.telegram.launchSoftNudges
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
@@ -129,6 +134,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
     val followupStore = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::FollowupStore)
     val reminderButtons = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::ReminderButtonStore)
+    val softNudges = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::SoftNudgeStore)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
     val voiceCost = config.databaseUrl?.let(::VoiceCostStore)
     if (voiceCost != null) webhookScope.launch {
@@ -278,6 +284,23 @@ private suspend fun startWebhookServer(config: AppConfig) {
         followup = { sessionId -> followupRunner?.forDailyReminder(sessionId) },
         personalize = { sessionId -> ai.personalizedReminder(SessionId(sessionId)) },
     )
+    val softNudgeRunner = softNudges?.let { store ->
+        SoftNudgeRunner(store,
+            active = { candidate ->
+                val session = SessionId(candidate.sessionId)
+                if (candidate.kind == "onboarding") {
+                    val state = ai.onboardingState(session, "soft-nudge:check:${candidate.flowId}")
+                    state.runId == candidate.flowId && state.status == "active"
+                } else {
+                    val state = ai.callStatus(session)
+                    state.active && state.callId == candidate.flowId
+                }
+            },
+            send = { candidate ->
+                behaviourContext.sendMessage(ChatId(RawChatId(candidate.chatId)), softNudgeText(candidate.kind),
+                    replyMarkup = softNudgeKeyboard(candidate))
+            })
+    }
     val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
         behaviourContext.sendMessage(
             ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
@@ -328,6 +351,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 callEvents = callEvents,
                 usage = adminUsage,
                 voiceCost = voiceCost,
+                softNudges = softNudges,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -374,6 +398,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     }
     webhookScope.launchDailyReminder(reminderRunner)
     if (followupRunner != null) webhookScope.launchFollowups(followupRunner)
+    if (softNudgeRunner != null) webhookScope.launchSoftNudges(softNudgeRunner)
     if (reminderButtons != null) webhookScope.launch {
         while (true) {
             try { reminderButtons.inactiveToClear().forEach { clearOldReminderButton(it) } }
@@ -394,6 +419,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         onboardingAnalytics?.close()
         followupStore?.close()
         reminderButtons?.close()
+        softNudges?.close()
         audit?.close()
         voiceCost?.close()
     }
@@ -477,13 +503,14 @@ private fun Application.metricsDashboard(
     callEvents: CallEventRecorder? = null,
     usage: AdminUsageStore? = null,
     voiceCost: VoiceCostStore? = null,
+    softNudges: SoftNudgeStore? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
     return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
-        config.openRouterRatesFile?.let(Path::of), voiceCost)
+        config.openRouterRatesFile?.let(Path::of), voiceCost, softNudges)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
