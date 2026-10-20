@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.analytics.AttemptMark
 import com.eliteteam.speakingcoach.analytics.PostgresOnboardingAnalytics
+import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant
@@ -10,9 +11,26 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SoftNudgeTest {
+    @Test
+    fun copyInvitesFinishingTheConversationWithoutAnOnboardingButton() {
+        val onboarding = SoftNudgeCandidate("onboarding", "run-1", "tg-501", 501,
+            Instant.parse("2026-10-20T10:00:00Z"))
+        assertEquals("Our first chat isn't finished yet 💙 Send me a voice message when you're ready, and let's pick up where we left off.",
+            softNudgeText(onboarding.kind))
+        assertNull(softNudgeKeyboard(onboarding))
+
+        val call = onboarding.copy(kind = "call", flowId = "a".repeat(32))
+        assertEquals("Our conversation is still open 💙 I'm here when you're ready. Send me a voice message to keep talking, or tap End call to get your feedback.",
+            softNudgeText(call.kind))
+        val end = softNudgeKeyboard(call)!!.keyboard.single().single() as CallbackDataInlineKeyboardButton
+        assertEquals("End call", end.text)
+        assertEquals("call:end:${call.flowId}", end.callbackData)
+    }
+
     @Test
     fun activeOnboardingGetsOneNudgeAfterFiveMinutesAndCountsNextVoice() = runTest {
         withDatabase { url ->

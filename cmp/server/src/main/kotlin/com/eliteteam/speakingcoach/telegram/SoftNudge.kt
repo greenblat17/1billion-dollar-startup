@@ -27,15 +27,13 @@ internal data class SoftNudgeStats(val kind: String, val sent: Int, val recipien
                                    val matureReturned: Int, val failed: Int, val blocked: Int)
 
 internal fun softNudgeText(kind: String): String = when (kind) {
-    "onboarding" -> "I'm still here 💙 Send me a voice message whenever you're ready to continue."
-    else -> "Still here if you'd like to keep talking 💙 Send me a voice message, or end the call to see your feedback."
+    "onboarding" -> "Our first chat isn't finished yet 💙 Send me a voice message when you're ready, and let's pick up where we left off."
+    else -> "Our conversation is still open 💙 I'm here when you're ready. Send me a voice message to keep talking, or tap End call to get your feedback."
 }
 
-internal fun softNudgeKeyboard(candidate: SoftNudgeCandidate): InlineKeyboardMarkup = inlineKeyboard {
-    row {
-        if (candidate.kind == "onboarding") dataButton("Continue 🎙", "fu:resume:${candidate.flowId}")
-        else dataButton("End call", "call:end:${candidate.flowId}")
-    }
+internal fun softNudgeKeyboard(candidate: SoftNudgeCandidate): InlineKeyboardMarkup? =
+    if (candidate.kind == "onboarding") null else inlineKeyboard {
+        row { dataButton("End call", "call:end:${candidate.flowId}") }
 }
 
 /** A one-shot interruption check, independent of daily reminder claims and copy budgets. */
