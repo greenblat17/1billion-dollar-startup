@@ -1,5 +1,7 @@
 # Incomplete onboarding reminder analytics
 
+The initial `onboarding-nudges.v1` contract below remains the historical baseline. The locally implemented [stage-specific follow-up plan](2026-10-20-onboarding-stage-followups.md) extends its JSON and dashboard to `onboarding-nudges.v2` with stage, copy, timing, practice and stop aggregates. No live deployment has been verified.
+
 Scope: delivery accounting and dashboard only. No holdout experiment, new send policy, opt-out changes, or deployment.
 
 ## Decisions

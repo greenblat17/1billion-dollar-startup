@@ -2,6 +2,8 @@
 
 Status: implemented locally on `feature/telegram-onboarding`; not deployed.
 
+The fixed 20:00–21:59 sending policy described below is superseded locally by the [personalized follow-up implementation](2026-10-20-personal-onboarding-nudge-time.md). This file records the earlier behavior.
+
 ## Decision
 
 - Send at 20:00 Europe/Moscow each day to Telegram users whose latest onboarding attempt has no delivered result and has had no recorded activity for at least 24 hours. Include users who only received the `/start` invitation.

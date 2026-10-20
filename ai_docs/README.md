@@ -38,6 +38,10 @@ First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
 Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.
 Incomplete onboarding reminder analytics and dashboard: `plans/2026-10-19-onboarding-nudge-analytics.md`.
+Personalized incomplete-onboarding reminder time: `plans/2026-10-20-personal-onboarding-nudge-time.md` (implemented locally).
+Stage-specific onboarding and practice follow-ups: `plans/2026-10-20-onboarding-stage-followups.md` (implemented locally).
+Ongoing practice reminder rules and copy comparison: `plans/2026-10-20-ongoing-practice-reminders.md` (implemented locally).
+English follow-up copy by journey stage: `product/2026-10-20-onboarding-followup-copy.md`.
 Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
 
 ## Structure

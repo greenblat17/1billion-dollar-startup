@@ -69,7 +69,7 @@ class PostgresNudgeReportTest {
             connection.createStatement().use { it.execute("DELETE FROM interaction_events") }
             assertEquals(report.totals, store.nudgeReport(30, now).totals)
             val json = nudgeReportJson(report)
-            assertTrue(json.contains("onboarding-nudges.v1"))
+            assertTrue(json.contains("onboarding-nudges.v2"))
             assertFalse(json.contains(session))
             val html = onboardingNudgeHtml(report, "/admin/metrics", 30)
             assertTrue(html.contains("1 / 2 · 50.0%"))

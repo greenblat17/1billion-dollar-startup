@@ -32,6 +32,7 @@ import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
+import dev.inmo.tgbotapi.extensions.api.send.copyMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendBotAction
 import dev.inmo.tgbotapi.extensions.api.send.withRecordVoiceAction
 import dev.inmo.tgbotapi.types.MessageId
@@ -224,6 +225,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     audit: InteractionAudit? = null,
     callEvents: CallEventRecorder? = null,
     voiceCost: com.eliteteam.speakingcoach.analytics.VoiceCostStore? = null,
+    followups: FollowupStore? = null,
 ) {
     val log = LoggerFactory.getLogger("TelegramHandlers")
     val actions = TelegramChatActions()
@@ -484,6 +486,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = practice?.let { callKeyboard(it.todaySeconds, it.goalSeconds, spoken, it.callId) }
                     ?: withSpokenText(progress, spoken),
             )
+            if (onboarding?.status == "active") {
+                try {
+                    followups?.recordBotVoice(onboarding.runId, voice.messageId.long, Instant.now())
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Could not save last onboarding voice for {}", onboarding.runId, error)
+                }
+            }
             onMainDelivered(voice.messageId.long, "audio")
             if (spoken) spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text.trim()
             if (progress != null || practice != null) progressMessages[message.chat.id.toString()] = voice.messageId
@@ -1478,6 +1489,64 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
             }
         }
+        if (query.data.startsWith("fu:resume:")) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "followup:${query.id}") {
+                    val sessionId = telegramSessionId(message.chat.id)
+                    val store = followups ?: return@run
+                    val current = store.currentJourney(sessionId.value)
+                    val state = ai.onboardingState(sessionId, "followup:resume:${query.id}")
+                    val action = current?.takeIf { it.first == state.runId }
+                        ?.second?.let { followupAction(it, state.status) }
+                    when (action) {
+                        "resume" -> {
+                            val voiceId = store.lastBotVoice(state.runId)
+                            if (voiceId == null) {
+                                if (current.second in setOf("start", "invitation", "begin")) {
+                                    val first = ai.onboardingAction(sessionId, "followup:begin:${query.id}", state.runId, "begin")
+                                    if (first.audio != null || first.text.isNotBlank()) {
+                                        if (deliver(message, first, firstQuestion = true)) analytics.safely {
+                                            mark(state.runId, AttemptMark.BEGIN_PRESSED, Instant.now())
+                                            mark(state.runId, AttemptMark.FIRST_QUESTION_DELIVERED, Instant.now())
+                                        }
+                                    } else {
+                                        reply(message, "Please reply to my last voice message above.",
+                                            allowSendingWithoutReply = true)
+                                    }
+                                } else {
+                                    reply(message, "Please listen to my last voice message above and reply with your voice.",
+                                        allowSendingWithoutReply = true)
+                                }
+                            } else {
+                                val copied = copyMessage(message.chat.id, MessageId(voiceId), message.chat.id,
+                                    replyMarkup = onboardingProgressKeyboard(state.seconds))
+                                store.recordBotVoice(state.runId, copied.long, Instant.now())
+                            }
+                        }
+                        null -> reply(message, "This step has changed. Send /start to see where we are now.",
+                            allowSendingWithoutReply = true)
+                        else -> reply(message, "Let's continue from your current step.",
+                            allowSendingWithoutReply = true,
+                            replyMarkup = followupKeyboard(action, state.runId, current.second))
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Could not resume onboarding from follow-up for {}", message.chat.id, error)
+                reply(message, "I couldn't repeat that message. Please reply to my last voice message above.",
+                    allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
+        if (query.data == "fu:practice") {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            actions.run(message.chat.id.toString(), "followup:${query.id}") {
+                startCall(message, callbackReceivedAt)
+            }
+            return@withRequestLog
+        }
         if (query.data == LEGACY_ONBOARDING_CALLBACK) {
             log.info("Starting legacy onboarding")
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
@@ -1792,6 +1861,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             "decline",
                             callback.runId,
                         )
+                        followups?.stop(telegramSessionId(message.chat.id).value, Instant.now())
                         onboardingReminderCards.remove(message.chat.id.toString())
                         try {
                             editMessageText(message.chat.id, message.messageId, REMINDER_SKIPPED, replyMarkup = noInlineKeyboard)

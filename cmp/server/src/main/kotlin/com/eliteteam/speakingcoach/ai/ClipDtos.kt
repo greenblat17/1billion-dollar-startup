@@ -504,6 +504,12 @@ data class ReminderTimeResponse(
 )
 
 @Serializable
+data class PersonalizedReminderResponse(val text: String? = null)
+
+@Serializable
+data class PersonalizedReminderRequest(val sessionId: String)
+
+@Serializable
 data class ReminderTarget(
     val sessionId: String,
     val name: String? = null,

@@ -838,6 +838,20 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setTimestamp(6, Timestamp.from(at))
                     statement.executeUpdate()
                 }
+                connection.prepareStatement("""
+                    UPDATE onboarding_followup_schedule
+                    SET first_practice_at = COALESCE(first_practice_at, ?), dirty = TRUE
+                    WHERE session_id = ? AND EXISTS (
+                        SELECT 1 FROM onboarding_attempts a WHERE a.session_id = ?
+                          AND a.result_delivered_at IS NOT NULL AND a.result_delivered_at <= ?
+                    )
+                """.trimIndent()).use { statement ->
+                    statement.setTimestamp(1, Timestamp.from(at))
+                    statement.setString(2, sessionId)
+                    statement.setString(3, sessionId)
+                    statement.setTimestamp(4, Timestamp.from(at))
+                    statement.executeUpdate()
+                }
                 connection.commit()
                 } catch (error: Throwable) {
                     connection.rollback()

@@ -41,6 +41,7 @@ from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_j
 from app.retry import bind_provider_metrics, reset_provider_metrics
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.reminders import build_reminder_ledger, parse_report
+from app.reminder_copy import personal_reminder
 from app.review import OpenAiSessionReviewer, SessionReviewer
 from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
@@ -351,6 +352,15 @@ def create_app(
     @app.get("/internal/reminders/{session_id}")
     async def reminder_time(session_id: str) -> dict[str, str | None]:
         return {"time": await clip_pipeline.metrics.reminder_time(session_id)}
+
+    @app.post("/internal/reminders/personal-copy")
+    async def reminder_personal_copy(request: Request) -> dict[str, str | None]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        return {"text": await personal_reminder(
+            session_id, onboarding.personalization, sessions, onboarding.model)}
 
     @app.post("/internal/reminders/schedule")
     async def reminders_schedule(request: Request) -> dict[str, str]:

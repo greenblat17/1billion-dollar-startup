@@ -64,6 +64,8 @@ internal class ReminderRunner(
     private val pause: Duration = 50.milliseconds,
     private val classify: (Throwable) -> SendFailure = ::telegramSendFailure,
     private val streakOf: suspend (Long) -> Int = { 0 },
+    private val followup: suspend (String) -> FollowupDelivery? = { null },
+    private val personalize: suspend (String) -> String? = { null },
 ) {
     private val mutex = Mutex()
 
@@ -85,11 +87,32 @@ internal class ReminderRunner(
             val results = mutableListOf<ReminderSendResult>()
             for (target in targets) {
                 val chatId = reminderChatId(target.sessionId) ?: continue
-                val template = reminderTemplate(chatId, day, target.streak)
-                val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
-                    deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
+                val replacement = if (mode == ReminderMode.AUTO) try {
+                    followup(target.sessionId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Follow-up replacement failed for {}", target.sessionId, error)
+                    null
+                } else null
+                if (replacement != null) {
+                    results += ReminderSendResult(target.sessionId,
+                        "followup_${replacement.copyId.replace(':', '_')}", replacement.status, target.hour)
+                    delay(pause)
+                    continue
                 }
-                results += ReminderSendResult(target.sessionId, template.id, status, target.hour)
+                val template = reminderTemplate(chatId, day, target.streak)
+                val copy = if (mode == ReminderMode.AUTO) practiceReminderCopy(
+                    target.sessionId, day, renderReminder(template, reminderFirstName(target.name), target.streak),
+                    personalize,
+                ) else PracticeReminderCopy(renderReminder(template, reminderFirstName(target.name), target.streak), "general")
+                val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
+                    deliver(chatId, copy.text)
+                }
+                val copyId = if (mode != ReminderMode.AUTO) template.id
+                    else if (copy.kind == "personalized") "practice_personalized"
+                    else "practice_general_${template.id}"
+                results += ReminderSendResult(target.sessionId, copyId, status, target.hour)
                 delay(pause)
             }
             val outcome = RoundOutcome(

@@ -29,6 +29,7 @@ internal data class NudgeCounts(
     val returned24: Int,
     val voice24: Int,
     val result24: Int,
+    val practice24: Int = 0,
 )
 
 @Serializable
@@ -45,7 +46,7 @@ internal data class NudgeCohort(
 
 @Serializable
 internal data class NudgeReport(
-    val schema: String = "onboarding-nudges.v1",
+    val schema: String = "onboarding-nudges.v2",
     val generatedAt: String,
     val from: String,
     val to: String,
@@ -57,6 +58,13 @@ internal data class NudgeReport(
     val byNumber: List<NudgeGroup>,
     val byInactivity: List<NudgeGroup>,
     val byTemplate: List<NudgeGroup>,
+    val byCopyKind: List<NudgeGroup> = emptyList(),
+    val byTimingPolicy: List<NudgeGroup> = emptyList(),
+    val byVisitCount: List<NudgeGroup> = emptyList(),
+    val byLateness: List<NudgeGroup> = emptyList(),
+    val finalSent: Int = 0,
+    val stoppedByUser: Int = 0,
+    val declinedReminder: Int = 0,
     val definition: String = "24h: last successful nudge, before next successful nudge, mature sends only. " +
         "7d: unique users from first confirmed send observed by this instrumentation; mature cohorts only. " +
         "Sent means Telegram API accepted, not read. Observational association, not causal effect. " +
@@ -68,10 +76,12 @@ private val nudgeJson = Json { encodeDefaults = true }
 internal fun nudgeReportJson(report: NudgeReport): String = nudgeJson.encodeToString(report)
 
 private data class NudgeFact(
-    val session: String, val day: String, val stage: String, val number: String,
-    val inactivity: String, val template: String, val status: String,
+    val session: String, val day: String, val stage: String, val number: String, val copyKind: String,
+    val inactivity: String, val template: String, val timingPolicy: String,
+    val visitCount: String, val lateness: String, val status: String,
     val mature24: Boolean, val returned24: Boolean, val voice24: Boolean, val result24: Boolean,
-    val first: Boolean, val mature7: Boolean, val result7: Boolean, val practice7: Boolean,
+    val practice24: Boolean, val finalMessage: Boolean, val first: Boolean, val mature7: Boolean,
+    val result7: Boolean, val practice7: Boolean,
 )
 
 private fun List<NudgeFact>.counts(): NudgeCounts = NudgeCounts(
@@ -82,6 +92,7 @@ private fun List<NudgeFact>.counts(): NudgeCounts = NudgeCounts(
     mature24 = count { it.mature24 }, pending24 = count { it.status == "sent" && !it.mature24 },
     returned24 = count { it.mature24 && it.returned24 }, voice24 = count { it.mature24 && it.voice24 },
     result24 = count { it.mature24 && it.result24 },
+    practice24 = count { it.mature24 && it.practice24 },
 )
 
 private fun List<NudgeFact>.groups(key: (NudgeFact) -> String): List<NudgeGroup> =
@@ -99,7 +110,12 @@ internal fun loadNudgeReport(connection: Connection, days: Int, now: Instant): N
                 while (rows.next()) {
                     val number = rows.getInt("attempt_number").takeUnless { rows.wasNull() }
                     val inactive = rows.getLong("inactive_seconds").takeUnless { rows.wasNull() }
-                    val stage = rows.getString("action") ?: "unknown"
+                    val stage = rows.getString("journey_stage") ?: rows.getString("action") ?: "unknown"
+                    val visits = rows.getInt("visit_count").takeUnless { rows.wasNull() }
+                    val scheduled = rows.getTimestamp("scheduled_for")?.toInstant()
+                    val sentAt = rows.getTimestamp("sent_at")?.toInstant()
+                    val lateSeconds = if (scheduled != null && sentAt != null)
+                        java.time.Duration.between(scheduled, sentAt).seconds else null
                     add(NudgeFact(
                         session = rows.getString("session_id"), day = rows.getString("day"), stage = stage,
                         number = when { number == null -> "unknown"; number >= 4 -> "4+"; else -> number.toString() },
@@ -109,10 +125,20 @@ internal fun loadNudgeReport(connection: Connection, days: Int, now: Instant): N
                             inactive < 7 * 86_400 -> "3–6 дней"
                             else -> "7+ дней"
                         },
-                        template = "$stage:${rows.getString("template_version") ?: "unknown"}",
+                        template = rows.getString("copy_id") ?: "$stage:${rows.getString("template_version") ?: "unknown"}",
+                        copyKind = rows.getString("copy_kind") ?: "старый учёт",
+                        timingPolicy = rows.getString("timing_policy") ?: "fixed-20:00",
+                        visitCount = when { visits == null -> "unknown"; visits == 1 -> "1 визит"; else -> "2+ визита" },
+                        lateness = when {
+                            lateSeconds == null -> "unknown"
+                            lateSeconds <= 300 -> "до 5 мин"
+                            lateSeconds <= 1_800 -> "5–30 мин"
+                            else -> "30–120 мин"
+                        },
                         status = rows.getString("status"), mature24 = rows.getBoolean("mature24"),
                         returned24 = rows.getBoolean("returned24"), voice24 = rows.getBoolean("voice24"),
-                        result24 = rows.getBoolean("result24"), first = rows.getBoolean("first_send"),
+                        result24 = rows.getBoolean("result24"), practice24 = rows.getBoolean("practice24"),
+                        finalMessage = rows.getBoolean("final_message"), first = rows.getBoolean("first_send"),
                         mature7 = rows.getBoolean("mature7"), result7 = rows.getBoolean("result7"),
                         practice7 = rows.getBoolean("practice7"),
                     ))
@@ -127,6 +153,23 @@ internal fun loadNudgeReport(connection: Connection, days: Int, now: Instant): N
         }
     }
     val first = facts.filter { it.first }
+    val stopped = connection.prepareStatement("""
+        SELECT COUNT(*) FROM onboarding_followup_schedule
+        WHERE stop_reason = 'user' AND (stopped_at AT TIME ZONE 'Europe/Moscow')::date BETWEEN ? AND ?
+    """.trimIndent()).use { statement ->
+        statement.setObject(1, from)
+        statement.setObject(2, to)
+        statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+    }
+    val declined = connection.prepareStatement("""
+        SELECT COUNT(DISTINCT session_id) FROM onboarding_attempts
+        WHERE reminder_decision = 'not_now'
+          AND (reminder_decision_at AT TIME ZONE 'Europe/Moscow')::date BETWEEN ? AND ?
+    """.trimIndent()).use { statement ->
+        statement.setObject(1, from)
+        statement.setObject(2, to)
+        statement.executeQuery().use { rows -> rows.next(); rows.getInt(1) }
+    }
     return NudgeReport(
         generatedAt = now.toString(), from = from.toString(), to = to.toString(), trackingSince = tracking,
         totals = facts.counts(),
@@ -135,6 +178,11 @@ internal fun loadNudgeReport(connection: Connection, days: Int, now: Instant): N
         byDay = facts.groups { it.day }, byStage = facts.groups { it.stage },
         byNumber = facts.groups { it.number }, byInactivity = facts.groups { it.inactivity },
         byTemplate = facts.groups { it.template },
+        byCopyKind = facts.filter { it.stage == "practice" }.groups { it.copyKind },
+        byTimingPolicy = facts.groups { it.timingPolicy },
+        byVisitCount = facts.groups { it.visitCount }, byLateness = facts.groups { it.lateness },
+        finalSent = facts.count { it.finalMessage && it.status == "sent" },
+        stoppedByUser = stopped, declinedReminder = declined,
     )
 }
 
@@ -167,6 +215,9 @@ private val NUDGE_REPORT_SQL = """
         EXISTS (SELECT 1 FROM onboarding_attempts a
                 WHERE a.session_id = n.session_id AND a.result_delivered_at > n.sent_at
                   AND a.result_delivered_at < n.window_end) AS result24,
+        EXISTS (SELECT 1 FROM onboarding_nudge_interactions p
+                WHERE p.session_id = n.session_id AND p.kind = 'practice'
+                  AND p.occurred_at > n.sent_at AND p.occurred_at < n.window_end) AS practice24,
         EXISTS (SELECT 1 FROM onboarding_attempts a
                 WHERE a.session_id = n.session_id AND a.result_delivered_at > n.sent_at
                   AND a.result_delivered_at < n.sent_at + interval '7 days'

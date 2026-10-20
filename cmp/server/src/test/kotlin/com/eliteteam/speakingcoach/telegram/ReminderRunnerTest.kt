@@ -21,6 +21,28 @@ import kotlin.time.Duration.Companion.seconds
 
 class ReminderRunnerTest {
 
+    @Test
+    fun automaticCopyAlternatesByUserDayAndReportsActualKind() = runTest {
+        val personalDay = (1..20).map { "tg-$it" }.first { personalCopyDay(it, day) }
+        var current = day
+        val sent = mutableListOf<String>()
+        val reports = mutableListOf<ReminderReport>()
+        val runner = ReminderRunner(
+            claim = { listOf(ReminderTarget(personalDay)) },
+            report = { reports += it },
+            send = { _, message -> sent += message },
+            clock = { ZonedDateTime.of(current.atTime(19, 0), REMINDER_ZONE) },
+            pause = Duration.ZERO,
+            personalize = { "Last time we talked about your book. What are you reading now?" },
+        )
+        runner.runRound(ReminderMode.AUTO)
+        assertEquals("practice_personalized", reports.last().results.single().templateId)
+        assertEquals("Last time we talked about your book. What are you reading now?", sent.last())
+        current = current.plusDays(1)
+        runner.runRound(ReminderMode.AUTO)
+        assertTrue(reports.last().results.single().templateId.startsWith("practice_general_"))
+    }
+
     private val day = LocalDate.of(2026, 9, 26)
     private val clock = { ZonedDateTime.of(day.atTime(19, 0), REMINDER_ZONE) }
 

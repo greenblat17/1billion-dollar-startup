@@ -161,6 +161,11 @@ private fun remindersSectionHtml(
         ${templateRows(reminders)}
         </tbody>
         </table>
+        <h2>Тексты практики: общий / персонализированный</h2>
+        <p class="meta">С начала нового учёта, только отправки с выбранным временем. Доля ответов за 24 часа;
+        тип текста чередуется по дням для каждого человека. Сравнение наблюдательное.</p>
+        <table><thead><tr><th>Тип</th><th>Отправлено</th><th>Ответили</th><th>Доля</th></tr></thead>
+        <tbody>${copyKindRows(reminders)}</tbody></table>
         <h2>Сегменты (7 дн.)</h2>
         <table>
         <thead><tr><th>Сегмент</th><th>Отправлено</th><th>Ответили</th><th>Конверсия</th></tr></thead>
@@ -229,9 +234,21 @@ private fun templateRows(reminders: RemindersSnapshot): String {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
     return reminders.templates.joinToString("\n") { stats ->
-        val text = reminderTemplateById(stats.templateId)?.let { renderReminder(it, null, streak = 2) } ?: "удалён из пула"
+        val sourceId = stats.templateId.removePrefix("practice_general_")
+        val text = if (stats.templateId == "practice_personalized") "Текст на основе истории разговора"
+            else reminderTemplateById(sourceId)?.let { renderReminder(it, null, streak = 2) } ?: "удалён из пула"
         "<tr><td>${escapeHtml(stats.templateId)}<br><span class=\"template\">${escapeHtml(text)}</span></td>" +
             "<td>${stats.sent}</td><td>${stats.returned}</td><td>${rate(stats.returned, stats.sent)}</td><td>${stats.blocked}</td></tr>"
+    }
+}
+
+private fun copyKindRows(reminders: RemindersSnapshot): String {
+    val groups = listOf("practice_general_" to "Общие", "practice_personalized" to "Персонализированные")
+    return groups.joinToString("") { (prefix, label) ->
+        val items = reminders.templates.filter { it.templateId.startsWith(prefix) }
+        val sent = items.sumOf { it.sent }
+        val returned = items.sumOf { it.returned }
+        "<tr><th scope=\"row\">$label</th><td>$sent</td><td>$returned</td><td>${rate(returned, sent)}</td></tr>"
     }
 }
 
