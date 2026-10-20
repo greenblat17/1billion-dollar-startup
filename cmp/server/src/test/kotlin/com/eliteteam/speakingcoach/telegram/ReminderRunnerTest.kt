@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.ai.ReminderReport
 import com.eliteteam.speakingcoach.ai.ReminderSendResult
 import com.eliteteam.speakingcoach.ai.ReminderTarget
+import com.eliteteam.speakingcoach.ai.PersonalizedReminderResponse
 import dev.inmo.tgbotapi.bot.exceptions.TooMuchRequestsException
 import dev.inmo.tgbotapi.types.Response
 import dev.inmo.tgbotapi.types.RetryAfterError
@@ -20,6 +21,33 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 class ReminderRunnerTest {
+
+    @Test
+    fun automaticCopyAlternatesByUserDayAndReportsActualKind() = runTest {
+        val personalDay = (1..20).map { "tg-$it" }.first { personalCopyDay(it, day) }
+        var current = day
+        val sent = mutableListOf<String>()
+        val reports = mutableListOf<ReminderReport>()
+        val recorded = mutableListOf<ReminderDelivery>()
+        val runner = ReminderRunner(
+            claim = { listOf(ReminderTarget(personalDay)) },
+            report = { reports += it },
+            send = { _, _, copy, _ -> sent += copy.text },
+            clock = { ZonedDateTime.of(current.atTime(19, 0), REMINDER_ZONE) },
+            pause = Duration.ZERO,
+            personalize = { PersonalizedReminderResponse(
+                "Last time we talked about your book. What are you reading now?",
+                "What kind of book are you reading?") },
+            recordAutoAttempt = { _, _, delivery -> recorded += delivery },
+        )
+        runner.runRound(ReminderMode.AUTO)
+        assertEquals("practice_personalized", reports.last().results.single().templateId)
+        assertEquals("Last time we talked about your book. What are you reading now?", sent.last())
+        current = current.plusDays(1)
+        runner.runRound(ReminderMode.AUTO)
+        assertTrue(reports.last().results.single().templateId.startsWith("practice_general_"))
+        assertEquals(listOf(ReminderDelivery("sent"), ReminderDelivery("sent")), recorded)
+    }
 
     private val day = LocalDate.of(2026, 9, 26)
     private val clock = { ZonedDateTime.of(day.atTime(19, 0), REMINDER_ZONE) }
@@ -52,7 +80,7 @@ class ReminderRunnerTest {
                 )
             },
             report = { reports += it },
-            send = { chatId, text ->
+            send = { _, chatId, copy, _ ->
                 when (chatId) {
                     2L -> throw Blocked()
                     3L -> error("boom")
@@ -61,7 +89,7 @@ class ReminderRunnerTest {
                         throw Limited()
                     }
                 }
-                sent += chatId to text
+                sent += chatId to copy.text
             },
             clock = clock,
             pause = Duration.ZERO,
@@ -94,7 +122,7 @@ class ReminderRunnerTest {
         val runner = ReminderRunner(
             claim = { _ -> listOf(ReminderTarget("tg-1")) },
             report = {},
-            send = { _, _ ->
+            send = { _, _, _, _ ->
                 attempts += 1
                 throw Limited()
             },
@@ -116,7 +144,7 @@ class ReminderRunnerTest {
                 emptyList()
             },
             report = {},
-            send = { _, _ -> },
+            send = { _, _, _, _ -> },
             clock = clock,
             pause = Duration.ZERO,
         )
@@ -136,7 +164,7 @@ class ReminderRunnerTest {
         val runner = ReminderRunner(
             claim = { _ -> emptyList() },
             report = { reports += it },
-            send = { _, _ -> },
+            send = { _, _, _, _ -> },
             clock = clock,
             pause = Duration.ZERO,
         )
@@ -153,7 +181,7 @@ class ReminderRunnerTest {
         val runner = ReminderRunner(
             claim = { _ -> error("claim must not run") },
             report = { error("report must not run") },
-            send = { chatId, text -> sent += chatId to text },
+            send = { _, chatId, copy, _ -> sent += chatId to copy.text },
             clock = clock,
             pause = Duration.ZERO,
         )
@@ -176,7 +204,7 @@ class ReminderRunnerTest {
         val runner = ReminderRunner(
             claim = { _ -> listOf(ReminderTarget("tg-7", streak = 4)) },
             report = {},
-            send = { _, text -> sent += text },
+            send = { _, _, copy, _ -> sent += copy.text },
             clock = clock,
             pause = Duration.ZERO,
             streakOf = { 4 },

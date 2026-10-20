@@ -83,6 +83,24 @@ class HttpClipClientTest {
     }
 
     @Test
+    fun reminderQuestionReachesCallStartOnlyForReminderButton() = runTest {
+        val bodies = mutableListOf<String>()
+        val engine = MockEngine { request ->
+            assertEquals("/internal/calls/start", request.url.encodedPath)
+            bodies += (request.body as TextContent).text
+            respond("""{"callId":"c1","status":"active"}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
+        ai.startCall(SessionId("tg-7"), "Alex", reminderOpeningQuestion = "What music do you like?")
+        ai.startCall(SessionId("tg-7"), "Alex")
+        assertContains(bodies.first(), "\"reminderOpeningQuestion\":\"What music do you like?\"")
+        assertEquals(false, bodies.last().contains("What music do you like?"))
+        http.close()
+    }
+
+    @Test
     fun recordsUserVoiceAndReadsLastVoiceWhenCallEnds() = runTest {
         val engine = MockEngine { request ->
             assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])

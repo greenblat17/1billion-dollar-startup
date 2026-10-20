@@ -184,6 +184,16 @@ class HttpClipClient(
         return response.body<ReminderTimeResponse>().time?.takeIf { it.isNotBlank() }
     }
 
+    suspend fun personalizedReminder(sessionId: SessionId): PersonalizedReminderResponse {
+        val response = http.post("$root/internal/reminders/personal-copy") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(PersonalizedReminderRequest(sessionId.value))
+        }
+        check(response.status.isSuccess()) { "ai-service personal reminder returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun reminderSummary(): ReminderClockSummary {
         val response = http.get("$root/internal/reminders/summary") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service reminder summary returned ${response.status}" }
@@ -271,11 +281,13 @@ class HttpClipClient(
     }
 
     suspend fun startCall(sessionId: SessionId, firstName: String?, scenarioKind: String? = null,
-                          scenarioDescription: String? = null): StartCallResponse {
+                          scenarioDescription: String? = null,
+                          reminderOpeningQuestion: String? = null): StartCallResponse {
         val response = http.post("$root/internal/calls/start") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(StartCallRequest(sessionId.value, firstName, scenarioKind, scenarioDescription))
+            setBody(StartCallRequest(sessionId.value, firstName, scenarioKind, scenarioDescription,
+                reminderOpeningQuestion))
         }
         check(response.status.isSuccess()) { "ai-service start call returned ${response.status}" }
         return response.body()

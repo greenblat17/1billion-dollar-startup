@@ -1338,7 +1338,7 @@ def schedule_decision(action: str, pending: str | None, text: str | None, run_id
             raise ValueError("run id required")
         return {"status": "asking", "write_pending": saved}
     if action == "decline":
-        return {"status": "declined", "write_pending": ""}
+        return {"status": "declined", "write_pending": "", "clear_time": "1"}
     if action == "clear":
         return {"status": "cleared", "write_pending": "", "clear_time": "1"}
     if action == "submit":

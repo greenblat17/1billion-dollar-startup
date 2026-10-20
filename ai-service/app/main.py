@@ -41,6 +41,7 @@ from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_j
 from app.retry import bind_provider_metrics, reset_provider_metrics
 from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
 from app.reminders import build_reminder_ledger, parse_report
+from app.reminder_copy import personal_reminder
 from app.review import OpenAiSessionReviewer, SessionReviewer
 from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
 from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
@@ -352,6 +353,15 @@ def create_app(
     async def reminder_time(session_id: str) -> dict[str, str | None]:
         return {"time": await clip_pipeline.metrics.reminder_time(session_id)}
 
+    @app.post("/internal/reminders/personal-copy")
+    async def reminder_personal_copy(request: Request) -> dict[str, str | None]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        pair = await personal_reminder(session_id, onboarding.personalization, sessions, onboarding.model)
+        return pair or {"text": None, "openingQuestion": None}
+
     @app.post("/internal/reminders/schedule")
     async def reminders_schedule(request: Request) -> dict[str, str]:
         payload = await _json_object(request)
@@ -456,6 +466,7 @@ def create_app(
         payload = await _json_object(request)
         kind = payload.get("scenarioKind")
         description = payload.get("scenarioDescription")
+        reminder_question = payload.get("reminderOpeningQuestion")
         if kind is None and description is None:
             scenario = None
         elif kind in {"job", "manager"} and description is None:
@@ -464,7 +475,12 @@ def create_app(
             scenario = {"kind": kind, "description": description.strip()}
         else:
             raise HTTPException(status_code=400, detail="invalid scenario")
-        return await call_starter.start(_call_session_id(payload), payload.get("firstName"), scenario)
+        if reminder_question is not None and (scenario is not None or not isinstance(reminder_question, str)
+                                              or not 1 <= len(reminder_question.strip()) <= 220
+                                              or reminder_question.count("?") != 1 or "\n" in reminder_question):
+            raise HTTPException(status_code=400, detail="invalid reminder opening")
+        return await call_starter.start(_call_session_id(payload), payload.get("firstName"), scenario,
+                                        reminder_question.strip() if reminder_question else None)
 
     @app.post("/internal/calls/starter-delivered")
     async def calls_starter_delivered(request: Request) -> dict[str, bool]:

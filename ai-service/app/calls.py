@@ -161,7 +161,33 @@ class CallStore:
                 raise ValueError("call is closed")
             if not current.get("openingQuestion"):
                 current["openingQuestion"] = question
+                current["openingFromReminder"] = False
                 await self._write_call(current)
+
+    async def replace_opening(self, call_id: str, question: str) -> None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open" or current.get("openingDelivered"):
+                raise ValueError("call opening cannot be replaced")
+            current["openingQuestion"] = question
+            current["openingFromReminder"] = True
+            await self._write_call(current)
+
+    async def clear_reminder_opening(self, call_id: str) -> None:
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open" or current.get("openingDelivered"):
+                raise ValueError("call opening cannot be cleared")
+            if current.get("openingFromReminder"):
+                current["openingQuestion"] = None
+                current["openingFromReminder"] = False
+            await self._write_call(current)
 
     async def mark_opening_delivered(self, call_id: str) -> tuple[str, str] | None:
         call = await self._read_call(call_id)

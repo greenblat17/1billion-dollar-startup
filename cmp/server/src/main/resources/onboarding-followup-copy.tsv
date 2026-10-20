@@ -1,0 +1,186 @@
+# v1; stage, variant, message
+start	1	👋 Want to try a short chat in English? We can start whenever you're ready.
+start	2	A quick English chat is waiting for you. Ready to begin?
+start	3	Let's find your starting point in English. It only takes a short chat.
+start	4	You can start with one simple English question. Want to try?
+start	5	No need to prepare. Come say hello in English when you have a moment.
+start	6	Ready for a little English practice? Let's start with a chat.
+start	7	Your first English chat can start whenever you like.
+start	8	Have a minute? Let's see where your English is today.
+start	9	Let's take the first step together: a short chat in English.
+start	10	When you're ready, tap below and we'll begin in English.
+invitation	1	👋 I'm here when you're ready. Tap Let’s chat to begin.
+invitation	2	Have a moment for English? Tap Let’s chat and we'll start.
+invitation	3	Your first question is one tap away. Ready to chat?
+invitation	4	Let's find your starting level with a short English chat.
+invitation	5	You don't need to prepare anything. Just tap Let’s chat.
+invitation	6	Ready for a small English step today? Let's chat.
+invitation	7	One short chat can show us where to start. Want to try?
+invitation	8	If now feels like a good time, tap Let’s chat.
+invitation	9	I'm ready for our first English chat whenever you are.
+invitation	10	Let's begin with a simple conversation in English.
+begin	1	We can pick up where we paused. Tap below for your first question.
+begin	2	Ready to continue? I'll give you the first English question.
+begin	3	Your chat can still begin. Tap below to see the first question.
+begin	4	Let's take the next step and start with one question.
+begin	5	Have a quiet minute? Your first question is ready to open.
+begin	6	We can start slowly. Tap below and I'll ask one question.
+begin	7	Want to carry on? Let's begin with the first question.
+begin	8	You already started. Tap below and we'll continue the chat.
+begin	9	Let's get the conversation going with one simple question.
+begin	10	Whenever you're ready, open the first question and reply.
+first_question	1	🎙 Your first question is waiting. Send a voice reply when you're ready.
+first_question	2	You can answer in simple English. A short voice message is enough to start.
+first_question	3	No perfect answer needed. Tell me your answer by voice.
+first_question	4	Ready to try? Send me a voice message with your answer.
+first_question	5	Take your time, then answer the question with your voice.
+first_question	6	A few spoken words are a good first step. Send your answer.
+first_question	7	I'd love to hear your answer. Tap the microphone when you're ready.
+first_question	8	Let's continue our chat. What would you say to that question?
+first_question	9	Your voice is all we need for the next step. Send a reply.
+first_question	10	Have a moment to speak? Answer the first question by voice.
+voice_received	1	🎙 I got your voice message. Ready to continue our chat?
+voice_received	2	Thanks for speaking. We can take the next step when you're ready.
+voice_received	3	Your first voice message is in. Let's keep going.
+voice_received	4	Nice, you've started speaking. Want to continue in English?
+voice_received	5	We have your first reply. Come back for the next part of the chat.
+voice_received	6	You already took the first speaking step. Let's carry on.
+voice_received	7	Ready for another short English reply? I'm here.
+voice_received	8	Let's continue from your first voice message.
+voice_received	9	One voice message down. Come back when you're ready to talk more.
+voice_received	10	Thank you for your first reply. Let's keep the conversation going.
+voice_recognized	1	🎙 Your first spoken reply is in. Let's keep talking.
+voice_recognized	2	You've started speaking English with me. Want to continue?
+voice_recognized	3	Ready for the next part of our conversation? Send a voice reply.
+voice_recognized	4	Good start. Let's hear a little more about your answer.
+voice_recognized	5	We can keep this simple. Come back and say a little more.
+voice_recognized	6	Your English chat is underway. Let's continue by voice.
+voice_recognized	7	Have another minute to speak? I'm ready to listen.
+voice_recognized	8	Let's pick up the conversation where we left it.
+voice_recognized	9	One reply can lead to a real chat. Want to keep going?
+voice_recognized	10	Come back when you can and send your next voice message.
+speech_30	1	🎙 You've spoken for a little while. Let's keep the chat going.
+speech_30	2	You're off to a good start. Want to say a little more?
+speech_30	3	We can continue from your last answer. Send another voice reply.
+speech_30	4	A short chat grows one answer at a time. Ready for the next one?
+speech_30	5	Have a moment? Let's keep speaking English together.
+speech_30	6	You've already begun. Come back and continue the conversation.
+speech_30	7	Let's build on what you said. I'm ready for your next reply.
+speech_30	8	Your speaking chat is still here when you have time.
+speech_30	9	Ready to talk a little longer? Send me a voice message.
+speech_30	10	Let's continue the English conversation, one reply at a time.
+speech_60	1	🎙 You've already spent some time speaking. Want to continue?
+speech_60	2	Let's pick up where your English chat paused.
+speech_60	3	Another voice reply will keep our conversation moving.
+speech_60	4	You have a good start. Come back and tell me a bit more.
+speech_60	5	Got a moment to speak? I'm ready for your next answer.
+speech_60	6	Let's stay with this conversation a little longer.
+speech_60	7	Your English practice is underway. Want to keep talking?
+speech_60	8	Send another short voice message when you're ready.
+speech_60	9	A little more conversation can help me understand your English.
+speech_60	10	Ready for the next turn? Let's keep speaking together.
+speech_90	1	🎙 We're well into the chat. Want to keep going?
+speech_90	2	Come back and continue from your last voice reply.
+speech_90	3	You're making time to speak English. Let's do another turn.
+speech_90	4	Have another minute? I'd like to hear your next answer.
+speech_90	5	Let's keep the conversation going with one more voice message.
+speech_90	6	You can continue at your own pace. I'm here to listen.
+speech_90	7	Our chat is waiting for your next spoken reply.
+speech_90	8	Ready to say a little more in English? Let's continue.
+speech_90	9	One more turn can move the chat forward. Want to try?
+speech_90	10	Let's carry on from where we stopped speaking.
+speech_120	1	🎙 You've done plenty of speaking already. Let's finish the chat.
+speech_120	2	You've already spoken a lot. Want to continue the conversation?
+speech_120	3	Come back for the next turn and let's wrap up our chat.
+speech_120	4	A little more conversation may help complete your starting review.
+speech_120	5	You've already put time into this. Ready to keep going?
+speech_120	6	Let's finish the English chat together when you have a moment.
+speech_120	7	Your conversation is still here. Send your next voice reply.
+speech_120	8	Want to see where this chat leads? Let's continue speaking.
+speech_120	9	Pick up the conversation with one more voice message.
+speech_120	10	Come back and let's see where the conversation goes next.
+result_delivered	1	🔥 Your English result is ready. Tap below to see it.
+result_delivered	2	Want to see what I noticed in our chat? Open your result.
+result_delivered	3	Your starting result is here whenever you're ready.
+result_delivered	4	Take a look at your English result when you have a moment.
+result_delivered	5	We finished the chat. Now you can open your result.
+result_delivered	6	Curious about your starting point? Your result is ready.
+result_delivered	7	Your result is waiting. Tap below and let's look at it.
+result_delivered	8	Come see the result from our first English conversation.
+result_delivered	9	Ready to see what came out of our chat? Open the result.
+result_delivered	10	You spoke, and your result is ready to view.
+result_opened	1	You saw your starting result. Want to explore the details?
+result_opened	2	There's more to see from our chat. Tap below to continue.
+result_opened	3	Let's take a closer look at your English together.
+result_opened	4	Ready for the next part of your review? It's one tap away.
+result_opened	5	Your result is a starting point. Come see what I noticed.
+result_opened	6	Have a minute? Let's continue looking through your review.
+result_opened	7	We can go through your result step by step. Ready?
+result_opened	8	Tap below to see the next part of your English review.
+result_opened	9	Let's finish exploring your result when you have time.
+result_opened	10	Want to learn more from that first chat? Continue the review.
+goal_shown	1	How much English time feels right each day? Choose a goal below.
+goal_shown	2	A small daily goal can make practice easier. Pick what fits you.
+goal_shown	3	Five, ten or fifteen minutes? Choose a goal, or skip for now.
+goal_shown	4	Your practice goal is your choice. Tap the time that works.
+goal_shown	5	Ready to choose a daily speaking goal? Keep it comfortable.
+goal_shown	6	Pick a few minutes a day, or choose no goal for now.
+goal_shown	7	Let's make practice fit your day. Choose your minutes below.
+goal_shown	8	What feels doable for you? Set a small goal or skip.
+goal_shown	9	Your next step is simple: choose a daily time goal.
+goal_shown	10	Have a moment? Pick the practice goal that suits you.
+goal_decided	1	You've made your goal choice. Want to speak English with Speaky now?
+goal_decided	2	Ready to turn your goal into a real conversation? Tap Start call.
+goal_decided	3	A short chat is a good next step. Come talk with Speaky.
+goal_decided	4	Your goal is chosen. Let's try a little English practice.
+goal_decided	5	Have a few minutes? Speaky is ready for a practice call.
+goal_decided	6	Let's put that goal into action with a short conversation.
+goal_decided	7	You can start speaking right away. Tap Start call when ready.
+goal_decided	8	Want to practice today? Come have a chat with Speaky.
+goal_decided	9	Your next step can be simple: one English conversation.
+goal_decided	10	Let's start with a relaxed practice call in English.
+reminder_offered	1	🎙 Have a moment for English? Start a call with Speaky.
+reminder_offered	2	We can practice together now. Tap Start call when you're ready.
+reminder_offered	3	Want to use your English today? Let's have a conversation.
+reminder_offered	4	A little speaking practice is waiting for you. Come chat.
+reminder_offered	5	Speaky is here for a short English call whenever you like.
+reminder_offered	6	Ready to talk about your day in English? Start a call.
+reminder_offered	7	Let's practice speaking, one conversation at a time.
+reminder_offered	8	Your next English chat can start with one tap.
+reminder_offered	9	Have a few free minutes? Come talk with Speaky.
+reminder_offered	10	Let's get some real speaking practice in today.
+reminder_resolved	1	🎙 Ready for a short English practice call? Tap Start call.
+reminder_resolved	2	Have a few minutes to speak English today? Let's start a call.
+reminder_resolved	3	Your next English conversation can start whenever you're ready.
+reminder_resolved	4	Want to put your English into practice? Start a short call.
+reminder_resolved	5	A little speaking practice can fit into your day. Want to try?
+reminder_resolved	6	I'm here for another English chat when you have time.
+reminder_resolved	7	Ready to keep speaking? Tap Start call and let's talk.
+reminder_resolved	8	Come back for a short practice conversation in English.
+reminder_resolved	9	Your practice can begin with one small conversation.
+reminder_resolved	10	Let's make time for a little English speaking today.
+pending	1	Your result needs one more try. Tap Retry to continue.
+pending	2	We couldn't finish your result yet. Please tap Retry.
+pending	3	Ready to try your result again? Tap Retry below.
+pending	4	Tap Retry and we'll try to prepare your result again.
+pending	5	Let's try once more to finish your result. Tap Retry.
+pending	6	The result isn't ready yet. Retry is here when you are.
+pending	7	Want to continue? Tap Retry to try finishing your result.
+pending	8	We're not done with your result. Tap Retry when ready.
+pending	9	One more step may finish your result. Try Retry below.
+pending	10	Come back when you can and tap Retry for your result.
+practice	1	Got two minutes? Tell me how your day is going in English.
+practice	2	Ready for a short English conversation? Tap Start call.
+practice	3	What are you looking forward to this week? Let's talk.
+practice	4	Take a small speaking break with Speaky today.
+practice	5	What was the best part of your day? Tell me in English.
+practice	6	Have a moment to practice speaking? I'm ready to chat.
+practice	7	Let's talk about a film or show you enjoyed recently.
+practice	8	One little conversation is enough to keep practicing.
+practice	9	What's on your mind today? Come tell me in English.
+practice	10	Want to chat about your plans for the weekend?
+practice	11	Let's practice with a short, easy conversation.
+practice	12	Tell me about something new you learned this week.
+practice	13	Have a few minutes? Start a call and let's speak English.
+practice	14	Where would you like to travel next? Let's talk about it.
+final	1	I don't want to send too many check-ins, so I'll stop these for now. You can come back whenever you're ready.

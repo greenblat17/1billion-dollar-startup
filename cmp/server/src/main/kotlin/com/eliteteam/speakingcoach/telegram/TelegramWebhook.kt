@@ -49,6 +49,8 @@ internal suspend fun buildTelegramWebhookBehaviour(
     operationalMetrics: TelegramOperationalMetrics? = null,
     audit: InteractionAudit? = null,
     userIdHashKey: String = "",
+    followups: FollowupStore? = null,
+    reminderButtons: ReminderButtonStore? = null,
 ): BehaviourContext {
     val bot = speakingCoachTelegramBot(token, audit, operationalMetrics, userIdHashKey)
     return bot.buildBehaviour(
@@ -58,7 +60,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
         },
     ) {
         installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents,
-            voiceCost)
+            voiceCost, followups, reminderButtons)
     }
 }
 

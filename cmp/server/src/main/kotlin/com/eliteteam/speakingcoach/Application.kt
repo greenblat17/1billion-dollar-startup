@@ -22,17 +22,32 @@ import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.ReminderRunner
+import com.eliteteam.speakingcoach.telegram.ReminderMode
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignRunner
 import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
 import com.eliteteam.speakingcoach.telegram.launchDailyReminder
-import com.eliteteam.speakingcoach.telegram.OnboardingNudgeRunner
-import com.eliteteam.speakingcoach.telegram.launchOnboardingNudges
-import com.eliteteam.speakingcoach.telegram.nudgeText
-import com.eliteteam.speakingcoach.telegram.onboardingKeyboard
+import com.eliteteam.speakingcoach.telegram.FollowupRunner
+import com.eliteteam.speakingcoach.telegram.FollowupStore
+import com.eliteteam.speakingcoach.telegram.ReminderButton
+import com.eliteteam.speakingcoach.telegram.ReminderButtonStore
+import com.eliteteam.speakingcoach.telegram.PracticeReminderCopy
+import com.eliteteam.speakingcoach.telegram.practiceOpeningQuestion
+import com.eliteteam.speakingcoach.telegram.noInlineKeyboard
+import com.eliteteam.speakingcoach.telegram.followupKeyboard
+import com.eliteteam.speakingcoach.telegram.practiceReminderCopy
+import com.eliteteam.speakingcoach.telegram.launchFollowups
+import com.eliteteam.speakingcoach.telegram.SoftNudgeStore
+import com.eliteteam.speakingcoach.telegram.SoftNudgeRunner
+import com.eliteteam.speakingcoach.telegram.softNudgeText
+import com.eliteteam.speakingcoach.telegram.softNudgeKeyboard
+import com.eliteteam.speakingcoach.telegram.launchSoftNudges
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
+import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
+import dev.inmo.tgbotapi.bot.exceptions.RequestException
 import dev.inmo.tgbotapi.types.ChatId
+import dev.inmo.tgbotapi.types.MessageId
 import dev.inmo.tgbotapi.types.RawChatId
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerBotCommands
@@ -80,6 +95,7 @@ import org.slf4j.LoggerFactory
 import java.io.File
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 private val tlsStorePassword = "ktor".toCharArray()
 
@@ -117,6 +133,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val webhookScope = newTelegramWebhookScope()
     val ai = HttpClipClient(config.aiServiceBaseUrl, aiHttp, internalToken = config.aiInternalToken)
     val onboardingAnalytics = createOnboardingAnalytics(config.databaseUrl)
+    val followupStore = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::FollowupStore)
+    val reminderButtons = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::ReminderButtonStore)
+    val softNudges = config.databaseUrl?.takeIf { it.isNotBlank() }?.let(::SoftNudgeStore)
     val voiceAttempts = VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), webhookScope)
     val voiceCost = config.databaseUrl?.let(::VoiceCostStore)
     if (voiceCost != null) webhookScope.launch {
@@ -189,12 +208,74 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
         token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, voiceCost,
-        telegramMetrics, audit, config.aiInternalToken,
+        telegramMetrics, audit, config.aiInternalToken, followupStore, reminderButtons,
     )
+    suspend fun clearOldReminderButton(button: ReminderButton) {
+        try {
+            behaviourContext.editMessageReplyMarkup(ChatId(RawChatId(button.chatId)),
+                MessageId(button.messageId), replyMarkup = noInlineKeyboard)
+            reminderButtons?.markCleared(button.token)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            if (error is RequestException && error.response.errorCode == 400) {
+                log.warn("Telegram cannot edit superseded reminder button {}", button.token, error)
+                reminderButtons?.markCleared(button.token)
+            } else log.warn("Could not clear superseded reminder button {}", button.token, error)
+        }
+    }
+    suspend fun sendReminderWithButton(sessionId: String, chatId: Long, text: String,
+                                       action: String, runId: String = "", stage: String? = null,
+                                       openingQuestion: String? = null, source: String? = null,
+                                       copyKind: String? = null): Long {
+        val token = UUID.randomUUID()
+        val message = behaviourContext.sendMessage(ChatId(RawChatId(chatId)), text,
+            replyMarkup = followupKeyboard(action, runId, stage,
+                reminderToken = if (reminderButtons != null) token else null))
+        if (reminderButtons != null) {
+            val previous = try {
+                reminderButtons.activate(sessionId, ReminderButton(token, chatId,
+                    message.messageId.long, openingQuestion, source, copyKind))
+            } catch (error: Throwable) {
+                try { behaviourContext.editMessageReplyMarkup(ChatId(RawChatId(chatId)),
+                    message.messageId, replyMarkup = noInlineKeyboard) }
+                catch (editError: Throwable) { log.warn("Could not clear unregistered reminder button", editError) }
+                throw error
+            }
+            if (previous != null) clearOldReminderButton(previous)
+        }
+        return message.messageId.long
+    }
+    val followupRunner = followupStore?.let { store ->
+        FollowupRunner(
+            store = store,
+            state = { candidate ->
+                val current = ai.onboardingState(SessionId(candidate.sessionId), "followup:check:${candidate.runId}")
+                current.runId to current.status
+            },
+            reminderTime = { sessionId -> ai.reminderTime(SessionId(sessionId)) },
+            send = { claim ->
+                val copy = if (claim.candidate.stage == "practice" && !claim.finalMessage)
+                    practiceReminderCopy(claim.candidate.sessionId, claim.day, claim.copy.text,
+                        practiceOpeningQuestion(claim.copy.id)) {
+                        ai.personalizedReminder(SessionId(it))
+                    } else PracticeReminderCopy(claim.copy.text, "general",
+                        if (claim.action == "practice") practiceOpeningQuestion(claim.copy.id) else "")
+                val messageId = sendReminderWithButton(claim.candidate.sessionId,
+                    claim.candidate.chatId, copy.text, claim.action, claim.candidate.runId,
+                    claim.candidate.stage, copy.openingQuestion.takeIf { claim.action == "practice" },
+                    if (claim.candidate.stage == "practice") "inferred_practice" else "onboarding", copy.kind)
+                com.eliteteam.speakingcoach.telegram.FollowupSend(messageId, copy.kind)
+            },
+        )
+    }
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
-        send = { chatId, text -> behaviourContext.sendTextMessage(ChatId(RawChatId(chatId)), text) },
+        send = { sessionId, chatId, copy, mode -> sendReminderWithButton(sessionId, chatId,
+            copy.text, "practice", openingQuestion = copy.openingQuestion,
+            source = if (mode == ReminderMode.AUTO) "configured_practice" else null,
+            copyKind = copy.kind) },
         streakOf = { chatId ->
             try {
                 ai.streakProfile(telegramSessionId(chatId)).current
@@ -205,22 +286,29 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 0
             }
         },
+        followup = { sessionId -> followupRunner?.forDailyReminder(sessionId) },
+        personalize = { sessionId -> ai.personalizedReminder(SessionId(sessionId)) },
+        recordAutoAttempt = { sessionId, at, delivery ->
+            reminderButtons?.recordConfiguredAttempt(sessionId, at.toLocalDate(), at.toInstant(),
+                delivery.status, delivery.errorCode)
+        },
     )
-    val nudgeRunner = onboardingAnalytics?.let { analytics ->
-        OnboardingNudgeRunner(
-            candidates = analytics::nudgeCandidates,
-            state = { candidate ->
-                val current = ai.onboardingState(SessionId(candidate.sessionId), "nudge:check:${candidate.runId}")
-                current.runId to current.status
+    val softNudgeRunner = softNudges?.let { store ->
+        SoftNudgeRunner(store,
+            active = { candidate ->
+                val session = SessionId(candidate.sessionId)
+                if (candidate.kind == "onboarding") {
+                    val state = ai.onboardingState(session, "soft-nudge:check:${candidate.flowId}")
+                    state.runId == candidate.flowId && state.status == "active"
+                } else {
+                    val state = ai.callStatus(session)
+                    state.active && state.callId == candidate.flowId
+                }
             },
-            claim = analytics::claimNudge,
-            send = { candidate, action ->
-                behaviourContext.sendMessage(
-                    ChatId(RawChatId(candidate.chatId)), nudgeText(action),
-                    replyMarkup = if (action == "voice") null else onboardingKeyboard(action, candidate.runId),
-                )
-            },
-        )
+            send = { candidate ->
+                behaviourContext.sendMessage(ChatId(RawChatId(candidate.chatId)), softNudgeText(candidate.kind),
+                    replyMarkup = softNudgeKeyboard(candidate))
+            })
     }
     val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
         behaviourContext.sendMessage(
@@ -272,6 +360,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 callEvents = callEvents,
                 usage = adminUsage,
                 voiceCost = voiceCost,
+                softNudges = softNudges,
             ),
             monitoring = MonitoringDashboard(
                 source = HttpMetricsSource(ai),
@@ -317,7 +406,16 @@ private suspend fun startWebhookServer(config: AppConfig) {
         log.error("Failed to register bot commands", error)
     }
     webhookScope.launchDailyReminder(reminderRunner)
-    if (nudgeRunner != null) webhookScope.launchOnboardingNudges(nudgeRunner)
+    if (followupRunner != null) webhookScope.launchFollowups(followupRunner)
+    if (softNudgeRunner != null) webhookScope.launchSoftNudges(softNudgeRunner)
+    if (reminderButtons != null) webhookScope.launch {
+        while (true) {
+            try { reminderButtons.inactiveToClear().forEach { clearOldReminderButton(it) } }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder button cleanup failed", error) }
+            delay(60_000)
+        }
+    }
     try {
         awaitCancellation()
     } finally {
@@ -328,6 +426,9 @@ private suspend fun startWebhookServer(config: AppConfig) {
         webhookScope.cancel()
         aiHttp.close()
         onboardingAnalytics?.close()
+        followupStore?.close()
+        reminderButtons?.close()
+        softNudges?.close()
         audit?.close()
         voiceCost?.close()
     }
@@ -354,11 +455,14 @@ internal fun Application.module(
     val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
     val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
         config.databaseUrl?.let(::PostgresAdminUsageStore)
+    val softNudges = if (config.metricsPassword.isNullOrBlank()) null else
+        config.databaseUrl?.let(::SoftNudgeStore)
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
         runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
         voiceScope.cancel()
         adminUsage?.close()
+        softNudges?.close()
     }
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
@@ -371,6 +475,7 @@ internal fun Application.module(
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
             usage = adminUsage,
+            softNudges = softNudges,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
@@ -411,13 +516,14 @@ private fun Application.metricsDashboard(
     callEvents: CallEventRecorder? = null,
     usage: AdminUsageStore? = null,
     voiceCost: VoiceCostStore? = null,
+    softNudges: SoftNudgeStore? = null,
 ): MetricsDashboard? {
     val password = config.metricsPassword?.takeIf { it.isNotBlank() } ?: return null
     if (source == null) {
         return null
     }
     return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
-        config.openRouterRatesFile?.let(Path::of), voiceCost)
+        config.openRouterRatesFile?.let(Path::of), voiceCost, softNudges)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {

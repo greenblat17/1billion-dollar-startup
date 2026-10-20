@@ -79,9 +79,15 @@ internal fun Route.installMonitoringDashboard(dashboard: MonitoringDashboard) {
         val offers = try { dashboard.onboarding?.reminderOffers(days) }
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Monitoring reminder offers unavailable", error); null }
+        val nudges = loadNudgeDashboard(dashboard.onboarding, days)
         val html = remindersPageHtml(snapshot, notice = call.request.queryParameters["notice"],
-            controls = dashboard.reminders != null, summaryRoot = root, clock = clock, offers = offers, days = days)
+            controls = dashboard.reminders != null, summaryRoot = root, clock = clock, offers = offers, days = days, nudges = nudges)
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$root/reminders/onboarding.json") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get
+        call.respondNudgeExport(dashboard.onboarding)
     }.hide()
     get("$root/streaks") {
         if (call.blockPublicMonitoring(dashboard.monitoringPort)) return@get

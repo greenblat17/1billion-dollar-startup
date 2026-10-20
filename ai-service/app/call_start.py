@@ -20,15 +20,17 @@ class CallStarter:
         self._locks: dict[str, asyncio.Lock] = {}
 
     async def start(self, session_id: str, first_name: str | None = None,
-                    scenario: dict[str, str] | None = None) -> dict:
+                    scenario: dict[str, str] | None = None,
+                    reminder_question: str | None = None) -> dict:
         bound = bind_metrics(session_id)
         try:
-            return await self._start_locked(session_id, first_name, scenario)
+            return await self._start_locked(session_id, first_name, scenario, reminder_question)
         finally:
             reset_metrics(bound)
 
     async def _start_locked(self, session_id: str, first_name: str | None = None,
-                            scenario: dict[str, str] | None = None) -> dict:
+                            scenario: dict[str, str] | None = None,
+                            reminder_question: str | None = None) -> dict:
         async with self._locks.setdefault(session_id, asyncio.Lock()):
             summary = await self.calls.open(session_id, scenario)
             call = await self.calls.get(summary["callId"])
@@ -36,6 +38,16 @@ class CallStarter:
             if call["turns"] or call.get("openingDelivered"):
                 return {**summary, "status": "active"}
             question = call.get("openingQuestion")
+            if reminder_question:
+                name = first_name.strip() if isinstance(first_name, str) else ""
+                if not (1 <= len(name) <= 25 and len(name.split()) <= 3
+                        and all(char.isalpha() or char in " '-" for char in name)):
+                    name = ""
+                question = f"Hi, {name}! {reminder_question}" if name else f"Hi! {reminder_question}"
+                await self.calls.replace_opening(summary["callId"], question)
+            elif not scenario and call.get("openingFromReminder"):
+                await self.calls.clear_reminder_opening(summary["callId"])
+                question = None
             if not question:
                 context = await self.personalization.prepare(session_id, continuation=False)
                 history = await self.dialogue.history(session_id)

@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.ReminderReport
 import com.eliteteam.speakingcoach.withRequestLog
 import com.eliteteam.speakingcoach.ai.ReminderSendResult
 import com.eliteteam.speakingcoach.ai.ReminderTarget
+import com.eliteteam.speakingcoach.ai.PersonalizedReminderResponse
 import dev.inmo.tgbotapi.bot.exceptions.RequestException
 import dev.inmo.tgbotapi.bot.exceptions.TooMuchRequestsException
 import kotlinx.coroutines.CancellationException
@@ -38,6 +39,8 @@ internal data class RoundOutcome(
     val failed: Int,
 )
 
+internal data class ReminderDelivery(val status: String, val errorCode: String? = null)
+
 internal sealed interface SendFailure {
     data object Blocked : SendFailure
     data class RetryAfter(val wait: Duration) : SendFailure
@@ -59,11 +62,14 @@ internal interface ReminderAdmin {
 internal class ReminderRunner(
     private val claim: suspend (ReminderMode) -> List<ReminderTarget>,
     private val report: suspend (ReminderReport) -> Unit,
-    private val send: suspend (chatId: Long, text: String) -> Unit,
+    private val send: suspend (sessionId: String, chatId: Long, copy: PracticeReminderCopy, mode: ReminderMode) -> Unit,
     private val clock: () -> ZonedDateTime = { ZonedDateTime.now(REMINDER_ZONE) },
     private val pause: Duration = 50.milliseconds,
     private val classify: (Throwable) -> SendFailure = ::telegramSendFailure,
     private val streakOf: suspend (Long) -> Int = { 0 },
+    private val followup: suspend (String) -> FollowupDelivery? = { null },
+    private val personalize: suspend (String) -> PersonalizedReminderResponse? = { null },
+    private val recordAutoAttempt: suspend (String, ZonedDateTime, ReminderDelivery) -> Unit = { _, _, _ -> },
 ) {
     private val mutex = Mutex()
 
@@ -85,11 +91,40 @@ internal class ReminderRunner(
             val results = mutableListOf<ReminderSendResult>()
             for (target in targets) {
                 val chatId = reminderChatId(target.sessionId) ?: continue
-                val template = reminderTemplate(chatId, day, target.streak)
-                val status = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
-                    deliver(chatId, renderReminder(template, reminderFirstName(target.name), target.streak))
+                val replacement = if (mode == ReminderMode.AUTO) try {
+                    followup(target.sessionId)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Follow-up replacement failed for {}", target.sessionId, error)
+                    null
+                } else null
+                if (replacement != null) {
+                    results += ReminderSendResult(target.sessionId,
+                        "followup_${replacement.copyId.replace(':', '_')}", replacement.status, target.hour)
+                    delay(pause)
+                    continue
                 }
-                results += ReminderSendResult(target.sessionId, template.id, status, target.hour)
+                val template = reminderTemplate(chatId, day, target.streak)
+                val genericText = renderReminder(template, reminderFirstName(target.name), target.streak)
+                val opening = practiceOpeningQuestion(template.id)
+                val copy = if (mode == ReminderMode.AUTO) practiceReminderCopy(
+                    target.sessionId, day, genericText, opening,
+                    personalize,
+                ) else PracticeReminderCopy(genericText, "general", opening)
+                val delivery = withRequestLog(target.sessionId, "reminder:${mode.wire}") {
+                    deliver(target.sessionId, chatId, copy, mode)
+                }
+                if (mode == ReminderMode.AUTO) try {
+                    recordAutoAttempt(target.sessionId, now(), delivery)
+                } catch (error: CancellationException) { throw error
+                } catch (error: Throwable) {
+                    log.warn("Failed to record configured reminder outcome", error)
+                }
+                val copyId = if (mode != ReminderMode.AUTO) template.id
+                    else if (copy.kind == "personalized") "practice_personalized"
+                    else "practice_general_${template.id}"
+                results += ReminderSendResult(target.sessionId, copyId, delivery.status, target.hour)
                 delay(pause)
             }
             val outcome = RoundOutcome(
@@ -128,31 +163,36 @@ internal class ReminderRunner(
         } else {
             reminderTemplateById(templateId) ?: return false
         }
-        return deliver(chatId, renderReminder(template, null, streak)) == STATUS_SENT
+        val copy = PracticeReminderCopy(renderReminder(template, null, streak), "general",
+            practiceOpeningQuestion(template.id))
+        return deliver("tg-$chatId", chatId, copy, ReminderMode.MANUAL).status == STATUS_SENT
     }
 
-    private suspend fun deliver(chatId: Long, text: String): String {
+    private suspend fun deliver(sessionId: String, chatId: Long, copy: PracticeReminderCopy,
+                                mode: ReminderMode): ReminderDelivery {
         var retried = false
         while (true) {
             log.info("Sending reminder")
             try {
-                send(chatId, text)
-                return STATUS_SENT
+                send(sessionId, chatId, copy, mode)
+                return ReminderDelivery(STATUS_SENT)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 when (val failure = classify(error)) {
-                    SendFailure.Blocked -> return STATUS_BLOCKED
+                    SendFailure.Blocked -> return ReminderDelivery(STATUS_BLOCKED, "telegram_403")
                     is SendFailure.RetryAfter -> {
                         if (retried) {
-                            return STATUS_FAILED
+                            return ReminderDelivery(STATUS_FAILED, "telegram_429")
                         }
                         retried = true
                         delay(failure.wait)
                     }
                     SendFailure.Failed -> {
                         log.warn("Failed to send reminder to {}", chatId, error)
-                        return STATUS_FAILED
+                        val code = if (error is RequestException) "telegram_${error.response.errorCode}"
+                            else "transport_or_internal"
+                        return ReminderDelivery(STATUS_FAILED, code)
                     }
                 }
             }

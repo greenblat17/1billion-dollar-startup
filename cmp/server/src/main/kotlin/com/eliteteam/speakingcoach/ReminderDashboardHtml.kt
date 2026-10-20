@@ -5,6 +5,8 @@ import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
+import com.eliteteam.speakingcoach.analytics.ReminderEffectiveness
+import com.eliteteam.speakingcoach.telegram.SoftNudgeStats
 import com.eliteteam.speakingcoach.telegram.REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.STREAK_REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
@@ -26,6 +28,9 @@ internal fun remindersPageHtml(
     clock: ReminderClockSummary? = null,
     offers: ReminderOfferSummary? = null,
     days: Int = 7,
+    nudges: com.eliteteam.speakingcoach.analytics.NudgeReport? = null,
+    effectiveness: ReminderEffectiveness? = null,
+    soft: List<SoftNudgeStats>? = null,
 ): String = """
     <!doctype html>
     <html lang="ru">
@@ -38,15 +43,20 @@ internal fun remindersPageHtml(
     <body>
     <h1>Speaky</h1>
     ${adminTabs("$summaryRoot/reminders", summaryRoot)}
-    <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow. Время отправки задаёт пользователь.</p>
-    ${reminderAnalyticsHtml(snapshot?.reminders, clock, offers, days, summaryRoot)}
+    <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow</p>
+    ${reminderEffectivenessHtml(effectiveness, soft, nudges, clock, days, summaryRoot)}
+    <details><summary>Подробные таблицы и управление рассылкой</summary>
+    ${reminderAnalyticsHtml(snapshot?.reminders, offers, days, summaryRoot)}
+    ${onboardingNudgeHtml(nudges, summaryRoot, days)}
+    <h2>Ежедневная практика: рассылки и управление</h2>
     ${remindersSectionHtml(snapshot?.reminders, notice, controls, summaryRoot)}
+    </details>
     </body>
     </html>
 """.trimIndent()
 
 private fun reminderAnalyticsHtml(
-    reminders: RemindersSnapshot?, clock: ReminderClockSummary?, offers: ReminderOfferSummary?,
+    reminders: RemindersSnapshot?, offers: ReminderOfferSummary?,
     days: Int, summaryRoot: String,
 ): String {
     val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
@@ -59,20 +69,6 @@ private fun reminderAnalyticsHtml(
     val selector = "<p class=\"meta\">Период: " + listOf(7, 30).joinToString(" · ") { choice ->
         if (choice == period) "$choice дней" else "<a href=\"$summaryRoot/reminders?days=$choice\">$choice дней</a>"
     } + "</p>"
-    val distribution = if (clock == null) "<p class=\"meta\">Текущие настройки недоступны.</p>" else {
-        val rows = (0..23).joinToString("") { hour ->
-            val key = "%02d".format(hour)
-            val count = clock.hours[key] ?: 0
-            val value = if (clock.active > 0) count * 100.0 / clock.active else 0.0
-            val percent = if (clock.active > 0) String.format(Locale.US, "%.1f%%", value) else "—"
-            val meter = String.format(Locale.US, "%.1f", value)
-            "<tr><th scope=\"row\">$key:00–$key:59</th><td>$count</td>" +
-                "<td><meter min=\"0\" max=\"100\" value=\"$meter\"></meter> $percent</td></tr>"
-        }
-        "<p class=\"meta\">Активных настроек: ${clock.active}. Все пользователи; время по Москве. " +
-            "Текущий срез, без фильтра по датам.</p><table><thead><tr><th>Выбрали время</th>" +
-            "<th>Пользователи</th><th>Доля от ${clock.active}</th></tr></thead><tbody>$rows</tbody></table>"
-    }
     val offered = if (offers == null) "<p class=\"meta\">Данные о предложениях онбординга недоступны.</p>" else
         "<p>${offers.saved} / ${offers.offered} · ${rate(offers.saved.toLong(), offers.offered.toLong())} сохранили время " +
             "после предложения в онбординге</p><p class=\"meta\">Уникальные пользователи с предложением " +
@@ -113,7 +109,7 @@ private fun reminderAnalyticsHtml(
             "Отключили: ${users.cleared}</p><p class=\"meta\">Уникальные пользователи в каждом действии с $from по $today. " +
             "Один пользователь может входить в несколько действий.$trackingNote</p>"
     } ?: "<p class=\"meta\">Изменения настроек недоступны.</p>"
-    return "$selector<h2>Выбранное время</h2>$distribution<h2>Конверсия предложения</h2>$offered" +
+    return "$selector<h2>Конверсия предложения</h2>$offered" +
         "<h2>Ответы по выбранному часу</h2>$efficiency<h2>Исходы по дням</h2>$outcomes" +
         "<h2>Изменения настроек</h2>$changes"
 }
@@ -158,6 +154,11 @@ private fun remindersSectionHtml(
         ${templateRows(reminders)}
         </tbody>
         </table>
+        <h2>Тексты практики: общий / персонализированный</h2>
+        <p class="meta">С начала нового учёта, только отправки с выбранным временем. Доля ответов за 24 часа;
+        тип текста чередуется по дням для каждого человека. Сравнение наблюдательное.</p>
+        <table><thead><tr><th>Тип</th><th>Отправлено</th><th>Ответили</th><th>Доля</th></tr></thead>
+        <tbody>${copyKindRows(reminders)}</tbody></table>
         <h2>Сегменты (7 дн.)</h2>
         <table>
         <thead><tr><th>Сегмент</th><th>Отправлено</th><th>Ответили</th><th>Конверсия</th></tr></thead>
@@ -226,9 +227,21 @@ private fun templateRows(reminders: RemindersSnapshot): String {
         return "<tr><td colspan=\"5\">Пока нет данных.</td></tr>"
     }
     return reminders.templates.joinToString("\n") { stats ->
-        val text = reminderTemplateById(stats.templateId)?.let { renderReminder(it, null, streak = 2) } ?: "удалён из пула"
+        val sourceId = stats.templateId.removePrefix("practice_general_")
+        val text = if (stats.templateId == "practice_personalized") "Текст на основе истории разговора"
+            else reminderTemplateById(sourceId)?.let { renderReminder(it, null, streak = 2) } ?: "удалён из пула"
         "<tr><td>${escapeHtml(stats.templateId)}<br><span class=\"template\">${escapeHtml(text)}</span></td>" +
             "<td>${stats.sent}</td><td>${stats.returned}</td><td>${rate(stats.returned, stats.sent)}</td><td>${stats.blocked}</td></tr>"
+    }
+}
+
+private fun copyKindRows(reminders: RemindersSnapshot): String {
+    val groups = listOf("practice_general_" to "Общие", "practice_personalized" to "Персонализированные")
+    return groups.joinToString("") { (prefix, label) ->
+        val items = reminders.templates.filter { it.templateId.startsWith(prefix) }
+        val sent = items.sumOf { it.sent }
+        val returned = items.sumOf { it.returned }
+        "<tr><th scope=\"row\">$label</th><td>$sent</td><td>$returned</td><td>${rate(returned, sent)}</td></tr>"
     }
 }
 

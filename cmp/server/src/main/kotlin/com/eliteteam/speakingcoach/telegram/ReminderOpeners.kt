@@ -1,0 +1,52 @@
+package com.eliteteam.speakingcoach.telegram
+
+/** Reviewed spoken counterparts to general practice invitations. */
+internal fun practiceOpeningQuestion(copyId: String): String = requireNotNull(practiceOpeners[copyId]) {
+    "Missing spoken opening for practice reminder $copyId"
+}
+
+private val practiceOpeners = mapOf(
+    "day_went" to "How did your day go today?",
+    "looking_forward" to "What are you looking forward to this week?",
+    "ate_today" to "What did you eat today?",
+    "last_movie" to "What was the last movie or show you watched?",
+    "travel_tomorrow" to "Where would you like to travel tomorrow?",
+    "describe_room" to "What is the place around you like right now?",
+    "learned_today" to "What is one new thing you learned today?",
+    "friend_meet" to "Who is a friend you would like me to meet?",
+    "weekend_plan" to "What are you planning for the weekend?",
+    "annoyed_today" to "What annoyed you today?",
+    "song_stuck" to "What song has been in your head lately?",
+    "favourite_food" to "What is your favourite food, and how do you make it?",
+    "free_day" to "What would you do with a completely free day?",
+    "best_part" to "What was the best part of your day?",
+    "hobby" to "What hobby do you enjoy or want to try?",
+    "proud_month" to "What have you felt proud of this month?",
+    "morning_routine" to "What do you usually do in the morning?",
+    "weather" to "What is the weather like where you are?",
+    "skill_overnight" to "What skill would you like to learn overnight?",
+    "city_place" to "What place in your city do you really like?",
+    "book_podcast" to "What book, podcast, or video did you enjoy recently?",
+    "perfect_evening" to "What would your perfect evening be like?",
+    "week_goal" to "What is one goal you have for this week?",
+    "smile_today" to "What made you smile today?",
+    "streak_keep" to "What would you like to tell me about today?",
+    "streak_tonight" to "How did your day go today?",
+    "streak_one_minute" to "What are you doing right now?",
+    "streak_next" to "What is on your mind today?",
+    "practice:1" to "How is your day going?",
+    "practice:2" to "What would you like to talk about today?",
+    "practice:3" to "What are you looking forward to this week?",
+    "practice:4" to "What would you like to talk about during this short break?",
+    "practice:5" to "What was the best part of your day?",
+    "practice:6" to "How is your day going so far?",
+    "practice:7" to "What film or show have you enjoyed recently?",
+    "practice:8" to "What is one thing you would like to tell me today?",
+    "practice:9" to "What is on your mind today?",
+    "practice:10" to "What are your plans for the weekend?",
+    "practice:11" to "What would you like to talk about today?",
+    "practice:12" to "What is something new you learned this week?",
+    "practice:13" to "How has your day been so far?",
+    "practice:14" to "Where would you like to travel next?",
+    "final:1" to "What would you like to talk about today?",
+)
