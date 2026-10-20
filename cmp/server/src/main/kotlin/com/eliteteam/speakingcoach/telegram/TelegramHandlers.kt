@@ -1498,6 +1498,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     allowSendingWithoutReply = true)
                 return@withRequestLog
             }
+            if (chatId != null) try {
+                reminderButtons.markClicked(chatId, callbackMessage.messageId.long, callbackReceivedAt)
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) {
+                log.warn("Could not record reminder button click", error)
+            }
         }
         if (query.data.startsWith("fu:resume:")) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog

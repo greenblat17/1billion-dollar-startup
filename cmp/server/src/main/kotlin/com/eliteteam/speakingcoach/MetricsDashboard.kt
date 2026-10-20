@@ -157,9 +157,16 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             catch (error: CancellationException) { throw error }
             catch (error: Throwable) { log.warn("Reminder offers unavailable", error); null }
         val nudges = loadNudgeDashboard(dashboard.onboarding, days)
+        val effectiveness = try { dashboard.onboarding?.reminderEffectiveness(days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Reminder effectiveness unavailable", error); null }
+        val soft = try { dashboard.softNudges?.stats(Instant.now(), days) }
+            catch (error: CancellationException) { throw error }
+            catch (error: Throwable) { log.warn("Soft nudge effectiveness unavailable", error); null }
         val html = remindersPageHtml(snapshot,
             notice = call.request.queryParameters["notice"], controls = dashboard.reminders != null,
-            clock = clock, offers = offers, days = days, nudges = nudges)
+            clock = clock, offers = offers, days = days, nudges = nudges,
+            effectiveness = effectiveness, soft = soft)
         call.respondText(html, ContentType.Text.Html)
     }.hide()
     get(SOFT_NUDGES_PATH) {
@@ -174,13 +181,13 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             catch (error: Throwable) { log.warn("Soft nudge metrics unavailable", error); null }
         val rows = stats?.joinToString("") { row ->
             val label = if (row.kind == "onboarding") "Онбординг" else "Незавершённый звонок"
-            val rate = if (row.mature > 0) "${row.matureReturned * 100 / row.mature}%" else "—"
+            val rate = if (row.mature5 > 0) "${row.succeeded5 * 100 / row.mature5}%" else "—"
             "<tr><td>$label</td><td>${row.sent}</td><td>${row.recipients}</td>" +
-                "<td>${row.returned}</td><td>${row.returnedPeople}</td>" +
-                "<td>${row.matureReturned} / ${row.mature} · $rate</td>" +
-                "<td>${row.failed}</td><td>${row.blocked}</td></tr>"
-        }?.ifEmpty { "<tr><td colspan=\"8\">За период отправок не было</td></tr>" }
-            ?: "<tr><td colspan=\"8\">Данные недоступны</td></tr>"
+                "<td>${row.succeeded5} / ${row.mature5} · $rate</td>" +
+                "<td>${row.voice5}</td><td>${if (row.kind == "call") row.ended5.toString() else "—"}</td>" +
+                "<td>${row.pending5}</td><td>${row.failed}</td><td>${row.unknown}</td><td>${row.blocked}</td></tr>"
+        }?.ifEmpty { "<tr><td colspan=\"10\">За период отправок не было</td></tr>" }
+            ?: "<tr><td colspan=\"10\">Данные недоступны</td></tr>"
         val html = """<!doctype html><html lang="ru"><head><meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">${pageStyle()}
             <title>Мягкие напоминания — Speaky</title></head><body>
@@ -189,11 +196,11 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
             <p><a href="$SOFT_NUDGES_PATH?days=7">7 дней</a> ·
                <a href="$SOFT_NUDGES_PATH?days=30">30 дней</a> · выбран период: $days дней</p>
             <table><thead><tr><th>Сценарий</th><th>Отправлено</th><th>Получателей</th>
-                <th>Возвратов</th><th>Людей вернулось</th>
-                <th>Возврат за 24 ч, полное окно</th><th>Ошибки / неизвестно</th><th>Блокировки</th>
+                <th>Успех за 5 мин</th><th>Голос</th><th>End Call</th>
+                <th>Наблюдаем</th><th>Ошибки</th><th>Неизвестно</th><th>Блокировки</th>
                 </tr></thead><tbody>$rows</tbody></table>
-            <p>Возврат = новое голосовое сообщение после принятого Telegram напоминания.
-                Показатель по полному окну исключает отправки моложе 24 часов.
+            <p>Успех = голос за 5 минут; для открытого звонка также End Call. Один звонок с обоими действиями
+                входит в общую конверсию один раз. Показатель исключает отправки моложе 5 минут.
                 Это связь во времени, а не доказательство эффекта напоминания.
                 Чтение сообщения Telegram не подтверждает.</p>
             </body></html>""".trimIndent()

@@ -335,9 +335,9 @@ internal class FollowupStore(databaseUrl: String) : AutoCloseable {
                         INSERT INTO onboarding_nudges
                           (session_id, day, run_id, claimed_at, action, template_version, attempt_number,
                            inactive_seconds, scheduled_for, visit_count, timing_policy, journey_stage,
-                           copy_id, catalog_version, final_message)
+                           copy_id, catalog_version, preferred_utc_minute, final_message)
                         VALUES (?, ?, ?, ?, ?, ?, (SELECT COUNT(*) + 1 FROM onboarding_nudges WHERE session_id = ?),
-                                ?, ?, ?, 'personal-v1', ?, ?, ?, ?)
+                                ?, ?, ?, 'personal-v1', ?, ?, ?, ?, ?)
                         ON CONFLICT (session_id, day) DO NOTHING
                     """.trimIndent()).use { statement ->
                         statement.setString(1, candidate.sessionId)
@@ -353,7 +353,8 @@ internal class FollowupStore(databaseUrl: String) : AutoCloseable {
                         statement.setString(11, stage)
                         statement.setString(12, chosen.id)
                         statement.setString(13, FOLLOWUP_CATALOG_VERSION)
-                        statement.setBoolean(14, final)
+                        statement.setInt(14, candidate.preferredUtcMinute)
+                        statement.setBoolean(15, final)
                         statement.executeUpdate() == 1
                     }
                     if (!inserted) { connection.rollback(); return@withContext null }

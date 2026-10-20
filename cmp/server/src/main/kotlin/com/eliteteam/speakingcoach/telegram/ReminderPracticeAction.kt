@@ -10,6 +10,7 @@ internal suspend fun handleReminderPracticeButton(
 ): Boolean {
     val token = reminderPracticeToken(callbackData) ?: return false
     val question = store?.active(token, chatId, messageId)?.openingQuestion ?: return false
+    store.markClicked(token)
     startCall(question)
     return true
 }

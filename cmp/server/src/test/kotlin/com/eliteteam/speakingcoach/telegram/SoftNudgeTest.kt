@@ -150,6 +150,42 @@ class SoftNudgeTest {
         }
     }
 
+    @Test
+    fun voiceAndEndCallCountAsOneFiveMinuteSuccess() = runTest {
+        withDatabase { url ->
+            val at = Instant.parse("2026-10-20T10:00:00Z")
+            val callId = "d".repeat(32)
+            SoftNudgeStore(url).use { store ->
+                DriverManager.getConnection(url).use { connection ->
+                    connection.createStatement().use { it.execute("""
+                        INSERT INTO telegram_call_events (event_id, call_id, chat_id, kind, occurred_at)
+                        VALUES ('soft-open', '$callId', 505, 'call_open', '${at.minusSeconds(10)}')
+                    """.trimIndent()) }
+                    connection.createStatement().use { it.execute("""
+                        INSERT INTO interaction_events
+                            (event_id, chat_id, direction, kind, status, occurred_at, received_at)
+                        VALUES ('soft-reply', 505, 'outgoing', 'sendVoice', 'accepted', '$at', '$at')
+                    """.trimIndent()) }
+                }
+                val candidate = store.due(at.plusSeconds(300)).single()
+                assertTrue(store.claim(candidate, at.plusSeconds(300)))
+                store.report(candidate, "sent", at.plusSeconds(301))
+                inbound(url, 505, "voice", at.plusSeconds(360))
+                DriverManager.getConnection(url).use { connection ->
+                    connection.createStatement().use { it.execute("""
+                        INSERT INTO telegram_call_events (event_id, call_id, chat_id, kind, occurred_at)
+                        VALUES ('soft-end', '$callId', 505, 'end_pressed', '${at.plusSeconds(400)}')
+                    """.trimIndent()) }
+                }
+                val row = store.stats(at.plusSeconds(700), 7).single()
+                assertEquals(1, row.mature5)
+                assertEquals(1, row.voice5)
+                assertEquals(1, row.ended5)
+                assertEquals(1, row.succeeded5)
+            }
+        }
+    }
+
     private fun inbound(url: String, chatId: Long, kind: String, at: Instant) {
         DriverManager.getConnection(url).use { connection ->
             connection.prepareStatement("""

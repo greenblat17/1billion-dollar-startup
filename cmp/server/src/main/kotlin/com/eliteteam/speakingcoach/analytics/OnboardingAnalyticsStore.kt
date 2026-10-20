@@ -123,6 +123,7 @@ internal interface OnboardingAnalytics {
     suspend fun claimNudge(runId: String, day: LocalDate, inactiveSince: Instant, now: Instant, action: String = "begin"): Boolean = false
     suspend fun recordNudgeOutcome(outcome: NudgeOutcome) {}
     suspend fun nudgeReport(days: Int, now: Instant = Instant.now()): NudgeReport? = null
+    suspend fun reminderEffectiveness(days: Int, now: Instant = Instant.now()): ReminderEffectiveness? = null
     fun close() {}
 }
 
@@ -866,6 +867,11 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
     override suspend fun report(now: Instant, filter: OnboardingFilter): OnboardingReport = withContext(Dispatchers.IO) {
         dataSource.connection.use { connection -> connection.onboardingAggregateReport(now, filter) }
     }
+
+    override suspend fun reminderEffectiveness(days: Int, now: Instant): ReminderEffectiveness =
+        withContext(Dispatchers.IO) {
+            dataSource.connection.use { connection -> loadReminderEffectiveness(connection, days, now) }
+        }
 
     override fun close() {
         cleanupScope.cancel()

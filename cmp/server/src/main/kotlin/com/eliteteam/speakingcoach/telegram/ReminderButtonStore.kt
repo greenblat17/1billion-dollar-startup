@@ -7,10 +7,12 @@ import kotlinx.coroutines.withContext
 import org.flywaydb.core.Flyway
 import java.sql.Timestamp
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 internal data class ReminderButton(val token: UUID, val chatId: Long, val messageId: Long,
-                                   val openingQuestion: String?)
+                                   val openingQuestion: String?, val source: String? = null,
+                                   val copyKind: String? = null)
 
 /** The latest accepted reminder owns the only live reminder button for a session. */
 internal class ReminderButtonStore(databaseUrl: String) : AutoCloseable {
@@ -50,14 +52,16 @@ internal class ReminderButtonStore(databaseUrl: String) : AutoCloseable {
                     .use { statement -> statement.setLong(1, button.chatId); statement.executeUpdate() }
                 connection.prepareStatement("""
                     INSERT INTO reminder_buttons
-                      (token, session_id, chat_id, message_id, opening_question)
-                    VALUES (?, ?, ?, ?, ?)
+                      (token, session_id, chat_id, message_id, opening_question, source, copy_kind)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()).use { statement ->
                     statement.setObject(1, button.token)
                     statement.setString(2, sessionId)
                     statement.setLong(3, button.chatId)
                     statement.setLong(4, button.messageId)
                     statement.setString(5, button.openingQuestion)
+                    statement.setString(6, button.source)
+                    statement.setString(7, button.copyKind)
                     statement.executeUpdate()
                 }
                 connection.commit()
@@ -83,6 +87,51 @@ internal class ReminderButtonStore(databaseUrl: String) : AutoCloseable {
                 statement.executeQuery().use { rows ->
                     if (rows.next()) ReminderButton(token, chatId, messageId, rows.getString(1)) else null
                 }
+            }
+        }
+    }
+
+    suspend fun markClicked(token: UUID, at: Instant = Instant.now()) = withContext(Dispatchers.IO) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                UPDATE reminder_buttons SET clicked_at = COALESCE(clicked_at, ?)
+                WHERE token = ? AND active
+            """.trimIndent()).use { statement ->
+                statement.setTimestamp(1, Timestamp.from(at))
+                statement.setObject(2, token)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    suspend fun markClicked(chatId: Long, messageId: Long, at: Instant) = withContext(Dispatchers.IO) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                UPDATE reminder_buttons SET clicked_at = COALESCE(clicked_at, ?)
+                WHERE chat_id = ? AND message_id = ? AND active
+            """.trimIndent()).use { statement ->
+                statement.setTimestamp(1, Timestamp.from(at))
+                statement.setLong(2, chatId)
+                statement.setLong(3, messageId)
+                statement.executeUpdate()
+            }
+        }
+    }
+
+    suspend fun recordConfiguredAttempt(sessionId: String, day: LocalDate, at: Instant,
+                                        status: String, errorCode: String?) = withContext(Dispatchers.IO) {
+        dataSource.connection.use { connection ->
+            connection.prepareStatement("""
+                INSERT INTO configured_practice_attempts (session_id, day, recorded_at, status, error_code)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (session_id, day) DO NOTHING
+            """.trimIndent()).use { statement ->
+                statement.setString(1, sessionId)
+                statement.setObject(2, day)
+                statement.setTimestamp(3, Timestamp.from(at))
+                statement.setString(4, status)
+                statement.setString(5, errorCode)
+                statement.executeUpdate()
             }
         }
     }

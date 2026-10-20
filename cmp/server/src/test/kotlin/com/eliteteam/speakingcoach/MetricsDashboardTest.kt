@@ -2,6 +2,10 @@ package com.eliteteam.speakingcoach
 
 import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
+import com.eliteteam.speakingcoach.analytics.ReminderConversion
+import com.eliteteam.speakingcoach.analytics.ReminderDeliveryCounts
+import com.eliteteam.speakingcoach.analytics.ReminderEffectiveness
+import com.eliteteam.speakingcoach.telegram.SoftNudgeStats
 import com.eliteteam.speakingcoach.analytics.MemoryVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttempt
 import com.eliteteam.speakingcoach.ai.FunnelDay
@@ -748,6 +752,31 @@ class MetricsDashboardTest {
         assertTrue(html.contains("<td>3</td><td>1</td><td>33%</td>"))
         assertTrue(html.contains("<td>2</td><td>3</td><td>1</td><td>0</td><td>0</td>"))
         assertTrue(html.contains("Сменили время: 2"))
+    }
+
+    @Test
+    fun reminderOverviewSeparatesTimeChoiceAndSoftCallOutcomes() {
+        val report = ReminderEffectiveness(
+            configured = ReminderConversion(sent = 10, mature = 8, pending = 2, clicked = 3, firstVoice = 2),
+            inferred = ReminderConversion(sent = 4, mature = 4, firstVoice = 1),
+            onboarding = ReminderConversion(sent = 5, mature = 5, progressed = 2),
+            configuredCopy = mapOf("personalized" to ReminderConversion(sent = 5, mature = 4, firstVoice = 2)),
+            inferredCopy = mapOf("general" to ReminderConversion(sent = 4, mature = 4, firstVoice = 1)),
+            inferredHours = mapOf(13 to 4),
+            configuredDelivery = ReminderDeliveryCounts(attempts = 12, sent = 10, blocked = 1, failed = 1),
+            configuredErrorReasons = mapOf("telegram_500" to 1),
+            errorDays = emptyList(),
+        )
+        val soft = listOf(SoftNudgeStats("call", 3, 3, 0, 0, 0, 0, 0, 0,
+            mature5 = 2, voice5 = 1, ended5 = 1, succeeded5 = 1, pending5 = 1))
+        val html = reminderEffectivenessHtml(report, soft, null,
+            ReminderClockSummary("Europe/Moscow", 2, mapOf("13" to 2)), 7, "/admin/metrics")
+        assertTrue(html.contains("Практика · время выбрал пользователь"))
+        assertTrue(html.contains("Практика · время выбрал бот"))
+        assertTrue(html.contains("2 / 8 · 25.0%"))
+        assertTrue(html.contains("1 / 2 · 50.0%"))
+        assertTrue(html.contains("telegram_500"))
+        assertTrue(html.contains("12:00–15:59"))
     }
 
     @Test

@@ -5,6 +5,8 @@ import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.ai.ReminderRun
 import com.eliteteam.speakingcoach.ai.RemindersSnapshot
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
+import com.eliteteam.speakingcoach.analytics.ReminderEffectiveness
+import com.eliteteam.speakingcoach.telegram.SoftNudgeStats
 import com.eliteteam.speakingcoach.telegram.REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.STREAK_REMINDER_TEMPLATES
 import com.eliteteam.speakingcoach.telegram.reminderTemplateById
@@ -27,6 +29,8 @@ internal fun remindersPageHtml(
     offers: ReminderOfferSummary? = null,
     days: Int = 7,
     nudges: com.eliteteam.speakingcoach.analytics.NudgeReport? = null,
+    effectiveness: ReminderEffectiveness? = null,
+    soft: List<SoftNudgeStats>? = null,
 ): String = """
     <!doctype html>
     <html lang="ru">
@@ -39,11 +43,14 @@ internal fun remindersPageHtml(
     <body>
     <h1>Speaky</h1>
     ${adminTabs("$summaryRoot/reminders", summaryRoot)}
-    <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow. Время отправки задаёт пользователь.</p>
+    <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow</p>
+    ${reminderEffectivenessHtml(effectiveness, soft, nudges, clock, days, summaryRoot)}
+    <details><summary>Подробные таблицы и управление рассылкой</summary>
     ${reminderAnalyticsHtml(snapshot?.reminders, clock, offers, days, summaryRoot)}
     ${onboardingNudgeHtml(nudges, summaryRoot, days)}
     <h2>Ежедневная практика: рассылки и управление</h2>
     ${remindersSectionHtml(snapshot?.reminders, notice, controls, summaryRoot)}
+    </details>
     </body>
     </html>
 """.trimIndent()

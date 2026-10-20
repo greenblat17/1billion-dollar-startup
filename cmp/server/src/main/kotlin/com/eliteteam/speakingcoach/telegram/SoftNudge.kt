@@ -24,7 +24,10 @@ internal data class SoftNudgeCandidate(val kind: String, val flowId: String, val
                                        val chatId: Long, val idleSince: Instant)
 internal data class SoftNudgeStats(val kind: String, val sent: Int, val recipients: Int,
                                    val returned: Int, val returnedPeople: Int, val mature: Int,
-                                   val matureReturned: Int, val failed: Int, val blocked: Int)
+                                   val matureReturned: Int, val failed: Int, val blocked: Int,
+                                   val mature5: Int = 0, val voice5: Int = 0,
+                                   val ended5: Int = 0, val succeeded5: Int = 0,
+                                   val pending5: Int = 0, val unknown: Int = 0)
 
 internal fun softNudgeText(kind: String): String = when (kind) {
     "onboarding" -> "Our first chat isn't finished yet 💙 Send me a voice message when you're ready, and let's pick up where we left off."
@@ -171,19 +174,41 @@ internal class SoftNudgeStore(databaseUrl: String) : AutoCloseable {
                        count(DISTINCT chat_id) FILTER (WHERE returned_at IS NOT NULL) AS returned_people,
                        count(*) FILTER (WHERE status = 'sent' AND sent_at <= ?) AS mature,
                        count(*) FILTER (WHERE returned_at IS NOT NULL AND sent_at <= ?) AS mature_returned,
-                       count(*) FILTER (WHERE status IN ('failed', 'unknown') OR
-                           (status = 'claimed' AND claimed_at <= ?)) AS failed,
-                       count(*) FILTER (WHERE status = 'blocked') AS blocked
-                FROM soft_nudges WHERE claimed_at >= ? GROUP BY kind ORDER BY kind
+                       count(*) FILTER (WHERE status = 'failed') AS failed,
+                       count(*) FILTER (WHERE status = 'blocked') AS blocked,
+                       count(*) FILTER (WHERE status = 'sent' AND sent_at <= ?::timestamptz - interval '5 minutes') AS mature5,
+                       count(*) FILTER (WHERE status = 'sent' AND sent_at <= ?::timestamptz - interval '5 minutes'
+                           AND returned_at > sent_at AND returned_at <= sent_at + interval '5 minutes') AS voice5,
+                       count(*) FILTER (WHERE status = 'sent' AND sent_at <= ?::timestamptz - interval '5 minutes'
+                           AND ended_at IS NOT NULL) AS ended5,
+                       count(*) FILTER (WHERE status = 'sent' AND sent_at <= ?::timestamptz - interval '5 minutes'
+                           AND ((returned_at > sent_at AND returned_at <= sent_at + interval '5 minutes')
+                               OR ended_at IS NOT NULL)) AS succeeded5,
+                       count(*) FILTER (WHERE status = 'sent' AND sent_at > ?::timestamptz - interval '5 minutes') AS pending5,
+                       count(*) FILTER (WHERE status = 'unknown' OR
+                           (status = 'claimed' AND claimed_at <= ?)) AS unknown
+                FROM (
+                    SELECT s.*, (SELECT MIN(e.occurred_at) FROM telegram_call_events e
+                        WHERE s.kind = 'call' AND e.call_id::text = s.flow_id
+                          AND e.kind = 'end_pressed' AND e.occurred_at > s.sent_at
+                          AND e.occurred_at <= s.sent_at + interval '5 minutes') AS ended_at
+                    FROM soft_nudges s WHERE s.claimed_at >= ?
+                ) n GROUP BY kind ORDER BY kind
             """.trimIndent()).use { statement ->
                 statement.setTimestamp(1, Timestamp.from(now.minusSeconds(86_400)))
                 statement.setTimestamp(2, Timestamp.from(now.minusSeconds(86_400)))
-                statement.setTimestamp(3, Timestamp.from(now.minusSeconds(600)))
-                statement.setTimestamp(4, Timestamp.from(now.minusSeconds(days.toLong() * 86_400)))
+                for (index in 3..7) statement.setTimestamp(index, Timestamp.from(now))
+                statement.setTimestamp(8, Timestamp.from(now.minusSeconds(600)))
+                val from = now.atZone(REMINDER_ZONE).toLocalDate()
+                    .minusDays((if (days == 30) 30 else 7) - 1L)
+                    .atStartOfDay(REMINDER_ZONE).toInstant()
+                statement.setTimestamp(9, Timestamp.from(from))
                 statement.executeQuery().use { rows -> buildList {
                     while (rows.next()) add(SoftNudgeStats(rows.getString(1), rows.getInt(2),
                         rows.getInt(3), rows.getInt(4), rows.getInt(5), rows.getInt(6),
-                        rows.getInt(7), rows.getInt(8), rows.getInt(9)))
+                        rows.getInt(7), rows.getInt(8), rows.getInt(9),
+                        rows.getInt(10), rows.getInt(11), rows.getInt(12), rows.getInt(13), rows.getInt(14),
+                        rows.getInt(15)))
                 } }
             }
         }

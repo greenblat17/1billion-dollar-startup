@@ -22,6 +22,7 @@ import com.eliteteam.speakingcoach.telegram.buildTelegramWebhookBehaviour
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.ReminderAdmin
 import com.eliteteam.speakingcoach.telegram.ReminderRunner
+import com.eliteteam.speakingcoach.telegram.ReminderMode
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignAdmin
 import com.eliteteam.speakingcoach.telegram.LegacyCampaignRunner
 import com.eliteteam.speakingcoach.telegram.RunnerReminderAdmin
@@ -225,7 +226,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
     }
     suspend fun sendReminderWithButton(sessionId: String, chatId: Long, text: String,
                                        action: String, runId: String = "", stage: String? = null,
-                                       openingQuestion: String? = null): Long {
+                                       openingQuestion: String? = null, source: String? = null,
+                                       copyKind: String? = null): Long {
         val token = UUID.randomUUID()
         val message = behaviourContext.sendMessage(ChatId(RawChatId(chatId)), text,
             replyMarkup = followupKeyboard(action, runId, stage,
@@ -233,7 +235,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         if (reminderButtons != null) {
             val previous = try {
                 reminderButtons.activate(sessionId, ReminderButton(token, chatId,
-                    message.messageId.long, openingQuestion))
+                    message.messageId.long, openingQuestion, source, copyKind))
             } catch (error: Throwable) {
                 try { behaviourContext.editMessageReplyMarkup(ChatId(RawChatId(chatId)),
                     message.messageId, replyMarkup = noInlineKeyboard) }
@@ -261,7 +263,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
                         if (claim.action == "practice") practiceOpeningQuestion(claim.copy.id) else "")
                 val messageId = sendReminderWithButton(claim.candidate.sessionId,
                     claim.candidate.chatId, copy.text, claim.action, claim.candidate.runId,
-                    claim.candidate.stage, copy.openingQuestion.takeIf { claim.action == "practice" })
+                    claim.candidate.stage, copy.openingQuestion.takeIf { claim.action == "practice" },
+                    if (claim.candidate.stage == "practice") "inferred_practice" else "onboarding", copy.kind)
                 com.eliteteam.speakingcoach.telegram.FollowupSend(messageId, copy.kind)
             },
         )
@@ -269,8 +272,10 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val reminderRunner = ReminderRunner(
         claim = { mode -> ai.claimReminders(mode.wire) },
         report = ai::reportReminders,
-        send = { sessionId, chatId, copy -> sendReminderWithButton(sessionId, chatId,
-            copy.text, "practice", openingQuestion = copy.openingQuestion) },
+        send = { sessionId, chatId, copy, mode -> sendReminderWithButton(sessionId, chatId,
+            copy.text, "practice", openingQuestion = copy.openingQuestion,
+            source = if (mode == ReminderMode.AUTO) "configured_practice" else null,
+            copyKind = copy.kind) },
         streakOf = { chatId ->
             try {
                 ai.streakProfile(telegramSessionId(chatId)).current
@@ -283,6 +288,10 @@ private suspend fun startWebhookServer(config: AppConfig) {
         },
         followup = { sessionId -> followupRunner?.forDailyReminder(sessionId) },
         personalize = { sessionId -> ai.personalizedReminder(SessionId(sessionId)) },
+        recordAutoAttempt = { sessionId, at, delivery ->
+            reminderButtons?.recordConfiguredAttempt(sessionId, at.toLocalDate(), at.toInstant(),
+                delivery.status, delivery.errorCode)
+        },
     )
     val softNudgeRunner = softNudges?.let { store ->
         SoftNudgeRunner(store,
@@ -446,11 +455,14 @@ internal fun Application.module(
     val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
     val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
         config.databaseUrl?.let(::PostgresAdminUsageStore)
+    val softNudges = if (config.metricsPassword.isNullOrBlank()) null else
+        config.databaseUrl?.let(::SoftNudgeStore)
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
         runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
         voiceScope.cancel()
         adminUsage?.close()
+        softNudges?.close()
     }
     installSpeakingCoachHttp(
         metrics = metricsDashboard(
@@ -463,6 +475,7 @@ internal fun Application.module(
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
             usage = adminUsage,
+            softNudges = softNudges,
         ),
         monitoring = source?.let {
             MonitoringDashboard(
