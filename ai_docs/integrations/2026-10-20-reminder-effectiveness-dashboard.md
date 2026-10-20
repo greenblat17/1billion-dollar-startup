@@ -4,6 +4,10 @@ Status: implemented locally on `feature/onboarding-nudge-analytics`; PostgreSQL 
 
 `/admin/metrics/reminders?days=7|30` starts with a short decision view. Existing detailed tables and send controls are retained inside a collapsed diagnostics section. `/admin/metrics/soft-nudges` has the same five-minute soft-nudge definition. Only Telegram-accepted sends enter conversion denominators. Telegram does not report whether a message was read. All dates are Moscow calendar dates; current saved and inferred time distributions are snapshots, not send-period cohorts.
 
+The main view has a separate onboarding table with one row per stage that sent a reminder. It shows sends, pending windows, later-stage progression, button clicks, and first voice. A total row uses the same send-level definition. An expandable table breaks each stage down by recorded `copy_id` and shows its current catalog text and mature-window conversion. Missing current text is identified as such. Small samples and different users between variants limit conclusions.
+
+Time distribution uses 24 one-hour rows per population, with user count, meter bar, and one-decimal share. Saved times are a current active-setting snapshot without a date filter. Inferred times use recipients of accepted practice sends in the selected period. The former four-hour combined table was removed.
+
 The primary outcomes are:
 
 | Flow | Success | Window |

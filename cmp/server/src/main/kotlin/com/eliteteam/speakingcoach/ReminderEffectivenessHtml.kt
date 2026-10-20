@@ -4,7 +4,9 @@ import com.eliteteam.speakingcoach.ai.ReminderClockSummary
 import com.eliteteam.speakingcoach.analytics.NudgeReport
 import com.eliteteam.speakingcoach.analytics.ReminderConversion
 import com.eliteteam.speakingcoach.analytics.ReminderEffectiveness
+import com.eliteteam.speakingcoach.analytics.JOURNEY_STAGES
 import com.eliteteam.speakingcoach.telegram.SoftNudgeStats
+import com.eliteteam.speakingcoach.telegram.FollowupCatalog
 import java.util.Locale
 
 private fun conversion(part: Int, total: Int): String =
@@ -18,6 +20,21 @@ private fun dailyRow(label: String, stats: ReminderConversion, onboarding: Boole
         "<td>${conversion(if (onboarding) stats.progressed else stats.firstVoice, stats.mature)}</td>" +
         "<td>${conversion(stats.clicked, stats.mature)}</td>" +
         "<td>${conversion(stats.firstVoice, stats.mature)}</td></tr>"
+
+private fun hourDistribution(title: String, countLabel: String, hours: Map<Int, Int>, total: Int): String {
+    val rows = (0..23).joinToString("") { hour ->
+        val count = hours[hour] ?: 0
+        val value = if (total > 0) count * 100.0 / total else 0.0
+        val percent = if (total > 0) String.format(Locale.US, "%.1f%%", value) else "—"
+        val meter = String.format(Locale.US, "%.1f", value)
+        val key = "%02d".format(hour)
+        "<tr><th scope=\"row\">$key:00–$key:59</th><td>$count</td>" +
+            "<td><meter min=\"0\" max=\"100\" value=\"$meter\"></meter> $percent</td></tr>"
+    }
+    return "<h4>$title</h4><p class=\"meta\">Всего: $total.</p>" +
+        "<table><thead><tr><th>По Москве</th><th>$countLabel</th><th>Доля от $total</th></tr></thead>" +
+        "<tbody>$rows</tbody></table>"
+}
 
 private fun softRow(label: String, stats: SoftNudgeStats?): String = if (stats == null) {
     "<tr><th scope=\"row\">$label</th><td colspan=\"5\">Данные недоступны</td></tr>"
@@ -43,9 +60,29 @@ internal fun reminderEffectivenessHtml(
         ?: soft?.let { SoftNudgeStats("call", 0, 0, 0, 0, 0, 0, 0, 0) })
     val dailyRows = if (report == null) {
         "<tr><td colspan=\"6\">Новый учёт недоступен</td></tr>"
-    } else dailyRow("Незавершённый онбординг", report.onboarding, onboarding = true) +
-        dailyRow("Практика · время выбрал пользователь", report.configured) +
+    } else dailyRow("Практика · время выбрал пользователь", report.configured) +
         dailyRow("Практика · время выбрал бот", report.inferred)
+    val onboardingRows = if (report == null) "<tr><td colspan=\"6\">Данные недоступны</td></tr>" else {
+        val byStage = JOURNEY_STAGES.mapNotNull { stage ->
+            report.onboardingStages[stage.id]?.let { stage.label to it }
+        } + report.onboardingStages.filterKeys { id -> JOURNEY_STAGES.none { it.id == id } }
+            .map { (id, stats) -> id to stats }
+        dailyRow("Все стадии", report.onboarding, onboarding = true) +
+            byStage.joinToString("") { (label, stats) -> dailyRow(escapeHtml(label), stats, onboarding = true) }
+    }
+    val onboardingCopyRows = report?.onboardingCopy?.entries?.sortedWith(
+        compareBy<Map.Entry<Pair<String, String>, ReminderConversion>> {
+            JOURNEY_STAGES.indexOfFirst { stage -> stage.id == it.key.first }.let { index -> if (index < 0) Int.MAX_VALUE else index }
+        }.thenBy { it.key.second },
+    )?.joinToString("") { (key, stats) ->
+        val stage = JOURNEY_STAGES.find { it.id == key.first }?.label ?: key.first
+        val copy = FollowupCatalog.variants(key.first).find { it.id == key.second }
+        "<tr><th scope=\"row\">${escapeHtml(stage)}</th><td>${escapeHtml(key.second)}</td>" +
+            "<td>${escapeHtml(copy?.text ?: "Текст не найден в текущем каталоге")}</td>" +
+            "<td>${stats.sent}</td><td>${stats.pending}</td>" +
+            "<td>${conversion(stats.progressed, stats.mature)}</td></tr>"
+    }?.ifEmpty { "<tr><td colspan=\"6\">Отправок пока нет</td></tr>" }
+        ?: "<tr><td colspan=\"6\">Данные недоступны</td></tr>"
     val copyRows = if (report == null) "<tr><td colspan=\"5\">Данные недоступны</td></tr>" else
         listOf("configured" to report.configuredCopy, "inferred" to report.inferredCopy).joinToString("") { (source, groups) ->
             listOf("general", "personalized").joinToString("") { kind ->
@@ -56,15 +93,12 @@ internal fun reminderEffectivenessHtml(
                     "<td>${stats.pending}</td></tr>"
             }
         }
-    val savedHours = clock?.hours.orEmpty()
-    val inferredHours = report?.inferredHours.orEmpty()
-    val hourRows = (0..5).joinToString("") { bucket ->
-        val start = bucket * 4
-        val saved = (start until start + 4).sumOf { savedHours["%02d".format(it)] ?: 0 }
-        val inferred = (start until start + 4).sumOf { inferredHours[it] ?: 0 }
-        "<tr><th scope=\"row\">%02d:00–%02d:59</th><td>$saved</td><td>$inferred</td></tr>"
-            .format(start, start + 3)
-    }
+    val timeDistribution = (if (clock == null) "<p class=\"meta\">Текущие настройки недоступны.</p>" else
+        hourDistribution("Время выбрали сами", "Пользователи",
+            clock.hours.mapKeys { it.key.toInt() }, clock.active)) +
+        (if (report == null) "<p class=\"meta\">Рассчитанное время недоступно.</p>" else
+            hourDistribution("Время рассчитал бот", "Пользователи",
+                report.inferredHours, report.inferredHours.values.sum()))
     val onboardingErrors = nudges?.byStage?.filter { it.label != "practice" }?.map { it.counts }
     val onboardingAttempts = onboardingErrors?.sumOf { it.attempts }
     val onboardingBlocked = onboardingErrors?.sumOf { it.blocked }
@@ -125,11 +159,18 @@ internal fun reminderEffectivenessHtml(
         <table><thead><tr><th>Сценарий</th><th>Отправлено</th><th>Наблюдаем</th>
         <th>Успех</th><th>Голос</th><th>End Call</th></tr></thead><tbody>$softRows</tbody></table>
         <p class="meta">Для звонка голос или End Call дают один общий успех. Два действия одного человека не удваивают его.</p>
-        <h3>Ежедневные · действие за 24 часа</h3>
+        <h3>Онбординг · переход по стадиям за 24 часа</h3>
+        <table><thead><tr><th>Стадия напоминания</th><th>Отправлено</th><th>Наблюдаем</th>
+        <th>Перешли дальше</th><th>Кнопка</th><th>Первый голос</th></tr></thead><tbody>$onboardingRows</tbody></table>
+        <p class="meta">Успех — достигнута более поздняя стадия той же попытки. Для последней стадии — голос практики.
+        Знаменатель — отправки с закрытым окном. Один человек может попасть в несколько строк по разным отправкам.</p>
+        <details><summary>Варианты текста внутри стадий</summary>
+        <table><thead><tr><th>Стадия</th><th>Вариант</th><th>Текст</th><th>Отправлено</th>
+        <th>Наблюдаем</th><th>Перешли дальше</th></tr></thead><tbody>$onboardingCopyRows</tbody></table></details>
+        <h3>Ежедневная практика · первый голос за 24 часа</h3>
         <table><thead><tr><th>Сценарий</th><th>Отправлено</th><th>Наблюдаем</th>
         <th>Главный результат</th><th>Кнопка</th><th>Первый голос</th></tr></thead><tbody>$dailyRows</tbody></table>
-        <p class="meta">Онбординг: переход дальше по воронке. Практика: первый входящий голос.
-        Окно закрывается через 24 часа или при следующем ежедневном напоминании.
+        <p class="meta">Окно закрывается через 24 часа или при следующем ежедневном напоминании.
         Знаменатель — только отправки с закрытым окном. Категория времени и тип текста фиксируются при отправке.
         Старые отправки без нового учёта не пересчитываются.</p>
         <h3>Общий и персонализированный текст практики</h3>
@@ -137,8 +178,7 @@ internal fun reminderEffectivenessHtml(
         <th>Первый голос</th><th>Наблюдаем</th></tr></thead><tbody>$copyRows</tbody></table>
         <p class="meta">Типы чередуются по дням. Разница не доказывает, что текст вызвал ответ.</p>
         <h3>Распределение времени</h3>
-        <table><thead><tr><th>По Москве</th><th>Выбрали сами</th><th>Рассчитал бот</th></tr></thead>
-        <tbody>$hourRows</tbody></table>
+        $timeDistribution
         <p class="meta">Слева — текущие активные настройки. Справа — последнее рассчитанное время
         у каждого пользователя с отправкой практики за выбранный период. Это разные группы людей;
         распределения не входят в конверсию отправок.</p>

@@ -37,11 +37,11 @@ class ReminderEffectivenessTest {
                     """.trimIndent()) }
                     db.createStatement().use { it.execute("""
                         INSERT INTO onboarding_nudges
-                            (session_id, day, run_id, claimed_at, status, sent_at, message_id, journey_stage, copy_kind, preferred_utc_minute)
+                            (session_id, day, run_id, claimed_at, status, sent_at, message_id, journey_stage, copy_kind, preferred_utc_minute, copy_id)
                         VALUES ('tg-123', '2026-10-19', 'practice-run', '${at.plusSeconds(86_400)}',
-                            'sent', '${at.plusSeconds(86_400)}', 2, 'practice', 'general', 600),
+                            'sent', '${at.plusSeconds(86_400)}', 2, 'practice', 'general', 600, 'practice:01'),
                            ('tg-456', '2026-10-18', 'onboarding-run', '$at',
-                            'sent', '$at', 3, 'first_question', 'general', 600)
+                            'sent', '$at', 3, 'first_question', 'general', 600, 'first_question:01')
                     """.trimIndent()) }
                     db.prepareStatement("UPDATE onboarding_attempts SET first_voice_at = ? WHERE run_id = 'onboarding-run'").use {
                         it.setTimestamp(1, Timestamp.from(at.plusSeconds(120)))
@@ -74,6 +74,8 @@ class ReminderEffectivenessTest {
                 assertEquals(1, report.inferred.firstVoice)
                 assertEquals(1, report.inferredCopy.getValue("general").firstVoice)
                 assertEquals(1, report.onboarding.progressed)
+                assertEquals(1, report.onboardingStages.getValue("first_question").progressed)
+                assertEquals(1, report.onboardingCopy.getValue("first_question" to "first_question:01").progressed)
                 assertEquals(1, report.inferredHours[13])
             } finally { store.close() }
         } finally {

@@ -760,6 +760,9 @@ class MetricsDashboardTest {
             configured = ReminderConversion(sent = 10, mature = 8, pending = 2, clicked = 3, firstVoice = 2),
             inferred = ReminderConversion(sent = 4, mature = 4, firstVoice = 1),
             onboarding = ReminderConversion(sent = 5, mature = 5, progressed = 2),
+            onboardingStages = mapOf("first_question" to ReminderConversion(sent = 5, mature = 5, progressed = 2)),
+            onboardingCopy = mapOf(("first_question" to "first_question:01") to
+                ReminderConversion(sent = 3, mature = 3, progressed = 2)),
             configuredCopy = mapOf("personalized" to ReminderConversion(sent = 5, mature = 4, firstVoice = 2)),
             inferredCopy = mapOf("general" to ReminderConversion(sent = 4, mature = 4, firstVoice = 1)),
             inferredHours = mapOf(13 to 4),
@@ -776,7 +779,11 @@ class MetricsDashboardTest {
         assertTrue(html.contains("2 / 8 · 25.0%"))
         assertTrue(html.contains("1 / 2 · 50.0%"))
         assertTrue(html.contains("telegram_500"))
-        assertTrue(html.contains("12:00–15:59"))
+        assertTrue(html.contains("13:00–13:59"))
+        assertTrue(html.contains("<meter min=\"0\" max=\"100\" value=\"100.0\"></meter> 100.0%"))
+        assertTrue(html.contains("Первый вопрос доставлен"))
+        assertTrue(html.contains("first_question:01"))
+        assertTrue(html.contains("2 / 3 · 66.7%"))
     }
 
     @Test

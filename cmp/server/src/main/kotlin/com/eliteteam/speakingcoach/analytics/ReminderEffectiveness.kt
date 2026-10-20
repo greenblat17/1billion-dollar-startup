@@ -28,6 +28,8 @@ internal data class ReminderEffectiveness(
     val configured: ReminderConversion,
     val inferred: ReminderConversion,
     val onboarding: ReminderConversion,
+    val onboardingStages: Map<String, ReminderConversion> = emptyMap(),
+    val onboardingCopy: Map<Pair<String, String>, ReminderConversion> = emptyMap(),
     val configuredCopy: Map<String, ReminderConversion>,
     val inferredCopy: Map<String, ReminderConversion>,
     val inferredHours: Map<Int, Int>,
@@ -39,6 +41,8 @@ internal data class ReminderEffectiveness(
 private data class ReminderFact(
     val source: String,
     val copyKind: String?,
+    val journeyStage: String?,
+    val copyId: String?,
     val mature: Boolean,
     val clicked: Boolean,
     val firstVoice: Boolean,
@@ -63,7 +67,8 @@ internal fun loadReminderEffectiveness(connection: Connection, days: Int, now: I
         statement.setObject(3, to)
         statement.executeQuery().use { rows -> buildList {
             while (rows.next()) add(ReminderFact(
-                rows.getString("source"), rows.getString("copy_kind"), rows.getBoolean("mature"),
+                rows.getString("source"), rows.getString("copy_kind"),
+                rows.getString("journey_stage"), rows.getString("copy_id"), rows.getBoolean("mature"),
                 rows.getBoolean("clicked"), rows.getBoolean("first_voice"), rows.getBoolean("progressed"),
             ))
         } }
@@ -135,6 +140,11 @@ internal fun loadReminderEffectiveness(connection: Connection, days: Int, now: I
         configured = facts.filter { it.source == "configured" }.conversion(),
         inferred = facts.filter { it.source == "inferred" }.conversion(),
         onboarding = facts.filter { it.source == "onboarding" }.conversion(),
+        onboardingStages = facts.filter { it.source == "onboarding" }
+            .groupBy { it.journeyStage ?: "unknown" }.mapValues { it.value.conversion() },
+        onboardingCopy = facts.filter { it.source == "onboarding" }
+            .groupBy { (it.journeyStage ?: "unknown") to (it.copyId ?: "unknown") }
+            .mapValues { it.value.conversion() },
         configuredCopy = facts.filter { it.source == "configured" }.groupBy { it.copyKind ?: "unknown" }
             .mapValues { it.value.conversion() },
         inferredCopy = facts.filter { it.source == "inferred" }.groupBy { it.copyKind ?: "unknown" }
@@ -151,7 +161,7 @@ private val REMINDER_EFFECTIVENESS_SQL = """
     WITH params AS (SELECT ?::timestamptz AS now, ?::date AS from_day, ?::date AS to_day), sends AS (
         SELECT 'configured'::text AS source, b.session_id, b.chat_id,
                b.created_at AS sent_at, b.copy_kind, b.clicked_at,
-               NULL::text AS journey_stage, NULL::text AS run_id
+               NULL::text AS journey_stage, NULL::text AS run_id, NULL::text AS copy_id
         FROM reminder_buttons b CROSS JOIN params p
         WHERE b.source = 'configured_practice'
           AND b.created_at >= (p.from_day::timestamp AT TIME ZONE 'Europe/Moscow')
@@ -159,7 +169,7 @@ private val REMINDER_EFFECTIVENESS_SQL = """
         UNION ALL
         SELECT CASE WHEN n.journey_stage = 'practice' THEN 'inferred' ELSE 'onboarding' END,
                n.session_id, s.chat_id, n.sent_at, n.copy_kind, b.clicked_at,
-               n.journey_stage, n.run_id
+               n.journey_stage, n.run_id, n.copy_id
         FROM onboarding_nudges n CROSS JOIN params p
         JOIN onboarding_followup_schedule s ON s.session_id = n.session_id
         LEFT JOIN reminder_buttons b ON b.chat_id = s.chat_id AND b.message_id = n.message_id
@@ -175,7 +185,7 @@ private val REMINDER_EFFECTIVENESS_SQL = """
         FROM ordered o CROSS JOIN params p
         WHERE (o.sent_at AT TIME ZONE 'Europe/Moscow')::date BETWEEN p.from_day AND p.to_day
     )
-    SELECT w.source, w.copy_kind, w.mature,
+    SELECT w.source, w.copy_kind, w.journey_stage, w.copy_id, w.mature,
            COALESCE(w.clicked_at > w.sent_at AND w.clicked_at < w.end_at, FALSE) AS clicked,
            EXISTS (SELECT 1 FROM interaction_events i
                    WHERE i.chat_id = w.chat_id AND i.direction = 'incoming'

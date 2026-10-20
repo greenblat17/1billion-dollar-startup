@@ -46,7 +46,7 @@ internal fun remindersPageHtml(
     <p class="meta">${escapeHtml(snapshot?.day ?: LocalDate.now(ZoneId.of("Europe/Moscow")).toString())} · Europe/Moscow</p>
     ${reminderEffectivenessHtml(effectiveness, soft, nudges, clock, days, summaryRoot)}
     <details><summary>Подробные таблицы и управление рассылкой</summary>
-    ${reminderAnalyticsHtml(snapshot?.reminders, clock, offers, days, summaryRoot)}
+    ${reminderAnalyticsHtml(snapshot?.reminders, offers, days, summaryRoot)}
     ${onboardingNudgeHtml(nudges, summaryRoot, days)}
     <h2>Ежедневная практика: рассылки и управление</h2>
     ${remindersSectionHtml(snapshot?.reminders, notice, controls, summaryRoot)}
@@ -56,7 +56,7 @@ internal fun remindersPageHtml(
 """.trimIndent()
 
 private fun reminderAnalyticsHtml(
-    reminders: RemindersSnapshot?, clock: ReminderClockSummary?, offers: ReminderOfferSummary?,
+    reminders: RemindersSnapshot?, offers: ReminderOfferSummary?,
     days: Int, summaryRoot: String,
 ): String {
     val today = LocalDate.now(ZoneId.of("Europe/Moscow"))
@@ -69,20 +69,6 @@ private fun reminderAnalyticsHtml(
     val selector = "<p class=\"meta\">Период: " + listOf(7, 30).joinToString(" · ") { choice ->
         if (choice == period) "$choice дней" else "<a href=\"$summaryRoot/reminders?days=$choice\">$choice дней</a>"
     } + "</p>"
-    val distribution = if (clock == null) "<p class=\"meta\">Текущие настройки недоступны.</p>" else {
-        val rows = (0..23).joinToString("") { hour ->
-            val key = "%02d".format(hour)
-            val count = clock.hours[key] ?: 0
-            val value = if (clock.active > 0) count * 100.0 / clock.active else 0.0
-            val percent = if (clock.active > 0) String.format(Locale.US, "%.1f%%", value) else "—"
-            val meter = String.format(Locale.US, "%.1f", value)
-            "<tr><th scope=\"row\">$key:00–$key:59</th><td>$count</td>" +
-                "<td><meter min=\"0\" max=\"100\" value=\"$meter\"></meter> $percent</td></tr>"
-        }
-        "<p class=\"meta\">Активных настроек: ${clock.active}. Все пользователи; время по Москве. " +
-            "Текущий срез, без фильтра по датам.</p><table><thead><tr><th>Выбрали время</th>" +
-            "<th>Пользователи</th><th>Доля от ${clock.active}</th></tr></thead><tbody>$rows</tbody></table>"
-    }
     val offered = if (offers == null) "<p class=\"meta\">Данные о предложениях онбординга недоступны.</p>" else
         "<p>${offers.saved} / ${offers.offered} · ${rate(offers.saved.toLong(), offers.offered.toLong())} сохранили время " +
             "после предложения в онбординге</p><p class=\"meta\">Уникальные пользователи с предложением " +
@@ -123,7 +109,7 @@ private fun reminderAnalyticsHtml(
             "Отключили: ${users.cleared}</p><p class=\"meta\">Уникальные пользователи в каждом действии с $from по $today. " +
             "Один пользователь может входить в несколько действий.$trackingNote</p>"
     } ?: "<p class=\"meta\">Изменения настроек недоступны.</p>"
-    return "$selector<h2>Выбранное время</h2>$distribution<h2>Конверсия предложения</h2>$offered" +
+    return "$selector<h2>Конверсия предложения</h2>$offered" +
         "<h2>Ответы по выбранному часу</h2>$efficiency<h2>Исходы по дням</h2>$outcomes" +
         "<h2>Изменения настроек</h2>$changes"
 }
