@@ -6,12 +6,14 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from app.call_start import CallStarter
+from app.audit_artifacts import bind_writer, reset_writer
 from app.calls import CallStore
 from app.characters import Characters, CharacterStore, KoraModel
 from app.dialogue import MemoryDialogueStore
 from app.hume_speech import HumeSpeech
 from app.pipeline import ClipPipeline
 from app.speech import SessionSpeech
+from app.tts import TtsAudio
 from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
 from tests.test_call_start import Model, Personalization
 
@@ -19,7 +21,9 @@ from tests.test_call_start import Model, Personalization
 class KoraSpeech(FakeTts):
     async def synthesize(self, text, **kwargs):
         self.last_speed = kwargs.get("speed")
-        return await super().synthesize(text)
+        self.last_guided = kwargs.get("guided")
+        audio = await super().synthesize(text)
+        return TtsAudio(audio.data, audio.content_type, getattr(self, 'spoken', None) or text)
 
 
 @pytest.mark.asyncio
@@ -61,6 +65,32 @@ async def test_kora_routing_history_and_roleplay_isolation():
 
 
 @pytest.mark.asyncio
+async def test_kora_records_spoken_reply_and_keeps_sonnet_draft_for_comparison():
+    dialogue = MemoryDialogueStore(40, 86400)
+    voice = KoraSpeech()
+    voice.spoken = 'Hmm, travel sounds fun.'
+    model = FakeLlm()
+    characters = Characters(CharacterStore(), model, voice)
+    await characters.store.set('tg-1', 'kora')
+    pipeline = ClipPipeline(FakeStt(['Travel', 'Tell me more']), FakeLlm(), FakeTts(), dialogue,
+                            characters=characters)
+    artifacts = {}
+    async def write(field, value):
+        artifacts[field] = value
+    token = bind_writer(write)
+    try:
+        result = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+        assert result.reply_text == voice.spoken
+        assert artifacts['reply_draft'] == 'Got it: Travel'
+        assert artifacts['reply'] == voice.spoken
+        assert [m.content for m in await dialogue.history('tg-1:kora')] == ['Travel', voice.spoken]
+        await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+        assert model.calls[-1][0] == ['Travel', voice.spoken]
+    finally:
+        reset_writer(token)
+
+
+@pytest.mark.asyncio
 async def test_kora_failed_speech_does_not_advance_history_or_fallback():
     class FailedSpeech:
         async def synthesize(self, *args, **kwargs):
@@ -80,6 +110,7 @@ async def test_kora_failed_speech_does_not_advance_history_or_fallback():
 async def test_opening_and_delivery_use_kora_history_once():
     dialogue = MemoryDialogueStore(40, 86400)
     model, voice = FakeLlm(), KoraSpeech()
+    voice.spoken = 'Hey, what is on your mind today?'
     characters = Characters(CharacterStore(), model, voice)
     await characters.store.set('tg-1', 'kora')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
@@ -87,9 +118,14 @@ async def test_opening_and_delivery_use_kora_history_once():
     await starter.start('tg-1')
     assert len(model.calls) == 1
     assert base64.b64decode(first['audioBase64']).startswith(b'OggS')
+    assert first['question'] == voice.spoken
+    saved = await starter.calls.get(first['callId'])
+    assert saved['openingDraft'] == 'Got it: Let\'s start a conversation.'
+    assert saved['openingQuestion'] == voice.spoken
     await starter.delivered(first['callId'])
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora')) == 2
+    assert (await dialogue.history('tg-1:kora'))[-1].content == voice.spoken
     assert await dialogue.history('tg-1') == []
 
 
@@ -172,9 +208,38 @@ async def test_hume_accepts_only_complete_exact_audio(monkeypatch, ending, text,
         return b'pcm'
     monkeypatch.setattr(speech, '_ffmpeg', convert)
     if valid:
-        audio = await speech.synthesize('Hello.', speed=speed)
+        audio = await speech.synthesize('Hello.', speed=speed, guided=False)
         assert audio.data == b'OggSchecked'
+        assert audio.spoken_text == 'Hello.'
     else:
-        with pytest.raises(RuntimeError): await speech.synthesize('Hello.', speed=speed)
+        with pytest.raises(RuntimeError): await speech.synthesize('Hello.', speed=speed, guided=False)
     assert [m['type'] for m in sent] == ['pause_assistant_message', 'session_settings', 'user_input',
                                         'assistant_input', 'resume_assistant_message']
+
+
+@pytest.mark.asyncio
+async def test_hume_guided_delivery_returns_actual_spoken_words(monkeypatch):
+    sent = []
+    messages = [
+        {'type': 'assistant_message', 'message': {'content': 'Hmm, that sounds hard.'}},
+        {'type': 'audio_output', 'data': base64.b64encode(b'wav').decode()},
+        {'type': 'assistant_end'},
+    ]
+    class Socket:
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def send(self, raw): sent.append(json.loads(raw))
+        def __aiter__(self):
+            async def items():
+                for message in messages: yield json.dumps(message)
+            return items()
+    monkeypatch.setattr('app.hume_speech.websockets.connect', lambda *a, **k: Socket())
+    speech = HumeSpeech('secret', 'config')
+    async def convert(payload, args): return b'OggSchecked' if 'ogg' in args else b'pcm'
+    monkeypatch.setattr(speech, '_ffmpeg', convert)
+    audio = await speech.synthesize('That sounds hard.', user='My day was difficult.')
+    assert audio.spoken_text == 'Hmm, that sounds hard.'
+    assert [m['type'] for m in sent] == [
+        'pause_assistant_message', 'session_settings', 'user_input', 'resume_assistant_message']
+    prompt = sent[1]['system_prompt']
+    assert json.loads(prompt[prompt.index('{'):])['TARGET_REPLY'] == 'That sounds hard.'

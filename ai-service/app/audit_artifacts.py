@@ -52,7 +52,7 @@ class AuditArtifacts:
         self.redis = redis
 
     async def record(self, attempt_id: str, received_at: float, field: str, value: str) -> None:
-        if self.redis is None or field not in {"transcript", "reply", "conversation_plan"}:
+        if self.redis is None or field not in {"transcript", "reply", "reply_draft", "conversation_plan"}:
             return
         expiry = int(received_at + RETENTION_SECONDS)
         if expiry <= time.time():

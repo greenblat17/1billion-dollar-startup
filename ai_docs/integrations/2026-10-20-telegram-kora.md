@@ -5,18 +5,18 @@ Telegram character through `/voice`. Default remains Speaky. Free calls and ordi
 voice messages use the selected character; onboarding and roleplay keep their existing
 pipeline. No live microphone or LiveKit is involved.
 
-Flow: Telegram OGG → existing STT → Sonnet interest plan → Sonnet A2 reply → Hume EVI
-`assistant_input` → complete, transcript-checked OGG Opus → Telegram voice message.
-The planner and writer are the accepted D baseline, frozen in `app/kora_prompts.py`.
-Kora is the only persona name change. No spoken rewrite or Hume paraphrase experiment
-is included. Hume receives conversation context but does not choose reply content.
+Initial flow: Telegram OGG → existing STT → Sonnet interest plan → Sonnet A2 reply →
+Hume EVI `assistant_input` → complete, transcript-checked OGG Opus → Telegram voice.
+The planner and writer remain the accepted D baseline in `app/kora_prompts.py`.
+Guided Hume delivery now replaces `assistant_input` for conversational turns; see
+the 2026-10-21 section below.
 
 Selection persists in Redis `character:{session}`. Kora uses a separate dialogue key
 `{session}:kora`, with existing content-retention rules. Switching is blocked while
 a delivered call or clip job is active. An undelivered failed opening can be closed
 when switching, so provider failure cannot trap the user in Kora. Corrections, streaks, call duration and reviews remain
 on the existing user/session. First spoken turn also uses Kora. Failures do not silently
-switch character; incomplete/mismatched Hume audio is rejected. Kora history advances
+switch character; incomplete Hume audio is rejected. Kora history advances
 only after successful speech generation. Telegram delivery failure handling remains
 the existing pipeline's responsibility.
 
@@ -84,3 +84,25 @@ in the `DEV_AI_SERVER_ENV` secret before dispatch. The key is already on the DEV
 in `/opt/ai-service/.env`; do not copy its value into source control or chat. Deployment
 from Actions overwrites that host env file. `HUME_CONFIG_VERSION=0` and
 `KORA_MODEL=anthropic/claude-sonnet-4.6` are defaults.
+
+## Guided Hume delivery (Voice Lab F), 2026-10-21
+
+Kora now sends Sonnet's authored reply to EVI as `TARGET_REPLY` in the session prompt.
+EVI generates the spoken wording and audio together. The prompt asks it to preserve
+all substantive points, stance, topic and question intent, while allowing natural
+phrasing and brief hesitations. `assistant_input` remains for fixed clarification text.
+No separate model judges semantic equivalence. This is an experiment, and Hume can
+still drift despite the prompt. The bounded session still requires a final transcript,
+audio, `assistant_end`, and successful Opus conversion. Hume errors still fail the turn.
+
+The spoken transcript becomes the Telegram `replyText`, rolling Kora history and call
+turn reply. The Sonnet target is separately retained as `reply_draft` in the seven-day
+attempt artifacts; the Hume transcript is retained as `reply`. A call opening keeps its
+Sonnet text as `openingDraft` and the Hume wording as `openingQuestion`; its spoken
+wording enters Kora history only after Telegram delivery. `/speed` remains an audio
+post-processing control. Existing Speaky and roleplay routes are unchanged.
+
+Local unit tests cover guided EVI transport, actual-spoken-text history, separate
+draft storage, opening state and speed. A single real EVI completion tests transport,
+not a whole conversation or semantic reliability. Deployment and Telegram acceptance
+must be recorded separately.

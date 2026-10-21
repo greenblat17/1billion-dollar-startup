@@ -58,6 +58,7 @@ class CallStore:
             elif scenario is not _SCENARIO_UNSET and not already_active and scenario != call.get("scenario"):
                 call["scenario"] = scenario
                 call["openingQuestion"] = None
+                call["openingDraft"] = None
                 await self._write_call(call)
             return {
                 **await self._summary(session_id, call, unseen=unseen, crossed=False),
@@ -181,6 +182,7 @@ class CallStore:
             if current is None or current["status"] != "open" or current.get("openingDelivered"):
                 raise ValueError("call opening cannot be replaced")
             current["openingQuestion"] = question
+            current["openingDraft"] = None
             current["openingFromReminder"] = True
             await self._write_call(current)
 
@@ -194,7 +196,22 @@ class CallStore:
                 raise ValueError("call opening cannot be cleared")
             if current.get("openingFromReminder"):
                 current["openingQuestion"] = None
+                current["openingDraft"] = None
                 current["openingFromReminder"] = False
+            await self._write_call(current)
+
+    async def save_spoken_opening(self, call_id: str, question: str) -> None:
+        """Keep the opening that was actually spoken for delivery and later history."""
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open" or current.get("openingDelivered"):
+                raise ValueError("call opening is no longer pending")
+            if not current.get("openingDraft"):
+                current["openingDraft"] = current.get("openingQuestion")
+            current["openingQuestion"] = question
             await self._write_call(current)
 
     async def mark_opening_delivered(self, call_id: str) -> tuple[str, str] | None:
@@ -393,6 +410,7 @@ def _expire_call_content(call: dict, now: float) -> dict:
                      and isinstance(turn.get("receivedAt"), (int, float)) and turn["receivedAt"] > cutoff]
     if float(call.get("startedUnix") or 0) <= cutoff:
         call["openingQuestion"] = None
+        call["openingDraft"] = None
         call["scenario"] = None
     if not call["turns"]:
         call["review"] = None

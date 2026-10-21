@@ -46,7 +46,9 @@ class CallStarter:
             kora = await self.characters.selected(session_id, scenario=call.get("scenario"))
             history_id = self.characters.history_id(session_id) if kora else session_id
             history = await self.dialogue.history(history_id)
-            question = call.get("openingQuestion")
+            question = call.get("openingDraft") if kora else call.get("openingQuestion")
+            if not question:
+                question = call.get("openingQuestion")
             if reminder_question:
                 name = first_name.strip() if isinstance(first_name, str) else ""
                 if not (1 <= len(name) <= 25 and len(name.split()) <= 3
@@ -70,6 +72,9 @@ class CallStarter:
                 })
                 await self.calls.save_opening(summary["callId"], question)
             audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id)) if kora else await self.speech.synthesize(session_id, question)
+            if kora:
+                question = audio.spoken_text or question
+                await self.calls.save_spoken_opening(summary["callId"], question)
             return {
                 **summary, "status": "ready", "question": question,
                 "audioBase64": base64.b64encode(audio.data).decode("ascii"),

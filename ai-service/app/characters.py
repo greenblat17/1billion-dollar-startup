@@ -67,9 +67,10 @@ class Characters:
         self.require_available()
         return await self.model.complete_reply(history, user)
 
-    async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0):
+    async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
+                         guided: bool = True):
         self.require_available()
-        return await self.speech.synthesize(text, history=history, user=user, speed=speed)
+        return await self.speech.synthesize(text, history=history, user=user, speed=speed, guided=guided)
 
     @staticmethod
     def history_id(session_id: str) -> str:

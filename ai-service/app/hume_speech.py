@@ -1,4 +1,4 @@
-"""Bounded EVI exact-text speech adapter. Sonnet remains the conversation owner."""
+"""Bounded EVI speech adapter. Sonnet remains the conversation owner."""
 from __future__ import annotations
 
 import asyncio
@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 import websockets
 
 from app.provider_call_log import logged_provider_call
+from app.kora_delivery import delivery_prompt
 from app.tts import TtsAudio
 
 
@@ -18,21 +19,21 @@ class HumeSpeech:
         self.api_key, self.config_id, self.config_version = api_key, config_id, config_version
         self.ffmpeg_bin, self.timeout = ffmpeg_bin, timeout
 
-    async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0) -> TtsAudio:
+    async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
+                         guided: bool = True) -> TtsAudio:
         if isinstance(speed, bool) or speed not in (0.8, 0.9, 1.0):
             raise ValueError("unsupported speech speed")
         return await logged_provider_call(
-            lambda: self._synthesize(text, history, user, speed), kind="tts", provider="hume", model="evi-3",
+            lambda: self._synthesize(text, history, user, speed, guided), kind="tts", provider="hume", model="evi-3",
         )
 
-    async def _synthesize(self, text, history, user, speed) -> TtsAudio:
+    async def _synthesize(self, text, history, user, speed, guided) -> TtsAudio:
         url = "wss://api.hume.ai/v0/evi/chat?" + urlencode({
             "config_id": self.config_id, "config_version": self.config_version,
         })
         chunks, parts = [], []
         total = 0
         ended = False
-        context = [{"role": item.role, "content": item.content} for item in history]
         try:
             async with asyncio.timeout(self.timeout):
                 # Header auth avoids placing credentials in exception URLs.
@@ -41,9 +42,11 @@ class HumeSpeech:
                     for message in [
                         {"type": "pause_assistant_message"},
                         {"type": "session_settings", "system_prompt":
-                            "You are a warm adult conversation partner. Conversation context: " + json.dumps(context)},
+                            delivery_prompt(history, user, text) if guided else
+                            "You are a warm adult conversation partner. Conversation context: " +
+                            json.dumps([{"role": item.role, "content": item.content} for item in history])},
                         {"type": "user_input", "text": user},
-                        {"type": "assistant_input", "text": text},
+                        *([] if guided else [{"type": "assistant_input", "text": text}]),
                         {"type": "resume_assistant_message"},
                     ]:
                         await socket.send(json.dumps(message))
@@ -65,9 +68,10 @@ class HumeSpeech:
                         elif kind == "assistant_end":
                             ended = True
                             break
-                if not ended or not chunks:
+                spoken = " ".join(" ".join(parts).split())
+                if not ended or not chunks or not spoken:
                     raise ValueError("hume_incomplete_audio")
-                if " ".join(" ".join(parts).split()) != " ".join(text.split()):
+                if not guided and spoken != " ".join(text.split()):
                     raise ValueError("hume_transcript_mismatch")
                 pcm = b"".join([await self._ffmpeg(chunk, ["-i", "pipe:0", "-f", "s16le", "-ac", "1", "-ar", "48000"])
                                 for chunk in chunks])
@@ -76,7 +80,7 @@ class HumeSpeech:
                                                "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg"])
                 if not ogg.startswith(b"OggS"):
                     raise ValueError("hume_invalid_ogg")
-                return TtsAudio(ogg, "audio/ogg")
+                return TtsAudio(ogg, "audio/ogg", spoken_text=spoken)
         except asyncio.CancelledError:
             raise
         except Exception as error:
