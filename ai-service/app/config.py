@@ -54,6 +54,10 @@ class Settings:
     tts_output_format: str = "ogg"
     tts_speed: float = 0.9
     log_file: str = ""
+    hume_api_key: str | None = None
+    hume_config_id: str | None = None
+    hume_config_version: str = "0"
+    kora_model: str = "anthropic/claude-sonnet-4.6"
 
     @staticmethod
     def from_env() -> Settings:
@@ -84,4 +88,8 @@ class Settings:
             tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
             tts_speed=_float_env("TTS_SPEED", 0.9),
             log_file=_env("LOG_FILE", "") or "",
+            hume_api_key=_env("HUME_API_KEY"),
+            hume_config_id=_env("HUME_CONFIG_ID"),
+            hume_config_version=_env("HUME_CONFIG_VERSION", "0") or "0",
+            kora_model=_env("KORA_MODEL", "anthropic/claude-sonnet-4.6") or "anthropic/claude-sonnet-4.6",
         )

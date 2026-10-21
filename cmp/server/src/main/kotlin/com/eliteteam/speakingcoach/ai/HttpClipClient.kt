@@ -119,6 +119,22 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun character(sessionId: SessionId): CharacterResponse {
+        val response = http.get("$root/internal/character/${sessionId.value}") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service character returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun setCharacter(sessionId: SessionId, character: String): CharacterResponse {
+        val response = http.post("$root/internal/character") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CharacterRequest(sessionId.value, character))
+        }
+        check(response.status.isSuccess()) { "ai-service character update returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun speechSpeed(sessionId: SessionId): Double {
         val response = http.get("$root/internal/speech-speed/${sessionId.value}") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service speech speed returned ${response.status}" }

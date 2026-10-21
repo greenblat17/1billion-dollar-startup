@@ -76,6 +76,14 @@ class CallStore:
                 and (call["turns"] or call.get("openingDelivered"))
             )
 
+    async def open_call_today(self, session_id: str) -> dict[str, Any] | None:
+        session_id = _session_id(session_id)
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            if call is None or call["day"] != moscow_day(self._clock()):
+                return None
+            return deepcopy(call)
+
     async def summary(self, session_id: str) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
         async with self.lock(session_id):

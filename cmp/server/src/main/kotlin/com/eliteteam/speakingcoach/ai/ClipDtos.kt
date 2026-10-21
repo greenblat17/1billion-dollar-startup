@@ -828,3 +828,13 @@ data class ProgressProfileResponse(
     val dailyMinutes: Int? = null,
     val currentStreak: Int = 0,
 )
+
+@Serializable
+data class CharacterResponse(
+    val character: String,
+    val koraAvailable: Boolean,
+    val blocked: String? = null,
+)
+
+@Serializable
+data class CharacterRequest(val sessionId: String, val character: String)

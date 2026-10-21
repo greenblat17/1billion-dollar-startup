@@ -17,6 +17,8 @@ from redis.asyncio import Redis
 from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
+from app.characters import Characters, CharacterStore, KoraModel
+from app.hume_speech import HumeSpeech
 from app.calls import CallStore, moscow_day
 from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 from app.config import Settings
@@ -98,7 +100,7 @@ def create_app(
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
-    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech)
+    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
     streaks = clip_pipeline.streaks
     habits = HabitAnalytics(clip_pipeline.metrics)
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -151,6 +153,7 @@ def create_app(
             await calls.aclose()
         await sessions.aclose()
         await clip_pipeline.speech.speeds.aclose()
+        await clip_pipeline.characters.store.aclose()
         await clip_pipeline.metrics.aclose()
         if campaign_redis is not None:
             await campaign_redis.aclose()
@@ -326,6 +329,35 @@ def create_app(
     @app.get("/internal/profile/{session_id}")
     async def progress_profile(session_id: str) -> dict:
         return await onboarding.progress_profile(session_id)
+
+    async def character_status(session_id: str, blocked: str | None = None) -> dict:
+        return {"character": await clip_pipeline.characters.store.get(session_id),
+                "koraAvailable": clip_pipeline.characters.available, "blocked": blocked}
+
+    @app.get("/internal/character/{session_id}")
+    async def character(session_id: str) -> dict:
+        return await character_status(session_id)
+
+    @app.post("/internal/character")
+    async def set_character(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        selected = payload.get("character")
+        if selected not in ("speaky", "kora") or not session_id.startswith("tg-"):
+            raise HTTPException(status_code=400, detail="invalid Telegram character selection")
+        async with call_starter.lock(session_id):
+            if await clip_pipeline.characters.store.get(session_id) == selected:
+                return await character_status(session_id)
+            active = await calls.open_call_today(session_id)
+            if jobs.pending(session_id) or (active and (active["turns"] or active.get("openingDelivered"))):
+                return await character_status(session_id, "active_conversation")
+            if selected == "kora" and not clip_pipeline.characters.available:
+                return await character_status(session_id, "unavailable")
+            # A failed opening must not trap the user in an unavailable character.
+            if active:
+                await calls.seal(session_id, reason="character_changed_before_opening")
+            await clip_pipeline.characters.store.set(session_id, selected)
+            return await character_status(session_id)
 
     @app.get("/internal/speech-speed/{session_id}")
     async def speech_speed(session_id: str) -> dict[str, float]:
@@ -767,6 +799,14 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         tts._v2 = v2
     model = OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics, notes_model=settings.notes_model)
     model._v2 = v2
+    characters = Characters(CharacterStore(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+    ))
+    if settings.hume_api_key and settings.hume_config_id:
+        characters.model = KoraModel(openai_client, settings.kora_model, metrics=metrics)
+        characters.model._v2 = v2
+        characters.speech = HumeSpeech(settings.hume_api_key, settings.hume_config_id,
+                                       settings.hume_config_version, settings.ffmpeg_bin)
     speech = SessionSpeech(
         tts,
         SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
@@ -783,6 +823,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
         v2=v2,
+        characters=characters,
     )
 
 
