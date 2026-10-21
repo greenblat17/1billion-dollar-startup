@@ -207,6 +207,27 @@ async def test_telegram_voice_reactions_follow_each_call_and_survive_restart():
     await redis.aclose()
 
 
+@pytest.mark.asyncio
+async def test_contextual_reactions_are_sparse_and_claimed_once_across_restart():
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = CallStore(redis=redis)
+    call_id = (await store.open("tg-1"))["callId"]
+    first = await store.claim_telegram_reaction("tg-1", call_id, 10, "🔥")
+    assert first == {"reaction": "🔥", "reason": "claimed"}
+    restarted = CallStore(redis=redis)
+    assert await restarted.claim_telegram_reaction("tg-1", call_id, 10, "❤️") == {
+        "reaction": None, "reason": "duplicate",
+    }
+    for message_id in range(11, 14):
+        assert (await restarted.claim_telegram_reaction("tg-1", call_id, message_id, "😁"))["reason"] == "rate_limited"
+    assert (await restarted.claim_telegram_reaction("tg-1", call_id, 14, None))["reason"] == "none"
+    assert await restarted.claim_telegram_reaction("tg-1", call_id, 15, "❤️") == {
+        "reaction": "❤️", "reason": "claimed",
+    }
+    assert (await restarted.claim_telegram_reaction("tg-1", call_id, 16, "❤"))["reason"] == "invalid"
+    await redis.aclose()
+
+
 def test_one_call_cannot_jump_the_level():
     assert step_score(52, 30) == 54
     assert step_score(52, -30) == 50
@@ -444,21 +465,25 @@ async def test_call_review_keeps_alternatives_only_when_vocabulary_has_no_correc
 @pytest.mark.asyncio
 async def test_pipeline_appends_only_an_open_call():
     calls = CallStore(goal_of=_goal(10))
+    llm = FakeLlm(notes=[Correction("build", "am building", "grammar")], reaction="🔥")
     pipeline = ClipPipeline(
-        SpeakingStt("I build software", 6), FakeLlm(notes=[Correction("build", "am building", "grammar")]),
+        SpeakingStt("I build software", 6), llm,
         FakeTts(), MemoryDialogueStore(40, 86400), MemoryMetricsStore(DEFAULT_RATES), calls=calls,
     )
     await pipeline.dialogue.create("tg-1")
     untouched = await pipeline.run("tg-1", b"audio", "audio/ogg", "voice.ogg")
     assert untouched.call is None
+    assert untouched.reaction is None
     await calls.open("tg-1")
     pipeline._stt = SpeakingStt("I build software", 6)
     heard = await pipeline.run("tg-1", b"audio", "audio/ogg", "voice.ogg")
     assert heard.call["todaySeconds"] == 6
     assert heard.call["recognizedSeconds"] == 6
+    assert heard.reaction == "🔥"
     pipeline._stt = SpeakingStt("", 0)
     quiet = await pipeline.run("tg-1", b"audio", "audio/ogg", "voice.ogg")
     assert quiet.call["todaySeconds"] == 6
+    assert quiet.reaction is None
 
 
 def _goal(minutes: int):

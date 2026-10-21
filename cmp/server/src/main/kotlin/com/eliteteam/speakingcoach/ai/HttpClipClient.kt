@@ -322,6 +322,17 @@ class HttpClipClient(
         return response.body()
     }
 
+    suspend fun claimCallReaction(sessionId: SessionId, callId: String, messageId: Long,
+                                  reaction: String?): CallReactionResponse {
+        val response = http.post("$root/internal/calls/reaction") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(CallReactionRequest(sessionId.value, callId, messageId, reaction))
+        }
+        check(response.status.isSuccess()) { "ai-service call reaction returned ${response.status}" }
+        return response.body()
+    }
+
     suspend fun reviewCall(callId: String): CallReviewResponse {
         val response = http.post("$root/internal/calls/review") {
             applyInternalToken()
@@ -485,6 +496,7 @@ class HttpClipClient(
                             CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed,
                                 it.recognizedSeconds)
                         },
+                        reaction = status.reaction,
                         jobId = jobId,
                         timingsMs = status.timingsMs,
                         voiceCallCounts = status.voiceCallCounts,
@@ -555,6 +567,7 @@ class HttpClipClient(
                 audioAvailable = body.result?.audioAvailable ?: true,
                 onboarding = body.result?.onboarding,
                 call = body.result?.call,
+                reaction = body.result?.reaction,
                 timingsMs = body.timingsMs,
                 voiceCallCounts = body.voiceCallCounts,
             )
@@ -620,6 +633,7 @@ private sealed interface ClipJobStatus {
         val audioAvailable: Boolean,
         val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
+        val reaction: String?,
         val timingsMs: Map<String, Long>,
         val voiceCallCounts: Map<String, Int>?,
     ) : ClipJobStatus

@@ -7,7 +7,7 @@ from app.config import Settings
 from app.dialogue import MemoryDialogueStore
 from app.llm import (
     CompletionTokenLimitError, Correction, NOTES_MAX_TOKENS, NOTES_SYSTEM,
-    REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply,
+    REPLY_RETRY_MAX_TOKENS, OpenAiChatModel, parse_corrections, parse_reply, parse_reply_decision,
     read_generation_time_ms, read_reasoning_tokens,
 )
 from app.load_test import bind_load_test, reset_load_test
@@ -34,6 +34,34 @@ def parse(notes, transcript="I am agree with you."):
 
 def test_parse_reply_reads_reply():
     assert parse_reply('{"reply":"Nice — what did you buy?"}') == "Nice — what did you buy?"
+
+
+def test_call_reaction_is_optional_and_allowlisted():
+    for emoji in ("❤️", "😭", "🔥", "😁", "👍"):
+        assert parse_reply_decision(json.dumps({"reply": "Nice!", "reaction": emoji}), call=True).reaction == emoji
+    for invalid in ("❤", "😂", "unknown", [], {"emoji": "🔥"}, None):
+        assert parse_reply_decision(json.dumps({"reply": "Nice!", "reaction": invalid}), call=True).reaction is None
+    assert parse_reply_decision('{"reply":"Nice!","reaction":"🔥"}', call=False).reaction is None
+
+
+@pytest.mark.asyncio
+async def test_call_reaction_uses_same_completion_as_spoken_reply():
+    class Model(OpenAiChatModel):
+        def __init__(self):
+            super().__init__(SimpleNamespace(), "test")
+            self.system_prompts = []
+
+        async def _complete(self, messages, *args, **kwargs):
+            self.system_prompts.append(messages[0]["content"])
+            return '{"reply":"I am happy for you!","reaction":"🔥"}'
+
+    model = Model()
+    decision = await model.complete_call_reply([], "I got the job!")
+    assert decision.reply == "I am happy for you!"
+    assert decision.reaction == "🔥"
+    assert "Most turns must have null" in model.system_prompts[0]
+    assert await model.complete_reply([], "I got the job!") == decision.reply
+    assert "Most turns must have null" not in model.system_prompts[1]
 
 
 def test_generation_time_uses_openrouter_metadata_only_when_valid():

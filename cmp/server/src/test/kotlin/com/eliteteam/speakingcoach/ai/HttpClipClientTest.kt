@@ -125,6 +125,25 @@ class HttpClipClientTest {
     }
 
     @Test
+    fun claimsContextualCallReactionWithMessageId() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("/internal/calls/reaction", request.url.encodedPath)
+            assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            val body = (request.body as TextContent).text
+            assertContains(body, "\"sessionId\":\"tg-7\"")
+            assertContains(body, "\"callId\":\"c1\"")
+            assertContains(body, "\"messageId\":42")
+            assertContains(body, "\"reaction\":\"🔥\"")
+            respond("""{"reaction":"🔥","reason":"claimed"}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        val ai = HttpClipClient("http://ai.local", http, internalToken = "secret")
+        assertEquals("🔥", ai.claimCallReaction(SessionId("tg-7"), "c1", 42, "🔥").reaction)
+        http.close()
+    }
+
+    @Test
     fun readsAndUpdatesPerChatSpeechSpeed() = runTest {
         val engine = MockEngine { request ->
             assertEquals("secret", request.headers[AI_INTERNAL_TOKEN_HEADER])

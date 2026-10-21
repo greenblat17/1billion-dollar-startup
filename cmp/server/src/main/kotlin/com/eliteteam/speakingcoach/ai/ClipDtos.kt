@@ -74,6 +74,7 @@ data class ClipResultResponse(
     val audioAvailable: Boolean = true,
     val onboarding: OnboardingStateResponse? = null,
     val call: CallClipResponse? = null,
+    val reaction: String? = null,
 )
 
 @Serializable
@@ -758,6 +759,17 @@ data class CallVoiceMessageRequest(
 
 @Serializable
 data class CallVoiceMessageResponse(val firstReplyToStarter: Boolean = false)
+
+@Serializable
+data class CallReactionRequest(
+    val sessionId: String,
+    val callId: String,
+    val messageId: Long,
+    val reaction: String? = null,
+)
+
+@Serializable
+data class CallReactionResponse(val reaction: String? = null, val reason: String = "none")
 
 @Serializable
 data class CallReviewRequest(

@@ -26,6 +26,26 @@ from app.roleplay import ROLEPLAY_CONTEXT_PREFIX, ROLEPLAY_IDENTITY
 
 logger = logging.getLogger(__name__)
 
+CALL_REACTIONS = frozenset({"❤️", "😭", "🔥", "😁", "👍"})
+CALL_REACTION_POLICY = """
+For this Telegram call, return JSON with "reply" and "reaction" fields.
+"reaction" must be one of ❤️, 😭, 🔥, 😁, 👍, or null.
+The instruction to react to every user turn means a *spoken* response in "reply".
+The Telegram emoji in "reaction" is much rarer. Most turns must have null.
+Choose an emoji only when the learner explicitly shares a standout emotional event.
+Do not infer an occasion for an emoji from your own enthusiasm or praise.
+❤️: clear personal warmth or gratitude from the learner.
+😭: explicit tears of joy or a playful emotional exaggeration from the learner; never grief.
+🔥: a concrete, notable achievement that has already happened.
+😁: a joke or funny accident that the learner is laughing about.
+👍: a meaningful decision the learner has firmly made and described.
+Plans, nerves, descriptions of attractive things, ordinary progress, and routine choices get null.
+For example, "I'm preparing an exhibition" is null; "The owner loved my photos!" can be 🔥.
+"I want it to feel warm" is null; "My dad died" is null and needs empathy in words.
+If several moments might fit, be selective. Never fill a frequency target.
+Do not use emoji to grade English. Do not mention the emoji in "reply".
+"""
+
 REPLY_SYSTEM = SPEAKY_MANNER + """
 Always reply with a JSON object only:
 {"reply": string}
@@ -163,8 +183,16 @@ class CorrectionRun:
     attempts: int
 
 
+@dataclass(frozen=True)
+class ReplyDecision:
+    reply: str
+    reaction: str | None = None
+
+
 class ChatModel(Protocol):
     async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str: ...
+
+    async def complete_call_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> ReplyDecision: ...
 
     async def complete_notes(self, user_text: str) -> list[Correction]: ...
 
@@ -203,8 +231,16 @@ class OpenAiChatModel:
         self._v2 = None
 
     async def complete_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> str:
+        return (await self._complete_reply_decision(history, user_text, profile_note, call=False)).reply
+
+    async def complete_call_reply(self, history: list[ChatMessage], user_text: str, profile_note: str | None = None) -> ReplyDecision:
+        return await self._complete_reply_decision(history, user_text, profile_note, call=True)
+
+    async def _complete_reply_decision(self, history: list[ChatMessage], user_text: str,
+                                       profile_note: str | None, *, call: bool) -> ReplyDecision:
         roleplay = profile_note is not None and profile_note.startswith(ROLEPLAY_CONTEXT_PREFIX)
-        messages = [{"role": "system", "content": ROLEPLAY_REPLY_SYSTEM if roleplay else REPLY_SYSTEM}]
+        system = ROLEPLAY_REPLY_SYSTEM if roleplay else REPLY_SYSTEM
+        messages = [{"role": "system", "content": system + (CALL_REACTION_POLICY if call else "")}]
         if profile_note:
             messages.append({"role": "system", "content": profile_note})
         messages.extend({"role": item.role, "content": item.content} for item in history)
@@ -222,7 +258,7 @@ class OpenAiChatModel:
                 logger.warning("Reply token limit reached; retrying once user_id=%s", anonymous_user_id())
                 continue
             try:
-                return parse_reply(text)
+                return parse_reply_decision(text, call=call)
             except json.JSONDecodeError:
                 if attempt == 1:
                     raise
@@ -499,11 +535,16 @@ def _nonneg_token(value: Any) -> int:
 
 
 def parse_reply(raw: str) -> str:
+    return parse_reply_decision(raw, call=False).reply
+
+
+def parse_reply_decision(raw: str, *, call: bool) -> ReplyDecision:
     payload = _load_json(raw)
     reply = str(payload.get("reply") or "").strip()
     if not reply:
         raise RuntimeError("llm json missing reply")
-    return reply
+    reaction = payload.get("reaction") if call else None
+    return ReplyDecision(reply, reaction if isinstance(reaction, str) and reaction in CALL_REACTIONS else None)
 
 
 def parse_corrections(raw: str, transcript: str) -> list[Correction]:
