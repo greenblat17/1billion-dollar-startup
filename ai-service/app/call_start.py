@@ -69,7 +69,7 @@ class CallStarter:
                     "scenario": call.get("scenario"),
                 })
                 await self.calls.save_opening(summary["callId"], question)
-            audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.") if kora else await self.speech.synthesize(session_id, question)
+            audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id)) if kora else await self.speech.synthesize(session_id, question)
             return {
                 **summary, "status": "ready", "question": question,
                 "audioBase64": base64.b64encode(audio.data).decode("ascii"),

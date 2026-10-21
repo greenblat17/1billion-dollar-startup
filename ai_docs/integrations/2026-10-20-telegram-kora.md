@@ -23,8 +23,10 @@ the existing pipeline's responsibility.
 Configuration: `HUME_API_KEY`, `HUME_CONFIG_ID`, `HUME_CONFIG_VERSION` (default `0`),
 `KORA_MODEL` (default `anthropic/claude-sonnet-4.6`). Missing Hume configuration hides
 the Kora choice but allows switching back to Speaky. No credentials belong in Git.
-Hume's voice/config is the same Kora config used in the lab. `/speed` currently applies
-to Speaky only; Kora retains its natural delivery. Each Telegram reply opens a bounded
+Hume's voice/config is the same Kora config used in the lab. `/speed` applies to both characters. Kora reads the same session preference (including
+the configured default) for openings, replies and clarification messages. After EVI
+synthesis, FFmpeg `atempo` applies 0.8/0.9/1.0 without changing pitch; 1.0 bypasses
+the filter. Previously sent audio is unchanged. This change is locally tested; deployment is pending. Each Telegram reply opens a bounded
 EVI session with textual history; acoustic continuity of a browser session is not retained.
 
 Provider calls use existing operational logging. Sonnet usage is metered; Hume cost

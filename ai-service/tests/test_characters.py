@@ -18,6 +18,7 @@ from tests.test_call_start import Model, Personalization
 
 class KoraSpeech(FakeTts):
     async def synthesize(self, text, **kwargs):
+        self.last_speed = kwargs.get("speed")
         return await super().synthesize(text)
 
 
@@ -43,11 +44,13 @@ async def test_kora_routing_history_and_roleplay_isolation():
     await dialogue.record_turn('tg-1', 'Original topic', 'Original reply')
     pipeline = ClipPipeline(FakeStt(['Travel', 'Cooking']), ordinary, voice, dialogue,
                             calls=CallStore(), characters=characters)
+    await pipeline.speech.speeds.set('tg-1', 0.8)
     result = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert result.reply_text == 'Got it: Travel'
     assert not ordinary.calls and not voice.texts
     assert kora.calls == [([], 'Travel')]
     assert kora_voice.texts == ['Got it: Travel']
+    assert kora_voice.last_speed == 0.8
     assert [t.content for t in await dialogue.history('tg-1')] == ['Original topic', 'Original reply']
     assert len(await dialogue.history('tg-1:kora')) == 2
     await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
@@ -139,8 +142,9 @@ async def test_planner_and_writer_preserve_history_and_brief(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('ending,text,valid', [(True, 'Hello.', True), (False, 'Hello.', False), (True, 'Wrong.', False)])
+@pytest.mark.parametrize('speed', [0.8, 0.9, 1.0])
 @pytest.mark.parametrize('warning', [None, 'W0107', 'W0108', 'E9999'])
-async def test_hume_accepts_only_complete_exact_audio(monkeypatch, ending, text, valid, warning):
+async def test_hume_accepts_only_complete_exact_audio(monkeypatch, ending, text, valid, warning, speed):
     sent = []
     messages = [{'type': 'assistant_message', 'message': {'content': text}},
                 {'type': 'audio_output', 'data': base64.b64encode(b'wav').decode()}]
@@ -159,12 +163,18 @@ async def test_hume_accepts_only_complete_exact_audio(monkeypatch, ending, text,
             return items()
     monkeypatch.setattr('app.hume_speech.websockets.connect', lambda *a, **k: Socket())
     speech = HumeSpeech('secret', 'config')
-    async def convert(payload, args): return b'OggSchecked' if 'ogg' in args else b'pcm'
+    async def convert(payload, args):
+        if 'ogg' in args:
+            assert ('-af' in args) == (speed != 1.0)
+            if speed != 1.0:
+                assert args[args.index('-af') + 1] == f'atempo={speed}'
+            return b'OggSchecked'
+        return b'pcm'
     monkeypatch.setattr(speech, '_ffmpeg', convert)
     if valid:
-        audio = await speech.synthesize('Hello.')
+        audio = await speech.synthesize('Hello.', speed=speed)
         assert audio.data == b'OggSchecked'
     else:
-        with pytest.raises(RuntimeError): await speech.synthesize('Hello.')
+        with pytest.raises(RuntimeError): await speech.synthesize('Hello.', speed=speed)
     assert [m['type'] for m in sent] == ['pause_assistant_message', 'session_settings', 'user_input',
                                         'assistant_input', 'resume_assistant_message']

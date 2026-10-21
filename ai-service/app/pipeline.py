@@ -207,7 +207,7 @@ class ClipPipeline:
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             stage("tts")
-            reply_audio = await self.characters.synthesize(CLARIFY_TEXT) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
+            reply_audio = await self.characters.synthesize(CLARIFY_TEXT, speed=await self.speech.speed(session_id)) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
             timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
             stage("metrics")
@@ -276,7 +276,7 @@ class ClipPipeline:
             stage("llm")
             reply_text = await measured("reply", self.characters.reply(history, stt_result.text) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
             await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text) if kora else self.speech.synthesize(session_id, reply_text)))
+            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id)) if kora else self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
