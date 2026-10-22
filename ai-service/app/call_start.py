@@ -11,8 +11,9 @@ from app.speech import SessionSpeech
 from app.characters import Characters, CharacterStore
 
 KORA_H_OPENING_REQUEST = (
-    "Let's start a conversation. Say hello first, then ask one easy question "
-    "to find a topic I might enjoy."
+    "Start a new conversation with me. Give me a warm welcome and an easy check-in, "
+    "then invite me into one topic. If I left a topic unfinished last time, "
+    "ask what happened next."
 )
 
 
@@ -68,8 +69,12 @@ class CallStarter:
             if not question:
                 context = await self.personalization.prepare(session_id, continuation=False)
                 opening_request = KORA_H_OPENING_REQUEST if variant == "kora_h" else "Let's start a conversation."
-                question = await self.characters.reply(history, opening_request, variant=variant,
-                                                       profile_note=context) if kora else await self.model.start_call_question({
+                # The placeholder from an earlier call is not a learner disclosure.
+                opening_history = ([turn for turn in history
+                                    if turn.content != "Let's start a practice conversation."][-8:]
+                                   if variant == "kora_h" else history)
+                question = await self.characters.reply(opening_history, opening_request, variant=variant,
+                                                       profile_note=context, opening=variant == "kora_h") if kora else await self.model.start_call_question({
                     "personalContext": context,
                     "firstName": first_name,
                     "recentConversation": [

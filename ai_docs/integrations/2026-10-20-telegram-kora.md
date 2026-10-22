@@ -186,3 +186,22 @@ replies, and fixed clarifications; ordinary Kora keeps its prior prompts. `assis
 and the exact spoken-transcript check remain in place. Local tests can verify
 routing and exact-text enforcement, but the audible effect needs a DEV listening
 test across several turns.
+
+## Kora H return-call opening, 2026-10-22
+
+On a new free call, Kora H receives the shared verified personalization note and
+up to eight recent Kora H dialogue turns. The stored synthetic call-opening
+placeholder is excluded. Its two-stage Sonnet prompt treats the startup request
+as an instruction, not a learner disclosure. The planner can choose a specific
+unfinished topic from a prior learner turn; otherwise it chooses an easy everyday
+topic, optionally informed by a relevant profile fact. It must not invent a
+previous event or imply that a profile fact was discussed last time.
+
+The spoken opening combines a varied short greeting and check-in with one
+planned topic question. The previous-topic question may say "last time" only
+when the prior learner turn supports it. This opening-only two-question shape
+does not change subsequent turns. Sonnet still writes the exact words, and Hume
+still delivers them with transcript validation. Character histories remain
+separate: a Kora H opening cannot quote Speaky-only dialogue unless a fact has
+entered the shared verified personalization note. Reminder openings and
+roleplay follow their existing paths.

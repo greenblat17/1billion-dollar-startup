@@ -172,11 +172,69 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
     assert first['question'] == f"Got it: {KORA_H_OPENING_REQUEST}"
     assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
     assert model_h.profile_notes == ['Use verified memory only.']
+    assert model_h.modes == ['opening']
     assert voice.last_guided is False
     assert voice.last_warm is True
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2
     assert await dialogue.history('tg-1:kora') == []
+
+
+@pytest.mark.asyncio
+async def test_kora_h_opening_uses_only_recent_learner_context():
+    dialogue = MemoryDialogueStore(40, 86400)
+    model_h, voice = FakeLlm(), KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    await characters.store.set('tg-1', 'kora_h')
+    await dialogue.record_turn('tg-1:kora_h', "Let's start a practice conversation.", 'Hello!')
+    for index in range(5):
+        await dialogue.record_turn('tg-1:kora_h', f'Learner topic {index}', f'Reply {index}')
+    await dialogue.record_turn('tg-1', 'Unrelated Speaky topic', 'Speaky reply')
+    starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
+    await starter.start('tg-1')
+    seen = model_h.calls[0][0]
+    assert seen == [item for index in range(1, 5) for item in (f'Learner topic {index}', f'Reply {index}')]
+    assert model_h.profile_notes == ['Use verified memory only.']
+    assert model_h.modes == ['opening']
+
+
+@pytest.mark.asyncio
+async def test_kora_h_opening_prompts_ground_follow_up_and_allow_check_in(monkeypatch):
+    from app.dialogue import ChatMessage
+    model = KoraHModel(None, 'test')
+    calls = []
+    plan = dict(interest='searching', evidence='Learner mentioned a project last time',
+                topic='Project', direction='stay', move='question', tone='Warm',
+                contribution='How did your project go?')
+    async def complete(messages, **kwargs):
+        calls.append(messages)
+        return json.dumps(plan) if len(calls) == 1 else 'Hey! How are you? How did your project go?'
+    monkeypatch.setattr(model, '_complete', complete)
+    history = [ChatMessage('user', 'I am launching a project.')]
+    reply = await model.complete_reply(history, KORA_H_OPENING_REQUEST,
+                                       'Use verified memory only.', mode='opening')
+    assert reply.startswith('Hey! How are you?')
+    assert 'actually raised' in calls[0][0]['content']
+    assert calls[0][1] == {'role': 'system', 'content': 'Use verified memory only.'}
+    assert 'OPENING EXCEPTION' in calls[1][0]['content']
+    assert calls[1][-2:] == [{'role': 'user', 'content': history[0].content},
+                             {'role': 'user', 'content': KORA_H_OPENING_REQUEST}]
+
+
+@pytest.mark.asyncio
+async def test_kora_h_opening_retries_a_plan_without_a_question(monkeypatch):
+    model = KoraHModel(None, 'test')
+    calls = []
+    plan = dict(interest='searching', evidence='No prior learner topic', topic='Today',
+                direction='stay', move='contribute', tone='Warm', contribution='Today is a fresh start.')
+    async def complete(messages, **kwargs):
+        calls.append(kwargs['operation'])
+        if len(calls) == 2:
+            return json.dumps({**plan, 'move': 'question', 'contribution': 'What have you enjoyed today?'})
+        return json.dumps(plan) if len(calls) == 1 else 'Hi! How are you? What have you enjoyed today?'
+    monkeypatch.setattr(model, '_complete', complete)
+    await model.complete_reply([], KORA_H_OPENING_REQUEST, mode='opening')
+    assert calls == ['kora_h_plan', 'kora_h_plan', 'kora_h_reply']
 
 
 @pytest.mark.asyncio

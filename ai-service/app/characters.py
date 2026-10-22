@@ -6,7 +6,7 @@ import json
 from redis.asyncio import Redis
 
 from app.audit_artifacts import record_artifact
-from app.kora_h_prompts import H_PERSONA, H_PLAN_SYSTEM, STRATEGY as H_STRATEGY
+from app.kora_h_prompts import H_PERSONA, H_PLAN_SYSTEM, H_OPENING_PLAN, H_OPENING_REPLY, STRATEGY as H_STRATEGY
 from app.kora_prompts import PERSONA, PLAN_SYSTEM, parse_plan, with_plan
 from app.llm import OpenAiChatModel
 
@@ -41,6 +41,8 @@ class KoraModel(OpenAiChatModel):
     strategy = "interest_v1"
     use_profile_note = False
     language = "natural A2 English"
+    opening_plan = ""
+    opening_reply = ""
 
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
@@ -50,12 +52,15 @@ class KoraModel(OpenAiChatModel):
         for attempt in range(2 if self.retry_invalid_plan else 1):
             try:
                 raw = await self._complete([
-                    {"role": "system", "content": self.plan_system},
+                    {"role": "system", "content": self.plan_system + (self.opening_plan if mode == "opening" else "")},
                     *context,
                     {"role": "user", "content": json.dumps({"history": messages, "user": user_text})},
                 ], temperature=.7, max_tokens=500, response_format={"type": "text"},
                     operation=f"{self.operation_prefix}_plan")
-                plan = parse_plan(raw)
+                candidate = parse_plan(raw)
+                if mode == "opening" and self.opening_plan and candidate["move"] != "question":
+                    raise ValueError("invalid_opening_move")
+                plan = candidate
                 plan["strategy"] = self.strategy
                 if attempt:
                     plan["planner_retry"] = True
@@ -70,6 +75,8 @@ class KoraModel(OpenAiChatModel):
         else:
             await record_artifact("conversation_plan", json.dumps(plan))
             prompt = with_plan(self.persona, plan, language=self.language)
+        if mode == "opening":
+            prompt += self.opening_reply
         return await self._complete([
             {"role": "system", "content": prompt},
             *context,
@@ -86,6 +93,8 @@ class KoraHModel(KoraModel):
     strategy = H_STRATEGY
     use_profile_note = True
     language = "English matched to the learner's verified level or current speech"
+    opening_plan = H_OPENING_PLAN
+    opening_reply = H_OPENING_REPLY
 
 
 class Characters:
@@ -115,11 +124,12 @@ class Characters:
             raise RuntimeError("Kora is temporarily unavailable")
 
     async def reply(self, history, user: str, *, variant: str = "kora",
-                    profile_note: str | None = None) -> str:
+                    profile_note: str | None = None, opening: bool = False) -> str:
         self.require_available(variant)
         model = self.model_h if variant == "kora_h" else self.model
         if variant == "kora_h":
-            return await model.complete_reply(history, user, profile_note)
+            return await model.complete_reply(history, user, profile_note,
+                                              mode="opening" if opening else "ordinary")
         return await model.complete_reply(history, user)
 
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
