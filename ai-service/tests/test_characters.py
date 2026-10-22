@@ -23,6 +23,7 @@ class KoraSpeech(FakeTts):
     async def synthesize(self, text, **kwargs):
         self.last_speed = kwargs.get("speed")
         self.last_guided = kwargs.get("guided")
+        self.last_warm = kwargs.get("warm")
         audio = await super().synthesize(text)
         return TtsAudio(audio.data, audio.content_type, getattr(self, 'spoken', None) or text)
 
@@ -58,6 +59,7 @@ async def test_kora_routing_history_and_roleplay_isolation():
     assert kora.calls == [([], 'Travel')]
     assert kora_voice.texts == ['Got it: Travel']
     assert kora_voice.last_speed == 0.8
+    assert kora_voice.last_warm is False
     assert [t.content for t in await dialogue.history('tg-1')] == ['Original topic', 'Original reply']
     assert len(await dialogue.history('tg-1:kora')) == 2
     await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
@@ -81,6 +83,7 @@ async def test_kora_h_has_separate_history_and_exact_hume_delivery():
     first = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert first.reply_text == 'Got it: I like walking home.'
     assert voice.last_guided is False and voice.last_speed == 0.9
+    assert voice.last_warm is True
     assert model_h.calls == [([], 'I like walking home.')]
     assert model_h.profile_notes == ['Use verified memory only.']
     await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
@@ -170,6 +173,7 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
     assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
     assert model_h.profile_notes == ['Use verified memory only.']
     assert voice.last_guided is False
+    assert voice.last_warm is True
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2
     assert await dialogue.history('tg-1:kora') == []
@@ -297,14 +301,17 @@ async def test_hume_accepts_only_complete_exact_audio(monkeypatch, ending, text,
             return b'OggSchecked'
         return b'pcm'
     monkeypatch.setattr(speech, '_ffmpeg', convert)
+    warm = speed == 0.9 and warning is None and ending and text == 'Hello.'
     if valid:
-        audio = await speech.synthesize('Hello.', speed=speed, guided=False)
+        audio = await speech.synthesize('Hello.', speed=speed, guided=False, warm=warm)
         assert audio.data == b'OggSchecked'
         assert audio.spoken_text == 'Hello.'
     else:
-        with pytest.raises(RuntimeError): await speech.synthesize('Hello.', speed=speed, guided=False)
+        with pytest.raises(RuntimeError): await speech.synthesize('Hello.', speed=speed, guided=False, warm=warm)
     assert [m['type'] for m in sent] == ['pause_assistant_message', 'session_settings', 'user_input',
                                         'assistant_input', 'resume_assistant_message']
+    assert ('Vary your energy, pitch' in sent[1]['system_prompt']) is warm
+    assert sent[3]['text'] == 'Hello.'
 
 
 @pytest.mark.asyncio

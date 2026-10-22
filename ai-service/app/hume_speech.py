@@ -20,14 +20,14 @@ class HumeSpeech:
         self.ffmpeg_bin, self.timeout = ffmpeg_bin, timeout
 
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
-                         guided: bool = True) -> TtsAudio:
+                         guided: bool = True, warm: bool = False) -> TtsAudio:
         if isinstance(speed, bool) or speed not in (0.8, 0.9, 1.0):
             raise ValueError("unsupported speech speed")
         return await logged_provider_call(
-            lambda: self._synthesize(text, history, user, speed, guided), kind="tts", provider="hume", model="evi-3",
+            lambda: self._synthesize(text, history, user, speed, guided, warm), kind="tts", provider="hume", model="evi-3",
         )
 
-    async def _synthesize(self, text, history, user, speed, guided) -> TtsAudio:
+    async def _synthesize(self, text, history, user, speed, guided, warm) -> TtsAudio:
         url = "wss://api.hume.ai/v0/evi/chat?" + urlencode({
             "config_id": self.config_id, "config_version": self.config_version,
         })
@@ -43,9 +43,15 @@ class HumeSpeech:
                         {"type": "pause_assistant_message"},
                         {"type": "session_settings", "system_prompt":
                             delivery_prompt(history, user, text) if guided else
-                            "You are a warm adult conversation partner. Speak the supplied "
-                            "assistant words with subtle, natural changes in energy, pauses, "
-                            "and emphasis that fit their meaning. Do not dramatize or add words. "
+                            ("You are a warm, engaged adult talking with one person. Speak the supplied "
+                             "assistant words exactly. Let the feeling in those words come through: "
+                             "curiosity, delight, surprise, or sympathy when the meaning calls for it. "
+                             "Vary your energy, pitch, pauses, and emphasis naturally, as in a real "
+                             "conversation. Stay grounded; do not sound theatrical or excited all the time. "
+                             "Do not add, omit, or change words. " if warm else
+                             "You are a warm adult conversation partner. Speak the supplied "
+                             "assistant words with subtle, natural changes in energy, pauses, "
+                             "and emphasis that fit their meaning. Do not dramatize or add words. ") +
                             "Conversation context: " +
                             json.dumps([{"role": item.role, "content": item.content} for item in history])},
                         {"type": "user_input", "text": user},

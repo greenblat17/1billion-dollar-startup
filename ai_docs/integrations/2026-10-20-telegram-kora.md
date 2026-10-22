@@ -174,3 +174,15 @@ Kora retains its fixed A2 experiment. Kora H still chooses conversational moves
 and sends Sonnet's exact text to Hume. The shared note is passed through the
 existing generation path; no new stored profile is created here. Each character
 still keeps its own dialogue history, while the learner profile is shared.
+
+## Kora H warmer delivery experiment, 2026-10-22
+
+Kora H now gives EVI a more explicit delivery instruction for Sonnet's exact
+words. It asks for audible curiosity, delight, surprise, or sympathy only when
+the reply's meaning supports it, with natural variation in pitch, energy, pauses,
+and emphasis. It also asks EVI to stay grounded rather than sound theatrical or
+constantly excited. This setting applies to Kora H speech, including openings,
+replies, and fixed clarifications; ordinary Kora keeps its prior prompts. `assistant_input`
+and the exact spoken-transcript check remain in place. Local tests can verify
+routing and exact-text enforcement, but the audible effect needs a DEV listening
+test across several turns.

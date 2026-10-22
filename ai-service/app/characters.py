@@ -126,7 +126,8 @@ class Characters:
                          guided: bool = True, variant: str = "kora"):
         self.require_available(variant)
         return await self.speech.synthesize(text, history=history, user=user, speed=speed,
-                                            guided=guided and variant != "kora_h")
+                                            guided=guided and variant != "kora_h",
+                                            warm=variant == "kora_h")
 
     @staticmethod
     def history_id(session_id: str, variant: str = "kora") -> str:
