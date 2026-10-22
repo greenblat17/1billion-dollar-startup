@@ -350,7 +350,8 @@ async def test_kora_h_retries_old_contribute_move_and_keeps_question_reaction(mo
     assert 'What feedback' in reply
     assert len(prompts) == 3
     assert 'agreement or a paraphrase alone' in prompts[0].lower()
-    assert 'respond emotionally to a' in prompts[2]
+    assert 'react to a specific detail' in prompts[2]
+    assert 'brief fitting reaction color the planned different angle' in prompts[2]
 
 
 def test_kora_h_perspective_requires_a_distinct_plan_move():

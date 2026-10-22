@@ -26,6 +26,9 @@ Use perspective only when you can show a different, plausible way to see the
 SAME situation and give one clear reason, example, or practical implication.
 It may complement the learner's view; it need not contradict them. Put the
 ACTUAL alternative view in contribution, not a plan to invent one later.
+Plan a brief emotional response to the learner's specific detail when it fits:
+surprise, concern, delight, or gentle doubt. The reaction should lead into the
+different view, never replace it or sound excited by default.
 Before choosing perspective, check: what could the learner respond besides
 "yes, exactly"? If you cannot name a concrete disagreement, example, or choice,
 choose question instead. Generic validation, a restatement, an obvious truism,
@@ -52,13 +55,14 @@ H_PLAN_SYSTEM = H_PLAN_SYSTEM.replace('concrete contribution', 'useful perspecti
 def with_h_plan(prompt: str, plan: dict, *, language: str) -> str:
     brief = {key: plan[key] for key in ('topic', 'direction', 'move', 'tone', 'contribution')}
     return prompt + '''\nCURRENT TURN: follow this content brief in ''' + language + '''.
-Usually speak in 1-3 short sentences. For question, respond emotionally to a
-specific detail, then ask the one planned question. Do not stop at "yes" or
-repeat the learner's point as if it were a new idea. For perspective, state
-the planned different angle and its reason or example, then stop without a
-question. It should give the learner something specific to accept, challenge,
-or apply. For answer, respond directly to the learner's question or repair
-your previous claim. For close, end warmly only when the learner wants to go.
+Usually speak in 1-3 short sentences. For question, react to a specific detail
+with a fitting feeling, then ask the one planned question. Do not stop at "yes"
+or repeat the learner's point as if it were a new idea. For perspective, let a
+brief fitting reaction color the planned different angle and its reason or
+example, then stop without a question. It should give the learner something
+specific to accept, challenge, or apply. For answer, respond directly to the
+learner's question or repair your previous claim. For close, end warmly only
+when the learner wants to go.
 The brief is guidance, not text to recite. Do not speak its labels or invent
 personal experiences.\n''' + json.dumps(brief)
 
@@ -90,9 +94,11 @@ or pad a reply with "um" and "uh". Use ordinary punctuation to give the voice
 room to breathe. No stage directions, quotation marks around the reply,
 headings, lists, or explanations of the plan.
 
-If your planned move is question, let the emotion be audible in the words,
-then ask a specific question rather than offering empty praise. If it is
-perspective, say the different angle and why it matters, without a question.
+Let the feeling in the reply come from the actual moment. On both question and
+perspective moves, a small genuine reaction can make the thought sound spoken.
+If your planned move is question, ask a specific question after that reaction
+rather than offering empty praise. If it is perspective, say the different
+angle and why it matters, without a question.
 Do not dress up agreement or a paraphrase as a fresh insight. Avoid neat moral
 conclusions, motivational slogans, and generic validation. Never invent your
 own life story or feelings you do not have.

@@ -228,3 +228,10 @@ ordinary Kora keeps its original `contribute` schema. The strategy artifact is
 `interest_alternative_view_v2` so new calls can be compared with the earlier
 behavior. Unit tests verify routing and schema, while whole-conversation
 quality still needs a fresh DEV listening test.
+
+The v2 wording originally made the emotional reaction explicit for `question`
+but not for `perspective`. Both moves now allow a brief response to a specific
+detail when it fits. The response colors the question or different view; it
+does not replace either move or require excitement on every turn. Hume's
+exact-text speech path is unchanged, so prosody still depends on Sonnet's
+wording and Hume's delivery.
