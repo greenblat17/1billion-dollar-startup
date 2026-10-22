@@ -19,6 +19,7 @@ import com.eliteteam.speakingcoach.analytics.VoiceCostEvents
 import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
@@ -301,6 +302,8 @@ class HttpClipClient(
                           reminderOpeningQuestion: String? = null): StartCallResponse {
         val response = http.post("$root/internal/calls/start") {
             applyInternalToken()
+            // A Kora opening includes two Sonnet calls and Hume synthesis.
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
             contentType(ContentType.Application.Json)
             setBody(StartCallRequest(sessionId.value, firstName, scenarioKind, scenarioDescription,
                 reminderOpeningQuestion))

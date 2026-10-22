@@ -126,3 +126,13 @@ the turn. Existing call-switch guards, speed preference, roleplay exclusion and
 delivery accounting remain in effect. The API reports `koraHAvailable`, while
 older clients can ignore the additional field. This branch is for user testing;
 local tests do not establish multi-turn Telegram conversation quality.
+
+## DEV call-opening timeout, 2026-10-22
+
+Two Kora H `Start call` attempts on DEV failed after about ten seconds at the
+CMP → AI `/internal/calls/start` request. AI logs show both Sonnet steps
+completed and Hume later returned valid opening audio. The CMP OkHttp client
+closed the pending response first with `SocketTimeoutException`. The start-call
+request now has a 90-second request and socket timeout via Ktor `HttpTimeout`;
+other AI requests keep their existing limits. A delayed-response HTTP test covers
+the override. This is a transport fix, not evidence of dialogue quality.
