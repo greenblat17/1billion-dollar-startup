@@ -95,6 +95,7 @@ def test_pipeline_builds_gemini_kora_without_hume_and_keeps_hume_for_kora_h():
     )
     pipeline = _build_pipeline(settings)
     assert isinstance(pipeline.characters.speech, GeminiKoraSpeech)
+    assert pipeline.characters.speech.model == 'google/gemini-3.1-flash-tts-preview'
     assert pipeline.characters.available
     assert not pipeline.characters.h_available
     with_hume = _build_pipeline(replace(settings, hume_api_key="test", hume_config_id="test"))

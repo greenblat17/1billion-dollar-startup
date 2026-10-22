@@ -13,7 +13,7 @@ from app.tts import TtsAudio
 
 class GeminiKoraSpeech:
     def __init__(self, client: AsyncOpenAI, ffmpeg_bin: str = "ffmpeg",
-                 model: str = "google/gemini-3.8-flash-tts", voice: str = "Kore",
+                 model: str = "google/gemini-3.1-flash-tts-preview", voice: str = "Kore",
                  timeout: float = 40) -> None:
         self.client = client
         self.ffmpeg_bin = ffmpeg_bin

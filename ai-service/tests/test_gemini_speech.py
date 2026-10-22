@@ -44,7 +44,7 @@ async def test_gemini_kora_uses_pcm_exact_text_and_encodes_telegram_ogg(monkeypa
     assert result.content_type == "audio/ogg"
     assert result.spoken_text is None
     assert client.endpoint.calls == [{
-        "model": "google/gemini-3.8-flash-tts", "voice": "Kore",
+        "model": "google/gemini-3.1-flash-tts-preview", "voice": "Kore",
         "input": "Hey, how are you?", "response_format": "pcm",
     }]
     assert conversions == [(b"\0\0" * 24000, speed)]
