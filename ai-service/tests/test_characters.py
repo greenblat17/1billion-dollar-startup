@@ -74,21 +74,19 @@ async def test_kora_routing_history_and_roleplay_isolation():
 
 
 @pytest.mark.asyncio
-async def test_kora_and_kora_h_use_separate_speech_engines():
-    kora_voice, hume_voice = KoraSpeech(), KoraSpeech()
-    characters = Characters(CharacterStore(), FakeLlm(), kora_voice, FakeLlm(), hume_voice)
+async def test_kora_and_kora_h_use_gemini_speech():
+    voice = KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), voice, FakeLlm(), voice)
     await characters.synthesize('Hello.', speed=0.8, variant='kora')
-    assert kora_voice.texts == ['Hello.']
-    assert hume_voice.texts == []
-    assert kora_voice.last_guided is None
     await characters.synthesize('Hi.', speed=0.9, variant='kora_h')
-    assert hume_voice.texts == ['Hi.']
-    assert hume_voice.last_guided is False and hume_voice.last_warm is True
+    assert voice.texts == ['Hello.', 'Hi.']
+    assert voice.last_speed == 0.9
+    assert voice.last_guided is None and voice.last_warm is None
     characters.speech_h = None
     assert characters.available and not characters.h_available
 
 
-def test_pipeline_builds_gemini_kora_without_hume_and_keeps_hume_for_kora_h():
+def test_pipeline_builds_gemini_for_both_kora_variants_without_hume():
     settings = replace(
         settings_fixture(), openai_api_key="test", groq_api_key="test",
         openai_base_url="https://openrouter.ai/api/v1",
@@ -97,15 +95,15 @@ def test_pipeline_builds_gemini_kora_without_hume_and_keeps_hume_for_kora_h():
     assert isinstance(pipeline.characters.speech, GeminiKoraSpeech)
     assert pipeline.characters.speech.model == 'google/gemini-3.1-flash-tts-preview'
     assert pipeline.characters.available
-    assert not pipeline.characters.h_available
+    assert pipeline.characters.h_available
+    assert pipeline.characters.speech_h is pipeline.characters.speech
     with_hume = _build_pipeline(replace(settings, hume_api_key="test", hume_config_id="test"))
-    assert isinstance(with_hume.characters.speech, GeminiKoraSpeech)
-    assert isinstance(with_hume.characters.speech_h, HumeSpeech)
+    assert with_hume.characters.speech_h is with_hume.characters.speech
     assert with_hume.characters.available and with_hume.characters.h_available
 
 
 @pytest.mark.asyncio
-async def test_kora_h_has_separate_history_and_exact_hume_delivery():
+async def test_kora_h_has_separate_history_and_gemini_delivery():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
     characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
@@ -117,8 +115,8 @@ async def test_kora_h_has_separate_history_and_exact_hume_delivery():
     await pipeline.speech.speeds.set('tg-1', 0.9)
     first = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert first.reply_text == 'Got it: I like walking home.'
-    assert voice.last_guided is False and voice.last_speed == 0.9
-    assert voice.last_warm is True
+    assert voice.last_guided is None and voice.last_speed == 0.9
+    assert voice.last_warm is None
     assert model_h.calls == [([], 'I like walking home.')]
     assert model_h.profile_notes == ['Use verified memory only.']
     await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
@@ -197,7 +195,7 @@ async def test_opening_and_delivery_use_kora_history_once():
 
 
 @pytest.mark.asyncio
-async def test_kora_h_opening_uses_its_model_and_exact_voice():
+async def test_kora_h_opening_uses_its_model_and_gemini_voice():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
     characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
@@ -208,8 +206,8 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
     assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
     assert model_h.profile_notes == ['Use verified memory only.']
     assert model_h.modes == ['opening']
-    assert voice.last_guided is False
-    assert voice.last_warm is True
+    assert voice.last_guided is None
+    assert voice.last_warm is None
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2
     assert await dialogue.history('tg-1:kora') == []

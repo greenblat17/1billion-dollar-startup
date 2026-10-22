@@ -27,7 +27,7 @@ internal fun voiceMessage(state: CharacterResponse): String {
     return notice + "Your conversation partner: $name\n\n" +
         "Speaky — your familiar speaking partner.\n" +
         "Kora — warm, curious chats in simple English.\n" +
-        "Kora H — another view when useful; Sonnet's exact words in Hume's voice.\n\n" +
+        "Kora H — another view when useful; Sonnet's words in Gemini's voice.\n\n" +
         "Choose a partner, then tap Start call and send a voice message. " +
         "This choice applies to free conversations. Lessons and situations keep their usual voice." +
         if (state.character == "kora" || state.character == "kora_h") "\n/speed also changes Kora's voice." else ""

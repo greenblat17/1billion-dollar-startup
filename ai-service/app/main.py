@@ -19,7 +19,6 @@ from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_
 from app.call_start import CallStarter
 from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
 from app.gemini_speech import GeminiKoraSpeech
-from app.hume_speech import HumeSpeech
 from app.calls import CallStore, moscow_day
 from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 from app.config import Settings
@@ -812,11 +811,9 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         characters.speech = GeminiKoraSpeech(
             openai_client, settings.ffmpeg_bin, settings.kora_tts_model, settings.kora_tts_voice,
         )
-    if settings.hume_api_key and settings.hume_config_id:
         characters.model_h = KoraHModel(openai_client, settings.kora_model, metrics=metrics)
         characters.model_h._v2 = v2
-        characters.speech_h = HumeSpeech(settings.hume_api_key, settings.hume_config_id,
-                                         settings.hume_config_version, settings.ffmpeg_bin)
+        characters.speech_h = characters.speech
     speech = SessionSpeech(
         tts,
         SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),

@@ -33,5 +33,6 @@ class VoiceMessagesTest {
         assertEquals(listOf("voice:speaky", "voice:kora", "voice:kora_h"),
             voiceKeyboard(withH).keyboard.flatten().map { (it as CallbackDataInlineKeyboardButton).callbackData })
         assertTrue(voiceMessage(withH).contains("Your conversation partner: Kora H"))
+        assertTrue(voiceMessage(withH).contains("Sonnet's words in Gemini's voice"))
     }
 }

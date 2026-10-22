@@ -327,3 +327,18 @@ The `Kore` voice, OpenRouter endpoint, raw PCM conversion, OGG output and
 OpenRouter call with the 3.1 model returned headerless, even-length PCM with
 `response_format=pcm`. An isolated DEV-container probe of the adapter produced
 valid OGG at speed 0.9. A Telegram listening test remains after deployment.
+
+## Kora H speech switch to Gemini 3.1, 2026-10-23
+
+Kora H keeps its Sonnet conversation model, personalized opening and separate
+dialogue history. Its opening, replies and fixed clarification now use the same
+`GeminiKoraSpeech` instance as Kora, with the default
+`google/gemini-3.1-flash-tts-preview` model and `Kore` voice. Both variants use
+`KORA_TTS_MODEL`, `KORA_TTS_VOICE` and the existing `/speed` setting. Kora H is
+available with the configured OpenRouter endpoint; Hume credentials are no longer
+required for either Telegram character. The displayed and stored reply remains
+Sonnet's text. Gemini does not return a spoken transcript, so exact wording
+cannot be independently checked as it was with Hume. `HumeSpeech` remains in the
+codebase for other experiments, but the Telegram Kora H route no longer uses it.
+Local routing tests do not establish voice quality; listen to an actual Telegram
+call after deployment.

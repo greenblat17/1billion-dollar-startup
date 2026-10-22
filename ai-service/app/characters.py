@@ -169,9 +169,7 @@ class Characters:
                          guided: bool = True, variant: str = "kora"):
         self.require_available(variant)
         if variant == "kora_h":
-            return await self.speech_h.synthesize(
-                text, history=history, user=user, speed=speed, guided=False, warm=True,
-            )
+            return await self.speech_h.synthesize(text, speed=speed)
         return await self.speech.synthesize(text, speed=speed)
 
     @staticmethod
