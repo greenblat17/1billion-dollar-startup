@@ -10,6 +10,11 @@ from app.metrics_v2 import bind_metrics, reset_metrics
 from app.speech import SessionSpeech
 from app.characters import Characters, CharacterStore
 
+KORA_H_OPENING_REQUEST = (
+    "Let's start a conversation. Say hello first, then ask one easy question "
+    "to find a topic I might enjoy."
+)
+
 
 class CallStarter:
     def __init__(self, calls: CallStore, model, personalization, dialogue: DialogueStore, speech: SessionSpeech,
@@ -62,7 +67,8 @@ class CallStarter:
                 question = None
             if not question:
                 context = await self.personalization.prepare(session_id, continuation=False)
-                question = await self.characters.reply(history, "Let's start a conversation.", variant=variant) if kora else await self.model.start_call_question({
+                opening_request = KORA_H_OPENING_REQUEST if variant == "kora_h" else "Let's start a conversation."
+                question = await self.characters.reply(history, opening_request, variant=variant) if kora else await self.model.start_call_question({
                     "personalContext": context,
                     "firstName": first_name,
                     "recentConversation": [

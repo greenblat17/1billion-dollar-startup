@@ -5,7 +5,7 @@ import httpx
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from app.call_start import CallStarter
+from app.call_start import CallStarter, KORA_H_OPENING_REQUEST
 from app.audit_artifacts import bind_writer, reset_writer
 from app.calls import CallStore
 from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
@@ -162,8 +162,8 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
     first = await starter.start('tg-1')
-    assert first['question'] == "Got it: Let's start a conversation."
-    assert model_h.calls == [([], "Let's start a conversation.")]
+    assert first['question'] == f"Got it: {KORA_H_OPENING_REQUEST}"
+    assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
     assert voice.last_guided is False
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2

@@ -43,7 +43,10 @@ class HumeSpeech:
                         {"type": "pause_assistant_message"},
                         {"type": "session_settings", "system_prompt":
                             delivery_prompt(history, user, text) if guided else
-                            "You are a warm adult conversation partner. Conversation context: " +
+                            "You are a warm adult conversation partner. Speak the supplied "
+                            "assistant words with subtle, natural changes in energy, pauses, "
+                            "and emphasis that fit their meaning. Do not dramatize or add words. "
+                            "Conversation context: " +
                             json.dumps([{"role": item.role, "content": item.content} for item in history])},
                         {"type": "user_input", "text": user},
                         *([] if guided else [{"type": "assistant_input", "text": text}]),

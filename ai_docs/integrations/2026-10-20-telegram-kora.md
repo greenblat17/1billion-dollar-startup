@@ -145,3 +145,19 @@ an occasional natural thinking word or connector. These must serve the thought,
 not become a repeated opening or replace the substantive move. The A2 language,
 plan, and exact Hume delivery stay unchanged. Conversation quality still needs
 evaluation across complete calls.
+
+## Kora H opening and voice tone, 2026-10-22
+
+The free-call starter previously sent Sonnet only `Let's start a conversation.`
+and often received an immediate question. Kora H now asks for a brief, natural
+greeting before one easy topic-finding question. This request applies only to
+the first spoken turn; ordinary Kora, reminders and roleplay keep their paths.
+The H persona also says to welcome the user once, then stop greeting on later
+turns.
+
+Exact Hume delivery now asks for subtle variation in energy, pauses and emphasis
+that fits Sonnet's text. It still sends `assistant_input` and rejects any spoken
+transcript that differs from Sonnet's words. Hume's documented expressive TTS
+can inflect supplied text, but this text-only bounded session cannot use the
+user's vocal expression. Whether the new instruction improves the heard audio
+must be judged on DEV; it does not restore native EVI co-generation.
