@@ -106,3 +106,23 @@ Local unit tests cover guided EVI transport, actual-spoken-text history, separat
 draft storage, opening state and speed. A single real EVI completion tests transport,
 not a whole conversation or semantic reliability. Deployment and Telegram acceptance
 must be recorded separately.
+
+## Optional Kora H for Telegram, 2026-10-22
+
+`/voice` now offers **Kora H** alongside Speaky and the existing Kora. It mirrors
+the current Voice Lab H: Sonnet first chooses a conversational move using the
+`interest_alternative_view_v1` rule, then writes a short speech-first A2 reply.
+Hume receives that reply through `assistant_input`; the returned transcript must
+match the Sonnet text before its OGG is delivered. The same route applies to a
+free-call opening and to ordinary voice turns. A fixed clarification remains
+exact-text speech. The existing Kora keeps guided native Hume wording.
+
+The choice persists as `kora_h` in the character key. Its dialogue history uses
+`{session}:kora_h`, separate from both Speaky and Kora. On an invalid Sonnet
+plan, H retries once; if the second plan is also invalid, Sonnet writes directly
+for that turn. The seven-day `conversation_plan` artifact marks either the retry
+or the direct fallback. Provider failures outside plan validation still fail
+the turn. Existing call-switch guards, speed preference, roleplay exclusion and
+delivery accounting remain in effect. The API reports `koraHAvailable`, while
+older clients can ignore the additional field. This branch is for user testing;
+local tests do not establish multi-turn Telegram conversation quality.

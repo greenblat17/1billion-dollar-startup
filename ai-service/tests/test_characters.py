@@ -8,7 +8,7 @@ from fakeredis import FakeAsyncRedis
 from app.call_start import CallStarter
 from app.audit_artifacts import bind_writer, reset_writer
 from app.calls import CallStore
-from app.characters import Characters, CharacterStore, KoraModel
+from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
 from app.dialogue import MemoryDialogueStore
 from app.hume_speech import HumeSpeech
 from app.pipeline import ClipPipeline
@@ -32,6 +32,8 @@ async def test_character_persists_without_affecting_other_users():
     store = CharacterStore(redis)
     await store.set('tg-1', 'kora')
     assert await CharacterStore(redis).get('tg-1') == 'kora'
+    await store.set('tg-1', 'kora_h')
+    assert await CharacterStore(redis).get('tg-1') == 'kora_h'
     assert await store.get('tg-2') == 'speaky'
     with pytest.raises(ValueError):
         await store.set('tg-1', 'unknown')
@@ -62,6 +64,29 @@ async def test_kora_routing_history_and_roleplay_isolation():
     assert ordinary.calls[-1][1] == 'Cooking'
     assert len(kora.calls) == 1
     assert len(await dialogue.history('tg-1:kora')) == 2
+
+
+@pytest.mark.asyncio
+async def test_kora_h_has_separate_history_and_exact_hume_delivery():
+    dialogue = MemoryDialogueStore(40, 86400)
+    model_h, voice = FakeLlm(), KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    await characters.store.set('tg-1', 'kora_h')
+    await dialogue.record_turn('tg-1:kora', 'Old Kora topic', 'Old Kora reply')
+    pipeline = ClipPipeline(FakeStt(['I like walking home.', 'It gives me time to think.', 'A cafe']),
+                            FakeLlm(), FakeTts(), dialogue, calls=CallStore(), characters=characters)
+    await pipeline.speech.speeds.set('tg-1', 0.9)
+    first = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert first.reply_text == 'Got it: I like walking home.'
+    assert voice.last_guided is False and voice.last_speed == 0.9
+    assert model_h.calls == [([], 'I like walking home.')]
+    await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert model_h.calls[-1][0] == ['I like walking home.', first.reply_text]
+    assert len(await dialogue.history('tg-1:kora_h')) == 4
+    assert len(await dialogue.history('tg-1:kora')) == 2
+    await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
+    await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert len(model_h.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -130,6 +155,22 @@ async def test_opening_and_delivery_use_kora_history_once():
 
 
 @pytest.mark.asyncio
+async def test_kora_h_opening_uses_its_model_and_exact_voice():
+    dialogue = MemoryDialogueStore(40, 86400)
+    model_h, voice = FakeLlm(), KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    await characters.store.set('tg-1', 'kora_h')
+    starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
+    first = await starter.start('tg-1')
+    assert first['question'] == "Got it: Let's start a conversation."
+    assert model_h.calls == [([], "Let's start a conversation.")]
+    assert voice.last_guided is False
+    await starter.delivered(first['callId'])
+    assert len(await dialogue.history('tg-1:kora_h')) == 2
+    assert await dialogue.history('tg-1:kora') == []
+
+
+@pytest.mark.asyncio
 async def test_character_api_auth_unavailable_busy_and_active_call():
     app, *_ = build_app()
     chars = app.state.pipeline.characters
@@ -139,7 +180,9 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         path = '/internal/character'
         payload = {'sessionId': 'tg-1', 'character': 'kora'}
         assert (await client.post(path, json=payload)).json()['blocked'] == 'unavailable'
+        assert (await client.post(path, json={**payload, 'character': 'kora_h'})).json()['blocked'] == 'unavailable'
         chars.model, chars.speech = FakeLlm(), KoraSpeech()
+        chars.model_h = FakeLlm()
         job = app.state.jobs.create('tg-1')
         assert (await client.post(path, json=payload)).json()['blocked'] == 'active_conversation'
         job.status = 'ok'
@@ -149,6 +192,8 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.post(path, json=payload)).json()['blocked'] == 'active_conversation'
         await app.state.pipeline.calls.seal('tg-1')
         assert (await client.post(path, json=payload)).json()['character'] == 'kora'
+        assert (await client.post(path, json={**payload, 'character': 'kora_h'})).json()['character'] == 'kora_h'
+        assert (await client.get(path + '/tg-1')).json()['koraHAvailable'] is True
         assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
         await app.state.pipeline.calls.open('tg-1')  # Failed/undelivered next opening.
         switched = await client.post(path, json={**payload, 'character': 'speaky'})
@@ -174,6 +219,40 @@ async def test_planner_and_writer_preserve_history_and_brief(monkeypatch):
     assert plan['contribution'] in calls[1][0][0]['content']
     assert calls[1][0][-2:] == [{'role': 'assistant', 'content': 'How is work?'},
                                {'role': 'user', 'content': 'We have a small team'}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('valid_on_retry', [True, False])
+async def test_kora_h_planner_retry_and_direct_fallback(monkeypatch, valid_on_retry):
+    model = KoraHModel(None, 'test')
+    calls, artifacts = [], {}
+    plan = dict(interest='engaged', evidence='User has an opinion', topic='Walking', direction='stay',
+                move='contribute', tone='Warm', contribution='The walk can be a quiet break.')
+    async def complete(messages, **kwargs):
+        calls.append((messages, kwargs))
+        if kwargs['operation'] == 'kora_h_plan':
+            return json.dumps(plan) if valid_on_retry and len(calls) == 2 else 'not-json'
+        return 'Maybe that walk is a quiet break.'
+    async def write(field, value): artifacts[field] = value
+    monkeypatch.setattr(model, '_complete', complete)
+    token = bind_writer(write)
+    try:
+        reply = await model.complete_reply([], 'Walking home wastes my time.')
+    finally:
+        reset_writer(token)
+    assert reply == 'Maybe that walk is a quiet break.'
+    assert [options['operation'] for _, options in calls] == ['kora_h_plan', 'kora_h_plan', 'kora_h_reply']
+    assert 'look for a different but plausible way' in calls[0][0][0]['content']
+    writer_prompt = calls[-1][0][0]['content']
+    assert 'exact words that Hume will say aloud' in writer_prompt
+    saved_plan = json.loads(artifacts['conversation_plan'])
+    if valid_on_retry:
+        assert saved_plan['strategy'] == 'interest_alternative_view_v1'
+        assert saved_plan['planner_retry'] is True
+        assert plan['contribution'] in writer_prompt
+    else:
+        assert saved_plan['planner_fallback'] == 'invalid_plan'
+        assert 'CURRENT TURN' not in writer_prompt
 
 
 @pytest.mark.asyncio

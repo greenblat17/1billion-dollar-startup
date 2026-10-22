@@ -834,6 +834,7 @@ data class CharacterResponse(
     val character: String,
     val koraAvailable: Boolean,
     val blocked: String? = null,
+    val koraHAvailable: Boolean = false,
 )
 
 @Serializable

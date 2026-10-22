@@ -202,12 +202,13 @@ class ClipPipeline:
 
         active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
         scenario = active_call.get("scenario") if active_call else None
-        kora = await self.characters.selected(session_id, scenario=scenario)
-        history_id = self.characters.history_id(session_id) if kora else session_id
+        variant = await self.characters.variant(session_id, scenario=scenario)
+        kora = variant is not None
+        history_id = self.characters.history_id(session_id, variant) if variant else session_id
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             stage("tts")
-            reply_audio = await self.characters.synthesize(CLARIFY_TEXT, speed=await self.speech.speed(session_id), guided=False) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
+            reply_audio = await self.characters.synthesize(CLARIFY_TEXT, speed=await self.speech.speed(session_id), guided=False, variant=variant) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
             timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
             stage("metrics")
@@ -274,13 +275,13 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self.characters.reply(history, stt_result.text) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
+            reply_text = await measured("reply", self.characters.reply(history, stt_result.text, variant=variant) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
             if kora:
                 await record_artifact("reply_draft", reply_text)
                 await record_artifact("reply", reply_text)
             else:
                 await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id)) if kora else self.speech.synthesize(session_id, reply_text)))
+            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id), variant=variant) if kora else self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")

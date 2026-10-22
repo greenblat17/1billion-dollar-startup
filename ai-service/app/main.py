@@ -17,7 +17,7 @@ from redis.asyncio import Redis
 from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
-from app.characters import Characters, CharacterStore, KoraModel
+from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
 from app.hume_speech import HumeSpeech
 from app.calls import CallStore, moscow_day
 from app.first_call_feedback import FirstCallFeedback, offer_eligibility
@@ -332,7 +332,8 @@ def create_app(
 
     async def character_status(session_id: str, blocked: str | None = None) -> dict:
         return {"character": await clip_pipeline.characters.store.get(session_id),
-                "koraAvailable": clip_pipeline.characters.available, "blocked": blocked}
+                "koraAvailable": clip_pipeline.characters.available,
+                "koraHAvailable": clip_pipeline.characters.h_available, "blocked": blocked}
 
     @app.get("/internal/character/{session_id}")
     async def character(session_id: str) -> dict:
@@ -343,7 +344,7 @@ def create_app(
         payload = await _json_object(request)
         session_id = _call_session_id(payload)
         selected = payload.get("character")
-        if selected not in ("speaky", "kora") or not session_id.startswith("tg-"):
+        if selected not in ("speaky", "kora", "kora_h") or not session_id.startswith("tg-"):
             raise HTTPException(status_code=400, detail="invalid Telegram character selection")
         async with call_starter.lock(session_id):
             if await clip_pipeline.characters.store.get(session_id) == selected:
@@ -352,6 +353,8 @@ def create_app(
             if jobs.pending(session_id) or (active and (active["turns"] or active.get("openingDelivered"))):
                 return await character_status(session_id, "active_conversation")
             if selected == "kora" and not clip_pipeline.characters.available:
+                return await character_status(session_id, "unavailable")
+            if selected == "kora_h" and not clip_pipeline.characters.h_available:
                 return await character_status(session_id, "unavailable")
             # A failed opening must not trap the user in an unavailable character.
             if active:
@@ -805,6 +808,8 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     if settings.hume_api_key and settings.hume_config_id:
         characters.model = KoraModel(openai_client, settings.kora_model, metrics=metrics)
         characters.model._v2 = v2
+        characters.model_h = KoraHModel(openai_client, settings.kora_model, metrics=metrics)
+        characters.model_h._v2 = v2
         characters.speech = HumeSpeech(settings.hume_api_key, settings.hume_config_id,
                                        settings.hume_config_version, settings.ffmpeg_bin)
     speech = SessionSpeech(
