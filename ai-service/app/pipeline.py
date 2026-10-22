@@ -275,7 +275,8 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self.characters.reply(history, stt_result.text, variant=variant) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
+            reply_text = await measured("reply", self.characters.reply(history, stt_result.text, variant=variant,
+                                                                        profile_note=profile_note) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
             if kora:
                 await record_artifact("reply_draft", reply_text)
                 await record_artifact("reply", reply_text)

@@ -11,6 +11,7 @@ from app.calls import CallStore
 from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
 from app.dialogue import MemoryDialogueStore
 from app.hume_speech import HumeSpeech
+from app.personalization import context_note
 from app.pipeline import ClipPipeline
 from app.speech import SessionSpeech
 from app.tts import TtsAudio
@@ -75,13 +76,16 @@ async def test_kora_h_has_separate_history_and_exact_hume_delivery():
     await dialogue.record_turn('tg-1:kora', 'Old Kora topic', 'Old Kora reply')
     pipeline = ClipPipeline(FakeStt(['I like walking home.', 'It gives me time to think.', 'A cafe']),
                             FakeLlm(), FakeTts(), dialogue, calls=CallStore(), characters=characters)
+    pipeline.personalization = Personalization()
     await pipeline.speech.speeds.set('tg-1', 0.9)
     first = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert first.reply_text == 'Got it: I like walking home.'
     assert voice.last_guided is False and voice.last_speed == 0.9
     assert model_h.calls == [([], 'I like walking home.')]
+    assert model_h.profile_notes == ['Use verified memory only.']
     await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert model_h.calls[-1][0] == ['I like walking home.', first.reply_text]
+    assert model_h.profile_notes == ['Use verified memory only.'] * 2
     assert len(await dialogue.history('tg-1:kora_h')) == 4
     assert len(await dialogue.history('tg-1:kora')) == 2
     await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
@@ -164,6 +168,7 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
     first = await starter.start('tg-1')
     assert first['question'] == f"Got it: {KORA_H_OPENING_REQUEST}"
     assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
+    assert model_h.profile_notes == ['Use verified memory only.']
     assert voice.last_guided is False
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2
@@ -235,16 +240,22 @@ async def test_kora_h_planner_retry_and_direct_fallback(monkeypatch, valid_on_re
         return 'Maybe that walk is a quiet break.'
     async def write(field, value): artifacts[field] = value
     monkeypatch.setattr(model, '_complete', complete)
+    profile_note = context_note({'person': {'interests': ['walking']},
+                                 'proficiency': {'overall_cefr': 'B2'}}, 0, 0)
     token = bind_writer(write)
     try:
-        reply = await model.complete_reply([], 'Walking home wastes my time.')
+        reply = await model.complete_reply([], 'Walking home wastes my time.', profile_note)
     finally:
         reset_writer(token)
     assert reply == 'Maybe that walk is a quiet break.'
     assert [options['operation'] for _, options in calls] == ['kora_h_plan', 'kora_h_plan', 'kora_h_reply']
     assert 'look for a different but plausible way' in calls[0][0][0]['content']
+    assert all(call[0][1] == {'role': 'system', 'content': profile_note} for call in calls)
+    assert '"overall_cefr": "B2"' in profile_note
+    assert 'A2 English' not in calls[0][0][0]['content']
     writer_prompt = calls[-1][0][0]['content']
     assert 'exact words that Hume will say aloud' in writer_prompt
+    assert 'A2 English' not in writer_prompt
     saved_plan = json.loads(artifacts['conversation_plan'])
     if valid_on_retry:
         assert saved_plan['strategy'] == 'interest_alternative_view_v1'

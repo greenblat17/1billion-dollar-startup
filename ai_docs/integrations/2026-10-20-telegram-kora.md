@@ -161,3 +161,16 @@ transcript that differs from Sonnet's words. Hume's documented expressive TTS
 can inflect supplied text, but this text-only bounded session cannot use the
 user's vocal expression. Whether the new instruction improves the heard audio
 must be judged on DEV; it does not restore native EVI co-generation.
+
+## Kora H personalization parity, 2026-10-22
+
+Kora H now receives the same verified personalization note as Speaky for both
+free-call openings and voice replies. Its planner and writer both see the note:
+remembered interests and facts, proficiency evidence, and the policy that recent
+user statements override old memory. Fixed A2 instructions are removed from H's
+planner and writer; they now match language complexity to verified proficiency,
+or adapt cautiously to the current utterance when that is unknown. Ordinary
+Kora retains its fixed A2 experiment. Kora H still chooses conversational moves
+and sends Sonnet's exact text to Hume. The shared note is passed through the
+existing generation path; no new stored profile is created here. Each character
+still keeps its own dialogue history, while the learner profile is shared.

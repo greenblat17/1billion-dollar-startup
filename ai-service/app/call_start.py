@@ -68,7 +68,8 @@ class CallStarter:
             if not question:
                 context = await self.personalization.prepare(session_id, continuation=False)
                 opening_request = KORA_H_OPENING_REQUEST if variant == "kora_h" else "Let's start a conversation."
-                question = await self.characters.reply(history, opening_request, variant=variant) if kora else await self.model.start_call_question({
+                question = await self.characters.reply(history, opening_request, variant=variant,
+                                                       profile_note=context) if kora else await self.model.start_call_question({
                     "personalContext": context,
                     "firstName": first_name,
                     "recentConversation": [

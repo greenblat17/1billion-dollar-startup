@@ -39,14 +39,19 @@ class KoraModel(OpenAiChatModel):
     operation_prefix = "kora"
     retry_invalid_plan = False
     strategy = "interest_v1"
+    use_profile_note = False
+    language = "natural A2 English"
 
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
+        context = ([{"role": "system", "content": profile_note}]
+                   if self.use_profile_note and profile_note else [])
         plan = None
         for attempt in range(2 if self.retry_invalid_plan else 1):
             try:
                 raw = await self._complete([
                     {"role": "system", "content": self.plan_system},
+                    *context,
                     {"role": "user", "content": json.dumps({"history": messages, "user": user_text})},
                 ], temperature=.7, max_tokens=500, response_format={"type": "text"},
                     operation=f"{self.operation_prefix}_plan")
@@ -64,9 +69,10 @@ class KoraModel(OpenAiChatModel):
             prompt = self.persona
         else:
             await record_artifact("conversation_plan", json.dumps(plan))
-            prompt = with_plan(self.persona, plan)
+            prompt = with_plan(self.persona, plan, language=self.language)
         return await self._complete([
             {"role": "system", "content": prompt},
+            *context,
             *messages, {"role": "user", "content": user_text},
         ], temperature=.7, max_tokens=250, response_format={"type": "text"},
             operation=f"{self.operation_prefix}_reply")
@@ -78,6 +84,8 @@ class KoraHModel(KoraModel):
     operation_prefix = "kora_h"
     retry_invalid_plan = True
     strategy = H_STRATEGY
+    use_profile_note = True
+    language = "English matched to the learner's verified level or current speech"
 
 
 class Characters:
@@ -106,9 +114,12 @@ class Characters:
         if not (self.h_available if variant == "kora_h" else self.available):
             raise RuntimeError("Kora is temporarily unavailable")
 
-    async def reply(self, history, user: str, *, variant: str = "kora") -> str:
+    async def reply(self, history, user: str, *, variant: str = "kora",
+                    profile_note: str | None = None) -> str:
         self.require_available(variant)
         model = self.model_h if variant == "kora_h" else self.model
+        if variant == "kora_h":
+            return await model.complete_reply(history, user, profile_note)
         return await model.complete_reply(history, user)
 
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,

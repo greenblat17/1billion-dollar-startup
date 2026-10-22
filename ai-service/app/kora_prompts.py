@@ -74,10 +74,10 @@ def parse_plan(raw: str) -> dict:
     return {key: value[key].strip() for key in (*options, 'evidence', 'topic', 'tone', 'contribution')} | {'strategy': STRATEGY}
 
 
-def with_plan(prompt: str, plan: dict) -> str:
+def with_plan(prompt: str, plan: dict, *, language: str = 'natural A2 English') -> str:
     # Keep diagnostic evidence in the export, not in Hume's spoken content guidance.
     brief = {key: plan[key] for key in ('topic', 'direction', 'move', 'tone', 'contribution')}
-    return prompt + '''\nCURRENT TURN: follow this content brief in natural A2 English.
+    return prompt + '''\nCURRENT TURN: follow this content brief in ''' + language + '''.
 Express the concrete question or idea briefly, usually 1-3 short sentences. The tone
 should color that move naturally. Do not stop at praise or an emotional reaction.
 For question, ask the planned question without extra questions. For contribute,
