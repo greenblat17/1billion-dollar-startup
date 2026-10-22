@@ -263,3 +263,34 @@ reply and one held-out generic launch slogan. It accepted two concrete beta
 feedback angles. In a separate replay, three work questions with only brief
 answers led to `fading` and a question about after-work activities. These are
 directional probes, not a full Telegram conversation or a voice-quality check.
+
+## Kora H single-call reply v4, 2026-10-22
+
+Kora H now makes one Sonnet call per valid turn. One JSON response contains both
+diagnostic metadata (`interest`, `direction`, `move`, `evidence`, topic and tone)
+and the final `reply`. The reply goes to Hume's existing exact-text speech path.
+The metadata remains in `conversation_plan`, without a separate planner, writer,
+or online perspective judge. Invalid JSON or inconsistent routing gets one retry;
+a second invalid result fails instead of silently falling back to an unplanned
+writer. Other Kora and Speaky routes are unchanged.
+
+The single prompt preserves the search/engaged/fading/ending distinction, an
+adjacent bridge after repeated failed attempts, concrete perspective versus
+question choice, personalized opening with up to eight earlier Kora H turns,
+verified proficiency, and spoken style. It asks Sonnet to choose a question if
+it has no specific alternative view. This is a prompt-level quality constraint,
+not proof that every perspective is substantive. Evaluate perspective quality,
+openings, whole-conversation flow and exact speech in offline replays and user
+tests. Compare `reply_llm_ms` and total response latency after DEV deployment;
+local tests and isolated provider calls do not measure Telegram voice latency.
+
+Two read-only DEV Sonnet replays used identical input histories for v3 and v4.
+For a beta-release discussion, v4 produced a concrete alternative view in
+4.1 s; v3 chose a question and its planner plus writer took 4.9 s. For three
+flat work replies, v3 bridged to an outside-work question in 4.2 s. The first
+v4 prompt produced the same bridge but inconsistent `uncertain/adjacent`
+metadata, which would need a retry. After making the routing constraint
+explicit, a repeat returned `fading/adjacent` and an after-work question in
+2.9 s. These are small, non-deterministic samples; neither response quality
+nor the latency gain is established for a whole Telegram call. Hume latency
+was outside this replay.
