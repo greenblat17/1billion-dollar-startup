@@ -136,3 +136,12 @@ closed the pending response first with `SocketTimeoutException`. The start-call
 request now has a 90-second request and socket timeout via Ktor `HttpTimeout`;
 other AI requests keep their existing limits. A delayed-response HTTP test covers
 the override. This is a transport fix, not evidence of dialogue quality.
+
+## Kora H spoken tone, 2026-10-22
+
+The exact-text Sonnet reply now permits a short reaction to a specific detail
+before its planned question or contribution. It favors contractions and allows
+an occasional natural thinking word or connector. These must serve the thought,
+not become a repeated opening or replace the substantive move. The A2 language,
+plan, and exact Hume delivery stay unchanged. Conversation quality still needs
+evaluation across complete calls.

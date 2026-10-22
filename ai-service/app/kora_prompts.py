@@ -80,8 +80,9 @@ def with_plan(prompt: str, plan: dict) -> str:
     return prompt + '''\nCURRENT TURN: follow this content brief in natural A2 English.
 Express the concrete question or idea briefly, usually 1-3 short sentences. The tone
 should color that move naturally. Do not stop at praise or an emotional reaction.
-For question, ask just the planned question. For contribute, express the idea without
-appending another question or a lecture. For close, end warmly without prolonging.
+For question, ask the planned question without extra questions. For contribute,
+express the idea without appending another question or a lecture. For close,
+end warmly without prolonging.
 The brief is guidance, not extra content to explain. Do not speak its labels, topic
 assessment, or planning process. Do not invent personal experiences.\n''' + json.dumps(brief)
 
