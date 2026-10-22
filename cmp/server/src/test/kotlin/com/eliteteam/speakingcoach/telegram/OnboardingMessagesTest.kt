@@ -17,24 +17,41 @@ import kotlin.test.assertTrue
 
 class OnboardingMessagesTest {
     @Test
-    fun vocabularyAlternativeIsClearlyOptionalAndNeverStruckThrough() {
+    fun vocabularyUpgradeHasItsOwnOptionalSlide() {
         val suggestion = VocabularySuggestion(
-            original = "I use the same words every single time",
-            alternative = "I tend to fall back on the same words",
-            explanation = "Fall back on describes relying on familiar words out of habit.",
+            original = "big", alternative = "substantial", category = "word_upgrade",
+            explanation = "Substantial точнее описывает масштаб роста.",
         )
         val vocabulary = OnboardingSkill(score = 70, suggestions = listOf(suggestion))
-        val slide = vocabularySlide(OnboardingReview(vocabulary = vocabulary))
-        assertTrue(slide.plain().contains("Another way to say it\n\nI use the same words every single time\n→ I tend to fall back on the same words"))
-        assertTrue(slide.plain().contains("💡 Fall back on describes relying on familiar words out of habit."))
-        assertTrue(slide.none { it is StrikethroughTextSource })
-        assertTrue(!slide.plain().contains("What I noticed"))
+        val review = OnboardingReview(vocabulary = vocabulary)
+        val slide = vocabularySlide(review)
+        val more = vocabularyMoreSlide(review)
+        assertTrue(hasVocabularyMore(review))
+        assertTrue(!slide.plain().contains("substantial"))
+        assertTrue(more.plain().contains("Words to try\n\nbig\n→ substantial"))
+        assertTrue(more.none { it is StrikethroughTextSource })
 
         val corrected = vocabularySlide(OnboardingReview(vocabulary = vocabulary.copy(
             examples = listOf(OnboardingExample("I did a decision", "I made a decision", "Use make a decision.")),
         )))
         assertTrue(corrected.plain().contains("What I noticed"))
-        assertTrue(!corrected.plain().contains("Another way to say it"))
+        assertTrue(!corrected.plain().contains("Words to try"))
+        assertEquals(1, corrected.count { it is StrikethroughTextSource })
+    }
+
+    @Test
+    fun expressionUpgradesHaveTheirOwnVocabularySlide() {
+        val words = (1..5).map { index -> VocabularySuggestion(
+            original = "big$index", alternative = "substantial$index", category = "word_upgrade",
+        ) }
+        val expressions = (1..5).map { index -> VocabularySuggestion(
+            original = "said no $index", alternative = "turned down $index", category = "expression_upgrade",
+        ) }
+        val review = OnboardingReview(vocabulary = OnboardingSkill(suggestions = words + expressions))
+        assertTrue(hasVocabularyMore(review))
+        assertTrue(!vocabularySlide(review).plain().contains("substantial5"))
+        assertTrue(vocabularyMoreSlide(review).plain().contains("substantial5"))
+        assertTrue(vocabularyMoreSlide(review).plain().contains("turned down 5"))
     }
 
     @Test

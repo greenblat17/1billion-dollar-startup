@@ -173,6 +173,8 @@ def test_prometheus_scrape_accepts_bearer_token() -> None:
         response = client.get("/internal/metrics/prometheus")
         assert response.status_code == 200
         assert "speaking_provider_calls_total" in response.text
+        assert "speaking_review_verification_total" in response.text
+        assert "speaking_review_verification_duration_seconds_bucket" in response.text
         assert "speaking_voice_model_cost_micro_total" in response.text
         assert "speaking_voice_model_calls_total" in response.text
 

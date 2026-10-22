@@ -26,14 +26,13 @@ Fluency "text" is two concise sentences about demonstrated flow.
 Do not include scores, CEFR letters, or internal low/mid/high labels in these texts.
 The supplied grammar/vocabulary examples have passed a conservative verification step.
 An empty list means no sufficiently reliable correction was selected, not error-free speech.
-Do not invent mistake examples or counts. Claims about grammar or vocabulary mistakes must
-use only the supplied examples for that skill.
-For each supplied grammar/vocabulary example, return one short English explanation in the
-matching Explanations array, in the same order. Explain precisely why its local replacement
-is needed in this context, using simple language. Do not explain a different error, guess
-the intended meaning, or suggest another rewrite. Return [] when that skill has no examples.
-If an example cannot be explained confidently, put an empty string at its position; it will
-not be shown. These explanations appear beneath the marked local correction.
+Do not invent mistake examples or counts. Claims about Grammar mistakes must
+use only the supplied Grammar examples. Vocabulary naturalness examples are verified mistakes. Claims about Vocabulary
+mistakes must use only those examples. Optional final Vocabulary upgrades are
+teaching points, not mistakes and not evidence for lowering the Vocabulary score.
+Judge Vocabulary from the demonstrated range, precision, and natural use of words.
+The examples already carry their conversation-time explanations. Do not write new
+explanations or change the supplied correction pairs.
 When examples are empty, describe supported ability or insufficient evidence; do not invent
 a weakness to fill the sentence.
 Fluency text may refer to supplied pace, pauses, and fillers in words, not with a new number.
@@ -51,20 +50,8 @@ def select_examples(candidates: list[dict], accepted: set[str], limit: int = EXA
     """Rank only verified candidates; the model cannot supply replacement pairs."""
     notes = [note for note in candidates if note["id"] in accepted]
     grammar = _ranked([note for note in notes if note["kind"] == "grammar"])[:limit]
-    vocabulary = (
-        _ranked([note for note in notes if note["kind"] == "word"])
-        + _ranked([note for note in notes if note["kind"] == "natural"])
-    )[:limit]
+    vocabulary = _ranked([note for note in notes if note["kind"] == "natural"])[:limit]
     return {"grammar": _pairs(grammar), "vocabulary": _pairs(vocabulary)}
-
-
-def explained_examples(examples: list[dict[str, str]], explanations: list[str]) -> list[dict[str, str]]:
-    """Show only verified pairs for which the review supplied a concise explanation."""
-    return [
-        {**example, "explanation": explanation}
-        for example, explanation in zip(examples, explanations)
-        if explanation
-    ]
 
 
 def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
@@ -150,7 +137,9 @@ def correction_candidates(turns: list[dict]) -> list[dict]:
                 "transcript": transcript,
                 "wrong": wrong,
                 "better": better,
-                "kind": kind,
+                "explanation": note["explanation"].strip() if isinstance(note.get("explanation"), str) else "",
+                "kind": "natural" if kind == "word" else kind,
+                "vocabularyCategory": note.get("vocabularyCategory"),
                 "turn": turn_index,
                 "order": order,
                 "key": wrong.lower(),
@@ -166,13 +155,21 @@ def _ranked(notes: list[dict]) -> list[dict]:
     for group in groups.values():
         group.sort(key=lambda item: (item["turn"], item["order"]))
         first = group[0]
-        ranked.append({**first, "count": len(group)})
+        explanation = first.get("explanation") or next(
+            (item["explanation"] for item in group
+             if item["better"] == first["better"] and item.get("explanation")),
+            "",
+        )
+        ranked.append({**first, "explanation": explanation, "count": len(group)})
     ranked.sort(key=lambda item: (-item["count"], item["turn"], item["order"]))
     return ranked
 
 
 def _pairs(notes: list[dict]) -> list[dict[str, str]]:
-    return [{"wrong": note["wrong"], "better": note["better"]} for note in notes]
+    return [
+        {"wrong": note["wrong"], "better": note["better"], "explanation": note.get("explanation") or ""}
+        for note in notes
+    ]
 
 
 def _timed_words(turn: dict) -> list[dict]:

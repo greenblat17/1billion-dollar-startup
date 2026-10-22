@@ -105,12 +105,12 @@ internal fun onboardingInvitation(firstName: String?): String {
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
-    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
+    "begin", "retry", "continue", "level", "results", "vocab", "vocab_more", "fluency", "finish", "talk", "profile", "bye",
     "m5", "m10", "m15", "skip", "remind", "later",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
-    "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
+    "retry", "level", "results", "vocab", "vocab_more", "fluency", "finish", "profile" -> "callback:$queryId"
     "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
@@ -130,6 +130,7 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
             "level" -> "🔥 See my results"
             "results" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
+            "vocab_more" -> "More Vocabulary →"
             "fluency" -> "Fluency →"
             "finish" -> "Continue →"
             "talk" -> "Keep talking 🎙"
@@ -286,7 +287,34 @@ internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
     skillSlide("✍️ Grammar", review.grammar)
 
 internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("📚 Vocabulary", review.vocabulary, showSuggestions = true)
+    skillSlide("📚 Vocabulary", review.vocabulary)
+
+internal fun vocabularyMoreSlide(review: OnboardingReview): TextSourcesList =
+    buildEntities {
+        bold("📚 Vocabulary · ways to grow")
+        val suggestions = review.vocabulary.suggestions
+        val words = suggestions.filter { it.category != "expression_upgrade" }.take(5)
+        val expressions = suggestions.filter { it.category == "expression_upgrade" }.take(5)
+        if (words.isNotEmpty()) {
+            regularln("")
+            regularln("")
+            bold("Words to try")
+            regularln("")
+            regularln("")
+            suggestionLines(words)
+        }
+        if (expressions.isNotEmpty()) {
+            regularln("")
+            regularln("")
+            bold("Expressions to try")
+            regularln("")
+            regularln("")
+            suggestionLines(expressions)
+        }
+    }
+
+internal fun hasVocabularyMore(review: OnboardingReview): Boolean =
+    review.vocabulary.suggestions.isNotEmpty()
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("🎙 Fluency")
@@ -323,7 +351,7 @@ internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?, pointsTo
     regular(PRACTICE_ASK_QUESTION)
 }
 
-private fun skillSlide(title: String, skill: OnboardingSkill, showSuggestions: Boolean = false): TextSourcesList = buildEntities {
+private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
     regularln("")
@@ -347,20 +375,21 @@ private fun skillSlide(title: String, skill: OnboardingSkill, showSuggestions: B
                 italic(explanation)
             }
         }
-    } else if (showSuggestions && skill.suggestions.isNotEmpty()) {
-        regularln("")
-        bold("Another way to say it")
-        regularln("")
-        regularln("")
-        skill.suggestions.take(3).forEachIndexed { index, suggestion ->
-            if (index > 0) regular("\n\n")
-            regularln(suggestion.original)
-            regular("→ ")
-            bold(suggestion.alternative)
-            suggestion.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
-                regular("\n\n💡 ")
-                italic(explanation)
-            }
+    }
+
+}
+
+private fun dev.inmo.tgbotapi.utils.EntitiesBuilder.suggestionLines(
+    suggestions: List<com.eliteteam.speakingcoach.ai.VocabularySuggestion>,
+) {
+    suggestions.forEachIndexed { index, suggestion ->
+        if (index > 0) regular("\n\n")
+        regularln(suggestion.original)
+        regular("→ ")
+        bold(suggestion.alternative)
+        suggestion.explanation.trim().take(100).takeIf { it.isNotEmpty() }?.let { explanation ->
+            regular("\n\n💡 ")
+            italic(explanation)
         }
     }
 }

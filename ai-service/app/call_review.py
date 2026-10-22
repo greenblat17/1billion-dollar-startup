@@ -8,14 +8,12 @@ import re
 from typing import Any
 
 from app.calls import CallStore
+from app.correction_verification import verify_corrections_with_metrics
 from app.onboarding import OnboardingStore
-from app.onboarding_review import (
-    EXAMPLE_LIMIT, REVIEW_COPY_POLICY, correction_candidates, explained_examples, fluency_metrics,
-    select_examples,
-)
+from app.onboarding_review import REVIEW_COPY_POLICY, correction_candidates, fluency_metrics, select_examples
 from app.onboarding_score import placed_level, step_score
 from app.metrics_v2 import bind_metrics, reset_metrics
-from app.vocabulary_suggestions import VOCABULARY_SUGGESTION_POLICY, select_vocabulary_suggestions
+from app.vocabulary_suggestions import discover_vocabulary_suggestions
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +22,8 @@ The current scores are the baseline. Judge only whether this conversation is a l
 about the same, or a little stronger than that baseline.
 Always reply with a JSON object only:
 {"levelText": string, "recap": string, "overallMove": int,
- "grammarExplanations":string[], "vocabularyExplanations":string[],
  "grammar": {"text": string, "move": int},
- "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int},
- "vocabularySuggestions":[{"original":string,"alternative":string,"explanation":string}]}
+ "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int}}
 Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
 Do not return a CEFR label or a 0-100 score. Do not invent a new level.
 levelText is two or three short diagnostic sentences about the English demonstrated in this
@@ -36,7 +32,7 @@ from the transcripts when available. Explain what they show, not just what topic
 Only mention a limitation when the speech demonstrates it. If evidence is thin, say so.
 recap is one or two sentences Speaky says to close the call. Say you enjoyed talking and name the specific things you discussed, using only the transcripts. No score, no CEFR level, no mistakes, and no advice.
 The recap is a separate closing, not part of the diagnostic assessment.
-""" + REVIEW_COPY_POLICY + VOCABULARY_SUGGESTION_POLICY
+""" + REVIEW_COPY_POLICY
 
 
 def parse_call_moves(raw: str) -> dict[str, Any]:
@@ -46,12 +42,6 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
     level = payload.get("levelText")
     if not isinstance(level, str) or not level.strip():
         raise ValueError("call review missing levelText")
-    explanations = {}
-    for name in ("grammar", "vocabulary"):
-        value = payload.get(f"{name}Explanations")
-        if not isinstance(value, list) or len(value) > EXAMPLE_LIMIT or any(not isinstance(item, str) for item in value):
-            raise ValueError(f"call review invalid {name} explanations")
-        explanations[name] = [" ".join(item.split()) for item in value]
     return {
         "levelText": " ".join(level.split()),
         "recap": _recap(payload.get("recap")),
@@ -59,18 +49,14 @@ def parse_call_moves(raw: str) -> dict[str, Any]:
         "grammar": _skill_move(payload.get("grammar")),
         "vocabulary": _skill_move(payload.get("vocabulary")),
         "fluency": _skill_move(payload.get("fluency")),
-        "grammarExplanations": explanations["grammar"],
-        "vocabularyExplanations": explanations["vocabulary"],
-        "vocabularySuggestions": payload.get("vocabularySuggestions"),
     }
 
 
-def validate_call_review_response(raw: str, request: dict) -> None:
+def validate_call_review_response(raw: str) -> None:
     """Check the full contract when a provider ignores the response schema."""
     payload = json.loads(_strip_fence(raw))
     expected = {
-        "levelText", "recap", "overallMove", "grammarExplanations",
-        "vocabularyExplanations", "grammar", "vocabulary", "fluency", "vocabularySuggestions",
+        "levelText", "recap", "overallMove", "grammar", "vocabulary", "fluency",
     }
     if not isinstance(payload, dict) or set(payload) != expected:
         raise ValueError("invalid call review fields")
@@ -82,15 +68,6 @@ def validate_call_review_response(raw: str, request: dict) -> None:
         if (not isinstance(skill, dict) or set(skill) != {"text", "move"}
                 or type(skill["move"]) is not int or not -2 <= skill["move"] <= 2):
             raise ValueError(f"invalid {name} move")
-    for name in ("grammar", "vocabulary"):
-        if len(payload[f"{name}Explanations"]) != len(request.get(f"{name}Examples") or []):
-            raise ValueError(f"invalid {name} explanation count")
-    suggestions = payload["vocabularySuggestions"]
-    if (not isinstance(suggestions, list) or len(suggestions) > 3 or any(
-        not isinstance(item, dict) or set(item) != {"original", "alternative", "explanation"}
-        or any(not isinstance(part, str) for part in item.values()) for item in suggestions
-    )):
-        raise ValueError("invalid vocabulary suggestions")
 
 
 def apply_call_level(
@@ -113,8 +90,7 @@ def apply_call_level(
         skill = {
             "score": stepped if stepped is not None else prior,
             "text": moves[name]["text"],
-            "examples": (explained_examples(examples.get(name) or [], moves[f"{name}Explanations"])
-                         if name in ("grammar", "vocabulary") else []),
+            "examples": (examples.get(name) or []) if name in ("grammar", "vocabulary") else [],
             "suggestions": (vocabulary_suggestions or []) if name == "vocabulary" else [],
         }
         skills[name] = skill
@@ -192,32 +168,40 @@ class CallReviews:
         return await self._finish(built["public"], call)
 
     async def _compose(self, call: dict, assessment: dict) -> dict[str, Any]:
-        candidates = correction_candidates(call.get("turns") or [])
+        turns = call.get("turns") or []
+        candidates = correction_candidates(turns)
+        enrichment = asyncio.create_task(discover_vocabulary_suggestions(
+            self.model, turns, candidates, flow="call",
+            trace_sink=lambda entries: self.store.save_vocabulary_trace(
+                "call", call["id"], turns, entries)))
         accepted: set[str] = set()
         if candidates:
             try:
-                accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
+                accepted = await verify_corrections_with_metrics(self.model, candidates, flow="call")
             except Exception:
                 logger.exception("call correction verification failed; omitting examples")
         examples = select_examples(candidates, accepted)
         metrics = fluency_metrics(call.get("turns") or [])
         transcripts = [str(turn.get("transcript") or "").strip() for turn in call.get("turns") or []]
-        raw = await self.model.compose_call_review({
-            "baseline": {
-                "cefr": assessment.get("cefr"),
-                "overallScore": assessment.get("overallScore"),
-                "grammar": assessment.get("grammar"),
-                "vocabulary": assessment.get("vocabulary"),
-                "fluency": assessment.get("fluency"),
-            },
-            "transcripts": [text for text in transcripts if text],
-            "grammarExamples": examples["grammar"],
-            "vocabularyExamples": examples["vocabulary"],
-            "fluency": {key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")},
-        })
-        suggestions = select_vocabulary_suggestions(
-            raw.get("vocabularySuggestions"), transcripts, candidates, examples["vocabulary"],
-        )
+        try:
+            raw = await self.model.compose_call_review({
+                "baseline": {
+                    "cefr": assessment.get("cefr"),
+                    "overallScore": assessment.get("overallScore"),
+                    "grammar": assessment.get("grammar"),
+                    "vocabulary": assessment.get("vocabulary"),
+                    "fluency": assessment.get("fluency"),
+                },
+                "transcripts": [text for text in transcripts if text],
+                "grammarExamples": examples["grammar"],
+                "vocabularyExamples": examples["vocabulary"],
+                "fluency": {key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")},
+            })
+        except BaseException:
+            enrichment.cancel()
+            await asyncio.gather(enrichment, return_exceptions=True)
+            raise
+        suggestions = await enrichment
         return apply_call_level(assessment, raw, examples, metrics, suggestions)
 
     async def _finish(self, review: dict, call: dict) -> dict:

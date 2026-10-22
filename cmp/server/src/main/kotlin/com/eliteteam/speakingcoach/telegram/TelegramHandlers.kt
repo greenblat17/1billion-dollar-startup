@@ -110,7 +110,7 @@ private fun localFailureReason(error: Throwable): String = when {
 
 private fun onboardingActionStage(action: String): String = when (action) {
     "begin" -> "first_question"
-    "level", "see", "results", "vocab", "fluency", "finish", "profile", "bye" -> "result_card"
+    "level", "see", "results", "vocab", "vocab_more", "fluency", "finish", "profile", "bye" -> "result_card"
     "skip", "m5", "m10", "m15" -> "goal"
     "remind", "later" -> "reminder"
     "retry" -> "result_delivery"
@@ -1379,7 +1379,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val wrapped = review.asOnboardingReview()
         val slide = when (callback.action) {
             "grammar" -> grammarSlide(wrapped) to "vocab"
-            "vocab" -> vocabularySlide(wrapped) to "fluency"
+            "vocab" -> vocabularySlide(wrapped) to (if (hasVocabularyMore(wrapped)) "vocab_more" else "fluency")
+            "vocab_more" -> vocabularyMoreSlide(wrapped) to "fluency"
             else -> fluencySlide(wrapped) to "progress"
         }
         val markup = callSlideKeyboard(slide.second, callback.callId)
@@ -1740,7 +1741,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         "end" -> endPracticeCall(message, query.id.toString(), callbackReceivedAt,
                             callCallback.callId)
                         "progress" -> showCallProgress(message, callCallback.callId)
-                        "grammar", "vocab", "fluency" -> showCallSlide(message, callCallback)
+                        "grammar", "vocab", "vocab_more", "fluency" -> showCallSlide(message, callCallback)
                         else -> showCallLevel(message, callCallback.callId)
                     }
                 }
@@ -1819,11 +1820,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             analytics.safely { mark(callback.runId, AttemptMark.RESULTS, Instant.now()) }
                         }
                     }
-                    "results", "vocab", "fluency" -> {
+                    "results", "vocab", "vocab_more", "fluency" -> {
                         if (showReviewSlide(ai, log, message, callback)) {
                             val step = when (callback.action) {
                                 "results" -> AttemptMark.GRAMMAR
-                                "vocab" -> AttemptMark.VOCABULARY
+                                "vocab", "vocab_more" -> AttemptMark.VOCABULARY
                                 else -> AttemptMark.FLUENCY
                             }
                             analytics.safely { mark(callback.runId, step, Instant.now()) }
@@ -2194,7 +2195,8 @@ private suspend fun BehaviourContext.showReviewSlide(
     if (state.runId != callback.runId || review == null) return false
     val slide = when (callback.action) {
         "results" -> grammarSlide(review) to "vocab"
-        "vocab" -> vocabularySlide(review) to "fluency"
+        "vocab" -> vocabularySlide(review) to (if (hasVocabularyMore(review)) "vocab_more" else "fluency")
+        "vocab_more" -> vocabularyMoreSlide(review) to "fluency"
         else -> fluencySlide(review) to "finish"
     }
     val markup = onboardingKeyboard(slide.second, callback.runId)

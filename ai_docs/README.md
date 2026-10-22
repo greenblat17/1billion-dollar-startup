@@ -16,6 +16,17 @@ Monitoring and onboarding analytics integration: `integrations/2026-10-04-combin
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
+Final correction-check latency and timeout metrics: `integrations/2026-10-02-monitoring.md`.
+Independent final correction search: `plans/2026-10-20-final-correction-discovery-evaluation.md`; synthetic probe: `researches/2026-10-20-independent-correction-discovery-probe.md`; real-conversation evaluations: `researches/2026-10-20-real-final-discovery-evaluation.md` and `researches/2026-10-20-real-call-vocabulary-audio-evaluation.md`.
+Vocabulary alternatives beside correction examples: `plans/2026-10-02-telegram-vocabulary-alternatives.md`; initial synthetic prompt probe: `researches/2026-10-20-vocabulary-mixed-assessment-prompt-probe.md`; larger live-turn evaluation: `researches/2026-10-20-live-vocabulary-larger-sample.md`.
+Real-conversation replay of the Vocabulary level-up prompt: `researches/2026-10-20-real-vocabulary-level-up-replay.md`.
+Full real-conversation replay after explicit Vocabulary categories: `researches/2026-10-20-real-vocabulary-category-full-replay.md`.
+Vocabulary workflow rebuild draft: `plans/2026-10-20-vocabulary-rebuild-draft.md`.
+Agreed live-naturalness and final Vocabulary-enrichment plan: `plans/2026-10-21-live-naturalness-final-vocabulary-enrichment.md`; local workflow contract: `integrations/2026-10-21-vocabulary-assessment-workflow.md`.
+Initial real-dialogue probe of final Vocabulary enrichment: `researches/2026-10-21-final-vocabulary-enrichment-real-probe.md`.
+Paired benchmark of the current and dedicated Vocabulary workflows: `researches/2026-10-20-vocabulary-rebuild-benchmark.md`.
+Real-dialogue replay of the narrower Vocabulary rules: `researches/2026-10-21-narrow-vocabulary-real-replay.md`.
+Real-dialogue replay of the two-suggestion Vocabulary rule: `researches/2026-10-21-two-suggestion-vocabulary-real-replay.md`.
 Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
 Plan for complete STT, LLM and delayed TTS cost accounting: `plans/2026-10-15-complete-voice-unit-cost.md`.
 Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.

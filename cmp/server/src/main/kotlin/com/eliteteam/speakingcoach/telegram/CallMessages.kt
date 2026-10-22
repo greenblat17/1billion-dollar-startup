@@ -48,7 +48,7 @@ internal fun scenarioBackKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 
 internal data class CallCallback(val action: String, val callId: String)
 
-private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review", "end")
+private val callSlideActions = setOf("grammar", "vocab", "vocab_more", "fluency", "progress", "retry", "review", "end")
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
@@ -103,6 +103,7 @@ internal fun callSlideKeyboard(action: String, callId: String): InlineKeyboardMa
         val label = when (action) {
             "grammar" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
+            "vocab_more" -> "More Vocabulary →"
             "fluency" -> "Fluency →"
             else -> "Continue →"
         }

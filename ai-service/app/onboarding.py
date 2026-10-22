@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import logging
+import re
 import time
 from copy import deepcopy
 from typing import Any
@@ -11,11 +12,12 @@ from uuid import uuid4
 
 from redis.asyncio import Redis
 
-from app.llm import Correction
 from app.audit_artifacts import record_artifact, recorded_at
-from app.onboarding_review import closing_lines, correction_candidates, explained_examples, fluency_metrics, grounded_callback, select_examples
+from app.correction_verification import verify_corrections_with_metrics
+from app.llm import Correction
+from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
-from app.vocabulary_suggestions import select_vocabulary_suggestions
+from app.vocabulary_suggestions import discover_vocabulary_suggestions
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult, current_job_timings
 from app.metrics_v2 import bind_metrics, reset_metrics
@@ -70,6 +72,7 @@ class OnboardingStore:
     def __init__(self, redis: Redis | None = None) -> None:
         self._redis = redis
         self._memory: dict[str, dict] = {}
+        self._vocabulary_traces: dict[str, tuple[float, dict]] = {}
         self._goals: dict[str, int] = {}
         self._assessments: dict[str, dict] = {}
         self._learners: dict[str, dict] = {}
@@ -78,6 +81,37 @@ class OnboardingStore:
 
     def lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
+
+    async def save_vocabulary_trace(self, flow: str, review_id: str,
+                                    turns: list[dict], entries: list[dict]) -> None:
+        if flow not in ("onboarding", "call") or not re.fullmatch(r"[0-9a-f]{32}", review_id):
+            raise ValueError("invalid vocabulary trace identity")
+        received = [turn.get("receivedAt") for turn in turns if isinstance(turn, dict)]
+        received = [value for value in received if type(value) in (int, float) and math.isfinite(value)]
+        if not received:
+            return
+        deadline = min(received) + RAW_CONTENT_SECONDS
+        if deadline <= time.time():
+            return
+        key = f"vocabulary-review-debug:{flow}:{review_id}"
+        payload = {"flow": flow, "reviewId": review_id, "entries": entries}
+        if self._redis is not None:
+            async with self._redis.pipeline(transaction=True) as pipe:
+                pipe.set(key, json.dumps(payload, ensure_ascii=False))
+                pipe.expireat(key, int(deadline))
+                await pipe.execute()
+        else:
+            self._vocabulary_traces[key] = (deadline, deepcopy(payload))
+
+    async def get_vocabulary_trace(self, flow: str, review_id: str) -> dict | None:
+        if flow not in ("onboarding", "call") or not re.fullmatch(r"[0-9a-f]{32}", review_id):
+            raise ValueError("invalid vocabulary trace identity")
+        key = f"vocabulary-review-debug:{flow}:{review_id}"
+        if self._redis is not None:
+            raw = await self._redis.get(key)
+            return json.loads(raw) if raw else None
+        saved = self._vocabulary_traces.get(key)
+        return deepcopy(saved[1]) if saved and saved[0] > time.time() else None
 
     async def get(self, session_id: str) -> dict | None:
         if self._redis is not None:
@@ -227,6 +261,7 @@ def _shown_corrections(turn: dict | None) -> list[Correction]:
             shown.append(Correction(
                 str(note["wrong"]), str(note["better"]), str(note.get("kind") or "grammar"),
                 note.get("explanation") if isinstance(note.get("explanation"), str) else None,
+                note.get("vocabularyCategory") if isinstance(note.get("vocabularyCategory"), str) else None,
             ))
     return shown
 
@@ -764,11 +799,15 @@ class OnboardingService:
 
     async def _compose_review(self, state: dict) -> dict:
         candidates = correction_candidates(state["turns"])
+        enrichment = asyncio.create_task(discover_vocabulary_suggestions(
+            self.model, state["turns"], candidates, flow="onboarding",
+            trace_sink=lambda entries: self.store.save_vocabulary_trace(
+                "onboarding", state["runId"], state["turns"], entries)))
         accepted: set[str] = set()
         if candidates:
             await self.pipeline.record_partial("review_verification", "attempted")
             try:
-                accepted = await asyncio.wait_for(self.model.verify_corrections(candidates), timeout=10)
+                accepted = await verify_corrections_with_metrics(self.model, candidates, flow="onboarding")
                 await self.pipeline.record_partial("review_verification", "succeeded")
             except Exception as error:
                 await self.pipeline.record_partial("review_verification", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
@@ -777,27 +816,30 @@ class OnboardingService:
         metrics = fluency_metrics(state["turns"])
         transcripts = [str(turn.get("transcript") or "").strip() for turn in state["turns"]]
         transcripts = [text for text in transcripts if text]
-        raw = await self.model.compose_review({
-            "transcripts": transcripts,
-            "profile": state.get("profile") or {},
-            "cefr": state.get("cefr"),
-            "position": state.get("position"),
-            "grammarExamples": examples["grammar"],
-            "vocabularyExamples": examples["vocabulary"],
-            "fluency": {
-                key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")
-            },
-        })
+        try:
+            raw = await self.model.compose_review({
+                "transcripts": transcripts,
+                "profile": state.get("profile") or {},
+                "cefr": state.get("cefr"),
+                "position": state.get("position"),
+                "grammarExamples": examples["grammar"],
+                "vocabularyExamples": examples["vocabulary"],
+                "fluency": {
+                    key: metrics.get(key) for key in ("paceWpm", "longPauses", "fillers", "longestStretchSec")
+                },
+            })
+        except BaseException:
+            enrichment.cancel()
+            await asyncio.gather(enrichment, return_exceptions=True)
+            raise
         seconds = float(state.get("seconds") or 0)
         timings = bool(metrics.get("hasWords"))
         grammar = apply_skill(raw["grammar"], seconds, "grammar")
         vocabulary = apply_skill(raw["vocabulary"], seconds, "vocabulary")
         fluency = apply_skill(raw["fluency"], seconds, "fluency", timings=timings)
-        grammar["examples"] = explained_examples(examples["grammar"], raw["grammarExplanations"])
-        vocabulary["examples"] = explained_examples(examples["vocabulary"], raw["vocabularyExplanations"])
-        vocabulary["suggestions"] = select_vocabulary_suggestions(
-            raw.get("vocabularySuggestions"), transcripts, candidates, examples["vocabulary"],
-        )
+        grammar["examples"] = examples["grammar"]
+        vocabulary["examples"] = examples["vocabulary"]
+        vocabulary["suggestions"] = await enrichment
         fluency.update({
             "paceWpm": metrics["paceWpm"],
             "longPauses": metrics["longPauses"],
