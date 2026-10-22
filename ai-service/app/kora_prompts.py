@@ -48,8 +48,7 @@ conversation against a user's wish to leave. Preserve a clear opportunity to res
 '''
 
 
-def parse_plan(raw: str, *, moves: set[str] | None = None,
-               require_response_path: bool = False) -> dict:
+def parse_plan(raw: str, *, moves: set[str] | None = None) -> dict:
     raw = raw.strip()
     lines = raw.splitlines()
     if len(lines) >= 3 and lines[0] in ('```json', '```') and lines[-1] == '```':
@@ -72,15 +71,7 @@ def parse_plan(raw: str, *, moves: set[str] | None = None,
     ending = (value['interest'] == 'ending', value['direction'] == 'end', value['move'] == 'close')
     if any(ending) and not all(ending):
         raise ValueError('inconsistent_ending')
-    result = {key: value[key].strip() for key in (*options, 'evidence', 'topic', 'tone', 'contribution')} | {'strategy': STRATEGY}
-    if require_response_path:
-        response_path = value.get('response_path')
-        if (not isinstance(response_path, str) or len(response_path.split()) > 25
-                or (value['move'] == 'perspective' and not response_path.strip())
-                or (value['move'] != 'perspective' and response_path.strip())):
-            raise ValueError('invalid_response_path')
-        result['response_path'] = response_path.strip()
-    return result
+    return {key: value[key].strip() for key in (*options, 'evidence', 'topic', 'tone', 'contribution')} | {'strategy': STRATEGY}
 
 
 def with_plan(prompt: str, plan: dict, *, language: str = 'natural A2 English') -> str:

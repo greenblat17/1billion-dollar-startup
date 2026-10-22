@@ -205,7 +205,7 @@ async def test_kora_h_opening_prompts_ground_follow_up_and_allow_check_in(monkey
     calls = []
     plan = dict(interest='searching', evidence='Learner mentioned a project last time',
                 topic='Project', direction='stay', move='question', tone='Warm',
-                contribution='How did your project go?', response_path='')
+                contribution='How did your project go?', adjacent_topic='', fallback_question='')
     async def complete(messages, **kwargs):
         calls.append(messages)
         return json.dumps(plan) if len(calls) == 1 else 'Hey! How are you? How did your project go?'
@@ -227,7 +227,7 @@ async def test_kora_h_opening_retries_a_plan_without_a_question(monkeypatch):
     calls = []
     plan = dict(interest='searching', evidence='No prior learner topic', topic='Today',
                 direction='stay', move='contribute', tone='Warm',
-                contribution='Today is a fresh start.', response_path='')
+                contribution='Today is a fresh start.', adjacent_topic='', fallback_question='')
     async def complete(messages, **kwargs):
         calls.append(kwargs['operation'])
         if len(calls) == 2:
@@ -296,11 +296,13 @@ async def test_kora_h_planner_retry_and_direct_fallback(monkeypatch, valid_on_re
     calls, artifacts = [], {}
     plan = dict(interest='engaged', evidence='User has an opinion', topic='Walking', direction='stay',
                 move='perspective', tone='Warm', contribution='The walk can be a quiet break between work and home.',
-                response_path='The learner could say the walk feels noisy rather than restful.')
+                adjacent_topic='', fallback_question='Does that walk feel restful or tiring to you?')
     async def complete(messages, **kwargs):
         calls.append((messages, kwargs))
         if kwargs['operation'] == 'kora_h_plan':
             return json.dumps(plan) if valid_on_retry and len(calls) == 2 else 'not-json'
+        if kwargs['operation'] == 'kora_h_perspective_review':
+            return '{"substantive":true,"reason":"A concrete other view"}'
         return 'Maybe that walk is a quiet break.'
     async def write(field, value): artifacts[field] = value
     monkeypatch.setattr(model, '_complete', complete)
@@ -312,20 +314,24 @@ async def test_kora_h_planner_retry_and_direct_fallback(monkeypatch, valid_on_re
     finally:
         reset_writer(token)
     assert reply == 'Maybe that walk is a quiet break.'
-    assert [options['operation'] for _, options in calls] == ['kora_h_plan', 'kora_h_plan', 'kora_h_reply']
+    assert [options['operation'] for _, options in calls] == (
+        ['kora_h_plan', 'kora_h_plan', 'kora_h_reply', 'kora_h_perspective_review']
+        if valid_on_retry else ['kora_h_plan', 'kora_h_plan', 'kora_h_reply'])
+    assert 'previous_plan_error' in json.loads(calls[1][0][-1]['content'])
     assert 'different, plausible way to see' in calls[0][0][0]['content']
-    assert all(call[0][1] == {'role': 'system', 'content': profile_note} for call in calls)
+    assert all(call[0][1] == {'role': 'system', 'content': profile_note} for call in calls[:3])
     assert '"overall_cefr": "B2"' in profile_note
     assert 'A2 English' not in calls[0][0][0]['content']
-    writer_prompt = calls[-1][0][0]['content']
+    writer_prompt = calls[2][0][0]['content']
     assert 'exact words that Hume will say aloud' in writer_prompt
     assert 'A2 English' not in writer_prompt
     saved_plan = json.loads(artifacts['conversation_plan'])
     if valid_on_retry:
-        assert saved_plan['strategy'] == 'interest_alternative_view_v2'
+        assert saved_plan['strategy'] == 'interest_alternative_view_v3'
         assert saved_plan['planner_retry'] is True
         assert plan['contribution'] in writer_prompt
-        assert plan['response_path'] not in writer_prompt
+        assert plan['fallback_question'] not in writer_prompt
+        assert saved_plan['perspective_review'] == 'accepted'
     else:
         assert saved_plan['planner_fallback'] == 'invalid_plan'
         assert 'CURRENT TURN' not in writer_prompt
@@ -337,7 +343,8 @@ async def test_kora_h_retries_old_contribute_move_and_keeps_question_reaction(mo
     prompts = []
     plan = dict(interest='engaged', evidence='User describes a release', topic='Voice release',
                 direction='stay', move='question', tone='Excited but calm',
-                contribution='What feedback are you most hoping to hear?', response_path='')
+                contribution='What feedback are you most hoping to hear?',
+                adjacent_topic='', fallback_question='')
     async def complete(messages, **kwargs):
         prompts.append(messages[0]['content'])
         if len(prompts) == 1:
@@ -349,7 +356,7 @@ async def test_kora_h_retries_old_contribute_move_and_keeps_question_reaction(mo
     reply = await model.complete_reply([], 'We deploy the new voice mode today.')
     assert 'What feedback' in reply
     assert len(prompts) == 3
-    assert 'agreement or a paraphrase alone' in prompts[0].lower()
+    assert 'paraphrase' in prompts[0].lower() and 'never the whole reply' in prompts[0].lower()
     assert 'react to a specific detail' in prompts[2]
     assert 'brief fitting reaction color the planned different angle' in prompts[2]
 
@@ -357,16 +364,77 @@ async def test_kora_h_retries_old_contribute_move_and_keeps_question_reaction(mo
 def test_kora_h_perspective_requires_a_distinct_plan_move():
     model = KoraHModel(None, 'test')
     plan = dict(interest='engaged', evidence='User has a view', topic='Feedback', direction='stay',
-                tone='Warm', contribution='Returning users reveal more than first compliments.')
+                tone='Warm', contribution='Returning users reveal more than first compliments.',
+                adjacent_topic='', fallback_question='')
     with pytest.raises(ValueError, match='invalid_move'):
         model.parse_plan(json.dumps({**plan, 'move': 'contribute'}))
-    with pytest.raises(ValueError, match='invalid_response_path'):
-        model.parse_plan(json.dumps({**plan, 'move': 'perspective', 'response_path': ''}))
+    with pytest.raises(ValueError, match='invalid_fallback_question'):
+        model.parse_plan(json.dumps({**plan, 'move': 'perspective'}))
     valid = {**plan, 'move': 'perspective',
-             'response_path': 'The learner can say early praise is enough for this launch.'}
-    assert model.parse_plan(json.dumps(valid))['response_path'] == valid['response_path']
-    with pytest.raises(ValueError, match='invalid_response_path'):
-        model.parse_plan(json.dumps({**valid, 'move': 'question'}))
+             'fallback_question': 'What feedback would change your mind about this launch?'}
+    assert model.parse_plan(json.dumps(valid))['fallback_question'] == valid['fallback_question']
+    assert model.parse_plan('```json\n' + json.dumps(valid) + '\n```')['move'] == 'perspective'
+    question = {**valid, 'move': 'question', 'contribution': 'What feedback do you want?'}
+    assert model.parse_plan(json.dumps(question))['fallback_question'] == ''
+    with pytest.raises(ValueError, match='invalid_move_content'):
+        model.parse_plan(json.dumps({**valid, 'contribution': 'Maybe a different view. What do you think?'}))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('review_fails', [False, True])
+async def test_kora_h_rejects_generic_perspective_and_writes_fallback_question(monkeypatch, review_fails):
+    model = KoraHModel(None, 'test')
+    calls, artifacts = [], {}
+    plan = dict(interest='engaged', evidence='Learner describes a beta release',
+                topic='Voice beta release', direction='stay', adjacent_topic='',
+                move='perspective', tone='Interested',
+                contribution='Good enough and shipped beats perfect and waiting.',
+                fallback_question='Which part of the voice mode are you most curious to hear feedback on?')
+    async def complete(messages, **kwargs):
+        calls.append((messages, kwargs['operation']))
+        if review_fails and kwargs['operation'] == 'kora_h_perspective_review':
+            raise RuntimeError('review unavailable')
+        return {
+            'kora_h_plan': json.dumps(plan),
+            'kora_h_reply': 'Good enough and shipped beats perfect and waiting. Beta users will surprise you.',
+            'kora_h_perspective_review': '{"substantive":false,"reason":"generic launch slogan"}',
+            'kora_h_reply_fallback': "Oh, the beta's going live today? Which part of the voice mode are you most curious to hear feedback on?",
+        }[kwargs['operation']]
+    async def write(field, value): artifacts[field] = value
+    monkeypatch.setattr(model, '_complete', complete)
+    token = bind_writer(write)
+    try:
+        reply = await model.complete_reply([], 'We are releasing our voice beta today.')
+    finally:
+        reset_writer(token)
+    assert reply.endswith('feedback on?')
+    assert [operation for _, operation in calls] == [
+        'kora_h_plan', 'kora_h_reply', 'kora_h_perspective_review', 'kora_h_reply_fallback']
+    assert 'Good enough' in calls[2][0][-1]['content']
+    assert plan['fallback_question'] in calls[3][0][0]['content']
+    saved = json.loads(artifacts['conversation_plan'])
+    assert saved['perspective_review'] == ('unavailable' if review_fails else 'rejected')
+    assert saved['move'] == 'question'
+
+
+@pytest.mark.asyncio
+async def test_kora_h_fading_turn_bridges_to_adjacent_topic(monkeypatch):
+    model = KoraHModel(None, 'test')
+    calls = []
+    plan = dict(interest='fading', evidence='Several questions about work got short answers',
+                topic='Work', direction='adjacent', adjacent_topic='After-work rest',
+                move='question', tone='Gentle', contribution='What helps you switch off after work?',
+                fallback_question='')
+    async def complete(messages, **kwargs):
+        calls.append((messages, kwargs['operation']))
+        return json.dumps(plan) if len(calls) == 1 else 'Work sounds tiring. What helps you switch off afterward?'
+    monkeypatch.setattr(model, '_complete', complete)
+    reply = await model.complete_reply([], 'Yeah. Same as usual.')
+    assert reply.endswith('afterward?')
+    assert [operation for _, operation in calls] == ['kora_h_plan', 'kora_h_reply']
+    assert 'After-work rest' in calls[1][0][0]['content']
+    with pytest.raises(ValueError, match='invalid_adjacent_topic'):
+        model.parse_plan(json.dumps({**plan, 'direction': 'stay', 'adjacent_topic': ''}))
 
 
 @pytest.mark.asyncio

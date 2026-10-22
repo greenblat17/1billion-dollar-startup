@@ -235,3 +235,31 @@ detail when it fits. The response colors the question or different view; it
 does not replace either move or require excitement on every turn. Hume's
 exact-text speech path is unchanged, so prosody still depends on Sonnet's
 wording and Hume's delivery.
+
+## Kora H reply routing v3, 2026-10-22
+
+Kora H now makes the third route explicit: when repeated questions or views on
+a topic receive no uptake, the planner selects `fading` with `direction=adjacent` and
+names a neighboring topic. The writer bridges to it through a question or a
+substantive perspective. A short reply alone does not trigger this transition.
+The plan parser rejects a fading plan without an adjacent topic, or an adjacent
+plan that does not mark the topic as fading. This replaces the conflicting v2
+instruction to stay on the same topic in every question or perspective.
+
+For a `perspective`, the planner supplies a concrete fallback question. Sonnet
+writes the exact spoken reply, then a separate Sonnet call judges that finished
+reply against the recent exchange. The judge does not see the planner's claim
+that the view is useful. A generic slogan, paraphrase, or unsupported prediction
+is rejected; the writer then uses the fallback question with a fitting reaction.
+If the review call fails, the route also uses that fallback question. The
+recorded plan includes the review outcome and final move. This adds one
+Sonnet call to accepted perspectives and two to rejected ones. It is a model
+judgment rather than a deterministic guarantee of conversational quality.
+Question, direct answer, closing, and call opening do not call the judge. Hume
+still speaks the final Sonnet text exactly. Existing Kora and Speaky are unchanged.
+
+A read-only Sonnet replay on DEV rejected the reported "good enough and shipped"
+reply and one held-out generic launch slogan. It accepted two concrete beta
+feedback angles. In a separate replay, three work questions with only brief
+answers led to `fading` and a question about after-work activities. These are
+directional probes, not a full Telegram conversation or a voice-quality check.

@@ -1,15 +1,20 @@
 """Persistent Telegram character selection and Kora model variants."""
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 
 from redis.asyncio import Redis
 
 from app.audit_artifacts import record_artifact
 from app.kora_h_prompts import (H_PERSONA, H_PLAN_SYSTEM, H_OPENING_PLAN, H_OPENING_REPLY,
-                                H_MOVES, with_h_plan, STRATEGY as H_STRATEGY)
+                                H_PERSPECTIVE_REVIEW, parse_h_plan, with_h_plan,
+                                STRATEGY as H_STRATEGY)
 from app.kora_prompts import PERSONA, PLAN_SYSTEM, parse_plan, with_plan
 from app.llm import OpenAiChatModel
+
+logger = logging.getLogger(__name__)
 
 
 class CharacterStore:
@@ -44,26 +49,31 @@ class KoraModel(OpenAiChatModel):
     language = "natural A2 English"
     opening_plan = ""
     opening_reply = ""
-    plan_moves = None
-    require_response_path = False
 
     def parse_plan(self, raw: str) -> dict:
-        return parse_plan(raw, moves=self.plan_moves, require_response_path=self.require_response_path)
+        return parse_plan(raw)
 
     def format_plan(self, plan: dict) -> str:
         return with_plan(self.persona, plan, language=self.language)
+
+    async def review_reply(self, plan: dict | None, reply: str, messages: list[dict],
+                           context: list[dict], user_text: str) -> str:
+        return reply
 
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
         context = ([{"role": "system", "content": profile_note}]
                    if self.use_profile_note and profile_note else [])
         plan = None
+        plan_error = None
         for attempt in range(2 if self.retry_invalid_plan else 1):
             try:
                 raw = await self._complete([
                     {"role": "system", "content": self.plan_system + (self.opening_plan if mode == "opening" else "")},
                     *context,
-                    {"role": "user", "content": json.dumps({"history": messages, "user": user_text})},
+                    {"role": "user", "content": json.dumps({"history": messages, "user": user_text,
+                                                            **({"previous_plan_error": plan_error}
+                                                               if plan_error else {})})},
                 ], temperature=.7, max_tokens=500, response_format={"type": "text"},
                     operation=f"{self.operation_prefix}_plan")
                 candidate = self.parse_plan(raw)
@@ -74,7 +84,8 @@ class KoraModel(OpenAiChatModel):
                 if attempt:
                     plan["planner_retry"] = True
                 break
-            except ValueError:
+            except ValueError as error:
+                plan_error = str(error)
                 if not self.retry_invalid_plan:
                     raise
         if plan is None:
@@ -86,12 +97,13 @@ class KoraModel(OpenAiChatModel):
             prompt = self.format_plan(plan)
         if mode == "opening":
             prompt += self.opening_reply
-        return await self._complete([
+        reply = await self._complete([
             {"role": "system", "content": prompt},
             *context,
             *messages, {"role": "user", "content": user_text},
         ], temperature=.7, max_tokens=250, response_format={"type": "text"},
             operation=f"{self.operation_prefix}_reply")
+        return await self.review_reply(plan, reply, messages, context, user_text)
 
 
 class KoraHModel(KoraModel):
@@ -104,11 +116,50 @@ class KoraHModel(KoraModel):
     language = "English matched to the learner's verified level or current speech"
     opening_plan = H_OPENING_PLAN
     opening_reply = H_OPENING_REPLY
-    plan_moves = H_MOVES
-    require_response_path = True
+
+    def parse_plan(self, raw: str) -> dict:
+        return parse_h_plan(raw)
 
     def format_plan(self, plan: dict) -> str:
         return with_h_plan(self.persona, plan, language=self.language)
+
+    async def review_reply(self, plan: dict | None, reply: str, messages: list[dict],
+                           context: list[dict], user_text: str) -> str:
+        if plan is None or plan["move"] != "perspective":
+            return reply
+        review_unavailable = False
+        try:
+            raw = await self._complete([
+                {"role": "system", "content": H_PERSPECTIVE_REVIEW},
+                {"role": "user", "content": json.dumps({"history": messages, "user": user_text,
+                                                        "reply": reply})},
+            ], temperature=0, max_tokens=160, response_format={"type": "json_object"},
+                operation="kora_h_perspective_review")
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.warning("Kora H perspective review failed: %s", type(error).__name__)
+            review_unavailable = True
+            raw = ""
+        try:
+            verdict = json.loads(raw)
+            accepted = verdict.get("substantive") is True
+        except (ValueError, TypeError, AttributeError):
+            accepted = False
+        plan["perspective_review"] = ("unavailable" if review_unavailable else
+                                      "accepted" if accepted else "rejected")
+        if accepted:
+            await record_artifact("conversation_plan", json.dumps(plan))
+            return reply
+        plan["move"] = "question"
+        plan["contribution"] = plan["fallback_question"]
+        plan["fallback_question"] = ""
+        await record_artifact("conversation_plan", json.dumps(plan))
+        return await self._complete([
+            {"role": "system", "content": self.format_plan(plan)},
+            *context, *messages, {"role": "user", "content": user_text},
+        ], temperature=.7, max_tokens=250, response_format={"type": "text"},
+            operation="kora_h_reply_fallback")
 
 
 class Characters:

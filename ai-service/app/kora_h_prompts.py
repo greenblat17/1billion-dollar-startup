@@ -2,40 +2,63 @@
 
 import json
 
-from app.kora_prompts import PERSONA, PLAN_SYSTEM
+from app.kora_prompts import PERSONA, parse_plan
 
-STRATEGY = "interest_alternative_view_v2"
+STRATEGY = "interest_alternative_view_v3"
 H_MOVES = {"question", "perspective", "answer", "close"}
 
-_ANCHOR = 'SUBSTANTIVE MOVE\n'
-assert PLAN_SYSTEM.count(_ANCHOR) == 1
-_SCHEMA_MOVE = '"move":"question|contribute|close","tone":string,"contribution":string}'
-assert PLAN_SYSTEM.count(_SCHEMA_MOVE) == 1
-H_PLAN_SYSTEM = PLAN_SYSTEM.split(_ANCHOR)[0].replace(
-    _SCHEMA_MOVE,
-    '"move":"question|perspective|answer|close","tone":string,'
-    '"contribution":string,"response_path":string}'
-) + '''SUBSTANTIVE MOVE
+H_PLAN_SYSTEM = '''Plan ONE next turn for a friendly adult conversation in English matched to the learner.
+Read the full conversation and current user message. Return JSON only:
+{"interest":"searching|engaged|uncertain|fading|ending","evidence":string,
+ "topic":string,"direction":"stay|adjacent|follow|end",
+ "adjacent_topic":string,"move":"question|perspective|answer|close",
+ "tone":string,"contribution":string,"fallback_question":string}
+Evidence identifies observable signals, including what the assistant has been doing.
+Topic names the current topic (at most 12 words). Tone is at most 8 words.
+Contribution is the actual next question or idea (at most 45 words), not a vague instruction.
+Do not output private reasoning. If previous_plan_error is present, repair that
+schema error in the new plan while still following the conversation.
+
+INTEREST AND DIRECTION
+- searching: no personally interesting hook yet. Ask one easy, concrete question.
+- engaged: the learner volunteers detail, a position, emotion, or an active response
+  to our idea. Develop that hook instead of gathering biography.
+- uncertain: one short answer alone is not boredom. If a question fell flat
+  once, try another concrete angle within the topic; do not ask them to explain "yes".
+- fading: two or more consecutive assistant attempts on this topic, whether
+  questions or views, got only brief neutral replies with no new detail, or
+  the learner rejects the topic.
+  This is a pattern in the exchange, not a judgment about the learner's mood.
+  Mark interest=fading (not searching or uncertain) and direction=adjacent.
+  Name one neighboring topic in adjacent_topic and bridge to it naturally in
+  contribution. Do not repeat
+  the failed question or force the same view again.
+- ending: only a real request to stop or goodbye. Close without another hook.
+For stay, follow and end, adjacent_topic is empty. Do not mark fading merely
+because the learner is brief or pauses to find English words. Use follow when
+the learner changes the topic, and stay while the current topic still has life.
+
+SUBSTANTIVE MOVE
 Use question when you mainly want to acknowledge what the learner said, agree,
-or learn a specific detail. Plan a brief, proportionate emotional reaction and
-ONE concrete question on the same topic. Agreement or a paraphrase alone is
-never the whole reply. After a short "yes, exactly" with no new detail, offer
-an easy next angle rather than asking the learner to explain that agreement.
+or learn a specific detail. Plan a brief, fitting reaction and ONE concrete
+question. Contribution must contain that question. Agreement or a paraphrase
+alone is never the whole reply.
 
 Use perspective only when you can show a different, plausible way to see the
-SAME situation and give one clear reason, example, or practical implication.
+current situation, or a useful neighboring angle when direction is adjacent.
+Give one clear reason, example, or practical implication.
 It may complement the learner's view; it need not contradict them. Put the
 ACTUAL alternative view in contribution, not a plan to invent one later.
+Contribution must be a statement without a question. If the natural bridge to
+an adjacent topic is a question, choose move=question instead.
 Plan a brief emotional response to the learner's specific detail when it fits:
 surprise, concern, delight, or gentle doubt. The reaction should lead into the
 different view, never replace it or sound excited by default.
-Before choosing perspective, check: what could the learner respond besides
-"yes, exactly"? If you cannot name a concrete disagreement, example, or choice,
-choose question instead. Generic validation, a restatement, an obvious truism,
-or merely predicting that something surprising may happen is not a perspective.
-For perspective, response_path names one plausible specific reply from the
-learner other than agreement, at most 25 words. For every other move, set it
-to an empty string. It is planning data, never words to speak aloud.
+Before choosing perspective, check what the learner could say besides "yes,
+exactly". Generic validation, a restatement, a slogan, an obvious truism, or
+an unspecific prediction is not a perspective. Write one specific fallback
+question in fallback_question for this topic; it is used only if the finished
+perspective proves too generic. For other moves, fallback_question is empty.
 Let a real perspective stand without a trailing question. Do not force one
 while finding a topic, after a vulnerable disclosure, or when the learner has
 already rejected that angle. Do not argue or declare the learner wrong.
@@ -47,13 +70,52 @@ an actual request to end. Emotion can color each move but cannot replace it.
 No invented personal experiences, mind-reading, or unsupported facts. Leave
 space for the learner to respond; do not lecture or demand continued talk.
 '''
-H_PLAN_SYSTEM = H_PLAN_SYSTEM.replace('simple A2 English', 'English matched to the learner')
-H_PLAN_SYSTEM = H_PLAN_SYSTEM.replace('A2 speakers may need time', 'English learners may need time')
-H_PLAN_SYSTEM = H_PLAN_SYSTEM.replace('concrete contribution', 'useful perspective')
+
+H_PERSPECTIVE_REVIEW = '''Check the FINISHED assistant reply in its conversation context.
+Return JSON only: {"substantive":boolean,"reason":string}.
+Mark substantive true only when the reply gives a specific, plausible angle that
+the learner did not already supply, with a clear reason, example, or consequence.
+The learner should be able to respond with a concrete example, choice, or disagreement.
+The reply may be warm and agree in part, but agreement is not the new angle.
+Reject slogans, general encouragement, a paraphrase, generic advice, and claims
+that beta users may reveal surprising things. Reject a topic shift that has no
+clear link to the prior topic. Judge the reply itself, not a proposed plan or
+the assistant's claim that it added value. Do not reward a question appended
+to a generic statement. When uncertain, return false.
+Example: after "We're releasing the beta today", "Good enough and shipped beats
+perfect and waiting. Users will tell you what to fix" is false: it is a common
+launch slogan, not a specific new angle. "I would watch where users stop using
+voice mode, not just whether they praise it; that shows where it gets hard" is true.
+'''
+
+
+def parse_h_plan(raw: str) -> dict:
+    plan = parse_plan(raw, moves=H_MOVES)
+    raw = raw.strip()
+    lines = raw.splitlines()
+    if len(lines) >= 3 and lines[0] in ('```json', '```') and lines[-1] == '```':
+        raw = '\n'.join(lines[1:-1])
+    value = json.loads(raw)
+    adjacent_topic = value.get('adjacent_topic')
+    fallback_question = value.get('fallback_question')
+    if (not isinstance(adjacent_topic, str) or len(adjacent_topic.split()) > 12
+            or (plan['direction'] == 'adjacent') != bool(adjacent_topic.strip())
+            or (plan['interest'] == 'fading') != (plan['direction'] == 'adjacent')):
+        raise ValueError('invalid_adjacent_topic')
+    if (not isinstance(fallback_question, str) or len(fallback_question.split()) > 25
+            or (plan['move'] == 'perspective' and not fallback_question.strip().endswith('?'))):
+        raise ValueError('invalid_fallback_question')
+    if ((plan['move'] == 'perspective' and '?' in plan['contribution'])
+            or (plan['move'] == 'question' and '?' not in plan['contribution'])):
+        raise ValueError('invalid_move_content')
+    plan['adjacent_topic'] = adjacent_topic.strip()
+    plan['fallback_question'] = fallback_question.strip() if plan['move'] == 'perspective' else ''
+    return plan
 
 
 def with_h_plan(prompt: str, plan: dict, *, language: str) -> str:
-    brief = {key: plan[key] for key in ('topic', 'direction', 'move', 'tone', 'contribution')}
+    brief = {key: plan[key] for key in ('topic', 'direction', 'adjacent_topic',
+                                       'move', 'tone', 'contribution')}
     return prompt + '''\nCURRENT TURN: follow this content brief in ''' + language + '''.
 Usually speak in 1-3 short sentences. For question, react to a specific detail
 with a fitting feeling, then ask the one planned question. Do not stop at "yes"
@@ -63,6 +125,10 @@ example, then stop without a question. It should give the learner something
 specific to accept, challenge, or apply. For answer, respond directly to the
 learner's question or repair your previous claim. For close, end warmly only
 when the learner wants to go.
+When direction is adjacent, connect the current topic to adjacent_topic in
+ordinary speech. Move to that neighboring topic through the planned question
+or perspective. Do not announce a topic change or keep digging into a topic
+the learner has stopped taking up.
 The brief is guidance, not text to recite. Do not speak its labels or invent
 personal experiences.\n''' + json.dumps(brief)
 
