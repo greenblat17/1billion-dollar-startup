@@ -1,5 +1,6 @@
 import base64
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -10,12 +11,14 @@ from app.audit_artifacts import bind_writer, reset_writer
 from app.calls import CallStore
 from app.characters import Characters, CharacterStore, KoraHModel, KoraModel
 from app.dialogue import MemoryDialogueStore
+from app.gemini_speech import GeminiKoraSpeech
 from app.hume_speech import HumeSpeech
+from app.main import _build_pipeline
 from app.personalization import context_note
 from app.pipeline import ClipPipeline
 from app.speech import SessionSpeech
 from app.tts import TtsAudio
-from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app
+from tests.conftest import FakeLlm, FakeStt, FakeTts, build_app, test_settings as settings_fixture
 from tests.test_call_start import Model, Personalization
 
 
@@ -59,7 +62,8 @@ async def test_kora_routing_history_and_roleplay_isolation():
     assert kora.calls == [([], 'Travel')]
     assert kora_voice.texts == ['Got it: Travel']
     assert kora_voice.last_speed == 0.8
-    assert kora_voice.last_warm is False
+    assert kora_voice.last_guided is None
+    assert kora_voice.last_warm is None
     assert [t.content for t in await dialogue.history('tg-1')] == ['Original topic', 'Original reply']
     assert len(await dialogue.history('tg-1:kora')) == 2
     await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
@@ -70,10 +74,40 @@ async def test_kora_routing_history_and_roleplay_isolation():
 
 
 @pytest.mark.asyncio
+async def test_kora_and_kora_h_use_separate_speech_engines():
+    kora_voice, hume_voice = KoraSpeech(), KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), kora_voice, FakeLlm(), hume_voice)
+    await characters.synthesize('Hello.', speed=0.8, variant='kora')
+    assert kora_voice.texts == ['Hello.']
+    assert hume_voice.texts == []
+    assert kora_voice.last_guided is None
+    await characters.synthesize('Hi.', speed=0.9, variant='kora_h')
+    assert hume_voice.texts == ['Hi.']
+    assert hume_voice.last_guided is False and hume_voice.last_warm is True
+    characters.speech_h = None
+    assert characters.available and not characters.h_available
+
+
+def test_pipeline_builds_gemini_kora_without_hume_and_keeps_hume_for_kora_h():
+    settings = replace(
+        settings_fixture(), openai_api_key="test", groq_api_key="test",
+        openai_base_url="https://openrouter.ai/api/v1",
+    )
+    pipeline = _build_pipeline(settings)
+    assert isinstance(pipeline.characters.speech, GeminiKoraSpeech)
+    assert pipeline.characters.available
+    assert not pipeline.characters.h_available
+    with_hume = _build_pipeline(replace(settings, hume_api_key="test", hume_config_id="test"))
+    assert isinstance(with_hume.characters.speech, GeminiKoraSpeech)
+    assert isinstance(with_hume.characters.speech_h, HumeSpeech)
+    assert with_hume.characters.available and with_hume.characters.h_available
+
+
+@pytest.mark.asyncio
 async def test_kora_h_has_separate_history_and_exact_hume_delivery():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
     await characters.store.set('tg-1', 'kora_h')
     await dialogue.record_turn('tg-1:kora', 'Old Kora topic', 'Old Kora reply')
     pipeline = ClipPipeline(FakeStt(['I like walking home.', 'It gives me time to think.', 'A cafe']),
@@ -165,7 +199,7 @@ async def test_opening_and_delivery_use_kora_history_once():
 async def test_kora_h_opening_uses_its_model_and_exact_voice():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
     first = await starter.start('tg-1')
@@ -184,7 +218,7 @@ async def test_kora_h_opening_uses_its_model_and_exact_voice():
 async def test_kora_h_opening_uses_only_recent_learner_context():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), FakeLlm(), voice, model_h)
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
     await characters.store.set('tg-1', 'kora_h')
     await dialogue.record_turn('tg-1:kora_h', "Let's start a practice conversation.", 'Hello!')
     for index in range(5):
@@ -255,7 +289,7 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.post(path, json=payload)).json()['blocked'] == 'unavailable'
         assert (await client.post(path, json={**payload, 'character': 'kora_h'})).json()['blocked'] == 'unavailable'
         chars.model, chars.speech = FakeLlm(), KoraSpeech()
-        chars.model_h = FakeLlm()
+        chars.model_h, chars.speech_h = FakeLlm(), KoraSpeech()
         job = app.state.jobs.create('tg-1')
         assert (await client.post(path, json=payload)).json()['blocked'] == 'active_conversation'
         job.status = 'ok'

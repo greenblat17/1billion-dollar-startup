@@ -294,3 +294,27 @@ explicit, a repeat returned `fading/adjacent` and an after-work question in
 2.9 s. These are small, non-deterministic samples; neither response quality
 nor the latency gain is established for a whole Telegram call. Hume latency
 was outside this replay.
+
+## Kora speech with Gemini 3.8 Flash TTS, 2026-10-22
+
+The **Kora** selection now keeps its Sonnet planner and writer but speaks the
+written text with `google/gemini-3.8-flash-tts` through the existing OpenRouter
+key. Default voice is `Kore`; `KORA_TTS_MODEL` and `KORA_TTS_VOICE` can change
+them. OpenRouter accepts only `response_format=pcm` for this model. The adapter
+converts its 24 kHz, mono, signed 16-bit PCM to Telegram OGG Opus and applies
+the existing 0.8/0.9/1.0 `/speed` setting in FFmpeg. It uses the Sonnet text as
+the displayed reply and dialogue history; Gemini returns audio without a
+transcript, so exact spoken wording is not independently verified.
+
+**Kora H** remains Sonnet plus Hume EVI and requires Hume configuration.
+Kora no longer requires Hume; it is available when the configured chat endpoint
+is OpenRouter. Ordinary Speaky, lessons and situations retain their speech
+routes. A Kora audio failure fails the turn and does not substitute Hume or
+advance Kora history. Existing `TTS_MODEL` controls Speaky, not Kora.
+
+A read-only DEV OpenRouter call returned valid PCM for the new model; `wav`
+and `mp3` requests returned HTTP 400. Local conversion produced valid OGG
+for all three speed settings. An isolated DEV-container probe also ran the new
+adapter end to end, producing a valid OGG with speed 0.9. These checks
+establish provider transport and encoding, not voice quality or a complete
+Telegram call. DEV deployment and Telegram listening tests remain separate.

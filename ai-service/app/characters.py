@@ -128,8 +128,11 @@ class KoraHModel(KoraModel):
 
 
 class Characters:
-    def __init__(self, store: CharacterStore, model=None, speech=None, model_h=None) -> None:
-        self.store, self.model, self.speech, self.model_h = store, model, speech, model_h
+    def __init__(self, store: CharacterStore, model=None, speech=None, model_h=None,
+                 speech_h=None) -> None:
+        self.store, self.model, self.speech, self.model_h, self.speech_h = (
+            store, model, speech, model_h, speech_h
+        )
 
     @property
     def available(self) -> bool:
@@ -137,7 +140,7 @@ class Characters:
 
     @property
     def h_available(self) -> bool:
-        return self.model_h is not None and self.speech is not None
+        return self.model_h is not None and self.speech_h is not None
 
     async def variant(self, session_id: str, *, scenario=None) -> str | None:
         if scenario is not None or not session_id.startswith("tg-"):
@@ -165,9 +168,11 @@ class Characters:
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
                          guided: bool = True, variant: str = "kora"):
         self.require_available(variant)
-        return await self.speech.synthesize(text, history=history, user=user, speed=speed,
-                                            guided=guided and variant != "kora_h",
-                                            warm=variant == "kora_h")
+        if variant == "kora_h":
+            return await self.speech_h.synthesize(
+                text, history=history, user=user, speed=speed, guided=False, warm=True,
+            )
+        return await self.speech.synthesize(text, speed=speed)
 
     @staticmethod
     def history_id(session_id: str, variant: str = "kora") -> str:
