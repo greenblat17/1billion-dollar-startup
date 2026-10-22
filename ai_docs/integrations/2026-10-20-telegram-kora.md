@@ -205,3 +205,26 @@ still delivers them with transcript validation. Character histories remain
 separate: a Kora H opening cannot quote Speaky-only dialogue unless a fact has
 entered the shared verified personalization note. Reminder openings and
 roleplay follow their existing paths.
+
+## Kora H reply moves v2, 2026-10-22
+
+Two DEV exchanges exposed an agreement-only dead end: Sonnet planned
+`contribute` after the learner described a coming release or the goal of a
+human-sounding voice. It wrote a broadly agreeable observation without a
+specific next angle; the learner answered "Yeah, yeah, exactly." Hume delivered
+Sonnet's exact wording, so the problem was upstream of speech synthesis.
+
+Kora H alone now distinguishes `question` from `perspective` in the plan.
+`question` pairs a proportionate reaction with one specific question when the
+only available statement would be agreement or paraphrase. `perspective`
+requires a different plausible angle plus a reason, example, or practical
+implication; it stands without a trailing question. It need not contradict
+the learner. A `perspective` plan records one plausible specific learner
+response beyond agreement in `response_path`; the parser rejects an empty one.
+This is an audit aid, not proof that the spoken reply will invite that response.
+Direct answers and repair use `answer`; an explicit goodbye uses
+`close`. The plan parser rejects the old H `contribute` move and retries once;
+ordinary Kora keeps its original `contribute` schema. The strategy artifact is
+`interest_alternative_view_v2` so new calls can be compared with the earlier
+behavior. Unit tests verify routing and schema, while whole-conversation
+quality still needs a fresh DEV listening test.

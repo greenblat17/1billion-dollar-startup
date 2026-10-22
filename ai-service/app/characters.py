@@ -6,7 +6,8 @@ import json
 from redis.asyncio import Redis
 
 from app.audit_artifacts import record_artifact
-from app.kora_h_prompts import H_PERSONA, H_PLAN_SYSTEM, H_OPENING_PLAN, H_OPENING_REPLY, STRATEGY as H_STRATEGY
+from app.kora_h_prompts import (H_PERSONA, H_PLAN_SYSTEM, H_OPENING_PLAN, H_OPENING_REPLY,
+                                H_MOVES, with_h_plan, STRATEGY as H_STRATEGY)
 from app.kora_prompts import PERSONA, PLAN_SYSTEM, parse_plan, with_plan
 from app.llm import OpenAiChatModel
 
@@ -43,6 +44,14 @@ class KoraModel(OpenAiChatModel):
     language = "natural A2 English"
     opening_plan = ""
     opening_reply = ""
+    plan_moves = None
+    require_response_path = False
+
+    def parse_plan(self, raw: str) -> dict:
+        return parse_plan(raw, moves=self.plan_moves, require_response_path=self.require_response_path)
+
+    def format_plan(self, plan: dict) -> str:
+        return with_plan(self.persona, plan, language=self.language)
 
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
@@ -57,7 +66,7 @@ class KoraModel(OpenAiChatModel):
                     {"role": "user", "content": json.dumps({"history": messages, "user": user_text})},
                 ], temperature=.7, max_tokens=500, response_format={"type": "text"},
                     operation=f"{self.operation_prefix}_plan")
-                candidate = parse_plan(raw)
+                candidate = self.parse_plan(raw)
                 if mode == "opening" and self.opening_plan and candidate["move"] != "question":
                     raise ValueError("invalid_opening_move")
                 plan = candidate
@@ -74,7 +83,7 @@ class KoraModel(OpenAiChatModel):
             prompt = self.persona
         else:
             await record_artifact("conversation_plan", json.dumps(plan))
-            prompt = with_plan(self.persona, plan, language=self.language)
+            prompt = self.format_plan(plan)
         if mode == "opening":
             prompt += self.opening_reply
         return await self._complete([
@@ -95,6 +104,11 @@ class KoraHModel(KoraModel):
     language = "English matched to the learner's verified level or current speech"
     opening_plan = H_OPENING_PLAN
     opening_reply = H_OPENING_REPLY
+    plan_moves = H_MOVES
+    require_response_path = True
+
+    def format_plan(self, plan: dict) -> str:
+        return with_h_plan(self.persona, plan, language=self.language)
 
 
 class Characters:
