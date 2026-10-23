@@ -19,7 +19,6 @@ import com.eliteteam.speakingcoach.analytics.VoiceCostEvents
 import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.timeout
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
@@ -117,22 +116,6 @@ class HttpClipClient(
     suspend fun progressProfile(sessionId: SessionId): ProgressProfileResponse {
         val response = http.get("$root/internal/profile/${sessionId.value}") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service progress profile returned ${response.status}" }
-        return response.body()
-    }
-
-    suspend fun character(sessionId: SessionId): CharacterResponse {
-        val response = http.get("$root/internal/character/${sessionId.value}") { applyInternalToken() }
-        check(response.status.isSuccess()) { "ai-service character returned ${response.status}" }
-        return response.body()
-    }
-
-    suspend fun setCharacter(sessionId: SessionId, character: String): CharacterResponse {
-        val response = http.post("$root/internal/character") {
-            applyInternalToken()
-            contentType(ContentType.Application.Json)
-            setBody(CharacterRequest(sessionId.value, character))
-        }
-        check(response.status.isSuccess()) { "ai-service character update returned ${response.status}" }
         return response.body()
     }
 
@@ -302,8 +285,6 @@ class HttpClipClient(
                           reminderOpeningQuestion: String? = null): StartCallResponse {
         val response = http.post("$root/internal/calls/start") {
             applyInternalToken()
-            // A Kora opening includes two Sonnet calls and Hume synthesis.
-            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
             contentType(ContentType.Application.Json)
             setBody(StartCallRequest(sessionId.value, firstName, scenarioKind, scenarioDescription,
                 reminderOpeningQuestion))
@@ -344,7 +325,6 @@ class HttpClipClient(
     suspend fun reviewCall(callId: String): CallReviewResponse {
         val response = http.post("$root/internal/calls/review") {
             applyInternalToken()
-            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
             contentType(ContentType.Application.Json)
             setBody(CallReviewRequest(callId))
         }

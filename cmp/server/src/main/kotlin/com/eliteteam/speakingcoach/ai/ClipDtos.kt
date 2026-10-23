@@ -828,14 +828,3 @@ data class ProgressProfileResponse(
     val dailyMinutes: Int? = null,
     val currentStreak: Int = 0,
 )
-
-@Serializable
-data class CharacterResponse(
-    val character: String,
-    val koraAvailable: Boolean = false, // Keep for compatibility with an older AI server.
-    val blocked: String? = null,
-    val koraHAvailable: Boolean = false,
-)
-
-@Serializable
-data class CharacterRequest(val sessionId: String, val character: String)
