@@ -38,6 +38,13 @@ class CallDashboardTest {
     }
 
     @Test
+    fun callTableShowsFriendlyCharacterNames() {
+        assertEquals("Kora H", callCharacterLabel("kora_h"))
+        assertEquals("Speaky", callCharacterLabel("speaky"))
+        assertEquals("Нет данных", callCharacterLabel("unknown"))
+    }
+
+    @Test
     fun showsFeedbackUsernameChoiceAndEscapedMessage() {
         val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry(
             "tg-42", "alex<script>", "neutral", "Improve <audio> & pacing",

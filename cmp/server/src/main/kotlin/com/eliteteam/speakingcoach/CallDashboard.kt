@@ -60,6 +60,12 @@ internal fun callDashboardRows(snapshot: CallEventsSnapshot): List<CallDashboard
         if (events.none { it.kind == "call_open" }) null else CallDashboardRow(id, events.sortedBy { it.at })
     }.sortedByDescending { it.opened.at }
 
+internal fun callCharacterLabel(character: String): String = when (character) {
+    "kora_h" -> "Kora H"
+    "speaky" -> "Speaky"
+    else -> "Нет данных"
+}
+
 internal fun koraLaunchSection(events: List<CallEvent>, calls: List<CallDashboardRow>): String {
     val menu = events.filter { it.kind == "voice_menu_clicked" }
     val selected = events.filter { it.kind == "voice_character_tapped" && it.state == "kora_h" }
@@ -70,7 +76,7 @@ internal fun koraLaunchSection(events: List<CallEvent>, calls: List<CallDashboar
         val repeats = group.groupBy { it.opened.chatId }.values.count { it.size >= 2 }
         val offers = group.count { call -> call.events.any { it.kind == "feedback_offered" } }
         val ratings = group.mapNotNull { call -> call.events.firstOrNull { it.kind == "feedback_rated" }?.state }
-        return "<tr><td>${if (character == "kora_h") "Kora H" else "Speaky"}</td>" +
+        return "<tr><td>${callCharacterLabel(character)}</td>" +
             "<td>${users.size}</td><td>${group.size}</td><td>$repeats</td>" +
             "<td>${group.count { it.voices.isNotEmpty() }}</td>" +
             "<td>${group.count { it.audioReplies > 0 }}</td>" +
@@ -155,7 +161,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
     val table = rows.drop(filter.offset).take(25).joinToString("") { row ->
         val status = row.closed?.state ?: "открыт"
         "<tr><td><a href=\"$CALLS_PATH/${row.callId}\">${callTime(row.opened.at)}</a></td>" +
-            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(callModeLabel(row.mode))}</td><td>${escapeHtml(row.character)}</td><td>${escapeHtml(row.source)}</td>" +
+            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(callModeLabel(row.mode))}</td><td>${callCharacterLabel(row.character)}</td><td>${escapeHtml(row.source)}</td>" +
             "<td>${escapeHtml(status)}</td><td>${row.voices.size}</td>" +
             "<td>${secondsText(row.recognizedSeconds)}</td><td>${row.audioReplies}</td>" +
             "<td>${if (row.failed) "Да" else "Нет"}</td></tr>"
@@ -297,7 +303,7 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
     return """
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Звонок ${row.callId} · Speaky</title>${pageStyle()}</head><body>
         ${adminTabs(CALLS_PATH)}<p><a href="$CALLS_PATH">← Все звонки</a></p><h1>Звонок ${row.callId}</h1>
-        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${callModeLabel(row.mode)} · ${escapeHtml(row.character)} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
+        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${callModeLabel(row.mode)} · ${callCharacterLabel(row.character)} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
         ${if (truncated) "<p>Достигнут лимит 1000 событий: хронология может быть неполной.</p>" else ""}
         <dl>${card("Старт", callTime(row.opened.at))}${card("Конец звонка", row.closed?.at?.let(::callTime) ?: "—")}
         ${card("Начало диалога", row.firstVoice?.let(::callTime) ?: "—")}
