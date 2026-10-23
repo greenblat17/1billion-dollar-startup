@@ -23,6 +23,7 @@ class ClipJob:
     streak: dict[str, Any] | None = None
     onboarding: dict[str, Any] | None = None
     call: dict[str, Any] | None = None
+    reaction: str | None = None
     error: dict[str, str] | None = None
     created_at: float = field(default_factory=time.monotonic)
 
@@ -44,6 +45,7 @@ class ClipJob:
                 payload["result"]["audioAvailable"] = self.reply_audio is not None
             if self.call is not None:
                 payload["result"]["call"] = self.call
+                payload["result"]["reaction"] = self.reaction
             if self.streak is not None:
                 payload["result"]["streak"] = self.streak
         if self.transcript is not None:

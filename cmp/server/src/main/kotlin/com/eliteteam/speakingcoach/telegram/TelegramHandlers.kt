@@ -999,16 +999,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 ) {
                     hideStartCallKeyboard(message.chat)
                 }
-                result.reply.call?.callId?.takeIf { it.isNotBlank() }?.let { callId ->
-                    try {
-                        val firstReply = ai.noteCallVoice(sessionId, callId, message.messageId.long).firstReplyToStarter
-                        if (firstReply) setMessageReaction(message.chat.id, message.messageId, "👍")
-                    } catch (error: CancellationException) {
-                        throw error
-                    } catch (error: Throwable) {
-                        log.warn("Failed to record or react to call voice for {}", sessionId.value, error)
-                    }
-                }
                 val delivered = try {
                     val sent = deliver(message, result.reply,
                         onCorrection = { deliveredCard ->
@@ -1042,6 +1032,26 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     delivered && result.reply.audio != null -> "delivered"
                     delivered && result.reply.text.isNotBlank() -> "text_fallback"
                     else -> "other_failed"
+                }
+                if (deliveryOutcome == "delivered" && result.reply.transcript.isNotBlank() &&
+                    result.reply.text != CLARIFY_TEXT
+                ) {
+                    result.reply.call?.callId?.takeIf { it.isNotBlank() }?.let { activeCallId ->
+                        try {
+                            val decision = ai.claimCallReaction(sessionId, activeCallId,
+                                message.messageId.long, result.reply.reaction)
+                            log.info("Call reaction decision={} emoji={}", decision.reason, decision.reaction)
+                            decision.reaction?.let { emoji ->
+                                setMessageReaction(message.chat.id, message.messageId,
+                                    if (emoji == "❤️") "❤" else emoji)
+                                log.info("Call reaction accepted emoji={}", emoji)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            log.warn("Call reaction failed for {}", activeCallId, error)
+                        }
+                    }
                 }
                 if (deliveryOutcome == "delivered" && result.reply.transcript.isNotBlank()) {
                     operationalMetrics?.recordCompletedVoiceExchange()
@@ -1440,15 +1450,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true,
             replyMarkup = startCallKeyboard())
-        ended.lastVoiceMessageId?.let { lastVoiceId ->
-            try {
-                setMessageReaction(message.chat.id, MessageId(lastVoiceId), "❤")
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                log.warn("Failed to react to the last call voice for {}", callId, error)
-            }
-        }
         clearProgress(message.chat)
         showCallLevel(message, callId, asNewMessage = true)
     }

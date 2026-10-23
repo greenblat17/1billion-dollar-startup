@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from app.config import Settings
 from app.dialogue import MemoryDialogueStore
-from app.llm import ChatModel, Correction, CorrectionRun
+from app.llm import ChatModel, Correction, CorrectionRun, ReplyDecision
 from app.main import create_app
 from app.pipeline import ClipPipeline
 from app.stt import SpeechToText, SttResult
@@ -44,16 +44,21 @@ class FakeStt(SpeechToText):
 
 
 class FakeLlm(ChatModel):
-    def __init__(self, notes: list[Correction] | None = None) -> None:
+    def __init__(self, notes: list[Correction] | None = None, reaction: str | None = None) -> None:
         self.calls: list[tuple[list[str], str]] = []
         self.notes_calls: list[str] = []
         self.notes = list(notes or [])
         self.profile_notes: list[str | None] = []
+        self.reaction = reaction
 
     async def complete_reply(self, history, user_text: str, profile_note: str | None = None) -> str:
         self.calls.append(([item.content for item in history], user_text))
         self.profile_notes.append(profile_note)
         return f"Got it: {user_text}"
+
+    async def complete_call_reply(self, history, user_text: str,
+                                  profile_note: str | None = None) -> ReplyDecision:
+        return ReplyDecision(await self.complete_reply(history, user_text, profile_note), self.reaction)
 
     async def complete_notes(self, user_text: str) -> list[Correction]:
         self.notes_calls.append(user_text)

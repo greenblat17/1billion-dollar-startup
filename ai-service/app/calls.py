@@ -17,6 +17,7 @@ from app.metrics import METRICS_TIMEZONE
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
+TELEGRAM_CALL_REACTIONS = frozenset({"❤️", "😭", "🔥", "😁", "👍"})
 _SCENARIO_UNSET = object()
 GoalLookup = Callable[[str], Awaitable[int | None]]
 
@@ -146,6 +147,37 @@ class CallStore:
                 call["lastTelegramVoiceId"] = message_id
             await self._write_call(call)
             return bool(call.get("openingDelivered") and call["firstTelegramVoiceId"] == message_id)
+
+    async def claim_telegram_reaction(self, session_id: str, call_id: str, message_id: int,
+                                      proposed: str | None) -> dict[str, str | None]:
+        """Count a delivered voice once and reserve at most one reaction attempt per five turns."""
+        session_id = _session_id(session_id)
+        if message_id <= 0:
+            raise ValueError("messageId must be positive")
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            if call is None or call["id"] != call_id:
+                raise ValueError("call is not open")
+            decisions = call.setdefault("telegramReactionDecisions", {})
+            key = str(message_id)
+            if key in decisions:
+                return {"reaction": None, "reason": "duplicate"}
+            turn = int(call.get("telegramDeliveredTurns") or 0) + 1
+            call["telegramDeliveredTurns"] = turn
+            last = int(call.get("telegramLastReactionTurn") or 0)
+            if proposed not in TELEGRAM_CALL_REACTIONS:
+                reason = "none" if proposed is None else "invalid"
+                reaction = None
+            elif last and turn - last < 5:
+                reason = "rate_limited"
+                reaction = None
+            else:
+                reason = "claimed"
+                reaction = proposed
+                call["telegramLastReactionTurn"] = turn
+            decisions[key] = {"turn": turn, "reaction": reaction, "reason": reason}
+            await self._write_call(call)
+            return {"reaction": reaction, "reason": reason}
 
     async def get(self, call_id: str) -> dict[str, Any] | None:
         call = await self._read_call(call_id)
@@ -376,6 +408,9 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "reviewOffered": False,
         "todaySeconds": 0.0,
         "goalSeconds": 0.0,
+        "telegramDeliveredTurns": 0,
+        "telegramLastReactionTurn": 0,
+        "telegramReactionDecisions": {},
     }
 
 

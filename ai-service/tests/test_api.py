@@ -141,6 +141,24 @@ def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None
         assert client.post("/internal/calls/telegram-voice", json={**voice, "messageId": -1}).status_code == 400
 
 
+def test_call_reaction_claim_endpoint_is_idempotent() -> None:
+    app, _, _, _ = build_app()
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        call_id = client.post("/internal/calls/open", json=payload).json()["callId"]
+        voice = {**payload, "callId": call_id, "messageId": 42, "reaction": "🔥"}
+        assert client.post("/internal/calls/reaction", json=voice).json() == {
+            "reaction": "🔥", "reason": "claimed",
+        }
+        assert client.post("/internal/calls/reaction", json=voice).json() == {
+            "reaction": None, "reason": "duplicate",
+        }
+        assert client.post("/internal/calls/reaction", json={**voice, "messageId": 0}).status_code == 400
+        assert client.post("/internal/calls/reaction", json={**voice, "reaction": []}).status_code == 400
+        client.post("/internal/calls/end", json=payload)
+        assert client.post("/internal/calls/reaction", json={**voice, "messageId": 43}).status_code == 409
+
+
 def test_create_app_requires_internal_token() -> None:
     with pytest.raises(RuntimeError, match="AI_INTERNAL_TOKEN"):
         create_app(settings=replace(make_settings(), ai_internal_token=None))

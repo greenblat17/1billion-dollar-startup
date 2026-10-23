@@ -45,3 +45,12 @@ def test_lookup_periodically_cleans_other_expired_jobs() -> None:
 
     assert store.get(current.job_id) is current
     assert old.job_id not in store._jobs
+
+
+def test_call_reaction_remains_stable_across_job_polls() -> None:
+    job = JobStore(ttl_seconds=60).create("tg-1")
+    job.status = "ok"
+    job.call = {"callId": "c1"}
+    job.reaction = "🔥"
+    assert job.to_status()["result"]["reaction"] == "🔥"
+    assert job.to_status()["result"]["reaction"] == "🔥"

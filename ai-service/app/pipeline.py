@@ -11,7 +11,8 @@ from typing import Any, Callable
 
 from app.dialogue import ChatMessage, DialogueStore
 from app.audit_artifacts import record_artifact
-from app.llm import ChatModel, Correction, CorrectionRun
+from app.calls import moscow_day
+from app.llm import ChatModel, Correction, CorrectionRun, ReplyDecision
 from app.load_test import load_test_active
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
 from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
@@ -52,6 +53,7 @@ class PipelineResult:
     streak: StreakUpdate | None = None
     onboarding: dict | None = None
     call: dict | None = None
+    reaction: str | None = None
     memory_eligible: bool = False
 
     @property
@@ -230,12 +232,11 @@ class ClipPipeline:
         timings["contextHistory"] = _elapsed_ms(history_started)
         call_started = time.perf_counter()
         scenario_call = None
-        if self.calls is not None and await self.calls.is_open_today(session_id):
-            call_summary = await self.calls.summary(session_id)
-            if call_summary is not None:
-                candidate = await self.calls.get(call_summary["callId"])
-                if candidate is not None and candidate.get("scenario"):
-                    scenario_call = candidate
+        call_summary = await self.calls.summary(session_id) if self.calls is not None else None
+        candidate = await self.calls.get(call_summary["callId"]) if call_summary is not None else None
+        call_active = candidate is not None and candidate.get("day") == moscow_day()
+        if call_active and candidate.get("scenario"):
+            scenario_call = candidate
         timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
             history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
@@ -267,7 +268,12 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
+            if call_active and callable(call_reply := getattr(self._llm, "complete_call_reply", None)):
+                decision = await measured("reply", call_reply(history, stt_result.text, profile_note))
+            else:
+                decision = ReplyDecision(await measured("reply", self._llm.complete_reply(
+                    history, stt_result.text, profile_note)))
+            reply_text = decision.reply
             await record_artifact("reply", reply_text)
             tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
@@ -304,6 +310,7 @@ class ClipPipeline:
             corrections=list(corrections),
             streak=streak,
             call=call,
+            reaction=decision.reaction if call is not None else None,
             memory_eligible=scenario_call is None and not load_test_active(),
         )
 

@@ -35,6 +35,7 @@ data class ClipReply(
     val transcript: String = "",
     val streak: TurnStreak? = null,
     val call: CallProgress? = null,
+    val reaction: String? = null,
     val jobId: String? = null,
     val timingsMs: Map<String, Long> = emptyMap(),
     val voiceCallCounts: Map<String, Int>? = null,

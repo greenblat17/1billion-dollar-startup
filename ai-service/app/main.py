@@ -521,6 +521,22 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(error)) from error
         return {"firstReplyToStarter": first_reply}
 
+    @app.post("/internal/calls/reaction")
+    async def calls_reaction(request: Request) -> dict[str, str | None]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        call_id = str(payload.get("callId") or "").strip()
+        message_id = payload.get("messageId")
+        proposed = payload.get("reaction")
+        if not call_id or type(message_id) is not int or message_id <= 0 or (proposed is not None and not isinstance(proposed, str)):
+            raise HTTPException(status_code=400, detail="valid callId, messageId and reaction required")
+        try:
+            decision = await calls.claim_telegram_reaction(session_id, call_id, message_id, proposed)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        logger.info("call reaction decision=%s emoji=%s", decision["reason"], decision["reaction"])
+        return decision
+
     @app.post("/internal/calls/review")
     async def calls_review(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
@@ -1080,3 +1096,4 @@ def _complete_job(job: ClipJob, result: PipelineResult) -> None:
     job.status = "ok"
     job.onboarding = result.onboarding
     job.call = result.call
+    job.reaction = result.reaction
