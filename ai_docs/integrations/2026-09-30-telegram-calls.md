@@ -48,3 +48,13 @@ The cards show the updated level, then Grammar, Vocabulary, and Fluency. Continu
 The stepped snapshot is written back to `assessment:{sessionId}` and, when learner memory already exists, onto its proficiency scores and derived skill bands/positions. A later save of the same onboarding attempt does not overwrite that snapshot. A new completed onboarding attempt does. Ordinary turns still do not change proficiency.
 
 Deploy ai-service before Ktor. Live Telegram acceptance is separate from the unit tests.
+
+## DEV call-review timeout, 2026-10-23
+
+Two DEV calls showed `Couldn't score this conversation. Try again.` because
+Ktor timed out after about 10 seconds on `POST /internal/calls/review`. AI
+continued and saved both reviews; the model did not fail. The review request
+now has a 90-second request and socket timeout, like call start. Other AI
+requests keep their existing limits. A delayed-response HTTP test covers the
+override. The existing Retry button can read the saved review without scoring
+the call again. A live Telegram retry remains to be checked after deployment.

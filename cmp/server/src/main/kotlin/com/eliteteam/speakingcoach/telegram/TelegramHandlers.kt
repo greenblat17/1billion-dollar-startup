@@ -141,6 +141,7 @@ private fun userAction(text: String): String = when {
     isProfileCommand(text) -> "profile"
     isStreakCommand(text) -> "streak"
     isRemindCommand(text) -> "remind"
+    isVoiceCommand(text) -> "voice"
     isSpeedCommand(text) -> "speed"
     isStartCallButton(text) -> "start-call"
     text == PRACTICE_SITUATION_BUTTON -> "practice-situation"
@@ -151,6 +152,7 @@ private fun userAction(text: String): String = when {
 private fun callbackAction(data: String): String = when {
     parseCallFeedbackCallback(data) != null -> "callback:call-feedback"
     data == LEGACY_ONBOARDING_CALLBACK -> "callback:legacy-onboarding"
+    parseVoiceCallback(data) != null -> "callback:voice"
     parseSpeedCallback(data) != null -> "callback:speed"
     data == REMINDER_STOP_CALLBACK -> "callback:reminder-stop"
     data == ONBOARDING_PROGRESS_CALLBACK -> "callback:onboarding-progress"
@@ -173,6 +175,8 @@ internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
 internal fun isRemindCommand(text: String): Boolean = isCommand(text, "/remind")
+
+internal fun isVoiceCommand(text: String): Boolean = isCommand(text, "/voice")
 
 internal fun isSpeedCommand(text: String): Boolean = isCommand(text, "/speed")
 
@@ -395,6 +399,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             message, profileMessage((message.chat as? PrivateChat)?.firstName, profile),
             allowSendingWithoutReply = true,
         )
+    }
+    suspend fun sendVoiceSelector(message: ChatMessage) {
+        val character = ai.character(telegramSessionId(message.chat.id))
+        reply(message, voiceMessage(character), allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
     }
     suspend fun sendSpeed(message: ChatMessage) {
         log.info("Reading speech speed")
@@ -1640,6 +1648,38 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data == "voice:kora") {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            reply(message, "Kora is no longer available. Use /voice to choose Speaky or Kora H.",
+                allowSendingWithoutReply = true)
+            return@withRequestLog
+        }
+        val selectedCharacter = parseVoiceCallback(query.data)
+        if (selectedCharacter != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "voice:${query.id}") {
+                    val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
+                    val text = voiceMessage(character)
+                    val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
+                    if (shownText != text) {
+                        try {
+                            editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Throwable) {
+                            reply(message, text, allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Character selection failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         val selectedSpeed = parseSpeedCallback(query.data)
         if (selectedSpeed != null) {
             log.info("Updating speech speed")
@@ -2006,6 +2046,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("remind", requireOnlyCommandInMessage = false) { message ->
         if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
     }
+    onCommand("voice", requireOnlyCommandInMessage = false) { message ->
+        if (isVoiceCommand(message.content.text)) handle(message) { sendVoiceSelector(message) }
+    }
     onCommand("speed", requireOnlyCommandInMessage = false) { message ->
         if (isSpeedCommand(message.content.text)) handle(message) { sendSpeed(message) }
     }
@@ -2029,6 +2072,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
+                    isVoiceCommand(content.text) -> sendVoiceSelector(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
                     isStartCallButton(content.text) -> {
                         customScenarioPrompts.remove(message.chat.id.toString())
