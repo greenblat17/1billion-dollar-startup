@@ -85,6 +85,19 @@ class CallStore:
                 return None
             return deepcopy(call)
 
+    async def set_character(self, call_id: str, character: str) -> None:
+        if character not in {"speaky", "kora_h"}:
+            raise ValueError("unknown call character")
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current.get("status") != "open" or current.get("openingDelivered"):
+                raise ValueError("call character cannot be changed")
+            current["character"] = character
+            await self._write_call(current)
+
     async def summary(self, session_id: str) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
@@ -396,6 +409,7 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "turns": [],
         "openingQuestion": None,
         "scenario": None,
+        "character": "speaky",
         "openingDelivered": False,
         "review": None,
         "reviewOffered": False,

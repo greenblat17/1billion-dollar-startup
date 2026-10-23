@@ -1420,7 +1420,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val offered = ai.callFeedback(telegramSessionId(message.chat.id), "offer", callId = callId,
                 username = telegramProfile(message.chat).username.orEmpty())
             if (offered.status == "offered") {
-                reply(message, FIRST_CALL_FEEDBACK_PROMPT, allowSendingWithoutReply = true,
+                reply(message, if (offered.character == "kora_h") KORA_CALL_FEEDBACK_PROMPT else FIRST_CALL_FEEDBACK_PROMPT,
+                    allowSendingWithoutReply = true,
                     replyMarkup = firstCallFeedbackKeyboard(callId))
             } else {
                 log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)

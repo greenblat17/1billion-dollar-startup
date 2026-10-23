@@ -116,6 +116,20 @@ async def test_open_call_records_speech_and_ignores_silence():
 
 
 @pytest.mark.asyncio
+async def test_call_character_is_saved_with_call_and_cannot_change_after_opening():
+    store = CallStore()
+    opened = await store.open("tg-1")
+    call_id = opened["callId"]
+    await store.set_character(call_id, "kora_h")
+    assert (await store.get(call_id))["character"] == "kora_h"
+    await store.save_opening(call_id, "Hi!")
+    await store.mark_opening_delivered(call_id)
+    with pytest.raises(ValueError, match="cannot be changed"):
+        await store.set_character(call_id, "speaky")
+    assert (await store.get(call_id))["character"] == "kora_h"
+
+
+@pytest.mark.asyncio
 async def test_call_without_a_goal_keeps_tracking_time_without_a_goal_nudge():
     store = CallStore(goal_of=_goal(0))
     opened = await store.open("tg-1")

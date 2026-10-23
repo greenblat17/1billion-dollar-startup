@@ -440,3 +440,8 @@ If a user taps another partner while a call is active, selection stays unchanged
 The bot sends a separate message asking them to tap `End call` first, because
 Telegram acknowledges the button tap before the AI service checks call state.
 The same explicit message is sent if Kora H is temporarily unavailable.
+
+After each reviewed Kora H free call with at least one user turn, the final
+progress card offers a rating and optional text comment. The feedback uses the
+same buttons as the existing Speaky first-call survey, but is stored per Kora H
+call and appears with the character name in the admin calls dashboard.

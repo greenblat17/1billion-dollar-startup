@@ -23,11 +23,24 @@ class CallDashboardTest {
         )))
         val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
             feedback = feedback)
-        assertTrue(page.contains("Отзывы после первого разговора (1)"))
+        assertTrue(page.contains("Отзывы о разговорах (1)"))
         assertTrue(page.contains("@alex&lt;script&gt;"))
         assertTrue(page.contains("😐 Так себе"))
         assertTrue(page.contains("Improve &lt;audio&gt; &amp; pacing"))
         assertFalse(page.contains("<audio>"))
+    }
+
+    @Test
+    fun showsKoraFeedbackBesideSpeakyFeedback() {
+        val feedback = CallFeedbackList(2, listOf(
+            CallFeedbackEntry("tg-42", "alex", "liked", "Natural voice", "kora_h", callId),
+            CallFeedbackEntry("tg-42", "alex", "neutral", null),
+        ))
+        val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
+            feedback = feedback)
+        assertTrue(page.contains("Отзывы о разговорах (2)"))
+        assertTrue(page.contains("<td>Kora H</td>"))
+        assertTrue(page.contains("<td>Speaky</td>"))
     }
 
     @Test

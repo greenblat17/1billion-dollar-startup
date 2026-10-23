@@ -581,7 +581,8 @@ def create_app(
             ineligible = offer_eligibility(call, onboarding_state, session_id)
             if ineligible is not None:
                 return {"status": "ignored", "reason": ineligible}
-            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""))
+            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""),
+                                                   character=call.get("character", "speaky"))
         if action == "rate":
             try:
                 return await first_call_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))

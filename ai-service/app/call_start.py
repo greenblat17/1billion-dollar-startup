@@ -50,6 +50,7 @@ class CallStarter:
             if call["turns"] or call.get("openingDelivered"):
                 return {**summary, "status": "active"}
             variant = await self.characters.variant(session_id, scenario=call.get("scenario"))
+            await self.calls.set_character(summary["callId"], variant or "speaky")
             kora = variant is not None
             history_id = self.characters.history_id(session_id, variant) if variant else session_id
             history = await self.dialogue.history(history_id)
