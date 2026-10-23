@@ -55,7 +55,7 @@ async def test_retired_kora_selection_uses_speaky_without_kora_h_history():
     await redis.set('character:tg-1', 'kora')
     dialogue = MemoryDialogueStore(40, 86400)
     ordinary, model_h = FakeLlm(), FakeLlm()
-    characters = Characters(CharacterStore(redis), model_h, KoraSpeech())
+    characters = Characters(CharacterStore(redis), model_h, KoraSpeech(), enabled=True, allowlist='1')
     pipeline = ClipPipeline(FakeStt(['Hello']), ordinary, FakeTts(), dialogue,
                             characters=characters)
     result = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
@@ -64,6 +64,26 @@ async def test_retired_kora_selection_uses_speaky_without_kora_h_history():
     assert model_h.calls == []
     assert await dialogue.history('tg-1:kora_h') == []
     await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_kora_h_allowlist_blocks_stored_selection_and_accepts_telegram_session_formats():
+    model_h = FakeLlm()
+    characters = Characters(CharacterStore(), model_h, KoraSpeech(),
+                            enabled=True, allowlist='123, 456')
+    await characters.store.set('tg-789', 'kora_h')
+    assert characters.allowed('tg-123')
+    assert characters.allowed('tg-ChatId(chatId=456)')
+    assert not characters.allowed('tg-789')
+    assert not characters.allowed('tg-123-extra')
+    assert await characters.variant('tg-789') is None
+    assert await characters.variant('tg-ChatId(chatId=456)') is None
+    await characters.store.set('tg-ChatId(chatId=456)', 'kora_h')
+    assert await characters.variant('tg-ChatId(chatId=456)') == 'kora_h'
+    characters.enabled = False
+    assert await characters.variant('tg-ChatId(chatId=456)') is None
+    with pytest.raises(ValueError, match='KORA_H_ALLOWLIST'):
+        Characters(CharacterStore(), enabled=True, allowlist='123,other')
 
 
 @pytest.mark.asyncio
@@ -95,7 +115,7 @@ def test_pipeline_builds_gemini_for_kora_h_without_hume():
 async def test_kora_h_has_separate_history_and_gemini_delivery():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), model_h, voice)
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     await dialogue.record_turn('tg-1:kora', 'Old Kora topic', 'Old Kora reply')
     pipeline = ClipPipeline(FakeStt(['I like walking home.', 'It gives me time to think.', 'A cafe']),
@@ -131,7 +151,7 @@ async def test_kora_h_changes_delivery_per_reply_without_changing_spoken_text(mo
                                adjacent_topic='', tone=tone, reply=reply))
 
     monkeypatch.setattr(model, '_complete', complete)
-    characters = Characters(CharacterStore(), model, voice)
+    characters = Characters(CharacterStore(), model, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     dialogue = MemoryDialogueStore(40, 86400)
     pipeline = ClipPipeline(FakeStt(['My beta is live.', 'But it crashed.']), FakeLlm(), FakeTts(),
@@ -176,7 +196,7 @@ async def test_gemini_receives_delivery_tag_only_in_audio_request(monkeypatch):
 async def test_kora_h_opening_uses_its_model_and_gemini_voice():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), model_h, voice)
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
     first = await starter.start('tg-1')
@@ -201,7 +221,7 @@ async def test_kora_h_opening_uses_warm_delivery_regardless_of_sonnet_tone(monke
                                tone='curious', reply='Hey! How are you today?'))
 
     monkeypatch.setattr(model_h, '_complete', complete)
-    characters = Characters(CharacterStore(), model_h, voice)
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(CallStore(), Model(), Personalization(), MemoryDialogueStore(40, 86400),
                           SessionSpeech(FakeTts()), characters)
@@ -217,7 +237,7 @@ async def test_kora_h_cached_opening_also_uses_warm_delivery():
     summary = await calls.open('tg-1')
     await calls.save_opening(summary['callId'], 'Hey! How are you today?')
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), model_h, voice)
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(calls, Model(), Personalization(), MemoryDialogueStore(40, 86400),
                           SessionSpeech(FakeTts()), characters)
@@ -233,7 +253,7 @@ async def test_kora_h_cached_opening_also_uses_warm_delivery():
 async def test_kora_h_opening_uses_only_recent_learner_context():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
-    characters = Characters(CharacterStore(), model_h, voice)
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
     await characters.store.set('tg-1', 'kora_h')
     await dialogue.record_turn('tg-1:kora_h', "Let's start a practice conversation.", 'Hello!')
     for index in range(5):
@@ -306,6 +326,8 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.post(path, json=payload)).json()['blocked'] == 'unavailable'
         assert (await client.post(path, json={**payload, 'character': 'kora'})).status_code == 400
         chars.model_h, chars.speech_h = FakeLlm(), KoraSpeech()
+        chars.enabled = True
+        chars.allowlist = frozenset({1})
         job = app.state.jobs.create('tg-1')
         assert (await client.post(path, json=payload)).json()['blocked'] == 'active_conversation'
         job.status = 'ok'
@@ -318,6 +340,12 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.get(path + '/tg-1')).json()['koraHAvailable'] is True
         assert (await client.get(path + '/tg-1')).json()['koraAvailable'] is False
         assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
+        denied = await client.post(path, json={**payload, 'sessionId': 'tg-2'})
+        assert denied.json()['blocked'] == 'unavailable'
+        assert denied.json()['koraHAvailable'] is False
+        await chars.store.set('tg-2', 'kora_h')
+        assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
+        assert await chars.variant('tg-2') is None
         await app.state.pipeline.calls.open('tg-1')  # Failed/undelivered next opening.
         switched = await client.post(path, json={**payload, 'character': 'speaky'})
         assert switched.json()['character'] == 'speaky'

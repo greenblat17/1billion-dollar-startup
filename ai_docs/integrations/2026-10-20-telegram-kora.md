@@ -411,3 +411,21 @@ profile context, opening tone, Gemini speech adapter, `/speed` control and
 names are retained to avoid an unrelated environment migration. The separate
 Voice Labs experiments and saved comparison sessions remain available for
 research; they are not part of the Telegram runtime.
+
+## Kora H limited Telegram release, 2026-10-23
+
+Kora H is off by default. `KORA_H_ENABLED=true` and a matching Telegram chat ID
+in `KORA_H_ALLOWLIST` are both required. The AI service checks this for the
+`/voice` status, character selection and runtime routing. A saved Kora H
+selection outside the list behaves as Speaky without copying Kora H history.
+The list contains positive numeric IDs separated by commas. Do not put IDs in
+this public repository or PR; the deploy workflow reads them from separate
+`DEV_KORA_H_ALLOWLIST` and `PROD_KORA_H_ALLOWLIST` repository secrets. A missing
+secret writes `KORA_H_ENABLED=false` to the AI host. Clearing the secret and
+redeploying the AI host disables access without changing Telegram code.
+
+The initial PROD cohort has 12 verified Telegram IDs: four owner-selected
+accounts, five other users with the most delivered voice replies in the
+preceding 30 days, and three additional owner-selected accounts. The exact IDs
+are held only in the rollout secret. The count and selection rule are recorded
+here without identifying users.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
@@ -77,18 +78,31 @@ class KoraHModel(OpenAiChatModel):
 
 
 class Characters:
-    def __init__(self, store: CharacterStore, model_h=None, speech_h=None) -> None:
+    def __init__(self, store: CharacterStore, model_h=None, speech_h=None, *,
+                 enabled: bool = False, allowlist: str = "") -> None:
         self.store, self.model_h, self.speech_h = store, model_h, speech_h
+        self.enabled = enabled
+        values = [value.strip() for value in allowlist.split(",") if value.strip()]
+        if any(not value.isdecimal() or int(value) <= 0 for value in values):
+            raise ValueError("KORA_H_ALLOWLIST must contain positive Telegram IDs")
+        self.allowlist = frozenset(int(value) for value in values)
 
     @property
     def h_available(self) -> bool:
         return self.model_h is not None and self.speech_h is not None
 
+    def allowed(self, session_id: str) -> bool:
+        if not self.enabled or not self.h_available:
+            return False
+        match = (re.fullmatch(r"tg-([1-9][0-9]*)", session_id)
+                 or re.fullmatch(r"tg-ChatId\(chatId=([1-9][0-9]*)\)", session_id))
+        return match is not None and int(match.group(1)) in self.allowlist
+
     async def variant(self, session_id: str, *, scenario=None) -> str | None:
         if scenario is not None or not session_id.startswith("tg-"):
             return None
         selected = await self.store.get(session_id)
-        return selected if selected == "kora_h" else None
+        return selected if selected == "kora_h" and self.allowed(session_id) else None
 
     async def selected(self, session_id: str, *, scenario=None) -> bool:
         # Never silently substitute a different character when its provider is unavailable.

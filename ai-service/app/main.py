@@ -331,9 +331,11 @@ def create_app(
         return await onboarding.progress_profile(session_id)
 
     async def character_status(session_id: str, blocked: str | None = None) -> dict:
-        return {"character": await clip_pipeline.characters.store.get(session_id),
+        allowed = clip_pipeline.characters.allowed(session_id)
+        selected = await clip_pipeline.characters.store.get(session_id)
+        return {"character": selected if selected != "kora_h" or allowed else "speaky",
                 "koraAvailable": False,  # Older Telegram servers still require this field.
-                "koraHAvailable": clip_pipeline.characters.h_available, "blocked": blocked}
+                "koraHAvailable": allowed, "blocked": blocked}
 
     @app.get("/internal/character/{session_id}")
     async def character(session_id: str) -> dict:
@@ -347,13 +349,13 @@ def create_app(
         if selected not in ("speaky", "kora_h") or not session_id.startswith("tg-"):
             raise HTTPException(status_code=400, detail="invalid Telegram character selection")
         async with call_starter.lock(session_id):
+            if selected == "kora_h" and not clip_pipeline.characters.allowed(session_id):
+                return await character_status(session_id, "unavailable")
             if await clip_pipeline.characters.store.get(session_id) == selected:
                 return await character_status(session_id)
             active = await calls.open_call_today(session_id)
             if jobs.pending(session_id) or (active and (active["turns"] or active.get("openingDelivered"))):
                 return await character_status(session_id, "active_conversation")
-            if selected == "kora_h" and not clip_pipeline.characters.h_available:
-                return await character_status(session_id, "unavailable")
             # A failed opening must not trap the user in an unavailable character.
             if active:
                 await calls.seal(session_id, reason="character_changed_before_opening")
@@ -802,7 +804,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     model._v2 = v2
     characters = Characters(CharacterStore(
         Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
-    ))
+    ), enabled=settings.kora_h_enabled, allowlist=settings.kora_h_allowlist)
     if "openrouter.ai" in settings.openai_base_url:
         characters.speech_h = GeminiKoraSpeech(
             openai_client, settings.ffmpeg_bin, settings.kora_tts_model, settings.kora_tts_voice,
