@@ -356,7 +356,8 @@ async def test_kora_h_opening_uses_one_call_with_history_and_profile(monkeypatch
     assert messages[-2:] == [{'role': 'user', 'content': history[0].content},
                              {'role': 'user', 'content': KORA_H_OPENING_REQUEST}]
     assert kwargs['operation'] == 'kora_h_turn'
-    assert kwargs['response_format'] == {'type': 'json_object'}
+    assert kwargs['response_format']['type'] == 'json_schema'
+    assert kwargs['response_format']['json_schema']['strict'] is True
 
 
 @pytest.mark.asyncio
@@ -375,7 +376,8 @@ async def test_kora_h_opening_retries_invalid_move_once(monkeypatch):
     assert reply == turn['reply']
     assert len(calls) == 2
     assert all(kwargs['operation'] == 'kora_h_turn' for _, kwargs in calls)
-    assert 'invalid_opening_move' in calls[1][0][-1]['content']
+    assert any('invalid_opening_move' in message['content'] for message in calls[1][0])
+    assert calls[1][1]['temperature'] == .2
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from redis.asyncio import Redis
 
 from app.audit_artifacts import record_artifact
-from app.kora_h_prompts import H_OPENING_TURN, H_TURN_SYSTEM, STRATEGY as H_STRATEGY, parse_h_turn
+from app.kora_h_prompts import H_OPENING_TURN, H_TURN_RESPONSE_FORMAT, H_TURN_SYSTEM, STRATEGY as H_STRATEGY, parse_h_turn
 from app.kora_prompts import PERSONA, PLAN_SYSTEM, parse_plan, with_plan
 from app.llm import OpenAiChatModel
 from app.speech_delivery import normalize_delivery_tone
@@ -120,11 +120,12 @@ class KoraHModel(KoraModel):
             raw = await self._complete([
                 {"role": "system", "content": prompt},
                 *context,
+                *([{"role": "system", "content": f"The previous structured turn was invalid ({error}). "
+                   "Return a complete turn that follows the response schema and the conversation rules."}]
+                  if error else []),
                 *messages,
                 {"role": "user", "content": user_text},
-                *([{"role": "user", "content": f"Your previous JSON was invalid ({error}). "
-                   "Return a corrected complete turn as one JSON object."}] if error else []),
-            ], temperature=.7, max_tokens=450, response_format={"type": "json_object"},
+            ], temperature=.7 if not attempt else .2, max_tokens=450, response_format=H_TURN_RESPONSE_FORMAT,
                 operation="kora_h_turn")
             try:
                 turn = parse_h_turn(raw, opening=mode == "opening")

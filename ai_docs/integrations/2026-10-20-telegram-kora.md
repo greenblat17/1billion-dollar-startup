@@ -353,13 +353,6 @@ chooses from the learner's meaning and intended response; it must not add
 stage directions to the spoken reply. An unknown tone falls back to `plain` without
 retrying the whole conversational turn. This adds no LLM call.
 
-## Leda voice experiment, 2026-10-23
-
-Kora and Kora H now default to Gemini's `Leda` voice instead of `Kore`.
-The shared `KORA_TTS_VOICE` setting can override it. Sonnet's dialogue and
-per-turn delivery tags are unchanged. This is a voice preference experiment;
-Telegram listening is needed to assess the result.
-
 Only the OpenRouter Gemini 3.1 TTS input receives a mapped inline audio tag,
 such as `[curious]` or `[amazed]`. Subtitles, audit reply, and dialogue history
 keep Sonnet's clean text. Plain delivery has no tag. The current experiment
@@ -372,3 +365,26 @@ Local tests verify tone routing and the exact OpenRouter request text. They do
 not prove Gemini changes intonation, omits the tag from speech, or preserves
 every spoken word. Listen to matched DEV turns before judging this experiment;
 Gemini does not return a transcript to verify exact spoken wording.
+
+## Leda voice experiment, 2026-10-23
+
+Kora and Kora H now default to Gemini's `Leda` voice instead of `Kore`.
+The shared `KORA_TTS_VOICE` setting can override it. Sonnet's dialogue and
+per-turn delivery tags are unchanged. This is a voice preference experiment;
+Telegram listening is needed to assess the result.
+
+## Kora H structured-turn reliability, 2026-10-23
+
+A DEV voice turn failed before TTS: Sonnet returned non-JSON text twice while
+the request used OpenRouter `json_object`, so Kora H could not parse its
+conversation move and reply. The same saved user utterance and 40-message
+history reproduced that non-JSON response locally. With a strict JSON schema
+for all eight fields, the same input parsed on the first call. A further
+15-case probe, including five runs of the incident context, produced 15 valid
+first-call turns. This is directional evidence, not a guaranteed 90% rate.
+
+Kora H now requests `json_schema` with `strict=true` and still validates
+cross-field rules in `parse_h_turn`. If the first response is invalid, it makes
+one more structured request at lower temperature with the validation error.
+There is no unplanned text-writer fallback or third call. An invalid second
+response still fails the turn and records the parse error.

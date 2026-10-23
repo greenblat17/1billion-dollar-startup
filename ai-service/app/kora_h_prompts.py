@@ -8,6 +8,29 @@ from app.speech_delivery import normalize_delivery_tone
 STRATEGY = "interest_spoken_reply_v4"
 H_MOVES = {"question", "perspective", "answer", "close"}
 
+H_TURN_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "kora_h_turn",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "interest": {"type": "string", "enum": ["searching", "engaged", "uncertain", "fading", "ending"]},
+                "evidence": {"type": "string"},
+                "topic": {"type": "string"},
+                "direction": {"type": "string", "enum": ["stay", "adjacent", "follow", "end"]},
+                "adjacent_topic": {"type": "string"},
+                "move": {"type": "string", "enum": ["question", "perspective", "answer", "close"]},
+                "tone": {"type": "string", "enum": ["plain", "warm", "curious", "surprised", "excited", "gentle", "thoughtful", "playful"]},
+                "reply": {"type": "string"},
+            },
+            "required": ["interest", "evidence", "topic", "direction", "adjacent_topic", "move", "tone", "reply"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 _A2_RULE = 'Use A2-level English: common everyday words, short sentences, and simple grammar.'
 assert PERSONA.count(_A2_RULE) == 1
 H_PERSONA = PERSONA.replace(
