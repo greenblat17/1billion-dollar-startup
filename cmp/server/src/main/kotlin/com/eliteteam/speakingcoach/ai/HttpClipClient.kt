@@ -344,6 +344,7 @@ class HttpClipClient(
     suspend fun reviewCall(callId: String): CallReviewResponse {
         val response = http.post("$root/internal/calls/review") {
             applyInternalToken()
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
             contentType(ContentType.Application.Json)
             setBody(CallReviewRequest(callId))
         }

@@ -117,6 +117,33 @@ class HttpClipClientTest {
     }
 
     @Test
+    fun callReviewCanOutlastTheDefaultSocketTimeout() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/internal/calls/review") { exchange ->
+            exchange.requestBody.use { it.readBytes() }
+            Thread.sleep(250)
+            val response = """{"callId":"c1","retry":false,"levelText":"A2"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val http = HttpClient(OkHttp) {
+            install(HttpTimeout)
+            engine { config { readTimeout(100, TimeUnit.MILLISECONDS) } }
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        try {
+            val review = HttpClipClient("http://127.0.0.1:${server.address.port}", http).reviewCall("c1")
+            assertEquals("c1", review.callId)
+            assertEquals(false, review.retry)
+        } finally {
+            http.close()
+            server.stop(0)
+        }
+    }
+
+    @Test
     fun reminderQuestionReachesCallStartOnlyForReminderButton() = runTest {
         val bodies = mutableListOf<String>()
         val engine = MockEngine { request ->
