@@ -111,7 +111,9 @@ def test_repeated_mistake_outranks_an_earlier_one_off():
     picked = select_examples(candidates, {item["id"] for item in candidates})
     assert picked["grammar"][0] == {"wrong": "I am agree", "better": "I agree", "explanation": ""}
     assert picked["grammar"][1]["wrong"] == "I work in startup"
-    assert [item["wrong"] for item in picked["vocabulary"]] == ["made a photo", "very interesting"]
+    assert [item["wrong"] for item in picked["grammar"]] == [
+        "I am agree", "I work in startup", "made a photo", "very interesting"]
+    assert picked["vocabulary"] == []
 
 
 def test_callback_stays_inside_the_closing_frame():
@@ -533,7 +535,7 @@ def test_repeated_pair_uses_saved_explanation_when_first_copy_has_none():
     ]
 
 
-def test_final_vocabulary_examples_use_verified_live_naturalness_and_ignore_legacy_alternatives():
+def test_final_grammar_examples_include_legacy_word_errors_and_ignore_alternatives():
     candidates = correction_candidates([{
         "transcript": "I did a decision. We saw a big increase.",
         "corrections": [
@@ -543,7 +545,7 @@ def test_final_vocabulary_examples_use_verified_live_naturalness_and_ignore_lega
         ],
     }])
     assert len(candidates) == 1
-    assert select_examples(candidates, {"0:0"})["vocabulary"] == [
+    assert select_examples(candidates, {"0:0"})["grammar"] == [
         {"wrong": "I did a decision", "better": "I made a decision",
          "explanation": "Здесь говорят make a decision."},
     ]
@@ -586,15 +588,15 @@ async def test_verifier_model_can_be_configured():
 
 
 @pytest.mark.asyncio
-async def test_naturalness_verifier_uses_strict_model():
+async def test_legacy_lexical_error_uses_grammar_verifier():
     class Llm:
         async def complete_json(self, system, data, **kwargs):
-            assert kwargs["model"] == "openai/gpt-5.6-luna"
-            assert json.loads(data)["candidates"][0]["kind"] == "natural"
+            assert kwargs["model"] == "openai/gpt-4o-mini"
+            assert json.loads(data)["candidates"][0]["kind"] == "grammar"
             return '{"acceptedIds":["0:0"]}'
 
     candidate = {"id": "0:0", "transcript": "I did a decision.",
-                 "wrong": "I did a decision", "better": "I made a decision", "kind": "natural",
+                 "wrong": "I did a decision", "better": "I made a decision", "kind": "grammar",
                  "vocabularyCategory": "naturalness_error"}
     assert await OnboardingModel(Llm()).verify_corrections([candidate]) == {"0:0"}
 
@@ -605,21 +607,39 @@ async def test_final_upgrade_verifier_is_separate_from_error_verifier():
         async def complete_json(self, system, data, **kwargs):
             assert system == ALTERNATIVE_REVIEW_SYSTEM
             assert json.loads(data)["candidates"][0]["category"] == "word_upgrade"
-            return '{"decisions":[{"id":"0:0","accepted":true,"reason":"Слово точнее обозначает масштаб роста."}]}'
+            return '{"decisions":[{"id":"0:0","sourceCorrect":true,"meaningPreserved":true,"usefulToLearn":true,"reason":"Используй substantial для заметного роста затрат."}]}'
 
     candidate = {"id": "0:0", "transcript": "We saw a big increase in costs.",
                  "original": "big", "alternative": "substantial", "category": "word_upgrade"}
     assert await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate]) == {
-        "0:0": {"accepted": True, "reason": "Слово точнее обозначает масштаб роста."}}
+        "0:0": {"accepted": True, "reason": "Используй substantial для заметного роста затрат.",
+                "sourceCorrect": True, "meaningPreserved": True, "usefulToLearn": True}}
 
 
 @pytest.mark.asyncio
 async def test_upgrade_verifier_requires_reason_for_every_decision():
     class Llm:
         async def complete_json(self, *args, **kwargs):
-            return '{"decisions":[{"id":"0:0","accepted":false,"reason":""}]}'
+            return '{"decisions":[{"id":"0:0","sourceCorrect":false,"meaningPreserved":true,"usefulToLearn":true,"reason":""}]}'
 
     candidate = {"id": "0:0", "transcript": "We saw a big increase in costs.",
                  "original": "big", "alternative": "substantial", "category": "word_upgrade"}
     with pytest.raises(ValueError, match="invalid vocabulary decision"):
         await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate])
+
+
+@pytest.mark.asyncio
+async def test_upgrade_verifier_rejects_error_repair_even_when_replacement_is_useful():
+    class Llm:
+        async def complete_json(self, *args, **kwargs):
+            return json.dumps({"decisions": [{
+                "id": "0:0", "sourceCorrect": False,
+                "meaningPreserved": True, "usefulToLearn": True,
+                "reason": "Step здесь ошибочно описывает остановку в пути.",
+            }]})
+
+    candidate = {"id": "0:0", "transcript": "The flight had one step.",
+                 "original": "step", "alternative": "stop", "category": "word_upgrade"}
+    decision = await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate])
+    assert decision["0:0"]["accepted"] is False
+    assert decision["0:0"]["sourceCorrect"] is False

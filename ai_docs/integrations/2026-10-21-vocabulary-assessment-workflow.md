@@ -1,22 +1,18 @@
 # Vocabulary assessment workflow
 
-Status: implemented locally on 2026-10-21; not deployed. This supersedes the
+Status: revised locally on 2026-10-23; not deployed. This supersedes the
 live-alternative workflow described in older integration notes. Product decision:
 [the agreed plan](../plans/2026-10-21-live-naturalness-final-vocabulary-enrichment.md).
 
-Review blocker (2026-10-22): the owner clarified that an incorrect word belongs
-to Grammar in the product taxonomy; Vocabulary is for a correct choice that
-can be improved. The implementation below still routes clear wrong-word edits
-through the `natural` Vocabulary error path. In a real-dialogue probe, the
-final upgrade verifier also accepted `step` → `stop` while describing `step`
-as erroneous. This workflow is a draft for review and must not be merged or
-deployed until both boundaries are corrected and evaluated on real dialogues.
+Review blocker: an earlier real-dialogue probe accepted `step` → `stop` while
+calling `step` erroneous. The revised code requires source correctness,
+meaning preservation, and learning value separately, but model judgment still
+needs real-dialogue and held-out evaluation before merge or deployment.
 
 ## During a learner turn
 
-The live notes request checks the entire recognized turn for Grammar mistakes
-and clearly unnatural lexical choices. It returns `kind=grammar` or
-`kind=natural`, with `vocabularyCategory=null` or `naturalness_error`.
+The live notes request checks the entire recognized turn for clear syntax and
+lexical errors. It returns `kind=grammar` and `vocabularyCategory=null`.
 A natural but basic phrase does not produce a live correction. The parser
 requires a copied context, one exact local edit, high confidence, and the
 spoken-language/ASR safeguards. The bot displays at most one correction card
@@ -24,13 +20,12 @@ per turn. Other independent corrections are saved.
 
 ## At the end of onboarding and practice calls
 
-Both flows collect saved Grammar and naturalness candidates, verify them in
-separate batches, and select up to five examples per skill. The examples reuse
-the Russian explanations saved during the turn. Optional live alternatives
-from the previous local workflow are ignored. Older saved `word` corrections
-are treated as naturalness candidates and must pass the same strict verifier.
-A failed verification batch does
-not remove successful batches. The review model sees verified examples when
+Both flows collect saved errors, verify them in bounded batches, and select up
+to five Grammar examples. The examples reuse Russian explanations saved during
+the turn. Optional live alternatives from the previous local workflow are
+ignored. Older saved `word` and `natural` corrections become Grammar candidates
+and must pass the same strict verifier. A failed verification batch does not
+remove successful batches. The review model sees verified examples when
 writing diagnostic text and scores. Onboarding places the first score; calls
 limit each score move to two points.
 
@@ -42,8 +37,9 @@ searches. Search results must quote an exact source in the given turn and
 change only one word or a short local expression. A second model call verifies
 the proposal in its full transcript. The final list has up to five
 `word_upgrade` and five `expression_upgrade` suggestions. The output shape is
-`{original, alternative, explanation, category}`. Model order is refined by
-the proposed benefit rank across chunks. An upgrade is not an error and is not
+`{original, alternative, explanation, category, context, editedContext}`.
+Model order is refined by the proposed benefit rank across chunks. An upgrade
+is not an error and is not
 sent to the score model as evidence of a mistake.
 
 The model's category label is advisory. Grounding removes unchanged outer
@@ -52,15 +48,17 @@ one-word-to-one-word edit as `word_upgrade`; any other short local edit is
 `expression_upgrade`, including two words to one word. It accepts at most four
 source words and five replacement words and does not reject an exact copied
 context solely because the learner's turn exceeds 35 words. The separate
-verifier still decides whether the replacement preserves meaning and gives
-a real learning benefit. Both final categories retain their five-item limits.
+verifier decides separately whether the original is correct, the replacement
+preserves meaning, and it offers learning value. Its accepted reason explains
+when to use the replacement. Both categories retain their five-item limits.
 The private debug trace keeps the proposed label and span when normalization
 changes them.
 
-The Telegram Vocabulary result has two pages. The first shows the score,
-diagnostic text, and verified naturalness mistakes. The next shows optional
-word and expression upgrades. This avoids Telegram's single-message size
-limit. If no upgrades survive, navigation goes straight to Fluency.
+The Telegram Vocabulary result is one card with score, diagnostic text, and
+ranked optional lessons. Each lesson shows the learner's complete short phrase,
+the edited phrase, and a usage explanation. The best lessons that fit the
+message-length budget are shown, up to ten. If none survive, the card still
+shows the score and diagnostic text, then navigates to Fluency.
 
 ## Failure and observability
 
@@ -89,5 +87,5 @@ backfilled with model reasons; only new reviews create these traces.
 Local parser, review-flow, failure-isolation, and Telegram rendering tests
 pass. The prompts and model gate still need a paired quality evaluation on
 real dialogues and a held-out sample before deployment. In particular,
-model-assigned benefit rank and CEFR gain are judgments, not deterministic
+model-assigned benefit rank and learning value are judgments, not deterministic
 facts, and transcripts alone cannot resolve uncertain audio.

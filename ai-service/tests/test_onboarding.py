@@ -860,8 +860,9 @@ async def test_onboarding_discovers_optional_upgrade_without_live_correction():
     result = await turn(s, run)
     vocabulary = result.onboarding["review"]["vocabulary"]
     assert vocabulary["examples"] == []
-    assert vocabulary["suggestions"] == [{key: model.upgrades[0][key] for key in
-        ("original", "alternative", "explanation", "category")}]
+    assert len(vocabulary["suggestions"]) == 1
+    assert vocabulary["suggestions"][0]["original"] == "big"
+    assert vocabulary["suggestions"][0]["editedContext"] == "We saw a substantial increase in costs."
     trace = await s.store.get_vocabulary_trace("onboarding", run)
     assert trace["entries"][0]["status"] == "selected"
     assert trace["entries"][0]["reason"] == "Предложено более точное слово."
@@ -869,7 +870,7 @@ async def test_onboarding_discovers_optional_upgrade_without_live_correction():
 
 
 @pytest.mark.asyncio
-async def test_onboarding_keeps_final_upgrade_beside_verified_naturalness_error():
+async def test_onboarding_routes_lexical_error_to_grammar_beside_vocabulary_upgrade():
     model = Model()
     transcript = "I did a decision after a big increase in costs."
     model.upgrades = [{"context": transcript, "original": "big", "alternative": "substantial",
@@ -880,8 +881,10 @@ async def test_onboarding_keeps_final_upgrade_beside_verified_naturalness_error(
     run = await begin(s)
     result = await turn(s, run)
     vocabulary = result.onboarding["review"]["vocabulary"]
-    assert vocabulary["examples"] == [{"wrong": "I did a decision", "better": "I made a decision",
-                                       "explanation": "Здесь говорят make a decision."}]
+    assert result.onboarding["review"]["grammar"]["examples"] == [{
+        "wrong": "I did a decision", "better": "I made a decision",
+        "explanation": "Здесь говорят make a decision."}]
+    assert vocabulary["examples"] == []
     assert len(vocabulary["suggestions"]) == 1
 
 

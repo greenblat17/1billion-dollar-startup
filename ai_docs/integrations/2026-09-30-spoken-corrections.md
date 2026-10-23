@@ -97,6 +97,6 @@ local, not deployed; model quality still needs a new real-dialogue replay.
 
 The older live alternatives and final suggestions described above are superseded
 by the [current local workflow](2026-10-21-vocabulary-assessment-workflow.md).
-Live turns now seek Grammar and clear Vocabulary naturalness errors. Final
-assessment separately searches the whole dialogue for optional word and short
-expression upgrades. This change is local and not deployed.
+Live turns now route all clear syntax and lexical errors to Grammar. Final
+assessment separately searches the whole dialogue for useful new words and
+short expressions based on correct speech. This change is local and not deployed.

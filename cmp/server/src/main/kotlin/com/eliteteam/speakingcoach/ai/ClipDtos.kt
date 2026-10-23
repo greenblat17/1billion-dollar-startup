@@ -613,6 +613,8 @@ data class VocabularySuggestion(
     val alternative: String = "",
     val explanation: String = "",
     val category: String = "word_upgrade",
+    val context: String = "",
+    val editedContext: String = "",
 )
 
 @Serializable

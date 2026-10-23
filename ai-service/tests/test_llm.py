@@ -33,21 +33,21 @@ def parse(notes, transcript="I am agree with you."):
     return parse_corrections(json.dumps({"notes": notes}), transcript)
 
 
-def test_live_notes_keep_independent_grammar_and_naturalness_errors():
+def test_live_notes_keep_independent_syntax_and_lexical_errors_in_grammar():
     transcript = "I am agree with you. I did a decision yesterday."
     grammar = decision("I am agree with you.", "am agree", "agree")
-    natural = decision("I did a decision yesterday.", "did a decision", "made a decision", "natural",
+    natural = decision("I did a decision yesterday.", "did a decision", "made a decision", "grammar",
                        reason="Здесь используют другую форму.")
     assert parse([natural, grammar], transcript) == [
         Correction("I am agree with you.", "I agree with you."),
-        Correction("I did a decision yesterday.", "I made a decision yesterday.", "natural",
-                   "Здесь используют другую форму.", "naturalness_error"),
+        Correction("I did a decision yesterday.", "I made a decision yesterday.", "grammar",
+                   "Здесь используют другую форму."),
     ]
 
 
-def test_live_naturalness_requires_wrong_original_and_preserved_meaning():
+def test_live_lexical_error_requires_wrong_original_and_preserved_meaning():
     transcript = "I did a decision yesterday."
-    note = decision(transcript, "did a decision", "made a decision", "natural", reason="Здесь говорят make a decision.")
+    note = decision(transcript, "did a decision", "made a decision", "grammar", reason="Здесь говорят make a decision.")
     assert len(parse([note], transcript)) == 1
     for field, value in (("meaning_preserved", False), ("already_correct", True),
                          ("definitely_wrong", False), ("vocabularyCategory", "word_upgrade")):
@@ -55,17 +55,17 @@ def test_live_naturalness_requires_wrong_original_and_preserved_meaning():
     assert parse([{**note, "kind": "alternative", "vocabularyCategory": "word_upgrade"}], transcript) == []
 
 
-def test_live_naturalness_accepts_wrong_single_word_but_rejects_long_rewrite():
+def test_live_grammar_accepts_wrong_single_word_but_rejects_long_rewrite():
     transcript = "I borrowed him my book."
-    note = decision(transcript, "borrowed", "lent", "natural", reason="Здесь нужен lent.")
+    note = decision(transcript, "borrowed", "lent", "grammar", reason="Здесь нужен lent.")
     assert parse([note], transcript)[0].better == "I lent him my book."
     assert parse([{**note, "error": "I borrowed him my book", "replacement": "I gave him my book to use"}], transcript) == []
 
 
-def test_live_naturalness_rejects_function_word_only_repair():
+def test_live_grammar_accepts_function_word_repair():
     transcript = "I need to speak with different people on the English."
-    note = decision(transcript, "on the English", "in English", "natural", reason="Здесь нужен in English.")
-    assert parse([note], transcript) == []
+    note = decision(transcript, "on the English", "in English", "grammar", reason="Здесь нужен in English.")
+    assert parse([note], transcript)[0].better == "I need to speak with different people in English."
 
 
 def test_local_edit_does_not_copy_words_left_outside_its_span():
@@ -330,11 +330,11 @@ def test_three_grammar_candidates_do_not_drop_phrase_suggestion():
     notes = [decision(context=f"I fragment {i}", error=f"fragment {i}", replacement=f"fixed {i}")
              for i in range(3)]
     notes.append(decision(context="I made a photo", error="made a photo", replacement="took a photo",
-                          kind="natural",
+                          kind="grammar",
                           definitely_wrong=True, already_correct=False, meaning_preserved=True,
                           reason="Здесь естественно took a photo."))
     corrections = parse(notes, "I fragment 0 and I fragment 1 and I fragment 2 and I made a photo")
-    assert [item.kind for item in corrections] == ["grammar", "grammar", "grammar", "natural"]
+    assert [item.kind for item in corrections] == ["grammar", "grammar", "grammar", "grammar"]
 
 
 @pytest.mark.asyncio

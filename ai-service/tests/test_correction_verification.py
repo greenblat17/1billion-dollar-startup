@@ -108,7 +108,7 @@ async def test_error_in_one_chunk_keeps_other_verified_examples(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_grammar_and_naturalness_candidates_use_separate_batches():
+async def test_syntax_and_lexical_errors_share_grammar_verification():
     seen = []
 
     class KindVerifier:
@@ -117,14 +117,12 @@ async def test_grammar_and_naturalness_candidates_use_separate_batches():
             return {item["id"] for item in candidates}
 
     candidates = [
-        {"id": "0:0", "kind": "natural"},
-        {"id": "0:1", "kind": "natural"},
+        {"id": "0:0", "kind": "grammar"},
+        {"id": "0:1", "kind": "grammar"},
         {"id": "1:0", "kind": "grammar"},
     ]
     accepted = await correction_verification.verify_corrections_with_metrics(
         KindVerifier(), candidates, flow="call",
     )
     assert accepted == {"0:0", "0:1", "1:0"}
-    assert len(seen) == 2
-    assert {"grammar"} in seen
-    assert {"natural"} in seen
+    assert seen == [{"grammar"}]

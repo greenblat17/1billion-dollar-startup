@@ -26,6 +26,11 @@ Always reply with a JSON object only:
  "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int}}
 Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
 Do not return a CEFR label or a 0-100 score. Do not invent a new level.
+For Vocabulary, compare the learner's own repeated lexical range, complexity,
+and precision with the stored baseline. Consistently basic words across
+substantial speech can support a negative move from an advanced baseline,
+even when those words are correct. One simple word or a narrow sample cannot.
+Optional teaching alternatives are not words the learner demonstrated.
 levelText is two or three short diagnostic sentences about the English demonstrated in this
 conversation relative to the current level. Explain the result using one or two exact excerpts
 from the transcripts when available. Explain what they show, not just what topics were discussed.

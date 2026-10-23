@@ -24,13 +24,15 @@ describe observed ability and, only when supported, its main limitation. Give co
 evidence without repeating correction examples or adding advice.
 Fluency "text" is two concise sentences about demonstrated flow.
 Do not include scores, CEFR letters, or internal low/mid/high labels in these texts.
-The supplied grammar/vocabulary examples have passed a conservative verification step.
+The supplied Grammar examples have passed a conservative verification step.
 An empty list means no sufficiently reliable correction was selected, not error-free speech.
 Do not invent mistake examples or counts. Claims about Grammar mistakes must
-use only the supplied Grammar examples. Vocabulary naturalness examples are verified mistakes. Claims about Vocabulary
-mistakes must use only those examples. Optional final Vocabulary upgrades are
-teaching points, not mistakes and not evidence for lowering the Vocabulary score.
-Judge Vocabulary from the demonstrated range, precision, and natural use of words.
+use only the supplied Grammar examples, including incorrect word choices.
+Optional final Vocabulary suggestions are teaching points, not mistakes or score evidence.
+Judge Vocabulary from the learner's own demonstrated lexical range, complexity,
+precision, and natural use. Repeated basic word choices across substantial speech
+can support a lower Vocabulary score than the current baseline, even when each
+word is correct. One simple word or a narrow, short conversation is insufficient.
 The examples already carry their conversation-time explanations. Do not write new
 explanations or change the supplied correction pairs.
 When examples are empty, describe supported ability or insufficient evidence; do not invent
@@ -49,9 +51,8 @@ _STOP = frozenset({
 def select_examples(candidates: list[dict], accepted: set[str], limit: int = EXAMPLE_LIMIT) -> dict[str, list[dict[str, str]]]:
     """Rank only verified candidates; the model cannot supply replacement pairs."""
     notes = [note for note in candidates if note["id"] in accepted]
-    grammar = _ranked([note for note in notes if note["kind"] == "grammar"])[:limit]
-    vocabulary = _ranked([note for note in notes if note["kind"] == "natural"])[:limit]
-    return {"grammar": _pairs(grammar), "vocabulary": _pairs(vocabulary)}
+    grammar = _ranked(notes)[:limit]
+    return {"grammar": _pairs(grammar), "vocabulary": []}
 
 
 def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
@@ -138,7 +139,7 @@ def correction_candidates(turns: list[dict]) -> list[dict]:
                 "wrong": wrong,
                 "better": better,
                 "explanation": note["explanation"].strip() if isinstance(note.get("explanation"), str) else "",
-                "kind": "natural" if kind == "word" else kind,
+                "kind": "grammar",
                 "vocabularyCategory": note.get("vocabularyCategory"),
                 "turn": turn_index,
                 "order": order,

@@ -92,6 +92,8 @@ async def test_search_covers_all_chunks_and_keeps_success_when_one_fails():
     result = await discover_vocabulary_suggestions(model, turns, [], flow="call")
     assert set(model.seen) == {0, 1, 2}
     assert len(result) == 1 and result[0]["category"] == "word_upgrade"
+    assert result[0]["context"] == "We saw a big increase in costs 2."
+    assert result[0]["editedContext"] == "We saw a substantial increase in costs 2."
 
 
 @pytest.mark.asyncio

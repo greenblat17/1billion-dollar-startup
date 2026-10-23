@@ -105,12 +105,12 @@ internal fun onboardingInvitation(firstName: String?): String {
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
-    "begin", "retry", "continue", "level", "results", "vocab", "vocab_more", "fluency", "finish", "talk", "profile", "bye",
+    "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
     "m5", "m10", "m15", "skip", "remind", "later",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
-    "retry", "level", "results", "vocab", "vocab_more", "fluency", "finish", "profile" -> "callback:$queryId"
+    "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
     "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
@@ -130,7 +130,6 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
             "level" -> "🔥 See my results"
             "results" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
-            "vocab_more" -> "More Vocabulary →"
             "fluency" -> "Fluency →"
             "finish" -> "Continue →"
             "talk" -> "Keep talking 🎙"
@@ -286,35 +285,29 @@ internal fun levelSlide(
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
     skillSlide("✍️ Grammar", review.grammar)
 
-internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("📚 Vocabulary", review.vocabulary)
+private const val VOCABULARY_CARD_CHAR_LIMIT = 3900
 
-internal fun vocabularyMoreSlide(review: OnboardingReview): TextSourcesList =
-    buildEntities {
-        bold("📚 Vocabulary · ways to grow")
-        val suggestions = review.vocabulary.suggestions
-        val words = suggestions.filter { it.category != "expression_upgrade" }.take(5)
-        val expressions = suggestions.filter { it.category == "expression_upgrade" }.take(5)
-        if (words.isNotEmpty()) {
+internal fun vocabularySlide(review: OnboardingReview): TextSourcesList {
+    val base = skillSlide("📚 Vocabulary", review.vocabulary.copy(examples = emptyList()))
+    val shown = mutableListOf<com.eliteteam.speakingcoach.ai.VocabularySuggestion>()
+    var card = base
+    for (suggestion in review.vocabulary.suggestions.take(10)) {
+        val candidate = buildEntities {
+            addAll(base)
             regularln("")
             regularln("")
-            bold("Words to try")
+            bold("Words and expressions to try")
             regularln("")
             regularln("")
-            suggestionLines(words)
+            suggestionLines(shown + suggestion)
         }
-        if (expressions.isNotEmpty()) {
-            regularln("")
-            regularln("")
-            bold("Expressions to try")
-            regularln("")
-            regularln("")
-            suggestionLines(expressions)
+        if (candidate.joinToString("") { it.source }.length <= VOCABULARY_CARD_CHAR_LIMIT) {
+            shown.add(suggestion)
+            card = candidate
         }
     }
-
-internal fun hasVocabularyMore(review: OnboardingReview): Boolean =
-    review.vocabulary.suggestions.isNotEmpty()
+    return card
+}
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("🎙 Fluency")
@@ -384,10 +377,11 @@ private fun dev.inmo.tgbotapi.utils.EntitiesBuilder.suggestionLines(
 ) {
     suggestions.forEachIndexed { index, suggestion ->
         if (index > 0) regular("\n\n")
-        regularln(suggestion.original)
-        regular("→ ")
-        bold(suggestion.alternative)
-        suggestion.explanation.trim().take(100).takeIf { it.isNotEmpty() }?.let { explanation ->
+        regular("You said: ")
+        regularln(suggestion.context.ifBlank { suggestion.original })
+        regular("Try: ")
+        bold(suggestion.editedContext.ifBlank { suggestion.alternative })
+        suggestion.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
             regular("\n\n💡 ")
             italic(explanation)
         }

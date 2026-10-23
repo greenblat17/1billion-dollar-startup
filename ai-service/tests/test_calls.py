@@ -382,13 +382,11 @@ async def test_call_review_shows_up_to_five_verified_examples_per_skill():
     assert len(examples) == 5
     assert [item["wrong"] for item in examples] == [item["wrong"] for item in corrections[:5]]
     assert all(item["explanation"] == "Сохранённое объяснение грамматики." for item in examples)
-    vocabulary_examples = review["vocabulary"]["examples"]
-    assert [item["wrong"] for item in vocabulary_examples] == [item["wrong"] for item in vocabulary[:5]]
-    assert all(item["explanation"] == "Сохранённое объяснение слова." for item in vocabulary_examples)
+    assert review["vocabulary"]["examples"] == []
 
 
 @pytest.mark.asyncio
-async def test_call_review_keeps_final_upgrade_beside_verified_naturalness_error():
+async def test_call_review_routes_lexical_error_to_grammar_beside_vocabulary_upgrade():
     store = OnboardingStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
@@ -402,12 +400,14 @@ async def test_call_review_keeps_final_upgrade_beside_verified_naturalness_error
     upgrade = {"context": transcript, "original": "big", "alternative": "substantial",
                "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}
     review = await CallReviews(calls, store, Scorer(upgrades=[upgrade]), Streaks()).review(opened["callId"])
-    assert review["vocabulary"]["examples"] == [{
+    assert review["grammar"]["examples"] == [{
         "wrong": "I did a decision", "better": "I made a decision",
         "explanation": "Здесь говорят make a decision.",
     }]
-    assert review["vocabulary"]["suggestions"] == [{key: upgrade[key] for key in
-        ("original", "alternative", "explanation", "category")}]
+    assert review["vocabulary"]["examples"] == []
+    assert review["vocabulary"]["suggestions"][0]["context"] == transcript
+    assert review["vocabulary"]["suggestions"][0]["editedContext"] == (
+        "I did a decision after a substantial increase in costs.")
     trace = await store.get_vocabulary_trace("call", opened["callId"])
     assert trace["entries"][0]["status"] == "selected"
     assert trace["entries"][0]["reason"] == "Предложено более точное слово."
@@ -459,8 +459,10 @@ async def test_call_review_finds_upgrade_without_live_corrections():
                "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}
     review = await CallReviews(calls, store, Scorer(upgrades=[upgrade]), Streaks()).review(opened["callId"])
     assert review["vocabulary"]["examples"] == []
-    assert review["vocabulary"]["suggestions"] == [{key: upgrade[key] for key in
-        ("original", "alternative", "explanation", "category")}]
+    assert len(review["vocabulary"]["suggestions"]) == 1
+    assert review["vocabulary"]["suggestions"][0]["original"] == "big"
+    assert review["vocabulary"]["suggestions"][0]["editedContext"] == (
+        "We saw a substantial increase in costs.")
 
 
 @pytest.mark.asyncio

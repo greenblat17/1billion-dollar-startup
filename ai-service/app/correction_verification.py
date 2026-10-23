@@ -24,10 +24,7 @@ async def verify_corrections_with_metrics(model: Any, candidates: list, *, flow:
         async with semaphore:
             return await model.verify_corrections(chunk)
 
-    grouped = [
-        [item for item in candidates if isinstance(item, dict) and item.get("kind") == kind]
-        for kind in ("grammar", "natural")
-    ]
+    grouped = [[item for item in candidates if isinstance(item, dict) and item.get("kind") == "grammar"]]
     tasks = [
         asyncio.create_task(verify_chunk(group[start:start + REVIEW_VERIFICATION_BATCH_SIZE]))
         for group in grouped for start in range(0, len(group), REVIEW_VERIFICATION_BATCH_SIZE)
