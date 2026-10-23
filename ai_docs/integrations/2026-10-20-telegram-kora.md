@@ -357,8 +357,10 @@ Only the OpenRouter Gemini 3.1 TTS input receives a mapped inline audio tag,
 such as `[curious]` or `[amazed]`. Subtitles, audit reply, and dialogue history
 keep Sonnet's clean text. Plain delivery has no tag. The current experiment
 applies to Kora and Kora H openings and free-conversation replies, not Speaky,
-lessons or situations. Cached opening drafts and fixed clarification lines
-keep plain delivery. Google documents inline tags for Gemini 3.1:
+lessons or situations. Kora H opening speech always uses `warm`, including
+retries of a cached opening draft; later turns still use Sonnet's per-turn tone.
+Kora cached opening drafts and fixed clarification lines keep plain delivery.
+Google documents inline tags for Gemini 3.1:
 https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-tts-preview
 
 Local tests verify tone routing and the exact OpenRouter request text. They do

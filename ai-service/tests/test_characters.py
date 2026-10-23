@@ -296,13 +296,13 @@ async def test_kora_h_opening_uses_its_model_and_gemini_voice():
 
 
 @pytest.mark.asyncio
-async def test_kora_h_opening_passes_sonnet_tone_to_speech(monkeypatch):
+async def test_kora_h_opening_uses_warm_delivery_regardless_of_sonnet_tone(monkeypatch):
     model_h, voice = KoraHModel(None, 'test'), KoraSpeech()
 
     async def complete(messages, **kwargs):
         return json.dumps(dict(interest='searching', evidence='New call', topic='Today',
                                direction='stay', move='question', adjacent_topic='',
-                               tone='warm', reply='Hey! How are you today?'))
+                               tone='curious', reply='Hey! How are you today?'))
 
     monkeypatch.setattr(model_h, '_complete', complete)
     characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
@@ -313,6 +313,24 @@ async def test_kora_h_opening_passes_sonnet_tone_to_speech(monkeypatch):
     assert result['question'] == 'Hey! How are you today?'
     assert voice.last_delivery == 'warm'
     assert voice.texts == ['Hey! How are you today?']
+
+
+@pytest.mark.asyncio
+async def test_kora_h_cached_opening_also_uses_warm_delivery():
+    calls = CallStore()
+    summary = await calls.open('tg-1')
+    await calls.save_opening(summary['callId'], 'Hey! How are you today?')
+    model_h, voice = FakeLlm(), KoraSpeech()
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
+    await characters.store.set('tg-1', 'kora_h')
+    starter = CallStarter(calls, Model(), Personalization(), MemoryDialogueStore(40, 86400),
+                          SessionSpeech(FakeTts()), characters)
+
+    result = await starter.start('tg-1')
+
+    assert result['question'] == 'Hey! How are you today?'
+    assert voice.last_delivery == 'warm'
+    assert model_h.calls == []
 
 
 @pytest.mark.asyncio
