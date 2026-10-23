@@ -429,3 +429,10 @@ accounts, five other users with the most delivered voice replies in the
 preceding 30 days, and three additional owner-selected accounts. The exact IDs
 are held only in the rollout secret. The count and selection rule are recorded
 here without identifying users.
+
+The `/voice` selector describes the partners in user-facing terms, without
+provider or model names. It marks the selected partner, uses short separated
+descriptions in simple English, and says users can either start a call or send
+an ordinary voice message. It explains that the choice affects free chats,
+while lessons and situations keep their usual voice. Users outside the cohort
+see only Speaky.

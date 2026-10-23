@@ -25,15 +25,16 @@ class VoiceMessagesTest {
         val unavailable = CharacterResponse("kora_h", koraHAvailable = false)
         val buttons = voiceKeyboard(unavailable).keyboard.flatten().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("voice:speaky"), buttons.map { it.callbackData })
-        assertTrue(voiceMessage(unavailable).contains("/speed also changes Kora H's voice"))
+        assertTrue(voiceMessage(unavailable).contains("Change Kora H's speaking speed with /speed"))
         assertTrue(voiceMessage(unavailable.copy(blocked = "active_conversation")).contains("Finish your current call"))
         val available = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(2, voiceKeyboard(available).keyboard.size)
         val withH = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(listOf("voice:speaky", "voice:kora_h"),
             voiceKeyboard(withH).keyboard.flatten().map { (it as CallbackDataInlineKeyboardButton).callbackData })
-        assertTrue(voiceMessage(withH).contains("Your conversation partner: Kora H"))
-        assertTrue(voiceMessage(withH).contains("Sonnet's words in Gemini's voice"))
-        assertFalse(voiceMessage(CharacterResponse("speaky")).contains("Kora H —"))
+        assertTrue(voiceMessage(withH).contains("Selected: Kora H"))
+        assertTrue(voiceMessage(withH).contains("Start call or send a voice message"))
+        assertFalse(voiceMessage(withH).contains("Sonnet"))
+        assertFalse(voiceMessage(CharacterResponse("speaky")).contains("Kora H"))
     }
 }

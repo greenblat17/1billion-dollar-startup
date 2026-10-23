@@ -18,18 +18,24 @@ internal fun voiceMessage(state: CharacterResponse): String {
         else -> "Speaky"
     }
     val notice = when (state.blocked) {
-        "active_conversation" -> "Finish your current call and wait for its reply before switching.\n\n"
-        "unavailable" -> "Kora H is temporarily unavailable.\n\n"
+        "active_conversation" -> "⏳ Finish your current call and wait for its reply before switching.\n\n"
+        "unavailable" -> "⚠️ Kora H is temporarily unavailable.\n\n"
         else -> ""
     }
-    return notice + "Your conversation partner: $name\n\n" +
-        "Speaky — your familiar speaking partner.\n" +
-        (if (state.koraHAvailable) "Kora H — another view when useful; Sonnet's words in Gemini's voice.\n" else "") +
-        "\n" +
-        (if (state.koraHAvailable) "Choose a partner, then tap Start call and send a voice message. "
-         else "Tap Start call and send a voice message. ") +
-        "This choice applies to free conversations. Lessons and situations keep their usual voice." +
-        if (state.character == "kora_h") "\n/speed also changes Kora H's voice." else ""
+    return buildString {
+        append(notice)
+        append(if (state.koraHAvailable) "🎙 Choose your speaking partner\n\n" else "🎙 Your speaking partner\n\n")
+        append("Selected: $name\n\n")
+        append("🌿 Speaky\nA calm chat to practise English.\n")
+        if (state.koraHAvailable) {
+            append("\n✨ Kora H\nA chat with more energy. Kora shares ideas and sometimes sees things another way.\n")
+            append("\nTap a name below, then tap 🎙 Start call or send a voice message.\n\n")
+            append("This affects free chats only. Lessons and situations keep their usual voice.")
+        } else {
+            append("\nTap 🎙 Start call or send a voice message.")
+        }
+        if (state.character == "kora_h") append("\n\nChange Kora H's speaking speed with /speed.")
+    }
 }
 
 internal fun voiceKeyboard(state: CharacterResponse): InlineKeyboardMarkup = inlineKeyboard {
