@@ -1649,6 +1649,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data == VOICE_MENU_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "voice-menu:${query.id}") {
+                    sendVoiceSelector(message)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Voice menu failed for {}", message.chat.id, error)
+                reply(message, "Please send /voice to choose a partner.", allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         if (query.data == "voice:kora") {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
             reply(message, "Kora is no longer available. Use /voice to choose Speaky or Kora H.",

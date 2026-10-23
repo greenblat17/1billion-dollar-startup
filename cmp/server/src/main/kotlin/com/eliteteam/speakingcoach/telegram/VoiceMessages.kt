@@ -11,6 +11,8 @@ import dev.inmo.tgbotapi.utils.code
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.row
 
+internal const val VOICE_MENU_CALLBACK = "voice:menu"
+
 internal fun parseVoiceCallback(data: String): String? = when (data) {
     "voice:speaky" -> "speaky"
     "voice:kora_h" -> "kora_h"

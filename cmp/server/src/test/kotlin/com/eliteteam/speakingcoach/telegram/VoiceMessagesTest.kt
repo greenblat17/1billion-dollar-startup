@@ -19,6 +19,7 @@ class VoiceMessagesTest {
         assertNull(parseVoiceCallback("voice:kora"))
         assertEquals("kora_h", parseVoiceCallback("voice:kora_h"))
         assertEquals("speaky", parseVoiceCallback("voice:speaky"))
+        assertNull(parseVoiceCallback(VOICE_MENU_CALLBACK))
         assertNull(parseVoiceCallback("voice:unknown"))
     }
 

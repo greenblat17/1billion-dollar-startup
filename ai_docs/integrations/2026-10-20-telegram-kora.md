@@ -4,6 +4,12 @@ Current release decision (2026-10-23): ordinary Kora is retired. The selector
 offers Speaky and Kora H only; the historical sections below record the
 experiments that led to Kora H. See [retirement](#ordinary-kora-retired-2026-10-23).
 
+An owner-targeted announcement can carry an inline button with callback data
+`voice:menu`. Tapping it sends the same selector as `/voice` in a new bot message;
+it does not change the selected character or start a call. The announcement
+remains intact. This callback exists for a separately controlled notification,
+not an automatic broadcast on deployment.
+
 User-approved scope: expose the accepted Voice Lab D conversation as an optional
 Telegram character through `/voice`. Default remains Speaky. Free calls and ordinary
 voice messages use the selected character; onboarding and roleplay keep their existing
