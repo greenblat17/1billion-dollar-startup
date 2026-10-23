@@ -59,7 +59,7 @@ class Settings:
     hume_config_version: str = "0"
     kora_model: str = "anthropic/claude-sonnet-4.6"
     kora_tts_model: str = "google/gemini-3.1-flash-tts-preview"
-    kora_tts_voice: str = "Kore"
+    kora_tts_voice: str = "Leda"
 
     @staticmethod
     def from_env() -> Settings:
@@ -95,5 +95,5 @@ class Settings:
             hume_config_version=_env("HUME_CONFIG_VERSION", "0") or "0",
             kora_model=_env("KORA_MODEL", "anthropic/claude-sonnet-4.6") or "anthropic/claude-sonnet-4.6",
             kora_tts_model=_env("KORA_TTS_MODEL", "google/gemini-3.1-flash-tts-preview") or "google/gemini-3.1-flash-tts-preview",
-            kora_tts_voice=_env("KORA_TTS_VOICE", "Kore") or "Kore",
+            kora_tts_voice=_env("KORA_TTS_VOICE", "Leda") or "Leda",
         )

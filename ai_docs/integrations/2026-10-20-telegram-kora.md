@@ -353,6 +353,13 @@ chooses from the learner's meaning and intended response; it must not add
 stage directions to the spoken reply. An unknown tone falls back to `plain` without
 retrying the whole conversational turn. This adds no LLM call.
 
+## Leda voice experiment, 2026-10-23
+
+Kora and Kora H now default to Gemini's `Leda` voice instead of `Kore`.
+The shared `KORA_TTS_VOICE` setting can override it. Sonnet's dialogue and
+per-turn delivery tags are unchanged. This is a voice preference experiment;
+Telegram listening is needed to assess the result.
+
 Only the OpenRouter Gemini 3.1 TTS input receives a mapped inline audio tag,
 such as `[curious]` or `[amazed]`. Subtitles, audit reply, and dialogue history
 keep Sonnet's clean text. Plain delivery has no tag. The current experiment
