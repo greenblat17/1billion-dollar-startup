@@ -1662,7 +1662,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
                     val text = voiceMessage(character)
                     val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
-                    if (shownText != text) {
+                    if (shownText != text.joinToString("") { it.source }) {
                         try {
                             editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
                         } catch (error: CancellationException) {

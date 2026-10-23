@@ -431,8 +431,7 @@ are held only in the rollout secret. The count and selection rule are recorded
 here without identifying users.
 
 The `/voice` selector describes the partners in user-facing terms, without
-provider or model names. It marks the selected partner, uses short separated
-descriptions in simple English, and says users can either start a call or send
-an ordinary voice message. It explains that the choice affects free chats,
-while lessons and situations keep their usual voice. Users outside the cohort
-see only Speaky.
+provider or model names. It uses bold headings and names, marks the selected
+partner beside its name, and shows the Start call button label as Telegram code.
+Descriptions use simple English and say users can either start a call or send
+an ordinary voice message. Users outside the cohort see only Speaky.

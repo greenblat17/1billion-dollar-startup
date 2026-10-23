@@ -2,6 +2,8 @@ package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.CharacterResponse
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
+import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
+import dev.inmo.tgbotapi.types.message.textsources.CodeTextSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,16 +27,25 @@ class VoiceMessagesTest {
         val unavailable = CharacterResponse("kora_h", koraHAvailable = false)
         val buttons = voiceKeyboard(unavailable).keyboard.flatten().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("voice:speaky"), buttons.map { it.callbackData })
-        assertTrue(voiceMessage(unavailable).contains("Change Kora H's speaking speed with /speed"))
-        assertTrue(voiceMessage(unavailable.copy(blocked = "active_conversation")).contains("Finish your current call"))
+        assertTrue(voiceMessage(unavailable).plain().contains("Change Kora H's speaking speed with /speed"))
+        assertTrue(voiceMessage(unavailable.copy(blocked = "active_conversation")).plain().contains("Finish your current call"))
         val available = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(2, voiceKeyboard(available).keyboard.size)
         val withH = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(listOf("voice:speaky", "voice:kora_h"),
             voiceKeyboard(withH).keyboard.flatten().map { (it as CallbackDataInlineKeyboardButton).callbackData })
-        assertTrue(voiceMessage(withH).contains("Selected: Kora H"))
-        assertTrue(voiceMessage(withH).contains("Start call or send a voice message"))
-        assertFalse(voiceMessage(withH).contains("Sonnet"))
-        assertFalse(voiceMessage(CharacterResponse("speaky")).contains("Kora H"))
+        val message = voiceMessage(withH)
+        assertTrue(message.any { it is BoldTextSource && it.source == "🎙 Choose your speaking partner" })
+        assertTrue(message.any { it is BoldTextSource && it.source == "✨ Kora H ✓" })
+        assertTrue(message.any { it is CodeTextSource && it.source == START_CALL_BUTTON })
+        assertFalse(message.plain().contains("Selected:"))
+        assertFalse(message.plain().contains("This affects free chats"))
+        assertFalse(message.plain().contains("Sonnet"))
+        assertFalse(voiceMessage(CharacterResponse("speaky")).plain().contains("Kora H"))
+        assertTrue(voiceMessage(CharacterResponse("speaky", koraHAvailable = true))
+            .any { it is BoldTextSource && it.source == "🌿 Speaky ✓" })
     }
+
+    private fun dev.inmo.tgbotapi.types.message.textsources.TextSourcesList.plain(): String =
+        joinToString("") { it.source }
 }
