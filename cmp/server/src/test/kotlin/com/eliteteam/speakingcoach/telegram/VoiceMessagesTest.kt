@@ -14,25 +14,26 @@ class VoiceMessagesTest {
         assertTrue(isVoiceCommand("/voice"))
         assertTrue(isVoiceCommand("/voice@speaky"))
         assertFalse(isVoiceCommand("/voices"))
-        assertEquals("kora", parseVoiceCallback("voice:kora"))
+        assertNull(parseVoiceCallback("voice:kora"))
         assertEquals("kora_h", parseVoiceCallback("voice:kora_h"))
         assertEquals("speaky", parseVoiceCallback("voice:speaky"))
         assertNull(parseVoiceCallback("voice:unknown"))
     }
 
     @Test
-    fun unavailableKoraCanStillBeSwitchedBackAndBusyNoticeIsClear() {
-        val unavailable = CharacterResponse("kora", false)
+    fun unavailableKoraHCanStillBeSwitchedBackAndBusyNoticeIsClear() {
+        val unavailable = CharacterResponse("kora_h", koraHAvailable = false)
         val buttons = voiceKeyboard(unavailable).keyboard.flatten().map { it as CallbackDataInlineKeyboardButton }
         assertEquals(listOf("voice:speaky"), buttons.map { it.callbackData })
-        assertTrue(voiceMessage(unavailable).contains("/speed also changes Kora's voice"))
+        assertTrue(voiceMessage(unavailable).contains("/speed also changes Kora H's voice"))
         assertTrue(voiceMessage(unavailable.copy(blocked = "active_conversation")).contains("Finish your current call"))
-        val available = CharacterResponse("kora", true)
+        val available = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(2, voiceKeyboard(available).keyboard.size)
-        val withH = CharacterResponse("kora_h", true, koraHAvailable = true)
-        assertEquals(listOf("voice:speaky", "voice:kora", "voice:kora_h"),
+        val withH = CharacterResponse("kora_h", koraHAvailable = true)
+        assertEquals(listOf("voice:speaky", "voice:kora_h"),
             voiceKeyboard(withH).keyboard.flatten().map { (it as CallbackDataInlineKeyboardButton).callbackData })
         assertTrue(voiceMessage(withH).contains("Your conversation partner: Kora H"))
         assertTrue(voiceMessage(withH).contains("Sonnet's words in Gemini's voice"))
+        assertFalse(voiceMessage(CharacterResponse("speaky")).contains("Kora H —"))
     }
 }

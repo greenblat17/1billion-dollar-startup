@@ -832,7 +832,7 @@ data class ProgressProfileResponse(
 @Serializable
 data class CharacterResponse(
     val character: String,
-    val koraAvailable: Boolean,
+    val koraAvailable: Boolean = false, // Keep for compatibility with an older AI server.
     val blocked: String? = null,
     val koraHAvailable: Boolean = false,
 )

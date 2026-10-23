@@ -84,4 +84,4 @@ summaries/2026-09-13-speaking-session-context.md
 Keep each document focused on one topic. When a document describes ongoing work, update its
 status and link related plans, investigations, decisions, or implementation files.
 
-Telegram character Kora and Hume deployment: [integration guide](integrations/2026-10-20-telegram-kora.md).
+Telegram optional character Kora H and ordinary Kora retirement: [integration guide](integrations/2026-10-20-telegram-kora.md).

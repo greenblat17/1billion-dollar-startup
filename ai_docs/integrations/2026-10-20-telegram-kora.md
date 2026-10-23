@@ -1,5 +1,9 @@
 # Kora in Telegram
 
+Current release decision (2026-10-23): ordinary Kora is retired. The selector
+offers Speaky and Kora H only; the historical sections below record the
+experiments that led to Kora H. See [retirement](#ordinary-kora-retired-2026-10-23).
+
 User-approved scope: expose the accepted Voice Lab D conversation as an optional
 Telegram character through `/voice`. Default remains Speaky. Free calls and ordinary
 voice messages use the selected character; onboarding and roleplay keep their existing
@@ -390,3 +394,20 @@ cross-field rules in `parse_h_turn`. If the first response is invalid, it makes
 one more structured request at lower temperature with the validation error.
 There is no unplanned text-writer fallback or third call. An invalid second
 response still fails the turn and records the parse error.
+
+## Ordinary Kora retired, 2026-10-23
+
+The owner selected Kora H with Sonnet's single structured turn and Gemini 3.1
+Flash TTS in the Leda voice for the production candidate. Ordinary Kora's
+two-call planner/writer is no longer a Telegram character. `/voice` shows only
+Speaky and Kora H. The AI character API rejects `kora`; a legacy Redis value
+`character:{session}=kora` resolves to Speaky, without importing Kora's old
+dialogue history into either remaining character. Existing `voice:kora` buttons
+reply that Kora is unavailable and direct the user to `/voice`.
+
+The Kora H history key remains `{session}:kora_h`. Its Sonnet prompt, verified
+profile context, opening tone, Gemini speech adapter, `/speed` control and
+`KORA_TTS_MODEL` / `KORA_TTS_VOICE` settings remain in place. The shared setting
+names are retained to avoid an unrelated environment migration. The separate
+Voice Labs experiments and saved comparison sessions remain available for
+research; they are not part of the Telegram runtime.

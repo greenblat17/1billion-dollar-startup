@@ -1648,6 +1648,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data == "voice:kora") {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            reply(message, "Kora is no longer available. Use /voice to choose Speaky or Kora H.",
+                allowSendingWithoutReply = true)
+            return@withRequestLog
+        }
         val selectedCharacter = parseVoiceCallback(query.data)
         if (selectedCharacter != null) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
