@@ -23,6 +23,8 @@ Ktor смотрит на ai-service через `AI_SERVICE_BASE_URL` — адр�
 Рестарт `ai-service` **не** должен `docker rm redis`. Скрипт `infra/redis/deploy-remote.sh` если контейнер `redis` уже есть — только `start` + connect к сети, volume не трогает.
 Рестарт `speaking-coach` **не** должен `docker rm postgres`. Скрипт `infra/postgres/deploy-remote.sh` создаёт контейнер, если его нет; иначе `start`. Без `POSTGRES_PASSWORD` в `.env` Postgres не поднимается (бот без app API).
 
+Telegram `setWebhook` загружает сертификат только для самоподписанного TLS. Для сертификата доверенного центра приложение регистрирует webhook без поля `certificate`: загрузка такого сертификата вызвала у Telegram ошибку проверки цепочки. На новом PROD CMP сертификат Let's Encrypt выпущен для IP, действует около шести дней; `speaky-cert-renew.timer` проверяет продление дважды в день, копирует PEM в `/opt/speaking-coach/` и перезапускает приложение и TLS-прокси мониторинга при обновлении.
+
 ```mermaid
 flowchart LR
   redeploy[Redeploy]

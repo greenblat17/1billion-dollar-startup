@@ -29,6 +29,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.slf4j.LoggerFactory
 import java.io.File
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 import java.util.concurrent.Executors
 
 private val log = LoggerFactory.getLogger("TelegramWebhook")
@@ -109,12 +111,20 @@ internal suspend fun registerTelegramWebhook(
     webhookSecret: String,
     certificateFile: File,
 ) {
-    val certificate = certificateFile.readBytes().asMultipartFile(certificateFile.name)
-    bot.setWebhookInfo(
-        url = webhookUrl,
-        certificate = certificate,
-        secretToken = webhookSecret,
-    )
+    val certificate = certificateFile.inputStream().use {
+        CertificateFactory.getInstance("X.509").generateCertificate(it) as X509Certificate
+    }
+    val isSelfSigned = certificate.subjectX500Principal == certificate.issuerX500Principal &&
+        runCatching { certificate.verify(certificate.publicKey) }.isSuccess
+    if (isSelfSigned) {
+        bot.setWebhookInfo(
+            url = webhookUrl,
+            certificate = certificateFile.readBytes().asMultipartFile(certificateFile.name),
+            secretToken = webhookSecret,
+        )
+    } else {
+        bot.setWebhookInfo(url = webhookUrl, secretToken = webhookSecret)
+    }
 }
 
 internal suspend fun registerBotCommands(bot: TelegramBot) {
