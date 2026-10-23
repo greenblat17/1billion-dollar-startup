@@ -115,6 +115,7 @@ internal fun callRetryKeyboard(callId: String): InlineKeyboardMarkup = inlineKey
 }
 
 internal const val FIRST_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор со Speaky?"
+internal const val KORA_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор с Kora H?"
 internal const val FIRST_CALL_FEEDBACK_LIKED_QUESTION = "Что тебе особенно понравилось?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
 internal const val FIRST_CALL_FEEDBACK_IMPROVE_QUESTION = "Что можно улучшить?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
 internal const val FIRST_CALL_FEEDBACK_THANKS = "Спасибо за отзыв 💙"

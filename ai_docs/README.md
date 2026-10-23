@@ -44,6 +44,7 @@ Telegram MVP acceptance map: `architecture/2026-10-11-telegram-mvp-acceptance.md
 Implementation plan for that system: `plans/2026-10-05-interaction-history-and-service-logs.md`.
 Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
 Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
+Kora H pilot analytics and metric definitions: `plans/2026-10-23-kora-launch-analytics.md`.
 Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
@@ -94,3 +95,5 @@ summaries/2026-09-13-speaking-session-context.md
 
 Keep each document focused on one topic. When a document describes ongoing work, update its
 status and link related plans, investigations, decisions, or implementation files.
+
+Telegram optional character Kora H and ordinary Kora retirement: [integration guide](integrations/2026-10-20-telegram-kora.md).

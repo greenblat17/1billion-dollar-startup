@@ -17,6 +17,8 @@ from redis.asyncio import Redis
 from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
+from app.characters import Characters, CharacterStore, KoraHModel
+from app.gemini_speech import GeminiKoraSpeech
 from app.calls import CallStore, moscow_day
 from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 from app.config import Settings
@@ -102,7 +104,7 @@ def create_app(
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
-    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech)
+    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
     streaks = clip_pipeline.streaks
     habits = HabitAnalytics(clip_pipeline.metrics)
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -155,6 +157,7 @@ def create_app(
             await calls.aclose()
         await sessions.aclose()
         await clip_pipeline.speech.speeds.aclose()
+        await clip_pipeline.characters.store.aclose()
         await clip_pipeline.metrics.aclose()
         if campaign_redis is not None:
             await campaign_redis.aclose()
@@ -332,6 +335,38 @@ def create_app(
     async def progress_profile(session_id: str) -> dict:
         return await onboarding.progress_profile(session_id)
 
+    async def character_status(session_id: str, blocked: str | None = None) -> dict:
+        allowed = clip_pipeline.characters.allowed(session_id)
+        selected = await clip_pipeline.characters.store.get(session_id)
+        return {"character": selected if selected != "kora_h" or allowed else "speaky",
+                "koraAvailable": False,  # Older Telegram servers still require this field.
+                "koraHAvailable": allowed, "blocked": blocked}
+
+    @app.get("/internal/character/{session_id}")
+    async def character(session_id: str) -> dict:
+        return await character_status(session_id)
+
+    @app.post("/internal/character")
+    async def set_character(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        selected = payload.get("character")
+        if selected not in ("speaky", "kora_h") or not session_id.startswith("tg-"):
+            raise HTTPException(status_code=400, detail="invalid Telegram character selection")
+        async with call_starter.lock(session_id):
+            if selected == "kora_h" and not clip_pipeline.characters.allowed(session_id):
+                return await character_status(session_id, "unavailable")
+            if await clip_pipeline.characters.store.get(session_id) == selected:
+                return await character_status(session_id)
+            active = await calls.open_call_today(session_id)
+            if jobs.pending(session_id) or (active and (active["turns"] or active.get("openingDelivered"))):
+                return await character_status(session_id, "active_conversation")
+            # A failed opening must not trap the user in an unavailable character.
+            if active:
+                await calls.seal(session_id, reason="character_changed_before_opening")
+            await clip_pipeline.characters.store.set(session_id, selected)
+            return await character_status(session_id)
+
     @app.get("/internal/speech-speed/{session_id}")
     async def speech_speed(session_id: str) -> dict[str, float]:
         return {"speed": await clip_pipeline.speech.speed(session_id)}
@@ -451,7 +486,13 @@ def create_app(
     @app.post("/internal/calls/open")
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return await calls.open(_call_session_id(payload))
+        session_id = _call_session_id(payload)
+        summary = await calls.open(session_id)
+        if not summary["alreadyActive"]:
+            variant = await clip_pipeline.characters.variant(session_id)
+            await calls.set_character(summary["callId"], variant or "speaky")
+            summary["character"] = variant or "speaky"
+        return summary
 
     @app.post("/internal/calls/status")
     async def calls_status(request: Request) -> dict[str, Any]:
@@ -463,6 +504,7 @@ def create_app(
             summary = None
         return {"active": await calls.is_open_today(session_id),
                 "callId": summary.get("callId") if summary else None,
+                "character": summary.get("character") if summary else None,
                 "startedUnix": summary.get("startedUnix") if summary else None,
                 "goalSeconds": summary.get("goalSeconds") if summary else None}
 
@@ -551,7 +593,8 @@ def create_app(
             ineligible = offer_eligibility(call, onboarding_state, session_id)
             if ineligible is not None:
                 return {"status": "ignored", "reason": ineligible}
-            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""))
+            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""),
+                                                   character=call.get("character", "speaky"))
         if action == "rate":
             try:
                 return await first_call_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
@@ -772,6 +815,15 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         tts._v2 = v2
     model = OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics, notes_model=settings.notes_model)
     model._v2 = v2
+    characters = Characters(CharacterStore(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+    ), enabled=settings.kora_h_enabled, allowlist=settings.kora_h_allowlist)
+    if "openrouter.ai" in settings.openai_base_url:
+        characters.speech_h = GeminiKoraSpeech(
+            openai_client, settings.ffmpeg_bin, settings.kora_tts_model, settings.kora_tts_voice,
+        )
+        characters.model_h = KoraHModel(openai_client, settings.kora_model, metrics=metrics)
+        characters.model_h._v2 = v2
     speech = SessionSpeech(
         tts,
         SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
@@ -788,6 +840,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
         v2=v2,
+        characters=characters,
     )
 
 

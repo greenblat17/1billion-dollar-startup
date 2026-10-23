@@ -141,6 +141,7 @@ private fun userAction(text: String): String = when {
     isProfileCommand(text) -> "profile"
     isStreakCommand(text) -> "streak"
     isRemindCommand(text) -> "remind"
+    isVoiceCommand(text) -> "voice"
     isSpeedCommand(text) -> "speed"
     isStartCallButton(text) -> "start-call"
     text == PRACTICE_SITUATION_BUTTON -> "practice-situation"
@@ -150,7 +151,9 @@ private fun userAction(text: String): String = when {
 
 private fun callbackAction(data: String): String = when {
     parseCallFeedbackCallback(data) != null -> "callback:call-feedback"
+    data == VOICE_MENU_CALLBACK -> "callback:voice-menu"
     data == LEGACY_ONBOARDING_CALLBACK -> "callback:legacy-onboarding"
+    parseVoiceCallback(data) != null -> "callback:voice"
     parseSpeedCallback(data) != null -> "callback:speed"
     data == REMINDER_STOP_CALLBACK -> "callback:reminder-stop"
     data == ONBOARDING_PROGRESS_CALLBACK -> "callback:onboarding-progress"
@@ -173,6 +176,8 @@ internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
 internal fun isRemindCommand(text: String): Boolean = isCommand(text, "/remind")
+
+internal fun isVoiceCommand(text: String): Boolean = isCommand(text, "/voice")
 
 internal fun isSpeedCommand(text: String): Boolean = isCommand(text, "/speed")
 
@@ -265,6 +270,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     fun callEvent(event: CallEvent) { callEvents?.record(event) }
     fun callChat(message: ChatMessage): Long? = telegramChatNumber(message.chat.id)
+    fun callCharacter(chatId: Long, callId: String, character: String?, at: Instant) {
+        if (character in setOf("speaky", "kora_h"))
+            callEvent(CallEvent("call:$callId:character", "call_character", chatId, at,
+                callId = callId, state = character))
+    }
     fun callClosed(message: ChatMessage, callId: String?, at: Instant?, reason: String) {
         val chatId = callChat(message) ?: return
         if (callId.isNullOrBlank()) return
@@ -395,6 +405,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             message, profileMessage((message.chat as? PrivateChat)?.firstName, profile),
             allowSendingWithoutReply = true,
         )
+    }
+    suspend fun sendVoiceSelector(message: ChatMessage) {
+        val character = ai.character(telegramSessionId(message.chat.id))
+        reply(message, voiceMessage(character), allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
     }
     suspend fun sendSpeed(message: ChatMessage) {
         log.info("Reading speech speed")
@@ -690,6 +704,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opened.callId, messageId = message.messageId.long,
                 seconds = opened.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            if (chatId != null && opened?.callId != null)
+                callCharacter(chatId, opened.callId, opened.character, receivedAt)
             if (chatId != null && opened?.callId != null && opened.startedUnix != null)
                 callEvent(CallEvent("call:${opened.callId}:actual-open", "call_actual_open",
                     chatId, Instant.ofEpochMilli((opened.startedUnix * 1000).toLong()),
@@ -707,6 +723,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opening.callId, messageId = message.messageId.long,
                 seconds = opening.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            callCharacter(chatId, opening.callId, opening.character, receivedAt)
             opening.startedUnix?.let { unix -> callEvent(CallEvent(
                 "call:${opening.callId}:actual-open", "call_actual_open", chatId,
                 Instant.ofEpochMilli((unix * 1000).toLong()), callId = opening.callId)) }
@@ -809,6 +826,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             username = telegramProfile(message.chat).username.orEmpty(),
                             callId = opened.callId, messageId = message.messageId.long,
                             seconds = opened.goalSeconds, state = "voice", scenarioKind = "free"))
+                        callCharacter(chatId, opened.callId, opened.character, receivedAt)
                         opened.startedUnix?.let { unix -> callEvent(CallEvent(
                             "call:${opened.callId}:actual-open", "call_actual_open", chatId,
                             Instant.ofEpochMilli((unix * 1000).toLong()), callId = opened.callId)) }
@@ -1412,8 +1430,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val offered = ai.callFeedback(telegramSessionId(message.chat.id), "offer", callId = callId,
                 username = telegramProfile(message.chat).username.orEmpty())
             if (offered.status == "offered") {
-                reply(message, FIRST_CALL_FEEDBACK_PROMPT, allowSendingWithoutReply = true,
+                reply(message, if (offered.character == "kora_h") KORA_CALL_FEEDBACK_PROMPT else FIRST_CALL_FEEDBACK_PROMPT,
+                    allowSendingWithoutReply = true,
                     replyMarkup = firstCallFeedbackKeyboard(callId))
+                callChat(message)?.let { chatId -> callEvent(CallEvent(
+                    "call:$callId:feedback-offered", "feedback_offered", chatId,
+                    callId = callId, state = offered.character)) }
             } else {
                 log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
             }
@@ -1640,6 +1662,63 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data == VOICE_MENU_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-menu:${query.id}", "voice_menu_clicked", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = "received")) }
+            try {
+                actions.run(message.chat.id.toString(), "voice-menu:${query.id}") {
+                    sendVoiceSelector(message)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Voice menu failed for {}", message.chat.id, error)
+                reply(message, "Please send /voice to choose a partner.", allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
+        if (query.data == "voice:kora") {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            reply(message, "Kora is no longer available. Use /voice to choose Speaky or Kora H.",
+                allowSendingWithoutReply = true)
+            return@withRequestLog
+        }
+        val selectedCharacter = parseVoiceCallback(query.data)
+        if (selectedCharacter != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-choice:${query.id}", "voice_character_tapped", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = selectedCharacter)) }
+            try {
+                actions.run(message.chat.id.toString(), "voice:${query.id}") {
+                    val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
+                    val notice = voiceSelectionNotice(character)
+                    if (notice != null) {
+                        reply(message, notice, allowSendingWithoutReply = true)
+                    } else {
+                        val text = voiceMessage(character)
+                        val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
+                        if (shownText != text.joinToString("") { it.source }) {
+                            try {
+                                editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                reply(message, text, allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+                            }
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Character selection failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         val selectedSpeed = parseSpeedCallback(query.data)
         if (selectedSpeed != null) {
             log.info("Updating speech speed")
@@ -1694,6 +1773,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val result = ai.callFeedback(telegramSessionId(message.chat.id), feedbackCallback.action,
                         callId = feedbackCallback.callId, choice = feedbackCallback.choice)
                     if (result.status == "rated") {
+                        callChat(message)?.let { chatId -> callEvent(CallEvent(
+                            "call:${feedbackCallback.callId}:feedback-rated", "feedback_rated", chatId,
+                            callbackReceivedAt, callId = feedbackCallback.callId,
+                            state = feedbackCallback.choice)) }
                         val question = if (feedbackCallback.choice == "liked")
                             FIRST_CALL_FEEDBACK_LIKED_QUESTION else FIRST_CALL_FEEDBACK_IMPROVE_QUESTION
                         try {
@@ -2006,6 +2089,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("remind", requireOnlyCommandInMessage = false) { message ->
         if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
     }
+    onCommand("voice", requireOnlyCommandInMessage = false) { message ->
+        if (isVoiceCommand(message.content.text)) handle(message) { sendVoiceSelector(message) }
+    }
     onCommand("speed", requireOnlyCommandInMessage = false) { message ->
         if (isSpeedCommand(message.content.text)) handle(message) { sendSpeed(message) }
     }
@@ -2029,6 +2115,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
+                    isVoiceCommand(content.text) -> sendVoiceSelector(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
                     isStartCallButton(content.text) -> {
                         customScenarioPrompts.remove(message.chat.id.toString())
