@@ -17,6 +17,12 @@ internal fun parseVoiceCallback(data: String): String? = when (data) {
     else -> null
 }
 
+internal fun voiceSelectionNotice(state: CharacterResponse): String? = when (state.blocked) {
+    "active_conversation" -> "Finish your current call with End call, then choose a partner again."
+    "unavailable" -> "Kora H is temporarily unavailable. Please try again later."
+    else -> null
+}
+
 internal fun voiceMessage(state: CharacterResponse): TextSourcesList = buildEntities {
     when (state.blocked) {
         "active_conversation" -> regular("⏳ Finish your current call and wait for its reply before switching.\n\n")

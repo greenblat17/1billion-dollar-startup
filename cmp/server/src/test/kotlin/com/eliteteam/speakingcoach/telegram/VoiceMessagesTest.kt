@@ -29,6 +29,11 @@ class VoiceMessagesTest {
         assertEquals(listOf("voice:speaky"), buttons.map { it.callbackData })
         assertTrue(voiceMessage(unavailable).plain().contains("Change Kora H's speaking speed with /speed"))
         assertTrue(voiceMessage(unavailable.copy(blocked = "active_conversation")).plain().contains("Finish your current call"))
+        assertEquals("Finish your current call with End call, then choose a partner again.",
+            voiceSelectionNotice(unavailable.copy(blocked = "active_conversation")))
+        assertEquals("Kora H is temporarily unavailable. Please try again later.",
+            voiceSelectionNotice(unavailable.copy(blocked = "unavailable")))
+        assertNull(voiceSelectionNotice(unavailable))
         val available = CharacterResponse("kora_h", koraHAvailable = true)
         assertEquals(2, voiceKeyboard(available).keyboard.size)
         val withH = CharacterResponse("kora_h", koraHAvailable = true)

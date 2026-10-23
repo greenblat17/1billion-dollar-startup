@@ -1660,15 +1660,20 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             try {
                 actions.run(message.chat.id.toString(), "voice:${query.id}") {
                     val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
-                    val text = voiceMessage(character)
-                    val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
-                    if (shownText != text.joinToString("") { it.source }) {
-                        try {
-                            editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
-                        } catch (error: CancellationException) {
-                            throw error
-                        } catch (_: Throwable) {
-                            reply(message, text, allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+                    val notice = voiceSelectionNotice(character)
+                    if (notice != null) {
+                        reply(message, notice, allowSendingWithoutReply = true)
+                    } else {
+                        val text = voiceMessage(character)
+                        val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
+                        if (shownText != text.joinToString("") { it.source }) {
+                            try {
+                                editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                reply(message, text, allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+                            }
                         }
                     }
                 }

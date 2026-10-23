@@ -435,3 +435,8 @@ provider or model names. It uses bold headings and names, marks the selected
 partner beside its name, and shows the Start call button label as Telegram code.
 Descriptions use simple English and say users can either start a call or send
 an ordinary voice message. Users outside the cohort see only Speaky.
+
+If a user taps another partner while a call is active, selection stays unchanged.
+The bot sends a separate message asking them to tap `End call` first, because
+Telegram acknowledges the button tap before the AI service checks call state.
+The same explicit message is sent if Kora H is temporarily unavailable.
