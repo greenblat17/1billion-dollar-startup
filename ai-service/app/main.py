@@ -481,7 +481,13 @@ def create_app(
     @app.post("/internal/calls/open")
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return await calls.open(_call_session_id(payload))
+        session_id = _call_session_id(payload)
+        summary = await calls.open(session_id)
+        if not summary["alreadyActive"]:
+            variant = await clip_pipeline.characters.variant(session_id)
+            await calls.set_character(summary["callId"], variant or "speaky")
+            summary["character"] = variant or "speaky"
+        return summary
 
     @app.post("/internal/calls/status")
     async def calls_status(request: Request) -> dict[str, Any]:
@@ -493,6 +499,7 @@ def create_app(
             summary = None
         return {"active": await calls.is_open_today(session_id),
                 "callId": summary.get("callId") if summary else None,
+                "character": summary.get("character") if summary else None,
                 "startedUnix": summary.get("startedUnix") if summary else None,
                 "goalSeconds": summary.get("goalSeconds") if summary else None}
 

@@ -708,6 +708,7 @@ data class StartCallRequest(
 @Serializable
 data class OpenCallResponse(
     val callId: String = "",
+    val character: String? = null,
     val alreadyActive: Boolean = false,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
@@ -722,6 +723,7 @@ data class OpenCallResponse(
 data class CallStatusResponse(
     val active: Boolean = false,
     val callId: String? = null,
+    val character: String? = null,
     val startedUnix: Double? = null,
     val goalSeconds: Double? = null,
 )
@@ -729,6 +731,7 @@ data class CallStatusResponse(
 @Serializable
 data class StartCallResponse(
     val callId: String,
+    val character: String? = null,
     val status: String,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,

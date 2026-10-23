@@ -95,7 +95,7 @@ class CallStarter:
                 question = audio.spoken_text or question
                 await self.calls.save_spoken_opening(summary["callId"], question)
             return {
-                **summary, "status": "ready", "question": question,
+                **summary, "character": variant or "speaky", "status": "ready", "question": question,
                 "audioBase64": base64.b64encode(audio.data).decode("ascii"),
                 "audioContentType": audio.content_type,
             }

@@ -307,6 +307,7 @@ class CallStore:
     async def _summary(self, session_id: str, call: dict, unseen: str | None, crossed: bool) -> dict[str, Any]:
         return {
             "callId": call["id"],
+            "character": call.get("character"),
             "startedUnix": call["startedUnix"],
             "todaySeconds": await self._today_seconds(session_id, str(call["day"])),
             "goalSeconds": await self._goal_seconds(session_id),

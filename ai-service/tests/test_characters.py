@@ -200,6 +200,7 @@ async def test_kora_h_opening_uses_its_model_and_gemini_voice():
     await characters.store.set('tg-1', 'kora_h')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
     first = await starter.start('tg-1')
+    assert first['character'] == 'kora_h'
     assert first['question'] == f"Got it: {KORA_H_OPENING_REQUEST}"
     assert model_h.calls == [([], KORA_H_OPENING_REQUEST)]
     assert model_h.profile_notes == ['Use verified memory only.']

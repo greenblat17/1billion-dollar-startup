@@ -34,6 +34,7 @@ internal data class CallDashboardRow(val callId: String, val events: List<CallEv
     val subtitles = events.filter { it.kind == "subtitle_click" }.distinctBy { it.id }
     val source: String = opened.state ?: "unknown"
     val mode: String = opened.scenarioKind ?: "unknown"
+    val character: String = events.firstOrNull { it.kind == "call_character" }?.state ?: "unknown"
     val audioSeconds: Double = voices.sumOf { it.seconds ?: 0.0 }
     val recognizedSeconds: Double = processed.sumOf { it.seconds ?: 0.0 }
     val audioReplies: Int = replies.count { it.state == "audio" }
@@ -58,6 +59,36 @@ internal fun callDashboardRows(snapshot: CallEventsSnapshot): List<CallDashboard
     snapshot.events.filter { it.callId != null }.groupBy { it.callId!! }.mapNotNull { (id, events) ->
         if (events.none { it.kind == "call_open" }) null else CallDashboardRow(id, events.sortedBy { it.at })
     }.sortedByDescending { it.opened.at }
+
+internal fun koraLaunchSection(events: List<CallEvent>, calls: List<CallDashboardRow>): String {
+    val menu = events.filter { it.kind == "voice_menu_clicked" }
+    val selected = events.filter { it.kind == "voice_character_tapped" && it.state == "kora_h" }
+    val freeCalls = calls.filter { it.mode == "free" }
+    fun row(character: String): String {
+        val group = freeCalls.filter { it.character == character }
+        val users = group.map { it.opened.chatId }.toSet()
+        val repeats = group.groupBy { it.opened.chatId }.values.count { it.size >= 2 }
+        val offers = group.count { call -> call.events.any { it.kind == "feedback_offered" } }
+        val ratings = group.mapNotNull { call -> call.events.firstOrNull { it.kind == "feedback_rated" }?.state }
+        return "<tr><td>${if (character == "kora_h") "Kora H" else "Speaky"}</td>" +
+            "<td>${users.size}</td><td>${group.size}</td><td>$repeats</td>" +
+            "<td>${group.count { it.voices.isNotEmpty() }}</td>" +
+            "<td>${group.count { it.audioReplies > 0 }}</td>" +
+            "<td>${group.sumOf { it.voices.size }}</td>" +
+            "<td>${secondsText(group.sumOf { it.recognizedSeconds })}</td>" +
+            "<td>${group.count { it.failed }}</td>" +
+            "<td>$offers</td><td>${ratings.count { it == "liked" }} / ${ratings.count { it == "neutral" }} / ${ratings.count { it == "disliked" }}</td></tr>"
+    }
+    val unknown = freeCalls.count { it.character == "unknown" }
+    return """
+        <h2 id="kora">Kora H · пилот</h2>
+        <p class="meta">Период выбран выше. Клик и выбор — полученные Telegram нажатия; нажатие не доказывает, что меню открылось или собеседник сменился. Звонки считаются по фактическому собеседнику при открытии обычного разговора. Повтор — 2+ звонка за период. Ошибка — неудачный голосовой ход или текст вместо аудио.</p>
+        <dl>${card("Кнопка рассылки: кликов / людей", "${menu.size} / ${menu.map { it.chatId }.distinct().size}")}
+        ${card("Нажали Kora H: раз / людей", "${selected.size} / ${selected.map { it.chatId }.distinct().size}")}</dl>
+        <div style="overflow-x:auto"><table><thead><tr><th>Собеседник</th><th>Людей</th><th>Звонков</th><th>Повторили</th><th>С голосом</th><th>С ответом</th><th>Голосовых</th><th>Речь</th><th>Со сбоями</th><th>Фидбек предложен</th><th>👍 / 😐 / 👎</th></tr></thead><tbody>${row("kora_h")}${row("speaky")}</tbody></table></div>
+        <p class="meta">Звонков без записанного собеседника: $unknown. Они не включены в сравнение. Метрики начнут собираться после обновления сервиса; отзывы по собеседникам — ниже.</p>
+    """.trimIndent()
+}
 
 internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboardFilter,
                                memoryOnly: Boolean = false, feedback: CallFeedbackList? = null,
@@ -85,6 +116,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
     }
     val modeStats = callModeStats(comparableRows)
     val scenarioPath = scenarioPathStats(periodEvents, periodRows)
+    val koraSection = koraLaunchSection(periodEvents, periodRows)
     val crossModeUsers = comparableRows.groupBy { it.opened.chatId }.values.count { calls ->
         calls.any { it.mode == "free" } && calls.any { it.mode in setOf("job", "manager", "custom") }
     }
@@ -123,7 +155,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
     val table = rows.drop(filter.offset).take(25).joinToString("") { row ->
         val status = row.closed?.state ?: "открыт"
         "<tr><td><a href=\"$CALLS_PATH/${row.callId}\">${callTime(row.opened.at)}</a></td>" +
-            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(callModeLabel(row.mode))}</td><td>${escapeHtml(row.source)}</td>" +
+            "<td>${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " (@${escapeHtml(it)})" } ?: ""}</td><td>${escapeHtml(callModeLabel(row.mode))}</td><td>${escapeHtml(row.character)}</td><td>${escapeHtml(row.source)}</td>" +
             "<td>${escapeHtml(status)}</td><td>${row.voices.size}</td>" +
             "<td>${secondsText(row.recognizedSeconds)}</td><td>${row.audioReplies}</td>" +
             "<td>${if (row.failed) "Да" else "Нет"}</td></tr>"
@@ -209,6 +241,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         ${card("Review сформирован / доставлен", "${rows.count { it.reviewGenerated }} / ${rows.count { it.reviewDelivered }}")}
         ${card("Дней с достигнутой целью", goalDays.toString())}
         </dl>
+        $koraSection
         <h2>Обычный разговор и ситуации</h2>
         <p class="meta">Тот же период, способ начала, статус и фильтр ошибок; фильтр режима здесь не применяется, чтобы сравнение оставалось полным. Речь — распознанные секунды пользователя, p50/p95 только среди звонков с голосом (указано n). «Неизвестно» — звонки до добавления признака режима.</p>
         <p class="meta">Людей, попробовавших и обычный разговор, и ситуации: $crossModeUsers</p>
@@ -223,7 +256,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         <table><thead><tr><th>Ситуация</th><th>Людей выбрали</th><th>Выборов</th><th>Описаний</th><th>Звонков открыто</th><th>Вступление отправлено</th><th>Начат диалог</th></tr></thead><tbody>$choiceRows</tbody></table>
         <h2>Режимы по дням</h2><table><thead><tr><th>Дата начала</th><th>Режим</th><th>Людей</th><th>Звонков</th><th>Голосовых</th><th>Речь</th></tr></thead><tbody>$modeDaily</tbody></table>
         <h2>По дням</h2><table><thead><tr><th>Дата начала</th><th>Звонки</th><th>Закрыто</th><th>Голоса</th><th>Речь</th><th>Аудиоответы</th></tr></thead><tbody>$daily</tbody></table>
-        <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Режим</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
+        <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Режим</th><th>Собеседник</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
         <h2>Отзывы о разговорах (${feedback?.total ?: "—"})</h2>$feedbackSection
         </body></html>
     """.trimIndent()
@@ -264,7 +297,7 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
     return """
         <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Звонок ${row.callId} · Speaky</title>${pageStyle()}</head><body>
         ${adminTabs(CALLS_PATH)}<p><a href="$CALLS_PATH">← Все звонки</a></p><h1>Звонок ${row.callId}</h1>
-        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${callModeLabel(row.mode)} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
+        <p class="meta">Chat ID ${row.opened.chatId}${row.opened.username.takeIf { it.isNotBlank() }?.let { " · @${escapeHtml(it)}" } ?: ""} · ${callModeLabel(row.mode)} · ${escapeHtml(row.character)} · ${escapeHtml(row.source)} · ${escapeHtml(row.closed?.state ?: "открыт")}</p>
         ${if (truncated) "<p>Достигнут лимит 1000 событий: хронология может быть неполной.</p>" else ""}
         <dl>${card("Старт", callTime(row.opened.at))}${card("Конец звонка", row.closed?.at?.let(::callTime) ?: "—")}
         ${card("Начало диалога", row.firstVoice?.let(::callTime) ?: "—")}

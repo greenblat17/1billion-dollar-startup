@@ -151,6 +151,7 @@ private fun userAction(text: String): String = when {
 
 private fun callbackAction(data: String): String = when {
     parseCallFeedbackCallback(data) != null -> "callback:call-feedback"
+    data == VOICE_MENU_CALLBACK -> "callback:voice-menu"
     data == LEGACY_ONBOARDING_CALLBACK -> "callback:legacy-onboarding"
     parseVoiceCallback(data) != null -> "callback:voice"
     parseSpeedCallback(data) != null -> "callback:speed"
@@ -269,6 +270,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     fun callEvent(event: CallEvent) { callEvents?.record(event) }
     fun callChat(message: ChatMessage): Long? = telegramChatNumber(message.chat.id)
+    fun callCharacter(chatId: Long, callId: String, character: String?, at: Instant) {
+        if (character in setOf("speaky", "kora_h"))
+            callEvent(CallEvent("call:$callId:character", "call_character", chatId, at,
+                callId = callId, state = character))
+    }
     fun callClosed(message: ChatMessage, callId: String?, at: Instant?, reason: String) {
         val chatId = callChat(message) ?: return
         if (callId.isNullOrBlank()) return
@@ -698,6 +704,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opened.callId, messageId = message.messageId.long,
                 seconds = opened.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            if (chatId != null && opened?.callId != null)
+                callCharacter(chatId, opened.callId, opened.character, receivedAt)
             if (chatId != null && opened?.callId != null && opened.startedUnix != null)
                 callEvent(CallEvent("call:${opened.callId}:actual-open", "call_actual_open",
                     chatId, Instant.ofEpochMilli((opened.startedUnix * 1000).toLong()),
@@ -715,6 +723,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opening.callId, messageId = message.messageId.long,
                 seconds = opening.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            callCharacter(chatId, opening.callId, opening.character, receivedAt)
             opening.startedUnix?.let { unix -> callEvent(CallEvent(
                 "call:${opening.callId}:actual-open", "call_actual_open", chatId,
                 Instant.ofEpochMilli((unix * 1000).toLong()), callId = opening.callId)) }
@@ -817,6 +826,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             username = telegramProfile(message.chat).username.orEmpty(),
                             callId = opened.callId, messageId = message.messageId.long,
                             seconds = opened.goalSeconds, state = "voice", scenarioKind = "free"))
+                        callCharacter(chatId, opened.callId, opened.character, receivedAt)
                         opened.startedUnix?.let { unix -> callEvent(CallEvent(
                             "call:${opened.callId}:actual-open", "call_actual_open", chatId,
                             Instant.ofEpochMilli((unix * 1000).toLong()), callId = opened.callId)) }
@@ -1423,6 +1433,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 reply(message, if (offered.character == "kora_h") KORA_CALL_FEEDBACK_PROMPT else FIRST_CALL_FEEDBACK_PROMPT,
                     allowSendingWithoutReply = true,
                     replyMarkup = firstCallFeedbackKeyboard(callId))
+                callChat(message)?.let { chatId -> callEvent(CallEvent(
+                    "call:$callId:feedback-offered", "feedback_offered", chatId,
+                    callId = callId, state = offered.character)) }
             } else {
                 log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
             }
@@ -1651,6 +1664,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         }
         if (query.data == VOICE_MENU_CALLBACK) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-menu:${query.id}", "voice_menu_clicked", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = "received")) }
             try {
                 actions.run(message.chat.id.toString(), "voice-menu:${query.id}") {
                     sendVoiceSelector(message)
@@ -1672,6 +1688,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val selectedCharacter = parseVoiceCallback(query.data)
         if (selectedCharacter != null) {
             val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-choice:${query.id}", "voice_character_tapped", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = selectedCharacter)) }
             try {
                 actions.run(message.chat.id.toString(), "voice:${query.id}") {
                     val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
@@ -1754,6 +1773,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val result = ai.callFeedback(telegramSessionId(message.chat.id), feedbackCallback.action,
                         callId = feedbackCallback.callId, choice = feedbackCallback.choice)
                     if (result.status == "rated") {
+                        callChat(message)?.let { chatId -> callEvent(CallEvent(
+                            "call:${feedbackCallback.callId}:feedback-rated", "feedback_rated", chatId,
+                            callbackReceivedAt, callId = feedbackCallback.callId,
+                            state = feedbackCallback.choice)) }
                         val question = if (feedbackCallback.choice == "liked")
                             FIRST_CALL_FEEDBACK_LIKED_QUESTION else FIRST_CALL_FEEDBACK_IMPROVE_QUESTION
                         try {
