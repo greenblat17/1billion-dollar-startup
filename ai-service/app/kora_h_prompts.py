@@ -3,6 +3,7 @@
 import json
 
 from app.kora_prompts import PERSONA, parse_plan
+from app.speech_delivery import normalize_delivery_tone
 
 STRATEGY = "interest_spoken_reply_v4"
 H_MOVES = {"question", "perspective", "answer", "close"}
@@ -20,17 +21,25 @@ H_PERSONA = PERSONA.replace(
 
 H_TURN_SYSTEM = H_PERSONA + '''
 
-Decide the next conversational move AND write the exact words Hume will say aloud.
+Decide the next conversational move AND write the exact words Gemini will say aloud.
 Return one JSON object only, with these fields:
 {"interest":"searching|engaged|uncertain|fading|ending","evidence":string,
  "topic":string,"direction":"stay|adjacent|follow|end",
  "adjacent_topic":string,"move":"question|perspective|answer|close",
- "tone":string,"reply":string}
+ "tone":"plain|warm|curious|surprised|excited|gentle|thoughtful|playful",
+ "reply":string}
 The reply is the finished speech, not a plan for a second model to write.
 Do not put analysis, labels, markdown or stage directions in reply.
 Evidence names observable signals in the exchange, including the assistant's
 recent moves. Keep evidence under 40 words, topic under 18, tone under 12,
 adjacent_topic under 12, and reply under 60 words. Do not output private reasoning.
+Tone controls how the finished reply is spoken. Choose it from the learner's
+meaning and the actual reply, not from a fixed character mood. Use plain when
+there is no clear emotional cue. Warm is friendly but quiet; curious is an
+interested question; surprised is for a genuinely unexpected detail; excited
+is for real good news; gentle fits disappointment or worry; thoughtful fits a
+considered view; playful fits a light joke. Never make bad news sound excited.
+Do not put delivery tags, stage directions, or tone labels inside reply.
 
 INTEREST AND DIRECTION
 - searching: no personally interesting hook yet. Ask one easy, concrete question.
@@ -109,6 +118,10 @@ def parse_h_turn(raw: str, *, opening: bool = False) -> dict:
     # Reuse the existing envelope validation while keeping the final reply
     # separate from diagnostic metadata.
     plan = parse_plan(json.dumps({**value, 'contribution': reply}), moves=H_MOVES)
+    tone = normalize_delivery_tone(plan['tone'])
+    if tone == 'plain' and plan['tone'].strip().lower() != 'plain':
+        plan['tone_fallback'] = plan['tone']
+    plan['tone'] = tone
     adjacent_topic = value.get('adjacent_topic')
     if (not isinstance(adjacent_topic, str) or len(adjacent_topic.split()) > 12
             or (plan['direction'] == 'adjacent') != bool(adjacent_topic.strip())

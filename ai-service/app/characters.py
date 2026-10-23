@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from redis.asyncio import Redis
 
@@ -9,6 +10,14 @@ from app.audit_artifacts import record_artifact
 from app.kora_h_prompts import H_OPENING_TURN, H_TURN_SYSTEM, STRATEGY as H_STRATEGY, parse_h_turn
 from app.kora_prompts import PERSONA, PLAN_SYSTEM, parse_plan, with_plan
 from app.llm import OpenAiChatModel
+from app.speech_delivery import normalize_delivery_tone
+
+
+@dataclass(frozen=True)
+class CharacterReply:
+    text: str
+    tone: str | None = None
+
 
 class CharacterStore:
     def __init__(self, redis: Redis | None = None) -> None:
@@ -50,6 +59,9 @@ class KoraModel(OpenAiChatModel):
         return with_plan(self.persona, plan, language=self.language)
 
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
+        return (await self.complete_turn(history, user_text, profile_note, mode)).text
+
+    async def complete_turn(self, history, user_text, profile_note=None, mode="ordinary") -> CharacterReply:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
         context = ([{"role": "system", "content": profile_note}]
                    if self.use_profile_note and profile_note else [])
@@ -92,11 +104,14 @@ class KoraModel(OpenAiChatModel):
             *messages, {"role": "user", "content": user_text},
         ], temperature=.7, max_tokens=250, response_format={"type": "text"},
             operation=f"{self.operation_prefix}_reply")
-        return reply
+        return CharacterReply(reply, normalize_delivery_tone(plan["tone"]) if plan else None)
 
 
 class KoraHModel(KoraModel):
     async def complete_reply(self, history, user_text, profile_note=None, mode="ordinary") -> str:
+        return (await self.complete_turn(history, user_text, profile_note, mode)).text
+
+    async def complete_turn(self, history, user_text, profile_note=None, mode="ordinary") -> CharacterReply:
         messages = [{"role": turn.role, "content": turn.content} for turn in history]
         context = [{"role": "system", "content": profile_note}] if profile_note else []
         prompt = H_TURN_SYSTEM + (H_OPENING_TURN if mode == "opening" else "")
@@ -120,7 +135,7 @@ class KoraHModel(KoraModel):
             if attempt:
                 plan["turn_retry"] = True
             await record_artifact("conversation_plan", json.dumps(plan))
-            return turn["reply"]
+            return CharacterReply(turn["reply"], plan["tone"])
         await record_artifact("conversation_plan", json.dumps({
             "strategy": H_STRATEGY, "turn_error": error,
         }))
@@ -158,19 +173,28 @@ class Characters:
 
     async def reply(self, history, user: str, *, variant: str = "kora",
                     profile_note: str | None = None, opening: bool = False) -> str:
+        return (await self.reply_turn(history, user, variant=variant,
+                                      profile_note=profile_note, opening=opening)).text
+
+    async def reply_turn(self, history, user: str, *, variant: str = "kora",
+                         profile_note: str | None = None, opening: bool = False) -> CharacterReply:
         self.require_available(variant)
         model = self.model_h if variant == "kora_h" else self.model
+        if isinstance(model, KoraModel):
+            return await model.complete_turn(history, user, profile_note,
+                                             mode="opening" if opening else "ordinary")
         if variant == "kora_h":
-            return await model.complete_reply(history, user, profile_note,
-                                              mode="opening" if opening else "ordinary")
-        return await model.complete_reply(history, user)
+            return CharacterReply(await model.complete_reply(
+                history, user, profile_note, mode="opening" if opening else "ordinary"))
+        return CharacterReply(await model.complete_reply(history, user))
 
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
-                         guided: bool = True, variant: str = "kora"):
+                         guided: bool = True, variant: str = "kora", tone: str | None = None):
         self.require_available(variant)
-        if variant == "kora_h":
-            return await self.speech_h.synthesize(text, speed=speed)
-        return await self.speech.synthesize(text, speed=speed)
+        speech = self.speech_h if variant == "kora_h" else self.speech
+        if tone is not None:
+            return await speech.synthesize(text, speed=speed, delivery=tone)
+        return await speech.synthesize(text, speed=speed)
 
     @staticmethod
     def history_id(session_id: str, variant: str = "kora") -> str:

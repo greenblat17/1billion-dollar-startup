@@ -8,6 +8,7 @@ from openai import AsyncOpenAI
 
 from app.provider_call_log import logged_provider_call
 from app.retry import once_on_retryable
+from app.speech_delivery import DELIVERY_TAGS
 from app.tts import TtsAudio
 
 
@@ -21,16 +22,20 @@ class GeminiKoraSpeech:
         self.voice = voice
         self.timeout = timeout
 
-    async def synthesize(self, text: str, *, speed: float = 1.0) -> TtsAudio:
+    async def synthesize(self, text: str, *, speed: float = 1.0,
+                         delivery: str | None = None) -> TtsAudio:
         if isinstance(speed, bool) or speed not in (0.8, 0.9, 1.0):
             raise ValueError("unsupported speech speed")
         if not text.strip():
             raise ValueError("empty speech text")
+        if delivery is not None and delivery not in DELIVERY_TAGS:
+            raise ValueError("unsupported speech delivery")
+        spoken_input = DELIVERY_TAGS.get(delivery, "") + text
         async with asyncio.timeout(self.timeout):
             response = await once_on_retryable(
                 lambda: logged_provider_call(
                     lambda: self.client.audio.speech.create(
-                        model=self.model, voice=self.voice, input=text, response_format="pcm",
+                        model=self.model, voice=self.voice, input=spoken_input, response_format="pcm",
                     ),
                     kind="tts", provider="openrouter", model=self.model,
                 ),

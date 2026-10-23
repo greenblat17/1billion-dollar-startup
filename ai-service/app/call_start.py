@@ -54,6 +54,7 @@ class CallStarter:
             history_id = self.characters.history_id(session_id, variant) if variant else session_id
             history = await self.dialogue.history(history_id)
             question = call.get("openingDraft") if kora else call.get("openingQuestion")
+            tone = None
             if not question:
                 question = call.get("openingQuestion")
             if reminder_question:
@@ -73,8 +74,9 @@ class CallStarter:
                 opening_history = ([turn for turn in history
                                     if turn.content != "Let's start a practice conversation."][-8:]
                                    if variant == "kora_h" else history)
-                question = await self.characters.reply(opening_history, opening_request, variant=variant,
-                                                       profile_note=context, opening=variant == "kora_h") if kora else await self.model.start_call_question({
+                turn = await self.characters.reply_turn(opening_history, opening_request, variant=variant,
+                                                        profile_note=context, opening=variant == "kora_h") if kora else None
+                question = turn.text if kora else await self.model.start_call_question({
                     "personalContext": context,
                     "firstName": first_name,
                     "recentConversation": [
@@ -83,8 +85,9 @@ class CallStarter:
                     ],
                     "scenario": call.get("scenario"),
                 })
+                tone = turn.tone if kora else None
                 await self.calls.save_opening(summary["callId"], question)
-            audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id), variant=variant) if kora else await self.speech.synthesize(session_id, question)
+            audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id), variant=variant, tone=tone) if kora else await self.speech.synthesize(session_id, question)
             if kora:
                 question = audio.spoken_text or question
                 await self.calls.save_spoken_opening(summary["callId"], question)

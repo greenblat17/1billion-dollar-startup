@@ -342,3 +342,26 @@ cannot be independently checked as it was with Hume. `HumeSpeech` remains in the
 codebase for other experiments, but the Telegram Kora H route no longer uses it.
 Local routing tests do not establish voice quality; listen to an actual Telegram
 call after deployment.
+
+## Kora and Kora H per-turn emotional delivery, 2026-10-23
+
+Both characters use the `tone` field from their existing Sonnet output to
+choose speech delivery per reply. Kora gets it from its planner; Kora H gets
+it from its single JSON turn. The allowed values are `plain`, `warm`,
+`curious`, `surprised`, `excited`, `gentle`, `thoughtful`, and `playful`. Sonnet
+chooses from the learner's meaning and intended response; it must not add
+stage directions to the spoken reply. An unknown tone falls back to `plain` without
+retrying the whole conversational turn. This adds no LLM call.
+
+Only the OpenRouter Gemini 3.1 TTS input receives a mapped inline audio tag,
+such as `[curious]` or `[amazed]`. Subtitles, audit reply, and dialogue history
+keep Sonnet's clean text. Plain delivery has no tag. The current experiment
+applies to Kora and Kora H openings and free-conversation replies, not Speaky,
+lessons or situations. Cached opening drafts and fixed clarification lines
+keep plain delivery. Google documents inline tags for Gemini 3.1:
+https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-tts-preview
+
+Local tests verify tone routing and the exact OpenRouter request text. They do
+not prove Gemini changes intonation, omits the tag from speech, or preserves
+every spoken word. Listen to matched DEV turns before judging this experiment;
+Gemini does not return a transcript to verify exact spoken wording.

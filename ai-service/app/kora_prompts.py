@@ -8,7 +8,14 @@ not the user's hidden feelings. Return JSON only, with exactly these fields:
 {"interest":"searching|engaged|uncertain|fading|ending",
  "evidence":string,"topic":string,
  "direction":"stay|adjacent|follow|end",
- "move":"question|contribute|close","tone":string,"contribution":string}
+ "move":"question|contribute|close",
+ "tone":"plain|warm|curious|surprised|excited|gentle|thoughtful|playful",
+ "contribution":string}
+Choose tone from the learner's meaning and the contribution: plain for no clear
+emotion, warm for quiet friendliness, curious for an interested question,
+surprised for an unexpected detail, excited for real good news, gentle for
+disappointment or worry, thoughtful for a considered view, playful for a light
+joke. Do not make bad news sound excited. Tone guides delivery, not content.
 Evidence: at most 30 words identifying concrete signals in the exchange, including
 what the assistant has been doing. Topic: at most 12 words. Tone: at most 8 words.
 Contribution: a specific next question or actual idea, at most 45 words; not generic
@@ -75,7 +82,7 @@ def parse_plan(raw: str, *, moves: set[str] | None = None) -> dict:
 
 
 def with_plan(prompt: str, plan: dict, *, language: str = 'natural A2 English') -> str:
-    # Keep diagnostic evidence in the export, not in Hume's spoken content guidance.
+    # Keep diagnostic evidence in the export, not in the spoken content guidance.
     brief = {key: plan[key] for key in ('topic', 'direction', 'move', 'tone', 'contribution')}
     return prompt + '''\nCURRENT TURN: follow this content brief in ''' + language + '''.
 Express the concrete question or idea briefly, usually 1-3 short sentences. The tone

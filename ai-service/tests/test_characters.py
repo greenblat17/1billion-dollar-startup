@@ -1,6 +1,7 @@
 import base64
 import json
 from dataclasses import replace
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -25,6 +26,7 @@ from tests.test_call_start import Model, Personalization
 class KoraSpeech(FakeTts):
     async def synthesize(self, text, **kwargs):
         self.last_speed = kwargs.get("speed")
+        self.last_delivery = kwargs.get("delivery")
         self.last_guided = kwargs.get("guided")
         self.last_warm = kwargs.get("warm")
         audio = await super().synthesize(text)
@@ -130,6 +132,86 @@ async def test_kora_h_has_separate_history_and_gemini_delivery():
 
 
 @pytest.mark.asyncio
+async def test_kora_h_changes_delivery_per_reply_without_changing_spoken_text(monkeypatch):
+    model, voice = KoraHModel(None, 'test'), KoraSpeech()
+    tones = iter((('excited', "Oh, your beta is live? That's great!"),
+                  ('gentle', "Oh, that sounds hard. What happened?")))
+
+    async def complete(messages, **kwargs):
+        tone, reply = next(tones)
+        return json.dumps(dict(interest='engaged', evidence='Learner gave a concrete update',
+                               topic='Beta release', direction='stay', move='question',
+                               adjacent_topic='', tone=tone, reply=reply))
+
+    monkeypatch.setattr(model, '_complete', complete)
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model, voice)
+    await characters.store.set('tg-1', 'kora_h')
+    dialogue = MemoryDialogueStore(40, 86400)
+    pipeline = ClipPipeline(FakeStt(['My beta is live.', 'But it crashed.']), FakeLlm(), FakeTts(),
+                            dialogue, calls=CallStore(), characters=characters)
+    pipeline.personalization = Personalization()
+
+    first = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert voice.last_delivery == 'excited'
+    second = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert voice.last_delivery == 'gentle'
+    assert voice.texts == [first.reply_text, second.reply_text]
+    assert [turn.content for turn in await dialogue.history('tg-1:kora_h')][-1] == second.reply_text
+
+
+@pytest.mark.asyncio
+async def test_kora_uses_its_existing_plan_tone_for_gemini(monkeypatch):
+    model, voice = KoraModel(None, 'test'), KoraSpeech()
+    operations = []
+
+    async def complete(messages, **kwargs):
+        operations.append(kwargs['operation'])
+        if kwargs['operation'] == 'kora_plan':
+            return json.dumps(dict(interest='engaged', evidence='Learner gave a specific update',
+                                   topic='Beta release', direction='stay', move='question',
+                                   tone='curious', contribution='Ask what users noticed first.'))
+        return 'Oh, your beta is live? What did users notice first?'
+
+    monkeypatch.setattr(model, '_complete', complete)
+    characters = Characters(CharacterStore(), model, voice)
+    await characters.store.set('tg-1', 'kora')
+    dialogue = MemoryDialogueStore(40, 86400)
+    pipeline = ClipPipeline(FakeStt(['My beta is live.']), FakeLlm(), FakeTts(), dialogue,
+                            calls=CallStore(), characters=characters)
+    result = await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert operations == ['kora_plan', 'kora_reply']
+    assert voice.last_delivery == 'curious'
+    assert voice.texts == [result.reply_text]
+    assert (await dialogue.history('tg-1:kora'))[-1].content == result.reply_text
+
+
+@pytest.mark.asyncio
+async def test_gemini_receives_delivery_tag_only_in_audio_request(monkeypatch):
+    requests = []
+
+    class Speech:
+        async def create(self, **kwargs):
+            requests.append(kwargs)
+            return SimpleNamespace(aread=read_pcm)
+
+    async def read_pcm():
+        return b'\x00\x00'
+
+    async def convert(pcm, speed):
+        return b'OggSvoice'
+
+    client = SimpleNamespace(audio=SimpleNamespace(speech=Speech()))
+    speech = GeminiKoraSpeech(client)
+    monkeypatch.setattr(speech, '_ffmpeg', convert)
+    await speech.synthesize('Oh, your beta is live?', delivery='surprised')
+    await speech.synthesize('How was your day?')
+    assert requests[0]['input'] == '[amazed] Oh, your beta is live?'
+    assert requests[1]['input'] == 'How was your day?'
+    with pytest.raises(ValueError, match='unsupported speech delivery'):
+        await speech.synthesize('Hello.', delivery='[shouting]')
+
+
+@pytest.mark.asyncio
 async def test_kora_records_spoken_reply_and_keeps_sonnet_draft_for_comparison():
     dialogue = MemoryDialogueStore(40, 86400)
     voice = KoraSpeech()
@@ -211,6 +293,26 @@ async def test_kora_h_opening_uses_its_model_and_gemini_voice():
     await starter.delivered(first['callId'])
     assert len(await dialogue.history('tg-1:kora_h')) == 2
     assert await dialogue.history('tg-1:kora') == []
+
+
+@pytest.mark.asyncio
+async def test_kora_h_opening_passes_sonnet_tone_to_speech(monkeypatch):
+    model_h, voice = KoraHModel(None, 'test'), KoraSpeech()
+
+    async def complete(messages, **kwargs):
+        return json.dumps(dict(interest='searching', evidence='New call', topic='Today',
+                               direction='stay', move='question', adjacent_topic='',
+                               tone='warm', reply='Hey! How are you today?'))
+
+    monkeypatch.setattr(model_h, '_complete', complete)
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), model_h, voice)
+    await characters.store.set('tg-1', 'kora_h')
+    starter = CallStarter(CallStore(), Model(), Personalization(), MemoryDialogueStore(40, 86400),
+                          SessionSpeech(FakeTts()), characters)
+    result = await starter.start('tg-1')
+    assert result['question'] == 'Hey! How are you today?'
+    assert voice.last_delivery == 'warm'
+    assert voice.texts == ['Hey! How are you today?']
 
 
 @pytest.mark.asyncio
@@ -398,6 +500,16 @@ async def test_kora_h_two_invalid_turns_fail_with_diagnostic(monkeypatch):
         reset_writer(token)
     assert calls == ['kora_h_turn', 'kora_h_turn']
     assert json.loads(artifacts['conversation_plan'])['turn_error'] == 'invalid_reply'
+
+
+def test_kora_h_unknown_tone_falls_back_to_plain():
+    from app.kora_h_prompts import parse_h_turn
+    turn = dict(interest='engaged', evidence='Learner gave a detail', topic='Work',
+                direction='stay', move='question', tone='softly curious',
+                adjacent_topic='', reply='What happened next?')
+    plan = parse_h_turn(json.dumps(turn))['plan']
+    assert plan['tone'] == 'plain'
+    assert plan['tone_fallback'] == 'softly curious'
 
 
 def test_kora_h_turn_rejects_old_move_and_requires_fading_bridge():

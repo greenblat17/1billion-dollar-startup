@@ -275,14 +275,15 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self.characters.reply(history, stt_result.text, variant=variant,
+            reply = await measured("reply", self.characters.reply_turn(history, stt_result.text, variant=variant,
                                                                         profile_note=profile_note) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
+            reply_text = reply.text if kora else reply
             if kora:
                 await record_artifact("reply_draft", reply_text)
                 await record_artifact("reply", reply_text)
             else:
                 await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id), variant=variant) if kora else self.speech.synthesize(session_id, reply_text)))
+            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id), variant=variant, tone=reply.tone) if kora else self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
