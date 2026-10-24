@@ -34,7 +34,8 @@ from app.habit_analytics import HabitAnalytics
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
 from app.operational_metrics import (
-    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, STAGE_METRICS, VOICE_MODEL_METRICS,
+    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, REVIEW_VERIFICATION_METRICS, VOCABULARY_ENRICHMENT_METRICS,
+    STAGE_METRICS, VOICE_MODEL_METRICS,
     VoiceModelUsage, bind_voice_usage, reset_voice_usage,
 )
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
@@ -88,6 +89,9 @@ def create_app(
         clip_pipeline, onboarding_model or OnboardingModel(
             clip_pipeline.llm, settings.onboarding_review_model or settings.llm_model,
             settings.onboarding_review_fallback_model,
+            settings.correction_verification_model,
+            settings.person_memory_model,
+            settings.vocabulary_verification_model,
         ),
     )
     memory_jobs = MemoryJobRunner(MemoryJobStore(onboarding.store._redis), onboarding.personalization)
@@ -240,7 +244,8 @@ def create_app(
             memory_pending, memory_oldest = -1, -1.0
         return Response(
             content=body + habits.prometheus() + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
-            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus()
+            + REVIEW_VERIFICATION_METRICS.prometheus() + VOCABULARY_ENRICHMENT_METRICS.prometheus() + VOICE_MODEL_METRICS.prometheus()
+            + LLM_GENERATION_METRICS.prometheus()
             + memory_jobs.metrics.prometheus(memory_pending, memory_oldest),
             media_type="text/plain; version=0.0.4",
         )

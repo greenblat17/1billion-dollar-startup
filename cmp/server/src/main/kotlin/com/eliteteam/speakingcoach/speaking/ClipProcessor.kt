@@ -44,6 +44,7 @@ enum class CorrectionKind(val wire: String) {
     GRAMMAR("grammar"),
     WORD("word"),
     NATURAL("natural"),
+    ALTERNATIVE("alternative"),
     ;
 
     companion object {

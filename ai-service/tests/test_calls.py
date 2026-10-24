@@ -31,30 +31,42 @@ class Clock:
 
 
 class Scorer:
-    def __init__(self, move: int = 1, fail: bool = False, suggestions: list[dict] | None = None) -> None:
+    def __init__(self, move: int = 1, fail: bool = False, upgrades=None,
+                 enough_evidence: bool = True) -> None:
+        self.upgrades = upgrades or []
         self.move = move
         self.fail = fail
+        self.enough_evidence = enough_evidence
         self.calls = 0
-        self.suggestions = suggestions
 
     async def verify_corrections(self, candidates):
         return {item["id"] for item in candidates}
+
+    async def discover_vocabulary_upgrades(self, turns):
+        return [{**item, "turn": turns[0]["turn"]} for item in self.upgrades]
+
+    async def verify_vocabulary_upgrades(self, candidates):
+        return {item["id"]: {"accepted": True, "reason": "Предложено более точное слово."}
+                for item in candidates}
 
     async def compose_call_review(self, payload):
         self.calls += 1
         if self.fail:
             raise RuntimeError("provider down")
         raw = {
+            "enoughEvidence": self.enough_evidence,
             "levelText": "This conversation sits just above your current level.",
-            "recap": "That was a good talk about your startup.",
             "overallMove": self.move,
-            "grammarExplanations": ["Use the base verb with I."] * len(payload["grammarExamples"]),
-            "vocabularyExplanations": ["Use the more natural word here."] * len(payload["vocabularyExamples"]),
             "grammar": {"text": "Grammar is a little steadier.", "move": self.move},
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
             "fluency": {"text": "The turns are a little more connected.", "move": self.move},
-            "vocabularySuggestions": self.suggestions or [],
         }
+        for name, band, position in (("grammar", "B1", "mid"),
+                                     ("vocabulary", "A2", "low"),
+                                     ("fluency", "B2", "mid")):
+            missing = payload["baseline"].get(name) is None
+            raw[name].update(band=band if missing else None,
+                             position=position if missing else None, shade="0")
         return parse_call_moves(json.dumps(raw))
 
 
@@ -228,25 +240,113 @@ def test_one_call_cannot_jump_the_level():
     moved = apply_call_level(
         baseline(),
         parse_call_moves(json.dumps({
+            "enoughEvidence": True,
             "levelText": "A small step.",
-            "recap": "We talked about your week. Then we got into the product launch. And the team.",
             "overallMove": 30,
-            "grammarExplanations": ["Use the correct tense here."],
-            "vocabularyExplanations": [],
             "grammar": {"text": "A bit clearer.", "move": 30},
             "vocabulary": {"text": "Same range.", "move": 0},
             "fluency": {"text": "A bit smoother.", "move": -30},
         })),
-        {"grammar": [{"wrong": "build", "better": "am building"}], "vocabulary": []},
+        {"grammar": [{"wrong": "build", "better": "am building", "explanation": "Здесь нужно am building."}], "vocabulary": []},
         {"paceWpm": 90, "longPauses": 1, "fillers": None, "longestStretchSec": 4},
     )
     assert moved["assessment"]["overallScore"] == 54
     assert moved["assessment"]["cefr"] == "B1"
     assert moved["assessment"]["grammar"] <= 54
     assert moved["public"]["previousScore"] == 52
-    assert moved["public"]["grammar"]["examples"][0]["explanation"] == "Use the correct tense here."
-    assert moved["public"]["recap"] == "We talked about your week. Then we got into the product launch."
+    assert moved["public"]["grammar"]["examples"][0]["explanation"] == "Здесь нужно am building."
+    assert "recap" not in moved["public"]
     assert moved["public"]["fluency"]["score"] >= 50
+
+
+def test_call_places_missing_skill_scores_from_this_conversation_once():
+    assessment = {**baseline(), "grammar": None, "vocabulary": None, "fluency": None}
+    moves = parse_call_moves(json.dumps({
+        "enoughEvidence": True,
+        "levelText": "You explain your work clearly.",
+        "overallMove": 0,
+        "grammar": {"text": "You connect clauses.", "move": 0,
+                    "band": "B1", "position": "mid", "shade": "0"},
+        "vocabulary": {"text": "You use basic words repeatedly.", "move": 0,
+                       "band": "A2", "position": "low", "shade": "0"},
+        "fluency": {"text": "You speak in connected turns.", "move": 0,
+                    "band": "B2", "position": "mid", "shade": "0"},
+    }))
+    first = apply_call_level(assessment, moves, {"grammar": [], "vocabulary": []}, {})
+    assert first["assessment"]["grammar"] == 52
+    assert first["assessment"]["vocabulary"] == 32
+    assert first["assessment"]["fluency"] == 70
+    assert first["assessment"]["overallScore"] == 52
+
+    next_moves = {**moves, "vocabulary": {**moves["vocabulary"], "move": -2,
+                                           "band": "C1", "position": "high"}}
+    second = apply_call_level(first["assessment"], next_moves,
+                              {"grammar": [], "vocabulary": []}, {})
+    assert second["assessment"]["vocabulary"] == 30
+
+
+@pytest.mark.asyncio
+async def test_call_review_saves_first_skill_scores_when_baseline_has_none():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", {**baseline(), "grammar": None,
+                                         "vocabulary": None, "fluency": None})
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "We need to fix our startup and improve the product.",
+                            "What would you improve?", [], 30, [])
+    await calls.seal("tg-1")
+
+    review = await CallReviews(calls, store, Scorer(), Streaks()).review(opened["callId"])
+
+    assert [review[name]["score"] for name in ("grammar", "vocabulary", "fluency")] == [52, 32, 70]
+    saved = await store.get_assessment("tg-1")
+    assert [saved[name] for name in ("grammar", "vocabulary", "fluency")] == [52, 32, 70]
+
+
+@pytest.mark.asyncio
+async def test_under_thirty_seconds_returns_cached_text_result_without_models_or_score_change():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    learner = {"person": {}, "proficiency": {"overall_score": 52}}
+    await store.save_learner("tg-1", learner)
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "A short answer.", "Thanks.", [], 29.9, [])
+    await calls.seal("tg-1")
+    scorer = Scorer(fail=True)
+    reviews = CallReviews(calls, store, scorer, Streaks())
+
+    first = await reviews.review(opened["callId"])
+    second = await reviews.review(opened["callId"])
+
+    assert first == second
+    assert first["reviewKind"] == "insufficient"
+    assert first["presentationVersion"] == 2
+    assert first["todaySeconds"] == 29.9
+    assert first["streak"] == 4
+    assert "grammar" not in first and "overallScore" not in first
+    assert scorer.calls == 0
+    assert await store.get_assessment("tg-1") == baseline()
+    assert await store.get_learner("tg-1") == learner
+
+
+@pytest.mark.asyncio
+async def test_thirty_seconds_uses_model_and_decisively_short_review_keeps_scores():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "Yes, yes, yes.", "What do you think?", [], 30.0, [])
+    await calls.seal("tg-1")
+    scorer = Scorer(enough_evidence=False)
+
+    result = await CallReviews(calls, store, scorer, Streaks()).review(opened["callId"])
+
+    assert scorer.calls == 1
+    assert result["reviewKind"] == "insufficient"
+    assert result["todaySeconds"] == 30.0
+    assert "grammar" not in result and "overallScore" not in result
+    assert await store.get_assessment("tg-1") == baseline()
 
 
 def test_accumulated_scores_cross_position_and_band_boundaries():
@@ -290,7 +390,7 @@ async def test_successive_call_reviews_save_accumulated_level_and_skill_progress
     reviews = CallReviews(calls, store, scorer, Streaks())
     for expected in (58, 60, 62):
         opened = await calls.open("tg-1")
-        await calls.append_turn("tg-1", "I explain my work.", "Tell me more.", [], 12, [])
+        await calls.append_turn("tg-1", "I explain my work.", "Tell me more.", [], 30, [])
         await calls.seal("tg-1")
         review = await reviews.review(opened["callId"])
         assert review["overallScore"] == expected
@@ -311,7 +411,7 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     opened = await calls.open("tg-1")
     await calls.append_turn(
         "tg-1", "I build software", "Tell me more.",
-        [{"wrong": "build", "better": "am building", "kind": "grammar"}], 12, [{"word": "I", "start": 0, "end": 0.2}],
+        [{"wrong": "build", "better": "am building", "kind": "grammar", "explanation": "Здесь нужно am building."}], 30, [{"word": "I", "start": 0, "end": 0.2}],
     )
     await calls.seal("tg-1")
     scorer = Scorer(move=1)
@@ -321,7 +421,7 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert scorer.calls == 1
     assert first["overallScore"] == second["overallScore"] == 53
     assert first["streak"] == 4
-    assert first["grammar"]["examples"][0]["explanation"] == "Use the base verb with I."
+    assert first["grammar"]["examples"][0]["explanation"] == "Здесь нужно am building."
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
 
 
@@ -333,7 +433,7 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
     failing = CallStore(goal_of=_goal(10))
     other = await failing.open("tg-2")
-    await failing.append_turn("tg-2", "hello", "Hi.", [], 5, [])
+    await failing.append_turn("tg-2", "hello", "Hi.", [], 30, [])
     await failing.seal("tg-2")
     await store.save_assessment("tg-2", baseline())
     broken = CallReviews(failing, store, Scorer(fail=True), Streaks())
@@ -344,23 +444,23 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
     assert (await healed.review(other["callId"]))["retry"] is False
 
 
-def test_call_review_requires_one_explanation_per_verified_example():
-    request = {"grammarExamples": [{"wrong": "I builds", "better": "I build"}], "vocabularyExamples": []}
+def test_call_review_uses_saved_explanation_without_requesting_another():
+    request = {"grammarExamples": [{"wrong": "I builds", "better": "I build", "explanation": "После I нужен build."}], "vocabularyExamples": []}
     response = {
-        "levelText": "You link your ideas clearly.", "recap": "I enjoyed talking about your work.",
-        "overallMove": 1, "grammarExplanations": ["Use the base verb with I."],
-        "vocabularyExplanations": [], "grammar": {"text": "You use clear sentences.", "move": 1},
+        "enoughEvidence": True, "levelText": "You link your ideas clearly.",
+        "overallMove": 1, "grammar": {"text": "You use clear sentences.", "move": 1},
         "vocabulary": {"text": "You choose familiar words.", "move": 0},
-        "fluency": {"text": "Your turns flow well.", "move": 0}, "vocabularySuggestions": [],
+        "fluency": {"text": "Your turns flow well.", "move": 0},
     }
-    validate_call_review_response(json.dumps(response), request)
-    response["grammarExplanations"] = []
-    with pytest.raises(ValueError, match="explanation count"):
-        validate_call_review_response(json.dumps(response), request)
-    response["grammarExplanations"] = [""]
+    for name in ("grammar", "vocabulary", "fluency"):
+        response[name].update(band=None, position=None, shade="0")
+    validate_call_review_response(json.dumps(response))
     moves = parse_call_moves(json.dumps(response))
     review = apply_call_level(baseline(), moves, {"grammar": request["grammarExamples"], "vocabulary": []}, {})
-    assert review["public"]["grammar"]["examples"] == []
+    assert review["public"]["grammar"]["examples"] == request["grammarExamples"]
+    response["grammarExplanations"] = ["New explanation"]
+    with pytest.raises(ValueError, match="invalid call review fields"):
+        validate_call_review_response(json.dumps(response))
 
 
 @pytest.mark.asyncio
@@ -370,7 +470,7 @@ async def test_call_review_shows_up_to_five_verified_examples_per_skill():
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
     corrections = [
-        {"wrong": wrong, "better": better, "kind": "grammar"}
+        {"wrong": wrong, "better": better, "kind": "grammar", "explanation": "Сохранённое объяснение грамматики."}
         for wrong, better in (
             ("I builds", "I build"), ("she go", "she goes"),
             ("we was", "we were"), ("he do", "he does"),
@@ -378,7 +478,7 @@ async def test_call_review_shows_up_to_five_verified_examples_per_skill():
         )
     ]
     vocabulary = [
-        {"wrong": wrong, "better": better, "kind": "word"}
+        {"wrong": wrong, "better": better, "kind": "word", "explanation": "Сохранённое объяснение слова."}
         for wrong, better in (
             ("do a decision", "make a decision"), ("strong rain", "heavy rain"),
             ("make a photo", "take a photo"), ("big mistake", "serious mistake"),
@@ -389,21 +489,47 @@ async def test_call_review_shows_up_to_five_verified_examples_per_skill():
         "I builds, she go, we was, he do, they is, and it have. "
         "I do a decision in strong rain, make a photo, big mistake, fast shower, do progress."
     )
-    await calls.append_turn("tg-1", transcript, "Tell me more.", corrections + vocabulary, 12, [])
+    await calls.append_turn("tg-1", transcript, "Tell me more.", corrections + vocabulary, 30, [])
     await calls.seal("tg-1")
     review = await CallReviews(calls, store, Scorer(), Streaks()).review(opened["callId"])
     examples = review["grammar"]["examples"]
     assert len(examples) == 5
     assert [item["wrong"] for item in examples] == [item["wrong"] for item in corrections[:5]]
-    assert all(item["explanation"] == "Use the base verb with I." for item in examples)
-    vocabulary_examples = review["vocabulary"]["examples"]
-    assert len(vocabulary_examples) == 5
-    assert [item["wrong"] for item in vocabulary_examples] == [item["wrong"] for item in vocabulary[:5]]
-    assert all(item["explanation"] == "Use the more natural word here." for item in vocabulary_examples)
+    assert all(item["explanation"] == "Сохранённое объяснение грамматики." for item in examples)
+    assert review["vocabulary"]["examples"] == []
 
 
 @pytest.mark.asyncio
-async def test_call_review_retries_invalid_explanations_with_review_fallback_model():
+async def test_call_review_routes_lexical_error_to_grammar_beside_vocabulary_upgrade():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", baseline())
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    transcript = "I did a decision after a big increase in costs."
+    await calls.append_turn("tg-1", transcript, "Tell me more.", [{
+        "wrong": "I did a decision", "better": "I made a decision", "kind": "natural",
+        "explanation": "Здесь говорят make a decision.",
+    }], 30, [])
+    await calls.seal("tg-1")
+    upgrade = {"context": transcript, "original": "big", "alternative": "substantial",
+               "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}
+    review = await CallReviews(calls, store, Scorer(upgrades=[upgrade]), Streaks()).review(opened["callId"])
+    assert review["grammar"]["examples"] == [{
+        "wrong": "I did a decision", "better": "I made a decision",
+        "explanation": "Здесь говорят make a decision.",
+    }]
+    assert review["vocabulary"]["examples"] == []
+    assert review["vocabulary"]["suggestions"][0]["context"] == transcript
+    assert review["vocabulary"]["suggestions"][0]["editedContext"] == (
+        "I did a decision after a substantial increase in costs.")
+    trace = await store.get_vocabulary_trace("call", opened["callId"])
+    assert trace["entries"][0]["status"] == "selected"
+    assert trace["entries"][0]["reason"] == "Предложено более точное слово."
+    assert "reason" not in review["vocabulary"]["suggestions"][0]
+
+
+@pytest.mark.asyncio
+async def test_call_review_retries_invalid_response_with_review_fallback_model():
     class Llm:
         def __init__(self):
             self.calls = []
@@ -411,15 +537,15 @@ async def test_call_review_retries_invalid_explanations_with_review_fallback_mod
         async def complete_json(self, system, data, **kwargs):
             self.calls.append((system, kwargs))
             response = {
+                "enoughEvidence": True,
                 "levelText": "You connect ideas and explain why.",
-                "recap": "I enjoyed talking about your work.", "overallMove": 1,
-                "grammarExplanations": [] if len(self.calls) == 1 else ["Use the base verb with I."],
-                "vocabularyExplanations": [],
-                "grammar": {"text": "You make clear statements. One verb form needs work.", "move": 1},
+                "overallMove": 1,
+                "grammar": {"text": "You make clear statements. One verb form needs work.", "move": 3 if len(self.calls) == 1 else 1},
                 "vocabulary": {"text": "You use familiar words accurately. Your range is steady.", "move": 0},
                 "fluency": {"text": "Your ideas connect. Your pace is steady.", "move": 0},
-                "vocabularySuggestions": [],
             }
+            for name in ("grammar", "vocabulary", "fluency"):
+                response[name].update(band=None, position=None, shade="0")
             return json.dumps(response)
 
     llm = Llm()
@@ -429,30 +555,31 @@ async def test_call_review_retries_invalid_explanations_with_review_fallback_mod
         "grammarExamples": [{"wrong": "I builds", "better": "I build"}],
         "vocabularyExamples": [],
     })
-    assert result["grammarExplanations"] == ["Use the base verb with I."]
+    assert result["grammar"]["move"] == 1
     assert [(call[1]["model"], call[1]["max_tokens"], call[1]["response_format"]) for call in llm.calls] == [
         ("google/gemini-3.5-flash-lite", REVIEW_MAX_TOKENS, CALL_REVIEW_RESPONSE_FORMAT),
         ("openai/gpt-4o-mini", REVIEW_RETRY_MAX_TOKENS, CALL_REVIEW_RESPONSE_FORMAT),
     ]
-    assert all("exact excerpts" in call[0] and "matching Explanations array" in call[0] for call in llm.calls)
+    assert all("exact excerpts" in call[0] and "conversation-time explanations" in call[0] for call in llm.calls)
 
 
 @pytest.mark.asyncio
-async def test_call_review_keeps_alternatives_only_when_vocabulary_has_no_corrections():
+async def test_call_review_finds_upgrade_without_live_corrections():
     store = OnboardingStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
-    await calls.append_turn("tg-1", "I use the same words every single time.", "Tell me more.", [], 12, [])
+    transcript = "We saw a big increase in costs."
+    await calls.append_turn("tg-1", transcript, "Tell me more.", [], 30, [])
     await calls.seal("tg-1")
-    suggestion = {
-        "original": "I use the same words every single time",
-        "alternative": "I tend to fall back on the same words",
-        "explanation": "Fall back on describes relying on familiar words out of habit.",
-    }
-    review = await CallReviews(calls, store, Scorer(suggestions=[suggestion]), Streaks()).review(opened["callId"])
+    upgrade = {"context": transcript, "original": "big", "alternative": "substantial",
+               "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}
+    review = await CallReviews(calls, store, Scorer(upgrades=[upgrade]), Streaks()).review(opened["callId"])
     assert review["vocabulary"]["examples"] == []
-    assert review["vocabulary"]["suggestions"] == [suggestion]
+    assert len(review["vocabulary"]["suggestions"]) == 1
+    assert review["vocabulary"]["suggestions"][0]["original"] == "big"
+    assert review["vocabulary"]["suggestions"][0]["editedContext"] == (
+        "We saw a substantial increase in costs.")
 
 
 @pytest.mark.asyncio

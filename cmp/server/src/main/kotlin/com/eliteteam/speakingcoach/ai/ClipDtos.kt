@@ -612,6 +612,9 @@ data class VocabularySuggestion(
     val original: String = "",
     val alternative: String = "",
     val explanation: String = "",
+    val category: String = "word_upgrade",
+    val context: String = "",
+    val editedContext: String = "",
 )
 
 @Serializable
@@ -801,6 +804,8 @@ data class CallFeedbackList(
 data class CallReviewResponse(
     val callId: String = "",
     val retry: Boolean = false,
+    val reviewKind: String = "full",
+    val presentationVersion: Int = 1,
     val levelText: String = "",
     val recap: String = "",
     val cefr: String? = null,

@@ -23,6 +23,22 @@ from tests.conftest import FakeLlm, FakeTts, test_settings as settings
 AUTH = {"X-Internal-Token": "test-internal-token"}
 
 
+@pytest.mark.asyncio
+async def test_vocabulary_trace_expires_with_oldest_turn():
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = OnboardingStore(redis)
+    review_id = "a" * 32
+    now = time.time()
+    await store.save_vocabulary_trace("call", review_id,
+                                      [{"receivedAt": now - 60}],
+                                      [{"status": "rejected", "reason": "Не повышает уровень."}])
+    saved = await store.get_vocabulary_trace("call", review_id)
+    assert saved["entries"][0]["reason"] == "Не повышает уровень."
+    ttl = await redis.ttl(f"vocabulary-review-debug:call:{review_id}")
+    assert 0 < ttl < 7 * 24 * 60 * 60
+    assert await store.get_vocabulary_trace("onboarding", review_id) is None
+
+
 def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
     assert "this is actually my voice" in FIRST_QUESTION
     assert "tell me about yourself" in FIRST_QUESTION
@@ -87,6 +103,13 @@ class Model:
     async def verify_corrections(self, candidates):
         return {item["id"] for item in candidates}
 
+    async def discover_vocabulary_upgrades(self, turns):
+        return [{**item, "turn": turns[0]["turn"]} for item in getattr(self, "upgrades", [])]
+
+    async def verify_vocabulary_upgrades(self, candidates):
+        return {item["id"]: {"accepted": True, "reason": "Предложено более точное слово."}
+                for item in candidates}
+
     async def compose_review(self, payload):
         self.review_calls += 1
         self.review_payloads.append(deepcopy(payload))
@@ -99,8 +122,6 @@ class Model:
         return {
             "callback": callback,
             "levelText": "You can keep a conversation going about your own work.",
-            "grammarExplanations": ["Use the base verb with I."] * len(payload["grammarExamples"]),
-            "vocabularyExplanations": ["This word fits the meaning here."] * len(payload["vocabularyExamples"]),
             "grammar": {
                 "band": "B1",
                 "position": "high",
@@ -738,7 +759,7 @@ async def test_review_receives_overall_assessment_and_its_speech_evidence(cefr, 
     assert payload["cefr"] == cefr
     assert payload["position"] == position
     assert payload["transcripts"] == [transcript]
-    assert payload["grammarExamples"] == [{"wrong": "I builds", "better": "I build"}]
+    assert payload["grammarExamples"] == [{"wrong": "I builds", "better": "I build", "explanation": ""}]
     assert result.onboarding["cefr"] == cefr
     assert result.onboarding["review"]["levelText"] == (await s.store.get("tg-test"))["review"]["levelText"]
 
@@ -814,14 +835,14 @@ async def test_review_uses_only_verified_examples_and_survives_verification_fail
 
     model = FilteringModel()
     llm = FakeLlm([
-        Correction("I builds", "I build", "grammar"),
+        Correction("I builds", "I build", "grammar", "После I нужен build."),
         Correction("the Rodri", "Rodri", "grammar"),
     ])
     s = service(stt=Stt(120, "I builds tools. I talked to the Rodri."), model=model, llm=llm)
     run = await begin(s)
     result = await turn(s, run)
-    expected = [] if fails else [{"wrong": "I builds", "better": "I build", "explanation": "Use the base verb with I."}]
-    expected_input = [] if fails else [{"wrong": "I builds", "better": "I build"}]
+    expected = [] if fails else [{"wrong": "I builds", "better": "I build", "explanation": "После I нужен build."}]
+    expected_input = expected
     assert result.onboarding["status"] == "completed"
     assert model.review_payloads[0]["grammarExamples"] == expected_input
     assert result.onboarding["review"]["grammar"]["examples"] == expected
@@ -829,28 +850,42 @@ async def test_review_uses_only_verified_examples_and_survives_verification_fail
 
 
 @pytest.mark.asyncio
-async def test_onboarding_review_shows_optional_vocabulary_alternative_without_calling_it_a_correction():
-    class SuggestingModel(Model):
-        async def compose_review(self, payload):
-            review = await super().compose_review(payload)
-            review["vocabularySuggestions"] = [{
-                "original": "I use the same words every single time",
-                "alternative": "I tend to fall back on the same words",
-                "explanation": "Fall back on describes relying on familiar words out of habit.",
-            }]
-            return review
-
-    model = SuggestingModel()
-    s = service(stt=Stt(120, "I use the same words every single time."), model=model)
+async def test_onboarding_discovers_optional_upgrade_without_live_correction():
+    model = Model()
+    transcript = "We saw a big increase in costs."
+    model.upgrades = [{"context": transcript, "original": "big", "alternative": "substantial",
+                       "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}]
+    s = service(stt=Stt(120, transcript), model=model, llm=FakeLlm([]))
     run = await begin(s)
     result = await turn(s, run)
     vocabulary = result.onboarding["review"]["vocabulary"]
     assert vocabulary["examples"] == []
-    assert vocabulary["suggestions"] == [{
-        "original": "I use the same words every single time",
-        "alternative": "I tend to fall back on the same words",
-        "explanation": "Fall back on describes relying on familiar words out of habit.",
-    }]
+    assert len(vocabulary["suggestions"]) == 1
+    assert vocabulary["suggestions"][0]["original"] == "big"
+    assert vocabulary["suggestions"][0]["editedContext"] == "We saw a substantial increase in costs."
+    trace = await s.store.get_vocabulary_trace("onboarding", run)
+    assert trace["entries"][0]["status"] == "selected"
+    assert trace["entries"][0]["reason"] == "Предложено более точное слово."
+    assert "reason" not in vocabulary["suggestions"][0]
+
+
+@pytest.mark.asyncio
+async def test_onboarding_routes_lexical_error_to_grammar_beside_vocabulary_upgrade():
+    model = Model()
+    transcript = "I did a decision after a big increase in costs."
+    model.upgrades = [{"context": transcript, "original": "big", "alternative": "substantial",
+                       "category": "word_upgrade", "explanation": "Substantial точнее описывает масштаб роста."}]
+    s = service(stt=Stt(120, transcript), model=model, llm=FakeLlm([
+        Correction("I did a decision", "I made a decision", "natural", "Здесь говорят make a decision."),
+    ]))
+    run = await begin(s)
+    result = await turn(s, run)
+    vocabulary = result.onboarding["review"]["vocabulary"]
+    assert result.onboarding["review"]["grammar"]["examples"] == [{
+        "wrong": "I did a decision", "better": "I made a decision",
+        "explanation": "Здесь говорят make a decision."}]
+    assert vocabulary["examples"] == []
+    assert len(vocabulary["suggestions"]) == 1
 
 
 @pytest.mark.asyncio

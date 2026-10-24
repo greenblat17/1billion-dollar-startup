@@ -39,15 +39,35 @@ At the next Moscow day, `open` seals the previous call. It does not push the rev
 
 ## Review
 
-`POST /internal/calls/end` returns the sealed id. Telegram then immediately sends `Thanks for the chat 💙\nI’m putting your feedback together now.` while `POST /internal/calls/review` scores the call. That thank-you message remains in the chat. The result appears as a new level card; a failed score sends a new retry card, and Retry edits that retry card into the level card after a successful retry. A failed score is not cached; Retry calls the same route.
+`POST /internal/calls/end` returns the sealed id. Telegram shows a typing indicator while `POST /internal/calls/review` checks the call. An insufficient result sends one formatted `🎙 Let’s talk a bit more` message with the persistent Start call keyboard. A full review sends `Thanks for the chat 💙` with that keyboard, followed by the first inline result card. A failed review sends a retry card after the thank-you message; Retry edits that card after success. A failed review is not cached; Retry calls the same route.
 
-The model returns a diagnostic level note, grammar/vocabulary/fluency explanations, a one-or-two-sentence recap of what you discussed, and a move from -2 to 2 for the overall level and for each skill. The diagnostic text and explanations for verified corrections follow the same rules as onboarding: concrete evidence from this conversation, two concise diagnostic sentences for each skill, no invented mistakes, and one local explanation per selected grammar or vocabulary example. Both reviews select up to five verified examples per skill. A correction without a confident explanation is hidden. The recap is separate from the diagnostic assessment. Call reviews use the configured onboarding review model and fallback, the corresponding strict JSON schema when supported, local response validation, and one retry for an invalid response. Code applies each move to the stored snapshot, allowing points to accumulate across calls. Every individual call still changes each score by at most two points. Call scores can take the previously unused numbers between onboarding score anchors; each number belongs to the nearest anchor, with an exact midpoint assigned to the lower anchor. This lets repeated calls move between low/mid/high and eventually between CEFR bands. The scale stops at the existing A1/C1 endpoints, 10 and 96, because C2 is not defined. The onboarding score anchors and initial assessment rules are unchanged. Examples still come from this call, after the same verification used by onboarding. Fluency measurements reuse `fluency_metrics`.
+The model returns a diagnostic level note, grammar/vocabulary/fluency explanations, a one-or-two-sentence recap of what you discussed, and a move from -2 to 2 for the overall level and for each skill. The diagnostic text and explanations for verified corrections follow the same rules as onboarding: concrete evidence from this conversation, two concise diagnostic sentences for each skill, no invented mistakes, and one local explanation per selected grammar or vocabulary example. Both reviews select up to five verified examples per skill. A correction without a confident explanation is hidden. The recap is separate from the diagnostic assessment. Call reviews use the configured onboarding review model and fallback, the corresponding strict JSON schema when supported, local response validation, and one retry for an invalid response. Code applies each move to the stored snapshot, allowing points to accumulate across calls. Every individual call still changes each existing numeric score by at most two points. If a stored skill score is null, the same review makes that skill's first independent band/position/shade placement from the current call when evidence is sufficient; it never copies the overall score as the skill score. Later calls step from that new skill score by at most two points. Call scores can take the previously unused numbers between onboarding score anchors; each number belongs to the nearest anchor, with an exact midpoint assigned to the lower anchor. This lets repeated calls move between low/mid/high and eventually between CEFR bands. The scale stops at the existing A1/C1 endpoints, 10 and 96, because C2 is not defined. The onboarding score anchors and initial assessment rules are unchanged. Examples still come from this call, after the same verification used by onboarding. Fluency measurements reuse `fluency_metrics`.
 
 The cards show the updated level, then Grammar, Vocabulary, and Fluency. Continue edits the Fluency card into the final progress and recap card, preserving the same message. The line after Fluency is today's time (`🎯 0:51 / 5:00 today`), a blank line, then `recap`: one or two sentences about what you just discussed, with no score and no CEFR band. Then `🔥 2 day streak`. The final card has no inline `Profile` or `Finish for today` buttons; `/profile` remains available as a command. The persistent lower `🎙 Start call` keyboard is already restored by the review-wait message. When no reminder time is saved, the last line is `Want me to remind you tomorrow? Tap /remind`.
 
 The stepped snapshot is written back to `assessment:{sessionId}` and, when learner memory already exists, onto its proficiency scores and derived skill bands/positions. A later save of the same onboarding attempt does not overwrite that snapshot. A new completed onboarding attempt does. Ordinary turns still do not change proficiency.
 
 Deploy ai-service before Ktor. Live Telegram acceptance is separate from the unit tests.
+
+## Short calls and result order, 2026-10-24
+
+For new ordinary calls, fewer than 30 recognized learner-speech seconds produces
+one insufficient-speech message. It has no skill cards, score changes, inline
+button, or character-feedback survey. At 30 seconds or more, the existing
+review model marks only clearly insufficient connected speech as insufficient;
+uncertain evidence gets a cautious full review. Insufficient calls still count
+their recognized seconds toward daily activity and speaking time.
+
+New full reviews use Grammar → Vocabulary → Fluency → Level. The Level card
+shows the level, score, next-band progress, streak, and reminder offer when
+needed. It omits the diagnostic paragraph, accuracy note, and daily time.
+The character-feedback survey follows that card. The model no longer writes a
+conversation recap for new reviews. Cached reviews without a presentation
+version retain the level-first carousel and recap/progress card described above.
+The review response distinguishes `reviewKind=full|insufficient` and
+`presentationVersion=2`; Ktor defaults missing fields to the old format.
+The agreed behavior and verification boundary are in
+[the implementation plan](../plans/2026-10-24-short-call-feedback-and-result-order.md).
 
 ## DEV call-review timeout, 2026-10-23
 
