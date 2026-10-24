@@ -11,21 +11,28 @@ from app.calls import CallStore
 from app.correction_verification import verify_corrections_with_metrics
 from app.onboarding import OnboardingStore
 from app.onboarding_review import REVIEW_COPY_POLICY, correction_candidates, fluency_metrics, select_examples
-from app.onboarding_score import placed_level, step_score
+from app.onboarding_score import SCORE_TABLE, normalize_shade, placed_level, skill_score, step_score
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.vocabulary_suggestions import discover_vocabulary_suggestions
 
 logger = logging.getLogger(__name__)
 
 CALL_REVIEW_SYSTEM = """You compare one finished English conversation with the learner's current level.
-The current scores are the baseline. Judge only whether this conversation is a little weaker,
-about the same, or a little stronger than that baseline.
+Existing numeric scores are the baseline. Judge whether this conversation is a little weaker,
+about the same, or a little stronger than each available baseline.
 Always reply with a JSON object only:
 {"levelText": string, "recap": string, "overallMove": int,
- "grammar": {"text": string, "move": int},
- "vocabulary": {"text": string, "move": int}, "fluency": {"text": string, "move": int}}
-Each move is an integer from -2 to 2. 0 means this conversation matches the current level.
-Do not return a CEFR label or a 0-100 score. Do not invent a new level.
+ "grammar": {"text": string, "move": int, "band": string|null, "position": string|null, "shade": string},
+ "vocabulary": {"text": string, "move": int, "band": string|null, "position": string|null, "shade": string},
+ "fluency": {"text": string, "move": int, "band": string|null, "position": string|null, "shade": string}}
+Each move is an integer from -2 to 2. For scored skills, 0 means this conversation matches the current level.
+Do not return a new overall CEFR label or a 0-100 score.
+For each skill with a numeric baseline, set band=null, position=null, shade="0";
+only its move changes the score. For a skill whose baseline is null, make its
+first independent placement from THIS conversation: return A1-C1 band, low/mid/high
+position, and a shade from --, -, 0, +, ++. Set move=0 for that skill.
+Use band=null and position=null only if this conversation lacks enough connected
+English to assess that skill. Do not copy the overall level into a missing skill.
 For Vocabulary, compare the learner's own repeated lexical range, complexity,
 and precision with the stored baseline. Consistently basic words across
 substantial speech can support a negative move from an advanced baseline,
@@ -70,8 +77,9 @@ def validate_call_review_response(raw: str) -> None:
         raise ValueError("invalid overall move")
     for name in ("grammar", "vocabulary", "fluency"):
         skill = payload[name]
-        if (not isinstance(skill, dict) or set(skill) != {"text", "move"}
-                or type(skill["move"]) is not int or not -2 <= skill["move"] <= 2):
+        if (not isinstance(skill, dict) or set(skill) != {"text", "move", "band", "position", "shade"}
+                or type(skill["move"]) is not int or not -2 <= skill["move"] <= 2
+                or skill["shade"] not in ("--", "-", "0", "+", "++")):
             raise ValueError(f"invalid {name} move")
 
 
@@ -91,9 +99,11 @@ def apply_call_level(
     skills = {}
     for name in ("grammar", "vocabulary", "fluency"):
         prior = assessment.get(name)
-        stepped = step_score(prior if isinstance(prior, int) else None, moves[name]["move"])
+        stepped = step_score(prior, moves[name]["move"]) if isinstance(prior, int) else None
+        if stepped is None and moves[name].get("band") is not None:
+            stepped = skill_score(moves[name]["band"], moves[name]["position"], moves[name]["shade"])
         skill = {
-            "score": stepped if stepped is not None else prior,
+            "score": stepped,
             "text": moves[name]["text"],
             "examples": (examples.get(name) or []) if name in ("grammar", "vocabulary") else [],
             "suggestions": (vocabulary_suggestions or []) if name == "vocabulary" else [],
@@ -270,7 +280,20 @@ def _skill_move(value: Any) -> dict[str, Any]:
     text = value.get("text")
     if not isinstance(text, str) or not text.strip():
         raise ValueError("call review skill text missing")
-    return {"text": " ".join(text.split()), "move": _move(value.get("move"))}
+    band = value.get("band")
+    position = value.get("position")
+    if (band is not None and (not isinstance(band, str) or band not in SCORE_TABLE
+                              or position not in SCORE_TABLE[band])):
+        raise ValueError("call review invalid initial skill placement")
+    if band is None and position is not None:
+        raise ValueError("call review position without band")
+    if value.get("shade") not in ("--", "-", "0", "+", "++", None):
+        raise ValueError("call review invalid initial skill shade")
+    return {
+        "text": " ".join(text.split()), "move": _move(value.get("move")),
+        "band": band, "position": position,
+        "shade": normalize_shade(value.get("shade")),
+    }
 
 
 def _move(value: Any) -> int:

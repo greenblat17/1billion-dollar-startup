@@ -59,6 +59,12 @@ class Scorer:
             "vocabulary": {"text": "Word choice is about the same.", "move": 0},
             "fluency": {"text": "The turns are a little more connected.", "move": self.move},
         }
+        for name, band, position in (("grammar", "B1", "mid"),
+                                     ("vocabulary", "A2", "low"),
+                                     ("fluency", "B2", "mid")):
+            missing = payload["baseline"].get(name) is None
+            raw[name].update(band=band if missing else None,
+                             position=position if missing else None, shade="0")
         return parse_call_moves(json.dumps(raw))
 
 
@@ -251,6 +257,50 @@ def test_one_call_cannot_jump_the_level():
     assert moved["public"]["fluency"]["score"] >= 50
 
 
+def test_call_places_missing_skill_scores_from_this_conversation_once():
+    assessment = {**baseline(), "grammar": None, "vocabulary": None, "fluency": None}
+    moves = parse_call_moves(json.dumps({
+        "levelText": "You explain your work clearly.",
+        "recap": "I enjoyed talking about your work.",
+        "overallMove": 0,
+        "grammar": {"text": "You connect clauses.", "move": 0,
+                    "band": "B1", "position": "mid", "shade": "0"},
+        "vocabulary": {"text": "You use basic words repeatedly.", "move": 0,
+                       "band": "A2", "position": "low", "shade": "0"},
+        "fluency": {"text": "You speak in connected turns.", "move": 0,
+                    "band": "B2", "position": "mid", "shade": "0"},
+    }))
+    first = apply_call_level(assessment, moves, {"grammar": [], "vocabulary": []}, {})
+    assert first["assessment"]["grammar"] == 52
+    assert first["assessment"]["vocabulary"] == 32
+    assert first["assessment"]["fluency"] == 70
+    assert first["assessment"]["overallScore"] == 52
+
+    next_moves = {**moves, "vocabulary": {**moves["vocabulary"], "move": -2,
+                                           "band": "C1", "position": "high"}}
+    second = apply_call_level(first["assessment"], next_moves,
+                              {"grammar": [], "vocabulary": []}, {})
+    assert second["assessment"]["vocabulary"] == 30
+
+
+@pytest.mark.asyncio
+async def test_call_review_saves_first_skill_scores_when_baseline_has_none():
+    store = OnboardingStore()
+    await store.save_assessment("tg-1", {**baseline(), "grammar": None,
+                                         "vocabulary": None, "fluency": None})
+    calls = CallStore(goal_of=_goal(10))
+    opened = await calls.open("tg-1")
+    await calls.append_turn("tg-1", "We need to fix our startup and improve the product.",
+                            "What would you improve?", [], 12, [])
+    await calls.seal("tg-1")
+
+    review = await CallReviews(calls, store, Scorer(), Streaks()).review(opened["callId"])
+
+    assert [review[name]["score"] for name in ("grammar", "vocabulary", "fluency")] == [52, 32, 70]
+    saved = await store.get_assessment("tg-1")
+    assert [saved[name] for name in ("grammar", "vocabulary", "fluency")] == [52, 32, 70]
+
+
 def test_accumulated_scores_cross_position_and_band_boundaries():
     score = 56
     observed = []
@@ -354,6 +404,8 @@ def test_call_review_uses_saved_explanation_without_requesting_another():
         "vocabulary": {"text": "You choose familiar words.", "move": 0},
         "fluency": {"text": "Your turns flow well.", "move": 0},
     }
+    for name in ("grammar", "vocabulary", "fluency"):
+        response[name].update(band=None, position=None, shade="0")
     validate_call_review_response(json.dumps(response))
     moves = parse_call_moves(json.dumps(response))
     review = apply_call_level(baseline(), moves, {"grammar": request["grammarExamples"], "vocabulary": []}, {})
@@ -443,6 +495,8 @@ async def test_call_review_retries_invalid_response_with_review_fallback_model()
                 "vocabulary": {"text": "You use familiar words accurately. Your range is steady.", "move": 0},
                 "fluency": {"text": "Your ideas connect. Your pace is steady.", "move": 0},
             }
+            for name in ("grammar", "vocabulary", "fluency"):
+                response[name].update(band=None, position=None, shade="0")
             return json.dumps(response)
 
     llm = Llm()

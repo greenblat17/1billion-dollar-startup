@@ -27,7 +27,8 @@ ignored. Older saved `word` and `natural` corrections become Grammar candidates
 and must pass the same strict verifier. A failed verification batch does not
 remove successful batches. The review model sees verified examples when
 writing diagnostic text and scores. Onboarding places the first score; calls
-limit each score move to two points.
+limit each existing score move to two points. If a legacy assessment has a null
+skill score, a call may place that skill for the first time from its own speech.
 
 In parallel with correction verification and review composition, a separate
 model request searches every numbered learner turn for optional Vocabulary

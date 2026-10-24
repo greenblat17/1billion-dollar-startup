@@ -83,7 +83,13 @@ REVIEW_RESPONSE_FORMAT = {
                    "required": list(_review_properties), "additionalProperties": False},
     },
 }
-_call_skill_properties = {"text": {"type": "string"}, "move": {"type": "integer"}}
+_call_skill_properties = {
+    "text": {"type": "string"},
+    "move": {"type": "integer"},
+    "band": {"type": ["string", "null"], "enum": ["A1", "A2", "B1", "B2", "C1", None]},
+    "position": {"type": ["string", "null"], "enum": ["low", "mid", "high", None]},
+    "shade": {"type": "string", "enum": ["--", "-", "0", "+", "++"]},
+}
 _call_review_properties = {
     "levelText": {"type": "string"},
     "recap": {"type": "string"},
