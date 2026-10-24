@@ -64,6 +64,99 @@ class ProviderCallMetrics:
 PROVIDER_CALL_METRICS = ProviderCallMetrics()
 
 
+class ReviewVerificationMetrics:
+    """One measurement for each attempted final correction verification."""
+
+    BUCKETS = (0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0)
+    FLOWS = ("onboarding", "call")
+    OUTCOMES = ("success", "partial", "timeout", "error", "cancelled")
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._counts = {(flow, outcome): 0 for flow in self.FLOWS for outcome in self.OUTCOMES}
+        self._duration_sum = {(flow, outcome): 0.0 for flow in self.FLOWS for outcome in self.OUTCOMES}
+        self._buckets = {
+            (flow, outcome): [0] * len(self.BUCKETS)
+            for flow in self.FLOWS for outcome in self.OUTCOMES
+        }
+
+    def record(self, flow: str, outcome: str, duration_seconds: float) -> None:
+        key = (flow, outcome)
+        with self._lock:
+            self._counts[key] += 1
+            self._duration_sum[key] += duration_seconds
+            for index, upper_bound in enumerate(self.BUCKETS):
+                if duration_seconds <= upper_bound:
+                    self._buckets[key][index] += 1
+
+    def prometheus(self) -> str:
+        with self._lock:
+            lines = [
+                "# TYPE speaking_review_verification_total counter",
+            ]
+            for (flow, outcome), count in self._counts.items():
+                lines.append(
+                    f'speaking_review_verification_total{{flow="{flow}",outcome="{outcome}"}} {count}'
+                )
+            lines.append("# TYPE speaking_review_verification_duration_seconds histogram")
+            for (flow, outcome), count in self._counts.items():
+                labels = f'flow="{flow}",outcome="{outcome}"'
+                for upper_bound, bucket_count in zip(self.BUCKETS, self._buckets[(flow, outcome)]):
+                    lines.append(
+                        f'speaking_review_verification_duration_seconds_bucket{{{labels},le="{upper_bound:g}"}} {bucket_count}'
+                    )
+                lines.append(
+                    f'speaking_review_verification_duration_seconds_bucket{{{labels},le="+Inf"}} {count}'
+                )
+                lines.append(
+                    f'speaking_review_verification_duration_seconds_sum{{{labels}}} {self._duration_sum[(flow, outcome)]}'
+                )
+                lines.append(f'speaking_review_verification_duration_seconds_count{{{labels}}} {count}')
+        return "\n".join(lines) + "\n"
+
+
+REVIEW_VERIFICATION_METRICS = ReviewVerificationMetrics()
+
+
+class VocabularyEnrichmentMetrics:
+    """Process-local final-search counts without user or transcript labels."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._runs: dict[tuple[str, str], int] = {}
+        self._duration: dict[tuple[str, str], float] = {}
+        self._counts: dict[tuple[str, str], int] = {}
+
+    def record(self, flow: str, outcome: str, duration_seconds: float) -> None:
+        with self._lock:
+            key = (flow, outcome)
+            self._runs[key] = self._runs.get(key, 0) + 1
+            self._duration[key] = self._duration.get(key, 0.0) + duration_seconds
+
+    def candidates(self, flow: str, proposed: int, grounded: int, accepted: int, selected: int) -> None:
+        with self._lock:
+            for stage, count in (("proposed", proposed), ("grounded", grounded),
+                                 ("verified", accepted), ("selected", selected)):
+                key = (flow, stage)
+                self._counts[key] = self._counts.get(key, 0) + count
+
+    def prometheus(self) -> str:
+        with self._lock:
+            lines = ["# TYPE speaking_vocabulary_enrichment_total counter"]
+            for (flow, outcome), count in self._runs.items():
+                lines.append(f'speaking_vocabulary_enrichment_total{{flow="{flow}",outcome="{outcome}"}} {count}')
+            lines.append("# TYPE speaking_vocabulary_enrichment_duration_seconds_sum counter")
+            for (flow, outcome), seconds in self._duration.items():
+                lines.append(f'speaking_vocabulary_enrichment_duration_seconds_sum{{flow="{flow}",outcome="{outcome}"}} {seconds}')
+            lines.append("# TYPE speaking_vocabulary_enrichment_candidates_total counter")
+            for (flow, stage), count in self._counts.items():
+                lines.append(f'speaking_vocabulary_enrichment_candidates_total{{flow="{flow}",stage="{stage}"}} {count}')
+        return "\n".join(lines) + "\n"
+
+
+VOCABULARY_ENRICHMENT_METRICS = VocabularyEnrichmentMetrics()
+
+
 class LlmGenerationMetrics:
     """Output tokens and provider-reported generation time for LLM responses."""
 

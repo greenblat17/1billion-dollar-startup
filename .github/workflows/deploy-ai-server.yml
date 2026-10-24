@@ -25,10 +25,12 @@ jobs:
       PROD_AI_SERVER_USER: ${{ secrets.PROD_AI_SERVER_USER }}
       PROD_AI_SERVER_SSH_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
       PROD_AI_SERVER_ENV: ${{ secrets.PROD_AI_SERVER_ENV }}
+      PROD_KORA_H_ALLOWLIST: ${{ secrets.PROD_KORA_H_ALLOWLIST }}
       DEV_AI_SERVER_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
       DEV_AI_SERVER_USER: ${{ secrets.DEV_AI_SERVER_USER }}
       DEV_AI_SERVER_SSH_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
       DEV_AI_SERVER_ENV: ${{ secrets.DEV_AI_SERVER_ENV }}
+      DEV_KORA_H_ALLOWLIST: ${{ secrets.DEV_KORA_H_ALLOWLIST }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -53,15 +55,27 @@ jobs:
           if [ "$DESTINATION" = prod ]; then
             ENV_BODY="${PROD_AI_SERVER_ENV:-}"
             ENV_NAME=PROD_AI_SERVER_ENV
+            KORA_H_ALLOWLIST="${PROD_KORA_H_ALLOWLIST:-}"
           else
             ENV_BODY="${DEV_AI_SERVER_ENV:-}"
             ENV_NAME=DEV_AI_SERVER_ENV
+            KORA_H_ALLOWLIST="${DEV_KORA_H_ALLOWLIST:-}"
           fi
           if [ -z "$ENV_BODY" ]; then
             echo "$ENV_NAME is empty" >&2
             exit 1
           fi
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
+          sed -i '/^KORA_H_\(ENABLED\|ALLOWLIST\)=/d' vps-upload/.env
+          if [ -n "$KORA_H_ALLOWLIST" ]; then
+            if [[ ! "$KORA_H_ALLOWLIST" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+              echo "Kora H allowlist must be comma-separated Telegram IDs" >&2
+              exit 1
+            fi
+            printf 'KORA_H_ENABLED=true\nKORA_H_ALLOWLIST=%s\n' "$KORA_H_ALLOWLIST" >> vps-upload/.env
+          else
+            printf 'KORA_H_ENABLED=false\n' >> vps-upload/.env
+          fi
           chmod 600 vps-upload/.env
 
       - name: Copy files and restart container

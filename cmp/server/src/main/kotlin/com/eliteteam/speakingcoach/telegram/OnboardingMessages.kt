@@ -250,6 +250,7 @@ internal fun levelSlide(
     overallScore: Int? = null,
     nextBand: String? = null,
     pointsToNext: Int? = null,
+    showExplanation: Boolean = true,
 ): TextSourcesList = buildEntities {
     bold("🎯 $LEVEL_TITLE")
     regularln("")
@@ -273,20 +274,43 @@ internal fun levelSlide(
             regularln("✨ $pointsToNext points to $nextBand")
         }
     }
-    val text = levelText.trim()
-    if (text.isNotEmpty()) {
+    if (showExplanation) {
+        val text = levelText.trim()
+        if (text.isNotEmpty()) {
+            regularln("")
+            regularln(text)
+        }
         regularln("")
-        regularln(text)
+        regular(LEVEL_ESTIMATE)
     }
-    regularln("")
-    regular(LEVEL_ESTIMATE)
 }
 
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =
     skillSlide("✍️ Grammar", review.grammar)
 
-internal fun vocabularySlide(review: OnboardingReview): TextSourcesList =
-    skillSlide("📚 Vocabulary", review.vocabulary, showSuggestions = true)
+private const val VOCABULARY_CARD_CHAR_LIMIT = 3900
+
+internal fun vocabularySlide(review: OnboardingReview): TextSourcesList {
+    val base = skillSlide("📚 Vocabulary", review.vocabulary.copy(examples = emptyList()))
+    val shown = mutableListOf<com.eliteteam.speakingcoach.ai.VocabularySuggestion>()
+    var card = base
+    for (suggestion in review.vocabulary.suggestions.take(10)) {
+        val candidate = buildEntities {
+            addAll(base)
+            regularln("")
+            regularln("")
+            bold("Words and expressions to try")
+            regularln("")
+            regularln("")
+            suggestionLines(shown + suggestion)
+        }
+        if (candidate.joinToString("") { it.source }.length <= VOCABULARY_CARD_CHAR_LIMIT) {
+            shown.add(suggestion)
+            card = candidate
+        }
+    }
+    return card
+}
 
 internal fun fluencySlide(review: OnboardingReview): TextSourcesList = buildEntities {
     bold("🎙 Fluency")
@@ -323,7 +347,7 @@ internal fun practiceAsk(cefr: String?, score: Int?, nextBand: String?, pointsTo
     regular(PRACTICE_ASK_QUESTION)
 }
 
-private fun skillSlide(title: String, skill: OnboardingSkill, showSuggestions: Boolean = false): TextSourcesList = buildEntities {
+private fun skillSlide(title: String, skill: OnboardingSkill): TextSourcesList = buildEntities {
     bold(title)
     regularln("")
     regularln("")
@@ -347,20 +371,22 @@ private fun skillSlide(title: String, skill: OnboardingSkill, showSuggestions: B
                 italic(explanation)
             }
         }
-    } else if (showSuggestions && skill.suggestions.isNotEmpty()) {
-        regularln("")
-        bold("Another way to say it")
-        regularln("")
-        regularln("")
-        skill.suggestions.take(3).forEachIndexed { index, suggestion ->
-            if (index > 0) regular("\n\n")
-            regularln(suggestion.original)
-            regular("→ ")
-            bold(suggestion.alternative)
-            suggestion.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
-                regular("\n\n💡 ")
-                italic(explanation)
-            }
+    }
+
+}
+
+private fun dev.inmo.tgbotapi.utils.EntitiesBuilder.suggestionLines(
+    suggestions: List<com.eliteteam.speakingcoach.ai.VocabularySuggestion>,
+) {
+    suggestions.forEachIndexed { index, suggestion ->
+        if (index > 0) regular("\n\n")
+        regular("You said: ")
+        regularln(suggestion.context.ifBlank { suggestion.original })
+        regular("Try: ")
+        bold(suggestion.editedContext.ifBlank { suggestion.alternative })
+        suggestion.explanation.trim().takeIf { it.isNotEmpty() }?.let { explanation ->
+            regular("\n\n💡 ")
+            italic(explanation)
         }
     }
 }

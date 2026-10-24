@@ -17,17 +17,58 @@ class CallDashboardTest {
     private val start = Instant.now().minusSeconds(120)
 
     @Test
+    fun countsKoraPilotByActualCallCharacterAndKeepsUnknownSeparate() {
+        val second = "b".repeat(32)
+        val old = "c".repeat(32)
+        val events = listOf(
+            CallEvent("menu", "voice_menu_clicked", 42, start),
+            CallEvent("tap", "voice_character_tapped", 42, start, state = "kora_h"),
+            CallEvent("one", "call_open", 42, start, callId = callId, scenarioKind = "free"),
+            CallEvent("one-char", "call_character", 42, start, callId = callId, state = "kora_h"),
+            CallEvent("one-voice", "voice_received", 42, start, callId = callId, messageId = 1),
+            CallEvent("two", "call_open", 42, start, callId = second, scenarioKind = "free"),
+            CallEvent("two-char", "call_character", 42, start, callId = second, state = "kora_h"),
+            CallEvent("old", "call_open", 55, start, callId = old, scenarioKind = "free"),
+        )
+        val section = koraLaunchSection(events, callDashboardRows(CallEventsSnapshot(events, false, 0)))
+        assertTrue(section.contains("Кнопка рассылки: кликов / людей"))
+        assertTrue(section.contains("Нажали Kora H: раз / людей"))
+        assertTrue(section.contains("<td>Kora H</td><td>1</td><td>2</td><td>1</td><td>1</td>"))
+        assertTrue(section.contains("Звонков без записанного собеседника: 1"))
+    }
+
+    @Test
+    fun callTableShowsFriendlyCharacterNames() {
+        assertEquals("Kora H", callCharacterLabel("kora_h"))
+        assertEquals("Speaky", callCharacterLabel("speaky"))
+        assertEquals("Нет данных", callCharacterLabel("unknown"))
+    }
+
+    @Test
     fun showsFeedbackUsernameChoiceAndEscapedMessage() {
         val feedback = CallFeedbackList(1, listOf(CallFeedbackEntry(
             "tg-42", "alex<script>", "neutral", "Improve <audio> & pacing",
         )))
         val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
             feedback = feedback)
-        assertTrue(page.contains("Отзывы после первого разговора (1)"))
+        assertTrue(page.contains("Отзывы о разговорах (1)"))
         assertTrue(page.contains("@alex&lt;script&gt;"))
         assertTrue(page.contains("😐 Так себе"))
         assertTrue(page.contains("Improve &lt;audio&gt; &amp; pacing"))
         assertFalse(page.contains("<audio>"))
+    }
+
+    @Test
+    fun showsKoraFeedbackBesideSpeakyFeedback() {
+        val feedback = CallFeedbackList(2, listOf(
+            CallFeedbackEntry("tg-42", "alex", "liked", "Natural voice", "kora_h", callId),
+            CallFeedbackEntry("tg-42", "alex", "neutral", null),
+        ))
+        val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
+            feedback = feedback)
+        assertTrue(page.contains("Отзывы о разговорах (2)"))
+        assertTrue(page.contains("<td>Kora H</td>"))
+        assertTrue(page.contains("<td>Speaky</td>"))
     }
 
     @Test

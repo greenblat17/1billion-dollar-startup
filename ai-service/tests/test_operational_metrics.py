@@ -68,6 +68,22 @@ def test_provider_calls_count_each_result_and_type():
     assert 'type="llm",result="error"} 0' in result
 
 
+def test_review_verification_histogram_and_outcome_counters():
+    metrics = operational_metrics.ReviewVerificationMetrics()
+    metrics.record("onboarding", "success", 1.8)
+    metrics.record("onboarding", "timeout", 10.1)
+    metrics.record("call", "success", 0.8)
+    result = metrics.prometheus()
+    assert 'speaking_review_verification_total{flow="onboarding",outcome="success"} 1' in result
+    assert 'speaking_review_verification_total{flow="onboarding",outcome="timeout"} 1' in result
+    assert 'speaking_review_verification_total{flow="call",outcome="success"} 1' in result
+    assert 'speaking_review_verification_duration_seconds_bucket{flow="onboarding",outcome="success",le="1"} 0' in result
+    assert 'speaking_review_verification_duration_seconds_bucket{flow="onboarding",outcome="success",le="2"} 1' in result
+    assert 'speaking_review_verification_duration_seconds_bucket{flow="onboarding",outcome="timeout",le="10"} 0' in result
+    assert 'speaking_review_verification_duration_seconds_bucket{flow="onboarding",outcome="timeout",le="15"} 1' in result
+    assert 'speaking_review_verification_duration_seconds_count{flow="call",outcome="success"} 1' in result
+
+
 def test_llm_generation_metrics_count_only_valid_output_generation():
     metrics = operational_metrics.LlmGenerationMetrics()
     metrics.record(120, 2000)
