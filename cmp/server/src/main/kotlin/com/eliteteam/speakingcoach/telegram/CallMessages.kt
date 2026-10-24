@@ -20,7 +20,7 @@ internal const val CALL_END_CALLBACK = "call:end"
 internal const val CALL_CLOCK_HINT =
     "This tracks how much English you've spoken today."
 internal const val CALL_RETRY_TEXT = "Couldn't score this conversation. Try again."
-internal const val CALL_REVIEW_WAIT_TEXT = "Thanks for the chat 💙"
+internal const val CALL_REVIEW_WAIT_TEXT = "Thanks for the chat 💙\nI’m putting your feedback together now..."
 internal const val CALL_INSUFFICIENT_TEXT =
     "Let’s talk a bit more. I need to hear more of your English to give you useful feedback. Start a new chat when you’re ready."
 internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
