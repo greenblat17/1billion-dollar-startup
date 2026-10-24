@@ -51,6 +51,7 @@ from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
 from app.voice_cost import VoiceCostLedger, bind_voice_cost, reset_voice_cost
+from app.vocabulary_builder import VocabularyBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,10 @@ def create_app(
     first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
+    vocabulary = VocabularyBuilder(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        clip_pipeline.llm, clip_pipeline.stt, clip_pipeline.speech,
+    )
     sessions = clip_pipeline.dialogue
     call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
     streaks = clip_pipeline.streaks
@@ -165,6 +170,7 @@ def create_app(
         if voice_cost is not None:
             await voice_cost.aclose()
         await first_call_feedback.aclose()
+        await vocabulary.close()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
             await close_tts()
@@ -179,6 +185,7 @@ def create_app(
     app.state.jobs = jobs
     app.state.pipeline = clip_pipeline
     app.state.onboarding = onboarding
+    app.state.vocabulary = vocabulary
     app.state.memory_jobs = memory_jobs
 
     @app.middleware("http")
@@ -575,11 +582,68 @@ def create_app(
         if not call_id:
             raise HTTPException(status_code=400, detail="callId required")
         try:
-            return await reviews.review(call_id)
+            review = await reviews.review(call_id)
+            if not review.get("retry"):
+                call = await calls.get(call_id)
+                if call is not None:
+                    try:
+                        await vocabulary.import_review(str(call["sessionId"]), call_id, review)
+                    except Exception:
+                        logger.exception("vocabulary import failed for call=%s", call_id)
+                        return {"callId": call_id, "retry": True}
+            return review
         except KeyError as error:
             raise HTTPException(status_code=404, detail="unknown call") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail="numeric baseline required") from error
+
+    @app.post("/internal/vocabulary")
+    async def vocabulary_action(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = payload.get("action")
+        try:
+            if action == "list":
+                return await vocabulary.list(session_id)
+            if action == "propose":
+                return {"card": await vocabulary.propose(session_id, str(payload.get("text") or ""))}
+            if action == "confirm":
+                return {"card": await vocabulary.confirm(session_id)}
+            if action == "cancel":
+                await vocabulary.cancel_draft(session_id)
+                return {"ok": True}
+            if action == "select":
+                if type(payload.get("selected")) is not bool:
+                    raise HTTPException(status_code=400, detail="selected must be boolean")
+                return await vocabulary.select(session_id, str(payload.get("itemId") or ""), payload["selected"])
+            if action == "delete":
+                return await vocabulary.delete(session_id, str(payload.get("itemId") or ""))
+            if action == "start":
+                return await vocabulary.start(session_id)
+            if action == "hint":
+                return await vocabulary.hint(session_id, str(payload.get("lessonId") or ""))
+            if action == "end":
+                return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail="invalid vocabulary action")
+
+    @app.post("/internal/vocabulary/voice")
+    async def vocabulary_voice(sessionId: str = Form(...), lessonId: str = Form(...),
+                               messageId: int = Form(...), file: UploadFile = File(...)) -> dict[str, Any]:
+        if not sessionId.startswith("tg-") or messageId <= 0:
+            raise HTTPException(status_code=400, detail="invalid vocabulary voice")
+        audio = await file.read()
+        if not audio or len(audio) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="invalid audio size")
+        try:
+            return await vocabulary.voice(sessionId, lessonId, messageId, audio)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/internal/vocabulary/due")
+    async def vocabulary_due() -> dict[str, Any]:
+        return {"targets": await vocabulary.due()}
 
     @app.post("/internal/calls/feedback")
     async def calls_feedback(request: Request) -> dict[str, str]:

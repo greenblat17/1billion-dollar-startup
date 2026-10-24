@@ -126,5 +126,6 @@ internal suspend fun registerBotCommands(bot: TelegramBot) {
         BotCommand("remind", "Set or change your daily reminder"),
         BotCommand("voice", "Choose your conversation partner"),
         BotCommand("speed", "Set Speaky's voice speed"),
+        BotCommand("words", "Open your vocabulary"),
     )
 }

@@ -55,6 +55,42 @@ class HttpClipClient(
     private val root = baseUrl.trimEnd('/')
     private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
 
+    suspend fun vocabulary(sessionId: SessionId, action: String, itemId: String? = null,
+                           selected: Boolean? = null,
+                           lessonId: String? = null, text: String? = null): VocabularyResponse {
+        val response = http.post("$root/internal/vocabulary") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(VocabularyActionRequest(sessionId.value, action, itemId, selected, lessonId, text))
+        }
+        check(response.status.isSuccess()) { "ai-service vocabulary $action returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun vocabularyVoice(sessionId: SessionId, lessonId: String, messageId: Long,
+                                audio: ByteArray): VocabularyResponse {
+        val response = http.submitFormWithBinaryData(
+            "$root/internal/vocabulary/voice",
+            formData = formData {
+                append("sessionId", sessionId.value)
+                append("lessonId", lessonId)
+                append("messageId", messageId.toString())
+                append("file", audio, Headers.build {
+                    append(HttpHeaders.ContentType, "audio/ogg")
+                    append(HttpHeaders.ContentDisposition, "filename=voice.ogg")
+                })
+            },
+        ) { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service vocabulary voice returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun vocabularyDue(): List<VocabularyDueTarget> {
+        val response = http.post("$root/internal/vocabulary/due") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service vocabulary due returned ${response.status}" }
+        return response.body<VocabularyDueResponse>().targets
+    }
+
     internal suspend fun voiceCostEvents(): VoiceCostEvents {
         val response = http.get("$root/internal/voice-cost/events?limit=100") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service voice cost events returned ${response.status}" }
