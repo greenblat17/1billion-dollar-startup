@@ -213,7 +213,7 @@ async def test_kora_h_opening_uses_its_model_and_gemini_voice():
 
 
 @pytest.mark.asyncio
-async def test_kora_h_opening_uses_warm_delivery_regardless_of_sonnet_tone(monkeypatch):
+async def test_kora_h_opening_uses_plain_delivery_regardless_of_sonnet_tone(monkeypatch):
     model_h, voice = KoraHModel(None, 'test'), KoraSpeech()
 
     async def complete(messages, **kwargs):
@@ -228,12 +228,12 @@ async def test_kora_h_opening_uses_warm_delivery_regardless_of_sonnet_tone(monke
                           SessionSpeech(FakeTts()), characters)
     result = await starter.start('tg-1')
     assert result['question'] == 'Hey! How are you today?'
-    assert voice.last_delivery == 'warm'
+    assert voice.last_delivery == 'plain'
     assert voice.texts == ['Hey! How are you today?']
 
 
 @pytest.mark.asyncio
-async def test_kora_h_cached_opening_also_uses_warm_delivery():
+async def test_kora_h_cached_opening_also_uses_plain_delivery():
     calls = CallStore()
     summary = await calls.open('tg-1')
     await calls.save_opening(summary['callId'], 'Hey! How are you today?')
@@ -246,7 +246,7 @@ async def test_kora_h_cached_opening_also_uses_warm_delivery():
     result = await starter.start('tg-1')
 
     assert result['question'] == 'Hey! How are you today?'
-    assert voice.last_delivery == 'warm'
+    assert voice.last_delivery == 'plain'
     assert model_h.calls == []
 
 

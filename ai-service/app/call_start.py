@@ -89,7 +89,7 @@ class CallStarter:
                 tone = turn.tone if kora else None
                 await self.calls.save_opening(summary["callId"], question)
             if variant == "kora_h":
-                tone = "warm"
+                tone = "plain"
             audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id), variant=variant, tone=tone) if kora else await self.speech.synthesize(session_id, question)
             if kora:
                 question = audio.spoken_text or question
