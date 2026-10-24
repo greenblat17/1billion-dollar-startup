@@ -16,9 +16,10 @@ order and its two-minute completion rule.
   insufficient. If the judgment is uncertain, deliver a cautious full review.
 - An insufficient-speech result is one English text message without inline
   buttons, skill sections, correction examples, Vocabulary lessons, score
-  changes, or a character-feedback survey. Use this copy: "Let’s talk a bit
-  more. I need to hear more of your English to give you useful feedback.
-  Start a new chat when you’re ready." The persistent Start call keyboard
+  changes, or a character-feedback survey. Show a bold
+  `🎙 Let’s talk a bit more` heading, the body `I need to hear more of your
+  English to give you useful feedback.`, and an italic `Start a new chat when
+  you’re ready.` The persistent Start call keyboard
   remains available. The spoken seconds still count toward daily activity and
   time; the saved assessment and proficiency are not changed.
 - A new full review uses this order in one editable message: Grammar →
@@ -58,8 +59,10 @@ order and its two-minute completion rule.
    level-first actions. Route insufficient reviews to the single text message
    with no inline keyboard and no feedback offer. Preserve Retry for actual
    review failures.
-6. Make the initial thank-you/wait message valid for both full and short
-   outcomes. Retain its persistent Start call keyboard. Distinguish an
+6. Show Telegram's typing indicator while the review runs, then send a result.
+   An insufficient result is the only text message after that call. A full
+   result keeps a brief thank-you message to restore the persistent Start call
+   keyboard before its inline carousel. Distinguish an
    insufficient result from a failed review in delivery events and metrics,
    so it does not inflate model failures or score-delivery counts.
 

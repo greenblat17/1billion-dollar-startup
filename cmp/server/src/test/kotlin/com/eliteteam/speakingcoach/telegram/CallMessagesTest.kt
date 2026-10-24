@@ -4,6 +4,8 @@ import com.eliteteam.speakingcoach.ai.CallReviewResponse
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.buttons.KeyboardButtonStyle
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
+import dev.inmo.tgbotapi.types.message.textsources.BoldTextSource
+import dev.inmo.tgbotapi.types.message.textsources.ItalicTextSource
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -106,7 +108,10 @@ class CallMessagesTest {
 
         val short = CallReviewResponse(reviewKind = "insufficient", presentationVersion = 2)
         val start = callReviewStart(short)
-        assertEquals(CALL_INSUFFICIENT_TEXT, start.first.plain())
+        assertEquals("$CALL_INSUFFICIENT_TITLE\n\n$CALL_INSUFFICIENT_BODY\n\n$CALL_INSUFFICIENT_CTA",
+            start.first.plain())
+        assertTrue(start.first.any { it is BoldTextSource && it.source == CALL_INSUFFICIENT_TITLE })
+        assertTrue(start.first.any { it is ItalicTextSource && it.source == CALL_INSUFFICIENT_CTA })
         assertNull(start.second)
     }
 

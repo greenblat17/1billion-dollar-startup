@@ -40,7 +40,12 @@ import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
@@ -1338,7 +1343,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (chatId != null) callEvent(CallEvent("call:$callId:review-request", "review_requested",
             chatId, callId = callId))
         val review = try {
-            ai.reviewCall(callId)
+            coroutineScope {
+                val typing = if (asNewMessage) launch {
+                    while (isActive) {
+                        showStatus(message.chat, TypingAction)
+                        delay(4_000)
+                    }
+                } else null
+                try {
+                    ai.reviewCall(callId)
+                } finally {
+                    typing?.cancelAndJoin()
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1359,7 +1376,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             else start?.second?.let { callSlideKeyboard(it, callId) } ?: noInlineKeyboard
         if (asNewMessage) {
             try {
-                sendMessage(message.chat.id, card, replyMarkup = markup)
+                if (insufficient) {
+                    reply(message, card, allowSendingWithoutReply = true,
+                        replyMarkup = startCallKeyboard())
+                } else {
+                    reply(message, CALL_REVIEW_DONE_TEXT, allowSendingWithoutReply = true,
+                        replyMarkup = startCallKeyboard())
+                    sendMessage(message.chat.id, card, replyMarkup = markup)
+                }
             } catch (error: CancellationException) { throw error }
               catch (error: Throwable) {
                   if (chatId != null) callEvent(CallEvent("call:$callId:review-delivery-failed",
@@ -1464,8 +1488,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             showStartCallKeyboard(message.chat)
             return
         }
-        reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true,
-            replyMarkup = startCallKeyboard())
         ended.lastVoiceMessageId?.let { lastVoiceId ->
             try {
                 setMessageReaction(message.chat.id, MessageId(lastVoiceId), "❤")
