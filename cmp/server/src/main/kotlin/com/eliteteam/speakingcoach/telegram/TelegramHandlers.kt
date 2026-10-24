@@ -1346,14 +1346,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             null
         }
         val retry = review == null || review.retry
-        if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-generated",
-            "review_generated", chatId, callId = callId))
+        val insufficient = !retry && review.reviewKind == "insufficient"
+        val generatedEvent = if (insufficient) "review_insufficient" else "review_generated"
+        val deliveredEvent = if (insufficient) "review_insufficient_delivered" else "review_delivered"
+        if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$generatedEvent",
+            generatedEvent, chatId, callId = callId))
         if (retry && chatId != null) callEvent(CallEvent("call:$callId:review-failed",
             "review_failed", chatId, callId = callId))
-        val card = if (retry) buildEntities { regular(CALL_RETRY_TEXT) } else {
-            levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext)
-        }
-        val markup = if (retry) callRetryKeyboard(callId) else callSlideKeyboard("grammar", callId)
+        val start = if (retry) null else callReviewStart(review)
+        val card = start?.first ?: buildEntities { regular(CALL_RETRY_TEXT) }
+        val markup = if (retry) callRetryKeyboard(callId)
+            else start?.second?.let { callSlideKeyboard(it, callId) } ?: noInlineKeyboard
         if (asNewMessage) {
             try {
                 sendMessage(message.chat.id, card, replyMarkup = markup)
@@ -1363,14 +1366,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                       "review_delivery_failed", chatId, callId = callId))
                   throw error
               }
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
             return
         }
         try {
             editMessageText(message.chat.id, message.messageId, card, replyMarkup = markup)
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1383,8 +1386,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                       "review_delivery_failed", chatId, callId = callId))
                   throw sendError
               }
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
         }
     }
     suspend fun showCallSlide(message: ChatMessage, callback: CallCallback) {
@@ -1394,12 +1397,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callback.callId))
             return
         }
-        val wrapped = review.asOnboardingReview()
-        val slide = when (callback.action) {
-            "grammar" -> grammarSlide(wrapped) to "vocab"
-            "vocab" -> vocabularySlide(wrapped) to "fluency"
-            else -> fluencySlide(wrapped) to "progress"
-        }
+        if (review.reviewKind == "insufficient") return
+        val slide = callReviewSlide(review, callback.action)
         val markup = callSlideKeyboard(slide.second, callback.callId)
         try {
             editMessageText(message.chat.id, message.messageId, slide.first, replyMarkup = markup)
@@ -1417,7 +1416,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
             return
         }
-        val progress = callProgressMessage(review, offerReminder = reminderMissing(message))
+        if (review.reviewKind == "insufficient") return
+        val progress = if (review.isNewFullReview()) {
+            callFinalLevelMessage(review, offerReminder = reminderMissing(message))
+        } else {
+            callProgressMessage(review, offerReminder = reminderMissing(message))
+        }
         try {
             editMessageText(message.chat.id, message.messageId, progress, replyMarkup = noInlineKeyboard)
         } catch (error: CancellationException) {
@@ -1822,7 +1826,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             replyMarkup = startCallKeyboard())
                         "end" -> endPracticeCall(message, query.id.toString(), callbackReceivedAt,
                             callCallback.callId)
-                        "progress" -> showCallProgress(message, callCallback.callId)
+                        "progress", "level" -> showCallProgress(message, callCallback.callId)
                         "grammar", "vocab", "fluency" -> showCallSlide(message, callCallback)
                         else -> showCallLevel(message, callCallback.callId)
                     }

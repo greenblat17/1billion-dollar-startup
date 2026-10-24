@@ -49,6 +49,25 @@ The stepped snapshot is written back to `assessment:{sessionId}` and, when learn
 
 Deploy ai-service before Ktor. Live Telegram acceptance is separate from the unit tests.
 
+## Short calls and result order, 2026-10-24
+
+For new ordinary calls, fewer than 30 recognized learner-speech seconds produces
+one insufficient-speech message. It has no skill cards, score changes, inline
+button, or character-feedback survey. At 30 seconds or more, the existing
+review model marks only clearly insufficient connected speech as insufficient;
+uncertain evidence gets a cautious full review. Insufficient calls still count
+their recognized seconds toward daily activity and speaking time.
+
+New full reviews use Grammar → Vocabulary → Fluency → Level. The Level card
+includes today's speaking time, streak, and the reminder offer when needed.
+The character-feedback survey follows that card. The model no longer writes a
+conversation recap for new reviews. Cached reviews without a presentation
+version retain the level-first carousel and recap/progress card described above.
+The review response distinguishes `reviewKind=full|insufficient` and
+`presentationVersion=2`; Ktor defaults missing fields to the old format.
+The agreed behavior and verification boundary are in
+[the implementation plan](../plans/2026-10-24-short-call-feedback-and-result-order.md).
+
 ## DEV call-review timeout, 2026-10-23
 
 Two DEV calls showed `Couldn't score this conversation. Try again.` because

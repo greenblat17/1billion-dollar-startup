@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.CallReviewResponse
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
 import dev.inmo.tgbotapi.types.buttons.KeyboardButtonStyle
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -59,7 +60,7 @@ class CallMessagesTest {
     @Test
     fun slidesAndReturnButtonsStayInsideTelegramCallbackLimit() {
         val callId = "a".repeat(32)
-        for (action in listOf("grammar", "vocab", "fluency", "progress")) {
+        for (action in listOf("grammar", "vocab", "fluency", "level", "progress")) {
             val button = callSlideKeyboard(action, callId).keyboard.single().single() as CallbackDataInlineKeyboardButton
             assertEquals(CallCallback(action, callId), parseCallCallback(button.callbackData))
             assertTrue(button.callbackData.encodeToByteArray().size <= 64)
@@ -67,6 +68,44 @@ class CallMessagesTest {
         assertEquals(CallCallback("review", callId), parseCallCallback(callYesterdayKeyboard(callId).keyboard.single().single().let { (it as CallbackDataInlineKeyboardButton).callbackData }))
         assertNull(parseCallCallback("call:grammar:short"))
         assertNull(parseCallCallback("ob:level:$callId"))
+    }
+
+    @Test
+    fun newReviewsStartAtGrammarAndEndAtCombinedLevel() {
+        val review = CallReviewResponse(
+            presentationVersion = 2,
+            cefr = "B1", levelText = "You explain your ideas clearly.", overallScore = 54,
+            todaySeconds = 90.0, goalSeconds = 300.0, streak = 2,
+        )
+        val first = callReviewStart(review)
+        assertTrue(first.first.plain().startsWith("✍️ Grammar"))
+        assertEquals("vocab", first.second)
+        assertEquals("fluency", callReviewSlide(review, "vocab").second)
+        assertEquals("level", callReviewSlide(review, "fluency").second)
+
+        val final = callFinalLevelMessage(review, offerReminder = true).plain()
+        assertTrue(final.startsWith("🎯 Your English level"))
+        assertTrue(final.contains("🎯 1:30 / 5:00 today"))
+        assertTrue(final.contains("🔥 2 day streak"))
+        assertTrue(final.endsWith(REMINDER_OFFER))
+        assertTrue(final.length < 4096)
+        assertTrue(!final.contains("We talked about"))
+    }
+
+    @Test
+    fun oldReviewsKeepTheirOrderAndShortResultsHaveNoNextButton() {
+        val old = Json.decodeFromString<CallReviewResponse>(
+            """{"cefr":"B1","overallScore":52,"recap":"We discussed your work."}""",
+        )
+        assertTrue(callReviewStart(old).first.plain().startsWith("🎯 Your English level"))
+        assertEquals("grammar", callReviewStart(old).second)
+        assertEquals("progress", callReviewSlide(old, "fluency").second)
+        assertTrue(callProgressMessage(old).plain().contains("We discussed your work."))
+
+        val short = CallReviewResponse(reviewKind = "insufficient", presentationVersion = 2)
+        val start = callReviewStart(short)
+        assertEquals(CALL_INSUFFICIENT_TEXT, start.first.plain())
+        assertNull(start.second)
     }
 
     @Test

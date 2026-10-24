@@ -91,8 +91,8 @@ _call_skill_properties = {
     "shade": {"type": "string", "enum": ["--", "-", "0", "+", "++"]},
 }
 _call_review_properties = {
+    "enoughEvidence": {"type": "boolean"},
     "levelText": {"type": "string"},
-    "recap": {"type": "string"},
     "overallMove": {"type": "integer"},
     **{name: {"type": "object", "properties": _call_skill_properties,
               "required": list(_call_skill_properties), "additionalProperties": False}

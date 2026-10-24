@@ -58,6 +58,8 @@ Reminder-topic call opening and one active reminder button: `plans/2026-10-20-re
 One-shot soft nudges for interrupted onboarding and calls: `plans/2026-10-20-soft-conversation-nudges.md` (implemented locally).
 English follow-up copy by journey stage: `product/2026-10-20-onboarding-followup-copy.md`.
 Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
+Short-call feedback and practice result order: `plans/2026-10-24-short-call-feedback-and-result-order.md`;
+current and historical Telegram review behavior: `integrations/2026-09-30-telegram-calls.md`.
 
 ## Structure
 

@@ -288,9 +288,11 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
             "call_closed" -> "Звонок закрыт: ${event.state ?: "—"}"
             "review_requested" -> "Запрошен review"
             "review_generated" -> "Review сформирован"
+            "review_insufficient" -> "Недостаточно речи для review"
             "review_failed" -> "Review не сформирован"
             "review_delivery_failed" -> "Review не доставлен"
             "review_delivered" -> "Review доставлен"
+            "review_insufficient_delivered" -> "Сообщение о коротком звонке доставлено"
             else -> event.kind
         }
         "<tr><td>${callTime(event.at)}</td><td>${escapeHtml(label)}</td></tr>"

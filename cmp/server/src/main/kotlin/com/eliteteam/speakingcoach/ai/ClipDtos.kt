@@ -804,6 +804,8 @@ data class CallFeedbackList(
 data class CallReviewResponse(
     val callId: String = "",
     val retry: Boolean = false,
+    val reviewKind: String = "full",
+    val presentationVersion: Int = 1,
     val levelText: String = "",
     val recap: String = "",
     val cefr: String? = null,
