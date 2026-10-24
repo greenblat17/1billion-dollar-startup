@@ -59,7 +59,8 @@ uncertain evidence gets a cautious full review. Insufficient calls still count
 their recognized seconds toward daily activity and speaking time.
 
 New full reviews use Grammar → Vocabulary → Fluency → Level. The Level card
-includes today's speaking time, streak, and the reminder offer when needed.
+shows the level, score, next-band progress, streak, and reminder offer when
+needed. It omits the diagnostic paragraph, accuracy note, and daily time.
 The character-feedback survey follows that card. The model no longer writes a
 conversation recap for new reviews. Cached reviews without a presentation
 version retain the level-first carousel and recap/progress card described above.

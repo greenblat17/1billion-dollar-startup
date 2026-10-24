@@ -250,6 +250,7 @@ internal fun levelSlide(
     overallScore: Int? = null,
     nextBand: String? = null,
     pointsToNext: Int? = null,
+    showExplanation: Boolean = true,
 ): TextSourcesList = buildEntities {
     bold("🎯 $LEVEL_TITLE")
     regularln("")
@@ -273,13 +274,15 @@ internal fun levelSlide(
             regularln("✨ $pointsToNext points to $nextBand")
         }
     }
-    val text = levelText.trim()
-    if (text.isNotEmpty()) {
+    if (showExplanation) {
+        val text = levelText.trim()
+        if (text.isNotEmpty()) {
+            regularln("")
+            regularln(text)
+        }
         regularln("")
-        regularln(text)
+        regular(LEVEL_ESTIMATE)
     }
-    regularln("")
-    regular(LEVEL_ESTIMATE)
 }
 
 internal fun grammarSlide(review: OnboardingReview): TextSourcesList =

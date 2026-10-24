@@ -192,11 +192,8 @@ internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Bool
 }
 
 internal fun callFinalLevelMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
-    addAll(levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext))
-    regularln("")
-    regularln("")
-    val today = if (review.goalSeconds > 0.0) " today" else ""
-    bold("${callClockLabel(review.todaySeconds, review.goalSeconds)}$today")
+    addAll(levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand,
+        review.pointsToNext, showExplanation = false))
     if (review.streak > 0) {
         regularln("")
         regularln("")

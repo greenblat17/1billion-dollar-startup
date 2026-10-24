@@ -85,11 +85,13 @@ class CallMessagesTest {
 
         val final = callFinalLevelMessage(review, offerReminder = true).plain()
         assertTrue(final.startsWith("🎯 Your English level"))
-        assertTrue(final.contains("🎯 1:30 / 5:00 today"))
+        assertTrue(final.contains("54 / 100"))
         assertTrue(final.contains("🔥 2 day streak"))
         assertTrue(final.endsWith(REMINDER_OFFER))
         assertTrue(final.length < 4096)
-        assertTrue(!final.contains("We talked about"))
+        assertTrue(!final.contains(review.levelText))
+        assertTrue(!final.contains(LEVEL_ESTIMATE))
+        assertTrue(!final.contains("1:30 / 5:00 today"))
     }
 
     @Test

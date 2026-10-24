@@ -22,9 +22,10 @@ order and its two-minute completion rule.
   remains available. The spoken seconds still count toward daily activity and
   time; the saved assessment and proficiency are not changed.
 - A new full review uses this order in one editable message: Grammar →
-  Vocabulary → Fluency → Level. The final Level card also contains today's
-  speaking time, the current streak, and the reminder offer when relevant.
-  It has no separate progress card and no conversation recap. Show the
+  Vocabulary → Fluency → Level. The final Level card shows the level, score,
+  progress to the next band, current streak, and reminder offer when relevant.
+  It omits the diagnostic paragraph, accuracy note, daily speaking time, and
+  recap. It has no separate progress card. Show the
   existing Speaky/Kora H feedback survey after entering this final card.
 - Reviews already cached before the change retain their existing level-first
   navigation and recap/progress screen. The new policy applies to new reviews.
