@@ -63,14 +63,4 @@ class VocabularyMessagesTest {
         assertTrue(buttons.any { it.callbackData == "vocab:skip:lesson1" })
     }
 
-    @Test
-    fun currentLessonIsReachableFromVocabularyMenu() {
-        val active = VocabularyLesson(id = "lesson1", status = "active", round = "Recall",
-            index = 1, total = 2, prompt = "What would you say?")
-        assertTrue(vocabularyCurrentLessonText(active).contains("What would you say?"))
-        val buttons = vocabularyLessonKeyboard(active, spoken = false).keyboard.flatten()
-            .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertTrue(buttons.any { it.callbackData == "vocab:end:lesson1" })
-        assertFalse(buttons.any { it.callbackData == "vocab:subtitle" })
-    }
 }

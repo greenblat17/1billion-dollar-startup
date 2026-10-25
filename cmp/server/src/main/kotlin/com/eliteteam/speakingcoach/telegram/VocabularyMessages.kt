@@ -50,12 +50,6 @@ internal fun vocabularyListKeyboard(state: VocabularyResponse, page: Int): Inlin
 internal fun vocabularyCardText(card: VocabularyCard): String =
     "📚 ${card.word}\n${card.translation}\n${card.meaning}\n\n${card.example}"
 
-internal fun vocabularyCurrentLessonText(lesson: VocabularyLesson): String = when (lesson.status) {
-    "offer" -> "🎲 ${lesson.prompt}"
-    "cards" -> "🎲 Word game\n\n${lesson.prompt}\n\nAnswer with a voice message."
-    else -> "🎙 Vocabulary lesson · ${lesson.round}\n\n${lesson.prompt}\n\nAnswer with a voice message."
-}
-
 internal fun vocabularyCardKeyboard(card: VocabularyCard, page: Int, selected: Boolean): InlineKeyboardMarkup =
     inlineKeyboard {
         row { dataButton(if (selected) "Remove from selection" else "Select for lesson",

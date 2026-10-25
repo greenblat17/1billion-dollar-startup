@@ -334,6 +334,25 @@ class VocabularyBuilder:
         await self._change(session_id, update)
         return spoken
 
+    async def resume(self, session_id: str, lesson_id: str) -> dict:
+        state = await self._get(session_id)
+        lesson = state["lesson"]
+        if lesson is None or lesson["id"] != lesson_id or lesson["status"] not in ("active", "offer", "cards"):
+            raise ValueError("lesson is no longer active")
+        if self.clock() - lesson["lastActivity"] >= LESSON_SECONDS:
+            return await self.end(session_id, lesson_id)
+        spoken = await self._spoken(session_id, lesson["prompt"], self._lesson_view(lesson))
+        def update(state):
+            active = state["lesson"]
+            if (active is None or active["id"] != lesson_id or active["status"] != lesson["status"]
+                    or active["index"] != lesson["index"] or active.get("cardIndex") != lesson.get("cardIndex")):
+                raise ValueError("stale lesson resume")
+            active["lastActivity"] = self.clock()
+            active["reminded"] = False
+            return self._lesson_view(active)
+        spoken["lesson"] = await self._change(session_id, update)
+        return spoken
+
     async def _prompt(self, lesson: dict) -> str:
         word = _current(lesson)
         if word is None:
@@ -422,7 +441,10 @@ class VocabularyBuilder:
         await self._change(session_id, touch)
         heard = await self.stt.transcribe(audio, "audio/ogg", "voice.ogg", language="en")
         if heard.no_speech or not heard.text.strip():
-            return {"status": "repeat", "lesson": self._lesson_view(lesson), "text": "I couldn't hear that clearly. Please try again."}
+            spoken = await self._spoken(session_id, "I couldn't hear that clearly. Please try again.",
+                                        self._lesson_view(lesson))
+            spoken["status"] = "repeat"
+            return spoken
         if lesson["status"] == "cards":
             return await self._card_voice(session_id, lesson, message_id, heard.text)
         word = _current(lesson)
@@ -433,7 +455,10 @@ class VocabularyBuilder:
         matched = _clean(raw.get("matchedPhrase"), 100)
         uncertain = raw.get("uncertain") is True
         if uncertain:
-            return {"status": "repeat", "lesson": self._lesson_view(lesson), "text": "I couldn't hear that word clearly. Please say it again."}
+            spoken = await self._spoken(session_id, "I couldn't hear that word clearly. Please say it again.",
+                                        self._lesson_view(lesson))
+            spoken["status"] = "repeat"
+            return spoken
         correct = raw.get("correct") is True and bool(matched) and _norm(matched) in _norm(heard.text)
         feedback = _clean(raw.get("feedback"), 220) or ("Good use of that word." if correct else
             "That makes sense. Try using the phrase from today's practice.")
@@ -468,7 +493,13 @@ class VocabularyBuilder:
                 next_lesson["prompt"] = "One quick word game?"
             else:
                 next_lesson["prompt"] = await self._prompt(next_lesson)
-        text = feedback + (" " + next_lesson["prompt"] if advance and next_lesson["prompt"] else "")
+        text = feedback
+        if hint:
+            text += " " + hint
+        if advance and not correct:
+            text += " For example, " + word["example"]
+        if advance and next_lesson["prompt"]:
+            text += " " + next_lesson["prompt"]
         spoken = await self._spoken(session_id, text, self._lesson_view(next_lesson))
         def update(state):
             active = state["lesson"]
@@ -481,10 +512,6 @@ class VocabularyBuilder:
         answer = spoken
         answer["lesson"] = view
         answer["status"] = next_lesson["status"] if next_lesson["status"] == "offer" else "ok"
-        if hint:
-            answer["hintText"] = hint
-        if advance and not correct:
-            answer["exampleText"] = word["example"]
         return answer
 
     @staticmethod
@@ -536,8 +563,10 @@ class VocabularyBuilder:
         raw = await self._json(CARD_GRADE_SYSTEM, {"target": word, "direction": direction,
             "prompt": lesson["prompt"], "transcript": transcript}, "vocabulary_card_grade")
         if raw.get("uncertain") is True:
-            return {"status": "repeat", "lesson": self._lesson_view(lesson),
-                    "text": "I couldn't hear that clearly. Please say it again."}
+            spoken = await self._spoken(session_id, "I couldn't hear that clearly. Please say it again.",
+                                        self._lesson_view(lesson))
+            spoken["status"] = "repeat"
+            return spoken
         correct = raw.get("correct") is True
         feedback = _clean(raw.get("feedback"), 160) or ("Yes." if correct else "Not quite.")
         if direction == "meaning_to_word" and self._reveals(feedback, word["word"]):
@@ -562,7 +591,14 @@ class VocabularyBuilder:
                 next_lesson["prompt"] = await self._card_prompt(next_lesson)
         elif next_lesson["cardHints"] == 0:
             next_lesson["cardHints"] = 1
-        spoken_text = feedback + (" " + next_lesson["prompt"] if advance and next_lesson["prompt"] else "")
+        spoken_text = feedback
+        if not advance and lesson["cardHints"] == 0:
+            spoken_text += (" Think of the phrase from today's practice that fits this meaning."
+                            if direction == "meaning_to_word" else " Explain the idea in your own words.")
+        if advance and not correct:
+            spoken_text += f" The answer is {word['word']}: {word['meaning']}."
+        if advance and next_lesson["prompt"]:
+            spoken_text += " " + next_lesson["prompt"]
         spoken = await self._spoken(session_id, spoken_text, self._lesson_view(next_lesson))
         def update(state):
             current = state["lesson"]
@@ -573,11 +609,6 @@ class VocabularyBuilder:
             return self._lesson_view(next_lesson)
         spoken["lesson"] = await self._change(session_id, update)
         spoken["status"] = next_lesson["status"] if next_lesson["status"] == "finished" else "ok"
-        if not advance and lesson["cardHints"] == 0:
-            spoken["hintText"] = ("Think of the phrase from today's practice that fits this meaning."
-                                  if direction == "meaning_to_word" else "Explain the idea in your own words.")
-        if advance and not correct:
-            spoken["exampleText"] = f"{word['word']} — {word['meaning']}"
         if next_lesson["status"] == "finished":
             spoken["summary"] = _finished_text(next_lesson)
         return spoken

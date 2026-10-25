@@ -632,6 +632,8 @@ def create_app(
                 return await vocabulary.delete(session_id, str(payload.get("itemId") or ""))
             if action == "start":
                 return await vocabulary.start(session_id)
+            if action == "resume":
+                return await vocabulary.resume(session_id, str(payload.get("lessonId") or ""))
             if action == "play":
                 return await vocabulary.play(session_id, str(payload.get("lessonId") or ""))
             if action == "skip":

@@ -49,8 +49,6 @@ data class VocabularyResponse(
     val audio: String? = null,
     val audioContentType: String = "audio/ogg",
     val summary: String? = null,
-    val hintText: String? = null,
-    val exampleText: String? = null,
 )
 
 @Serializable

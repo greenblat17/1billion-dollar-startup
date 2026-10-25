@@ -252,28 +252,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val customScenarioPrompts = ConcurrentHashMap<String, MessageId>()
     val vocabularyAddPrompts = ConcurrentHashMap.newKeySet<String>()
 
-    suspend fun showVocabularyList(message: ChatMessage, page: Int = 0, edit: Boolean = false) {
-        val state = ai.vocabulary(telegramSessionId(message.chat.id), "list")
-        val current = state.lesson?.takeIf { it.status in setOf("active", "offer", "cards") }
-        val text = current?.let(::vocabularyCurrentLessonText) ?: vocabularyListText(state, page)
-        val keyboard = current?.let { vocabularyLessonKeyboard(it, spoken = false) }
-            ?: vocabularyListKeyboard(state, page)
-        if (edit) try {
-            editMessageText(message.chat.id, message.messageId, text, replyMarkup = keyboard)
-        } catch (error: CancellationException) { throw error
-        } catch (error: Throwable) {
-            reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
-        } else reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
-    }
-
     suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
         val audio = result.audio
         val lesson = result.lesson
-        result.exampleText?.let { sendMessage(message.chat.id, "Example: $it") }
         if (audio != null && lesson != null) {
-            if (lesson.status == "active" && lesson.round == "Guided" && lesson.attempts == 0) {
-                lesson.word?.let { sendMessage(message.chat.id, "📚 ${it.word} — ${it.meaning}") }
-            }
             val bytes = Base64.getDecoder().decode(audio)
             val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
@@ -288,10 +270,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, result.text, allowSendingWithoutReply = true,
                 replyMarkup = lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
         }
-        result.hintText?.let { sendMessage(message.chat.id, "💡 $it") }
         if (result.summary != null) {
             sendMessage(message.chat.id, result.summary, replyMarkup = startCallKeyboard())
         }
+    }
+    suspend fun showVocabularyList(message: ChatMessage, page: Int = 0, edit: Boolean = false) {
+        val state = ai.vocabulary(telegramSessionId(message.chat.id), "list")
+        val current = state.lesson?.takeIf { it.status in setOf("active", "offer", "cards") }
+        if (current != null) {
+            if (edit) try {
+                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) { log.warn("Could not close vocabulary menu", error) }
+            sendVocabularyTurn(message, ai.vocabulary(telegramSessionId(message.chat.id), "resume", lessonId = current.id))
+            return
+        }
+        val text = vocabularyListText(state, page)
+        val keyboard = vocabularyListKeyboard(state, page)
+        if (edit) try {
+            editMessageText(message.chat.id, message.messageId, text, replyMarkup = keyboard)
+        } catch (error: CancellationException) { throw error
+        } catch (error: Throwable) {
+            reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
+        } else reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
     }
     suspend fun clearScenarioMenu(chat: Chat) {
         val menuId = scenarioMenus.remove(chat.id.toString()) ?: return
@@ -1687,8 +1688,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             if (current?.id != itemId || current.index != page) {
                                 reply(message, "That hint button belongs to an earlier exercise.",
                                     allowSendingWithoutReply = true)
-                            } else sendVocabularyTurn(message,
-                                ai.vocabulary(sessionId, "hint", lessonId = itemId))
+                            } else {
+                                val hint = ai.vocabulary(sessionId, "hint", lessonId = itemId)
+                                reply(message, "💡 ${hint.text}", allowSendingWithoutReply = true,
+                                    replyMarkup = hint.lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
+                            }
                         }
                         "play" -> {
                             val result = ai.vocabulary(sessionId, "play", lessonId = itemId)

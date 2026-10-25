@@ -126,8 +126,9 @@ async def test_retry_hint_timeout_and_partial_summary():
     first = await builder.voice("tg-2", lesson["id"], 1, b"voice")
     assert first["lesson"]["attempts"] == 1
     assert first["lesson"]["index"] == 0
-    assert first["hintText"] and first["lesson"]["hints"] == 1
-    assert "audio" in first and first["hintText"] not in first["text"]
+    assert first["lesson"]["hints"] == 1
+    assert "audio" in first and "Think about too many tasks." in first["text"]
+    assert "hintText" not in first
     stt.text = "I was overwhelmed."
     second = await builder.voice("tg-2", lesson["id"], 2, b"voice")
     assert second["lesson"]["index"] == 1
@@ -160,6 +161,24 @@ async def test_requested_hint_does_not_consume_attempt_and_skip_preserves_result
 
 
 @pytest.mark.asyncio
+async def test_resume_replays_current_question_as_voice_without_using_an_attempt():
+    clock, speech = Clock(), KoraSpeech()
+    builder = VocabularyBuilder(None, Model(), Stt(), Speech(), clock, kora_speech=speech)
+    await builder.propose("tg-resume", "overwhelmed")
+    card = await builder.confirm("tg-resume")
+    await builder.select("tg-resume", card["id"], True)
+    started = await builder.start("tg-resume")
+    lesson_id = started["lesson"]["id"]
+    clock.now += 20
+    resumed = await builder.resume("tg-resume", lesson_id)
+    assert resumed["audio"] == started["audio"]
+    assert resumed["text"] == started["text"]
+    assert resumed["lesson"]["attempts"] == 0
+    assert resumed["lesson"]["index"] == 0
+    assert len(speech.calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_five_word_limit_and_unclear_voice_do_not_advance():
     stt = Stt()
     builder = VocabularyBuilder(None, Model(), stt, Speech())
@@ -177,6 +196,7 @@ async def test_five_word_limit_and_unclear_voice_do_not_advance():
     stt.text = ""
     unclear = await builder.voice("tg-five", lesson["id"], 1, b"voice")
     assert unclear["status"] == "repeat"
+    assert "audio" in unclear
     assert unclear["lesson"]["attempts"] == 0
 
 
