@@ -11,6 +11,10 @@ on:
         description: ai-server
         type: boolean
         default: true
+      diagnostics_only:
+        description: Read recent DEV Telegram errors without deploying
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.diagnostics_only != true }}
         run: |
           echo "Enable cmp-server and/or ai-server" >&2
           exit 1
@@ -29,7 +33,7 @@ jobs:
   package-server:
     name: Package cmp-server
     needs: require-target
-    if: ${{ inputs.cmp_server }}
+    if: ${{ inputs.cmp_server && !inputs.diagnostics_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,7 +63,7 @@ jobs:
   package-ai:
     name: Package ai-server
     needs: require-target
-    if: ${{ inputs.ai_server }}
+    if: ${{ inputs.ai_server && !inputs.diagnostics_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -99,7 +103,7 @@ jobs:
     needs:
       - require-target
       - package-server
-    if: ${{ !cancelled() && inputs.cmp_server && needs.package-server.result == 'success' }}
+    if: ${{ !cancelled() && inputs.cmp_server && !inputs.diagnostics_only && needs.package-server.result == 'success' }}
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
       destination: dev
@@ -110,8 +114,39 @@ jobs:
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
+    if: ${{ !cancelled() && inputs.ai_server && !inputs.diagnostics_only && needs.package-ai.result == 'success' }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
     secrets: inherit
+
+  diagnose-server:
+    name: Read DEV vocabulary errors
+    needs: require-target
+    if: ${{ inputs.diagnostics_only }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read exception types and stack locations
+        env:
+          HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+          KEY_BODY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          : "${HOST:?}" "${USER:?}" "${KEY_BODY:?}"
+          KEY="$RUNNER_TEMP/vps_key"
+          install -m 600 /dev/null "$KEY"
+          printf '%s\n' "$KEY_BODY" > "$KEY"
+          ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${USER}@${HOST}" \
+            "docker logs --since 2h speaking-coach 2>&1" |
+            python3 -c 'import re,sys
+          lines=sys.stdin.readlines()
+          for i,line in enumerate(lines):
+              if "Vocabulary action failed" not in line and "Telegram message failed" not in line:
+                  continue
+              print("failure:", "Vocabulary action" if "Vocabulary action failed" in line else "Telegram message")
+              for detail in lines[i+1:i+24]:
+                  clean=detail.strip()
+                  if clean.startswith(("Caused by:", "at com.eliteteam.speakingcoach", "at io.ktor.client", "java.lang.", "kotlin.")):
+                      clean=re.sub(r"https?://[^ ]+", "[url]", clean)
+                      print(clean[:250])'
