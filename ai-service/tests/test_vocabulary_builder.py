@@ -202,6 +202,23 @@ async def test_words_are_interleaved_and_recall_prompt_uses_earlier_context():
 
 
 @pytest.mark.asyncio
+async def test_legacy_three_round_lesson_no_longer_blocks_new_start():
+    builder = VocabularyBuilder(None, Model(), Stt(), Speech())
+    await builder.propose("tg-legacy", "overwhelmed")
+    card = await builder.confirm("tg-legacy")
+    await builder.select("tg-legacy", card["id"], True)
+    builder.memory["tg-legacy"]["lesson"] = {
+        "id": "old", "status": "active", "words": [card], "index": 0,
+        "attempts": 0, "hints": 0, "results": {}, "prompts": [], "lastActivity": 1000.0,
+        "reminded": False, "processed": [], "prompt": "Old three-round question."}
+    state = await builder.list("tg-legacy")
+    assert state["lesson"]["status"] == "finished"
+    new_lesson = await builder.start("tg-legacy")
+    assert new_lesson["lesson"]["status"] == "active"
+    assert new_lesson["lesson"]["id"] != "old"
+
+
+@pytest.mark.asyncio
 async def test_review_imports_shown_examples_once():
     builder = VocabularyBuilder(None, Model(), Stt(), Speech())
     review = {"vocabulary": {"examples": [{"better": "overwhelmed"}],

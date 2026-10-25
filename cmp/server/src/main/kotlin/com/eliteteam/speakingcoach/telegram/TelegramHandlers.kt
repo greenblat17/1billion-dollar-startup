@@ -254,14 +254,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
 
     suspend fun showVocabularyList(message: ChatMessage, page: Int = 0, edit: Boolean = false) {
         val state = ai.vocabulary(telegramSessionId(message.chat.id), "list")
-        if ((state.lesson?.status == "active" && state.lesson.round == "Recall") ||
-            state.lesson?.status == "cards") {
-            reply(message, "Finish this round before opening your word list.",
-                allowSendingWithoutReply = true)
-            return
-        }
-        val text = vocabularyListText(state, page)
-        val keyboard = vocabularyListKeyboard(state, page)
+        val current = state.lesson?.takeIf { it.status in setOf("active", "offer", "cards") }
+        val text = current?.let(::vocabularyCurrentLessonText) ?: vocabularyListText(state, page)
+        val keyboard = current?.let { vocabularyLessonKeyboard(it, spoken = false) }
+            ?: vocabularyListKeyboard(state, page)
         if (edit) try {
             editMessageText(message.chat.id, message.messageId, text, replyMarkup = keyboard)
         } catch (error: CancellationException) { throw error
@@ -1620,17 +1616,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         return@run
                     }
                     val currentLesson = ai.vocabulary(sessionId, "list").lesson
+                    if (action == "start" && currentLesson?.status in setOf("active", "offer", "cards")) {
+                        showVocabularyList(message)
+                        return@run
+                    }
                     if (((currentLesson?.status == "active" && currentLesson.round == "Recall") ||
                         currentLesson?.status == "cards") &&
                         action !in setOf("hint", "end")) {
-                        reply(message, "Finish this round before opening your word list.",
-                            allowSendingWithoutReply = true)
+                        showVocabularyList(message)
                         return@run
                     }
                     if (currentLesson?.status in setOf("active", "offer", "cards") &&
                         action in setOf("add", "choose", "unchoose", "delask", "delete", "confirm", "start")) {
-                        reply(message, "Finish your current lesson before changing the word list.",
-                            allowSendingWithoutReply = true)
+                        showVocabularyList(message)
                         return@run
                     }
                     when (action) {

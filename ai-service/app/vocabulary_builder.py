@@ -113,6 +113,11 @@ def _default() -> dict:
     return {"items": [], "selected": [], "draft": None, "lesson": None, "sources": []}
 
 
+def _legacy_lesson(lesson: dict | None) -> bool:
+    return bool(lesson and lesson["status"] in ("active", "offer", "cards")
+                and "cardResults" not in lesson)
+
+
 def _position(lesson: dict) -> tuple[int, int]:
     return divmod(lesson["index"], len(lesson["words"]))
 
@@ -195,6 +200,12 @@ class VocabularyBuilder:
 
     async def list(self, session_id: str) -> dict:
         state = await self._get(session_id)
+        if _legacy_lesson(state["lesson"]):
+            def retire(state):
+                if _legacy_lesson(state["lesson"]):
+                    state["lesson"]["status"] = "finished"
+            await self._change(session_id, retire)
+            state = await self._get(session_id)
         return {"items": state["items"], "selected": state["selected"], "draft": state["draft"],
                 "lesson": self._lesson_view(state["lesson"])}
 
@@ -304,7 +315,7 @@ class VocabularyBuilder:
 
     async def start(self, session_id: str) -> dict:
         state = await self._get(session_id)
-        if state["lesson"] is not None and state["lesson"]["status"] in ("active", "offer", "cards"):
+        if state["lesson"] is not None and state["lesson"]["status"] in ("active", "offer", "cards") and not _legacy_lesson(state["lesson"]):
             raise ValueError("lesson already active")
         words = [deepcopy(item) for item_id in state["selected"] for item in state["items"] if item["id"] == item_id]
         if not 1 <= len(words) <= WORD_LIMIT:
@@ -316,7 +327,7 @@ class VocabularyBuilder:
         lesson["prompt"] = "Let's practice your words together. " + await self._prompt(lesson)
         spoken = await self._spoken(session_id, lesson["prompt"], self._lesson_view(lesson))
         def update(state):
-            if state["lesson"] is not None and state["lesson"]["status"] in ("active", "offer", "cards"):
+            if state["lesson"] is not None and state["lesson"]["status"] in ("active", "offer", "cards") and not _legacy_lesson(state["lesson"]):
                 raise ValueError("lesson already active")
             state["lesson"] = lesson
             return self._lesson_view(lesson)
@@ -576,6 +587,10 @@ class VocabularyBuilder:
             lesson = state["lesson"]
             if lesson is None or lesson["id"] != lesson_id:
                 raise ValueError("lesson is no longer active")
+            if _legacy_lesson(lesson):
+                lesson["status"] = "finished"
+                return {"summary": "Your previous lesson ended after an update. Start a new lesson from Vocabulary Builder.",
+                        "lesson": self._lesson_view(lesson), "status": "finished"}
             if lesson["status"] not in ("active", "offer", "cards"):
                 return {"summary": None, "lesson": self._lesson_view(lesson), "status": "stale"}
             lesson["status"] = "finished"
@@ -594,6 +609,10 @@ class VocabularyBuilder:
                 lesson = state["lesson"]
                 if lesson is None or lesson["status"] not in ("active", "offer", "cards"):
                     return None
+                if _legacy_lesson(lesson):
+                    lesson["status"] = "finished"
+                    return {"sessionId": session_id, "kind": "ended",
+                            "text": "Your previous lesson ended after an update. Start a new lesson from Vocabulary Builder."}
                 idle = self.clock() - lesson["lastActivity"]
                 if idle >= LESSON_SECONDS:
                     lesson["status"] = "finished"
