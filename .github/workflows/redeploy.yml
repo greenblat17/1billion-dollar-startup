@@ -185,7 +185,7 @@ jobs:
           print('Matched one chat; events:', len(data['events']))
           PY
           python3 - "$RUNNER_TEMP/dialogue.json" "$AI_KEY" <<'PY'
-          import json,os,subprocess,sys
+          import json,os,shlex,subprocess,sys
           path,key=sys.argv[1:]
           with open(path) as source:
               data=json.load(source)
@@ -198,7 +198,7 @@ jobs:
               redis_key=f'vocabulary:subtitle:tg-ChatId(chatId={chat_id}):{message_id}'
               result=subprocess.run(['ssh','-i',key,'-o','StrictHostKeyChecking=accept-new',
                   '-o','IdentitiesOnly=yes',f"{os.environ['AI_USER']}@{os.environ['AI_HOST']}",
-                  f'docker exec redis redis-cli --raw GET {redis_key}'],
+                  f'docker exec redis redis-cli --raw GET {shlex.quote(redis_key)}'],
                   capture_output=True,text=True,timeout=25)
               if result.returncode:
                   raise SystemExit('Could not read a DEV subtitle')
