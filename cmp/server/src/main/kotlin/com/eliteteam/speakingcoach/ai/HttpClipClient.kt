@@ -61,6 +61,7 @@ class HttpClipClient(
                            messageId: Long? = null): VocabularyResponse {
         val response = http.post("$root/internal/vocabulary") {
             applyInternalToken()
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
             contentType(ContentType.Application.Json)
             setBody(VocabularyActionRequest(sessionId.value, action, itemId, selected, lessonId, text, messageId))
         }
@@ -81,7 +82,10 @@ class HttpClipClient(
                     append(HttpHeaders.ContentDisposition, "filename=voice.ogg")
                 })
             },
-        ) { applyInternalToken() }
+        ) {
+            applyInternalToken()
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
+        }
         check(response.status.isSuccess()) { "ai-service vocabulary voice returned ${response.status}" }
         return response.body()
     }
