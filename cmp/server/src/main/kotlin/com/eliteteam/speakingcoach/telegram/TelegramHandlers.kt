@@ -1600,6 +1600,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val action = parts.getOrNull(1).orEmpty()
                     val itemId = parts.getOrNull(2).orEmpty()
                     val page = parts.getOrNull(3)?.toIntOrNull() ?: 0
+                    if (action == "progress") {
+                        reply(message, "Words practised in this round. The count restarts in the next round.",
+                            allowSendingWithoutReply = true)
+                        return@run
+                    }
                     if (action == "subtitle") {
                         val spoken = spokenLines[spokenKey(message.chat.id, message.messageId)]
                             ?: ai.vocabulary(sessionId, "subtitle", messageId = message.messageId.long).text

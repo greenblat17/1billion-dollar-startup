@@ -71,11 +71,30 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton("Cancel", "vocab:cancel") }
 }
 
+internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
+    val words = (lesson.total / 3).coerceAtLeast(1)
+    val completed = if (lesson.index >= lesson.total) words else lesson.index % words
+    if (lesson.index in 1 until lesson.total && completed == 0) {
+        val previous = when (lesson.round) {
+            "Contextual" -> "Guided"
+            "Independent" -> "Contextual"
+            else -> lesson.round
+        }
+        return "✓ $previous $words/$words → ${lesson.round} 0/$words"
+    }
+    return "${lesson.round} · $completed/$words"
+}
+
 internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson, spoken: Boolean = true): InlineKeyboardMarkup = inlineKeyboard {
-    if (spoken) row { dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle") }
+    row { dataButton(vocabularyRoundProgress(lesson), "vocab:progress") }
     if (lesson.status == "active") {
-        if (lesson.hints < 2) row { dataButton(if (lesson.hints == 0) "Hint" else "More hint",
-            "vocab:hint:${lesson.id}:${lesson.index}") }
+        if (spoken || lesson.hints < 2) row {
+            if (spoken) dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle")
+            if (lesson.hints < 2) dataButton(if (lesson.hints == 0) "Hint" else "More hint",
+                "vocab:hint:${lesson.id}:${lesson.index}")
+        }
         row { dataButton("End lesson", "vocab:end:${lesson.id}", style = KeyboardButtonStyle.Danger) }
+    } else if (spoken) {
+        row { dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle") }
     }
 }

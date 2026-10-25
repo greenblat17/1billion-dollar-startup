@@ -31,10 +31,23 @@ class VocabularyMessagesTest {
             index = 6, total = 9, word = null, hints = 1)
         val buttons = vocabularyLessonKeyboard(lesson).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertEquals(listOf("vocab:subtitle", "vocab:hint:lesson1:6", "vocab:end:lesson1"),
+        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:lesson1:6", "vocab:end:lesson1"),
             buttons.map { it.callbackData })
-        assertEquals("More hint", buttons[1].text)
+        assertEquals("More hint", buttons[2].text)
         assertFalse(vocabularyLessonKeyboard(lesson, spoken = false).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>().any { it.callbackData == "vocab:subtitle" })
+    }
+
+    @Test
+    fun wordProgressResetsAtEachRound() {
+        fun label(index: Int, round: String, status: String = "active") =
+            vocabularyRoundProgress(VocabularyLesson(index = index, total = 9, round = round, status = status))
+
+        assertEquals("Guided · 0/3", label(0, "Guided"))
+        assertEquals("Guided · 1/3", label(1, "Guided"))
+        assertEquals("✓ Guided 3/3 → Contextual 0/3", label(3, "Contextual"))
+        assertEquals("Contextual · 2/3", label(5, "Contextual"))
+        assertEquals("✓ Contextual 3/3 → Independent 0/3", label(6, "Independent"))
+        assertEquals("Independent · 3/3", label(9, "Independent", "finished"))
     }
 }
