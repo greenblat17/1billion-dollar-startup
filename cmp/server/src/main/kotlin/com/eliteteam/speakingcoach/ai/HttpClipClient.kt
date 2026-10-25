@@ -57,11 +57,12 @@ class HttpClipClient(
 
     suspend fun vocabulary(sessionId: SessionId, action: String, itemId: String? = null,
                            selected: Boolean? = null,
-                           lessonId: String? = null, text: String? = null): VocabularyResponse {
+                           lessonId: String? = null, text: String? = null,
+                           messageId: Long? = null): VocabularyResponse {
         val response = http.post("$root/internal/vocabulary") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
-            setBody(VocabularyActionRequest(sessionId.value, action, itemId, selected, lessonId, text))
+            setBody(VocabularyActionRequest(sessionId.value, action, itemId, selected, lessonId, text, messageId))
         }
         check(response.status.isSuccess()) { "ai-service vocabulary $action returned ${response.status}" }
         return response.body()

@@ -130,6 +130,24 @@ def test_direct_voice_open_reports_selected_kora_character() -> None:
         assert client.post("/internal/calls/status", json=payload).json()["character"] == "kora_h"
 
 
+def test_vocabulary_uses_kora_h_even_without_call_character_selection() -> None:
+    class LessonModel:
+        async def complete_json(self, system, data, **kwargs):
+            return "{}"
+
+    class LessonSpeech:
+        async def synthesize(self, text, *, speed, delivery):
+            return None
+
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400))
+    model, speech = LessonModel(), LessonSpeech()
+    pipeline.characters = Characters(CharacterStore(), model_h=model, speech_h=speech,
+                                     enabled=False, allowlist="")
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    assert app.state.vocabulary.llm is model
+    assert app.state.vocabulary.kora_speech is speech
+
+
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:

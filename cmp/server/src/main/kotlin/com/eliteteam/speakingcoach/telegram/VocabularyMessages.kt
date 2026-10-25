@@ -43,7 +43,7 @@ internal fun vocabularyListKeyboard(state: VocabularyResponse, page: Int): Inlin
         }
         row { dataButton("Add word", "vocab:add") }
         if (state.selected.isNotEmpty()) row {
-            dataButton("🎙 Start lesson · ${state.selected.size}", "vocab:preview")
+            dataButton("🎙 Start lesson · ${state.selected.size}", "vocab:start")
         }
     }
 }
@@ -71,19 +71,8 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton("Cancel", "vocab:cancel") }
 }
 
-internal fun vocabularyPreviewText(state: VocabularyResponse): String {
-    val chosen = state.selected.mapNotNull { id -> state.items.find { it.id == id } }
-    return "Vocabulary lesson\n\n" + chosen.joinToString("\n") { "• ${it.word}" } +
-        "\n\nThree spoken rounds: Guided, Contextual, Independent. About ${chosen.size * 3} exercises."
-}
-
-internal fun vocabularyPreviewKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
-    row { dataButton("Start", "vocab:start") }
-    row { dataButton("Change words", "vocab:list:0") }
-    row { dataButton("Cancel", "vocab:list:0") }
-}
-
-internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson): InlineKeyboardMarkup = inlineKeyboard {
+internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson, spoken: Boolean = true): InlineKeyboardMarkup = inlineKeyboard {
+    if (spoken) row { dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle") }
     if (lesson.status == "active") {
         if (lesson.hints < 2) row { dataButton(if (lesson.hints == 0) "Hint" else "More hint",
             "vocab:hint:${lesson.id}:${lesson.index}") }

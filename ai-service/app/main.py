@@ -104,9 +104,15 @@ def create_app(
     first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
+    kora_model = clip_pipeline.characters.model_h
+    kora_speech = clip_pipeline.characters.speech_h
+    kora_lesson_ready = callable(getattr(kora_model, "complete_json", None)) and callable(
+        getattr(kora_speech, "synthesize", None))
     vocabulary = VocabularyBuilder(
         Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
-        clip_pipeline.llm, clip_pipeline.stt, clip_pipeline.speech,
+        kora_model if kora_lesson_ready else clip_pipeline.llm,
+        clip_pipeline.stt, clip_pipeline.speech,
+        kora_speech=kora_speech if kora_lesson_ready else None,
     )
     sessions = clip_pipeline.dialogue
     call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
@@ -612,6 +618,12 @@ def create_app(
             if action == "cancel":
                 await vocabulary.cancel_draft(session_id)
                 return {"ok": True}
+            if action == "subtitle-save":
+                await vocabulary.save_subtitle(session_id, int(payload.get("messageId") or 0),
+                                               str(payload.get("text") or ""))
+                return {"ok": True}
+            if action == "subtitle":
+                return {"text": await vocabulary.subtitle(session_id, int(payload.get("messageId") or 0)) or ""}
             if action == "select":
                 if type(payload.get("selected")) is not bool:
                     raise HTTPException(status_code=400, detail="selected must be boolean")

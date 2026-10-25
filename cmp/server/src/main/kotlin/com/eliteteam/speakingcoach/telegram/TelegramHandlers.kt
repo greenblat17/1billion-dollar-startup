@@ -274,12 +274,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val lesson = result.lesson
         if (audio != null && lesson != null) {
             val bytes = Base64.getDecoder().decode(audio)
-            sendVoice(message.chat.id,
+            val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
                 replyMarkup = vocabularyLessonKeyboard(lesson))
+            spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text
+            try {
+                ai.vocabulary(telegramSessionId(message.chat.id), "subtitle-save",
+                    text = result.text, messageId = voice.messageId.long)
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) { log.warn("Vocabulary subtitle storage failed", error) }
         } else if (result.text.isNotBlank()) {
             reply(message, result.text, allowSendingWithoutReply = true,
-                replyMarkup = lesson?.let(::vocabularyLessonKeyboard))
+                replyMarkup = lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
         }
         if (result.summary != null) {
             sendMessage(message.chat.id, result.summary, replyMarkup = startCallKeyboard())
@@ -1594,6 +1600,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val action = parts.getOrNull(1).orEmpty()
                     val itemId = parts.getOrNull(2).orEmpty()
                     val page = parts.getOrNull(3)?.toIntOrNull() ?: 0
+                    if (action == "subtitle") {
+                        val spoken = spokenLines[spokenKey(message.chat.id, message.messageId)]
+                            ?: ai.vocabulary(sessionId, "subtitle", messageId = message.messageId.long).text
+                        if (spoken.isBlank()) reply(message, "Subtitles are unavailable for this message.",
+                            allowSendingWithoutReply = true)
+                        else reply(message, spokenQuote(spoken), allowSendingWithoutReply = true)
+                        return@run
+                    }
                     val currentLesson = ai.vocabulary(sessionId, "list").lesson
                     if (currentLesson?.status == "active" && currentLesson.round == "Independent" &&
                         action !in setOf("hint", "end")) {
@@ -1602,7 +1616,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         return@run
                     }
                     if (currentLesson?.status == "active" &&
-                        action in setOf("add", "choose", "unchoose", "delask", "delete", "confirm", "preview", "start")) {
+                        action in setOf("add", "choose", "unchoose", "delask", "delete", "confirm", "start")) {
                         reply(message, "Finish your current lesson before changing the word list.",
                             allowSendingWithoutReply = true)
                         return@run
@@ -1644,12 +1658,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         "cancel" -> {
                             ai.vocabulary(sessionId, "cancel")
                             showVocabularyList(message, 0, edit = false)
-                        }
-                        "preview" -> {
-                            val state = ai.vocabulary(sessionId, "list")
-                            if (state.selected.isEmpty()) showVocabularyList(message, 0, edit = true)
-                            else editMessageText(message.chat.id, message.messageId,
-                                vocabularyPreviewText(state), replyMarkup = vocabularyPreviewKeyboard())
                         }
                         "start" -> {
                             if (ai.callStatus(sessionId).active) {

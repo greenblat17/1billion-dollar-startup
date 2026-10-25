@@ -19,8 +19,20 @@ class Clock:
 
 
 class Speech:
+    async def speed(self, session_id):
+        return 0.9
+
     async def synthesize(self, session_id, text):
         return TtsAudio(text.encode(), "audio/ogg")
+
+
+class KoraSpeech:
+    def __init__(self) -> None:
+        self.calls = []
+
+    async def synthesize(self, text, *, speed, delivery):
+        self.calls.append((text, speed, delivery))
+        return TtsAudio(b"kora-audio", "audio/ogg")
 
 
 class Stt:
@@ -102,6 +114,7 @@ async def test_retry_hint_timeout_and_partial_summary():
     assert first["lesson"]["index"] == 0
     hint = await builder.hint("tg-2", lesson["id"])
     assert hint["lesson"]["hints"] == 1
+    assert hint["text"] and "audio" not in hint
     stt.text = "I was overwhelmed."
     second = await builder.voice("tg-2", lesson["id"], 2, b"voice")
     assert second["lesson"]["index"] == 1
@@ -141,3 +154,19 @@ async def test_dictionary_and_lesson_survive_service_instance_change():
     assert state["selected"] == [card["id"]]
     assert state["lesson"]["id"] == lesson_id
     assert (await restarted.voice("tg-4", lesson_id, 1, b"voice"))["lesson"]["index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_kora_voice_and_subtitles_survive_service_restart():
+    redis = FakeAsyncRedis(decode_responses=True)
+    kora = KoraSpeech()
+    builder = VocabularyBuilder(redis, Model(), Stt(), Speech(), kora_speech=kora)
+    await builder.propose("tg-5", "overwhelmed")
+    card = await builder.confirm("tg-5")
+    await builder.select("tg-5", card["id"], True)
+    turn = await builder.start("tg-5")
+    assert turn["audio"] == "a29yYS1hdWRpbw=="
+    assert kora.calls == [(turn["text"], 0.9, "plain")]
+    await builder.save_subtitle("tg-5", 44, turn["text"])
+    restarted = VocabularyBuilder(redis, Model(), Stt(), Speech(), kora_speech=kora)
+    assert await restarted.subtitle("tg-5", 44) == turn["text"]

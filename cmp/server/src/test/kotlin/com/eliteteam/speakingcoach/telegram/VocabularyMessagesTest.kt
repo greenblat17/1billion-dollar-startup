@@ -22,6 +22,7 @@ class VocabularyMessagesTest {
         assertTrue(firstPage.any { it.callbackData == "vocab:unchoose:id2:0" })
         assertTrue(firstPage.any { it.callbackData == "vocab:choose:id1:0" })
         assertTrue(firstPage.any { it.callbackData == "vocab:list:1" })
+        assertTrue(firstPage.any { it.callbackData == "vocab:start" })
     }
 
     @Test
@@ -30,7 +31,10 @@ class VocabularyMessagesTest {
             index = 6, total = 9, word = null, hints = 1)
         val buttons = vocabularyLessonKeyboard(lesson).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertEquals(listOf("vocab:hint:lesson1:6", "vocab:end:lesson1"), buttons.map { it.callbackData })
-        assertEquals("More hint", buttons.first().text)
+        assertEquals(listOf("vocab:subtitle", "vocab:hint:lesson1:6", "vocab:end:lesson1"),
+            buttons.map { it.callbackData })
+        assertEquals("More hint", buttons[1].text)
+        assertFalse(vocabularyLessonKeyboard(lesson, spoken = false).keyboard.flatten()
+            .filterIsInstance<CallbackDataInlineKeyboardButton>().any { it.callbackData == "vocab:subtitle" })
     }
 }

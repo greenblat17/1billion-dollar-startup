@@ -10,6 +10,7 @@ data class VocabularyActionRequest(
     val selected: Boolean? = null,
     val lessonId: String? = null,
     val text: String? = null,
+    val messageId: Long? = null,
 )
 
 @Serializable
