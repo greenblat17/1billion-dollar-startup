@@ -135,6 +135,9 @@ jobs:
           HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
           USER: ${{ secrets.DEV_CMP_SERVER_USER }}
           KEY_BODY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+          AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+          AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+          AI_KEY_BODY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
           CERT: ${{ inputs.recipient_cert }}
         run: |
           set -euo pipefail
@@ -142,6 +145,9 @@ jobs:
           KEY="$RUNNER_TEMP/vps_key"
           install -m 600 /dev/null "$KEY"
           printf '%s\n' "$KEY_BODY" > "$KEY"
+          AI_KEY="$RUNNER_TEMP/ai_vps_key"
+          install -m 600 /dev/null "$AI_KEY"
+          printf '%s\n' "$AI_KEY_BODY" > "$AI_KEY"
           printf '%s\n' "$CERT" > "$RUNNER_TEMP/recipient.crt"
           SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes "${USER}@${HOST}")
           DB_USER="$("${SSH[@]}" 'docker exec postgres printenv POSTGRES_USER')"
@@ -177,6 +183,30 @@ jobs:
           if not data.get('chat') or not data.get('events'):
               raise SystemExit('No recent matching chat events')
           print('Matched one chat; events:', len(data['events']))
+          PY
+          python3 - "$RUNNER_TEMP/dialogue.json" "$AI_KEY" <<'PY'
+          import json,os,subprocess,sys
+          path,key=sys.argv[1:]
+          with open(path) as source:
+              data=json.load(source)
+          chat_id=data['chat']['chat_id']
+          data['subtitles']={}
+          for event in data['events']:
+              if event['kind'] != 'sendVoice' or event['status'] != 'accepted' or not event['messageId']:
+                  continue
+              message_id=event['messageId']
+              redis_key=f'vocabulary:subtitle:tg-{chat_id}:{message_id}'
+              result=subprocess.run(['ssh','-i',key,'-o','StrictHostKeyChecking=accept-new',
+                  '-o','IdentitiesOnly=yes',f"{os.environ['AI_USER']}@{os.environ['AI_HOST']}",
+                  f'docker exec redis redis-cli --raw GET {redis_key}'],
+                  capture_output=True,text=True,timeout=25)
+              if result.returncode:
+                  raise SystemExit('Could not read a DEV subtitle')
+              if result.stdout.strip():
+                  data['subtitles'][str(message_id)]=result.stdout.strip()
+          with open(path,'w') as destination:
+              json.dump(data,destination,ensure_ascii=False)
+          print('Saved voice subtitles:',len(data['subtitles']))
           PY
           openssl cms -encrypt -binary -aes256 -outform DER \
             -in "$RUNNER_TEMP/dialogue.json" -out "$RUNNER_TEMP/dialogue.p7m" "$RUNNER_TEMP/recipient.crt"
