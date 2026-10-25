@@ -1601,7 +1601,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val itemId = parts.getOrNull(2).orEmpty()
                     val page = parts.getOrNull(3)?.toIntOrNull() ?: 0
                     if (action == "progress") {
-                        reply(message, "Words practised in this round. The count restarts in the next round.",
+                        reply(message, "Blue circles show words practised in this round. The count restarts in the next round.",
                             allowSendingWithoutReply = true)
                         return@run
                     }
