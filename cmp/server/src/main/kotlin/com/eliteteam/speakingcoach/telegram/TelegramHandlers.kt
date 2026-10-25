@@ -254,8 +254,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
 
     suspend fun showVocabularyList(message: ChatMessage, page: Int = 0, edit: Boolean = false) {
         val state = ai.vocabulary(telegramSessionId(message.chat.id), "list")
-        if (state.lesson?.status == "active" && state.lesson.round == "Independent") {
-            reply(message, "Finish the Independent round before opening your word list.",
+        if ((state.lesson?.status == "active" && state.lesson.round == "Recall") ||
+            state.lesson?.status == "cards") {
+            reply(message, "Finish this round before opening your word list.",
                 allowSendingWithoutReply = true)
             return
         }
@@ -272,7 +273,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
         val audio = result.audio
         val lesson = result.lesson
+        result.exampleText?.let { sendMessage(message.chat.id, "Example: $it") }
         if (audio != null && lesson != null) {
+            if (lesson.status == "active" && lesson.round == "Guided" && lesson.attempts == 0) {
+                lesson.word?.let { sendMessage(message.chat.id, "📚 ${it.word} — ${it.meaning}") }
+            }
             val bytes = Base64.getDecoder().decode(audio)
             val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
@@ -287,6 +292,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, result.text, allowSendingWithoutReply = true,
                 replyMarkup = lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
         }
+        result.hintText?.let { sendMessage(message.chat.id, "💡 $it") }
         if (result.summary != null) {
             sendMessage(message.chat.id, result.summary, replyMarkup = startCallKeyboard())
         }
@@ -594,8 +600,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false, trigger: String = "start",
                       receivedAt: Instant = Instant.now()) {
-        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status == "active") {
-            reply(message, "Your vocabulary lesson is active. Answer with a voice message or tap End lesson.")
+        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
+            reply(message, "Your vocabulary lesson is active. Continue with the last lesson message or tap End lesson.")
             return
         }
         customScenarioPrompts.remove(message.chat.id.toString())
@@ -680,7 +686,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     suspend fun startCall(message: ChatMessage, receivedAt: Instant, scenarioKind: String? = null,
                           scenarioDescription: String? = null,
                           reminderOpeningQuestion: String? = null) {
-        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status == "active") {
+        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
             reply(message, "Your vocabulary lesson is active. Finish it before starting a call.")
             return
         }
@@ -1614,13 +1620,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         return@run
                     }
                     val currentLesson = ai.vocabulary(sessionId, "list").lesson
-                    if (currentLesson?.status == "active" && currentLesson.round == "Independent" &&
+                    if (((currentLesson?.status == "active" && currentLesson.round == "Recall") ||
+                        currentLesson?.status == "cards") &&
                         action !in setOf("hint", "end")) {
-                        reply(message, "Finish the Independent round before opening your word list.",
+                        reply(message, "Finish this round before opening your word list.",
                             allowSendingWithoutReply = true)
                         return@run
                     }
-                    if (currentLesson?.status == "active" &&
+                    if (currentLesson?.status in setOf("active", "offer", "cards") &&
                         action in setOf("add", "choose", "unchoose", "delask", "delete", "confirm", "start")) {
                         reply(message, "Finish your current lesson before changing the word list.",
                             allowSendingWithoutReply = true)
@@ -1635,8 +1642,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         }
                         "choose", "unchoose" -> {
                             val state = ai.vocabulary(sessionId, "list")
-                            if (action == "choose" && itemId !in state.selected && state.selected.size >= 3) {
-                                reply(message, "Choose up to three words. Remove one before selecting another.",
+                            if (action == "choose" && itemId !in state.selected && state.selected.size >= 5) {
+                                reply(message, "Choose up to five words. Remove one before selecting another.",
                                     allowSendingWithoutReply = true)
                             } else {
                                 ai.vocabulary(sessionId, "select", itemId = itemId, selected = action == "choose")
@@ -1684,6 +1691,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                     allowSendingWithoutReply = true)
                             } else sendVocabularyTurn(message,
                                 ai.vocabulary(sessionId, "hint", lessonId = itemId))
+                        }
+                        "play" -> {
+                            val result = ai.vocabulary(sessionId, "play", lessonId = itemId)
+                            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            sendVocabularyTurn(message, result)
+                        }
+                        "skip" -> {
+                            val result = ai.vocabulary(sessionId, "skip", lessonId = itemId)
+                            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            result.summary?.let { sendMessage(message.chat.id, it, replyMarkup = startCallKeyboard()) }
                         }
                         "end" -> {
                             val result = ai.vocabulary(sessionId, "end", lessonId = itemId)
@@ -2301,7 +2318,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     customScenarioPrompts.remove(message.chat.id.toString())
                     clearScenarioMenu(message.chat)
                     val lesson = ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson
-                    if (lesson?.status == "active") {
+                    if (lesson?.status == "active" || lesson?.status == "cards") {
                         if (exceedsTelegramDownloadLimit(content.media.fileSize?.bytes)) {
                             reply(message, "This recording is too large. Please send a shorter one; your attempt is safe.")
                         } else try {
@@ -2313,6 +2330,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             log.warn("Vocabulary voice failed for {}", message.chat.id, error)
                             reply(message, "I couldn't process that recording. Please try again; your attempt is safe.")
                         }
+                    } else if (lesson?.status == "offer") {
+                        reply(message, "Tap Play or Skip under the last lesson message.")
                     } else voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
                 }
                 is TextContent -> when {
@@ -2320,8 +2339,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         vocabularyAddPrompts.remove(message.chat.id.toString())
                         showVocabularyList(message)
                     }
-                    ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status == "active" ->
-                        reply(message, "Please answer the current lesson prompt with a voice message. You can also tap End lesson.")
+                    ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards") ->
+                        reply(message, "Continue with the last lesson message, or tap End lesson.")
                     vocabularyAddPrompts.remove(message.chat.id.toString()) && !content.text.startsWith("/") -> {
                         try {
                             val proposed = ai.vocabulary(telegramSessionId(message.chat.id), "propose", text = content.text)
@@ -2344,7 +2363,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     isVoiceCommand(content.text) -> sendVoiceSelector(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
                     isStartCallButton(content.text) -> {
-                        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status == "active") {
+                        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
                             reply(message, "Your vocabulary lesson is active. Finish it before starting a call.")
                         } else {
                             customScenarioPrompts.remove(message.chat.id.toString())

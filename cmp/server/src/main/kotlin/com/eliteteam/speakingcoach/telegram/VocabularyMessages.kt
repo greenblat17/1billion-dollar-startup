@@ -18,10 +18,9 @@ internal fun vocabularyListText(state: VocabularyResponse, page: Int): String {
     val shown = state.items.drop(safePage * PAGE_SIZE).take(PAGE_SIZE)
     val words = shown.joinToString("\n") { item ->
         val mark = if (item.id in state.selected) "✅" else "▫️"
-        val learned = if (item.mastered) " · mastered" else ""
-        "$mark ${item.word}$learned"
+        "$mark ${item.word}"
     }
-    return "📚 My words\nSelected ${state.selected.size}/3\n\n" +
+    return "📚 My words\nSelected ${state.selected.size}/5\n\n" +
         (words.ifEmpty { "No words yet. Add one to start your first lesson." }) +
         "\n\nPage ${safePage + 1}/$totalPages"
 }
@@ -49,8 +48,7 @@ internal fun vocabularyListKeyboard(state: VocabularyResponse, page: Int): Inlin
 }
 
 internal fun vocabularyCardText(card: VocabularyCard): String =
-    "📚 ${card.word}\n${card.translation}\n${card.meaning}\n\n${card.example}" +
-        if (card.mastered) "\n\n✅ Mastered" else ""
+    "📚 ${card.word}\n${card.translation}\n${card.meaning}\n\n${card.example}"
 
 internal fun vocabularyCardKeyboard(card: VocabularyCard, page: Int, selected: Boolean): InlineKeyboardMarkup =
     inlineKeyboard {
@@ -72,7 +70,7 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 }
 
 internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
-    val words = (lesson.total / 3).coerceAtLeast(1)
+    val words = (if (lesson.round == "Word game") lesson.total else lesson.total / 2).coerceAtLeast(1)
     val completed = if (lesson.index >= lesson.total) words else lesson.index % words
     val dots = "🟢".repeat(completed) + "⚪️".repeat(words - completed)
     if (lesson.index in 1 until lesson.total && completed == 0) {
@@ -83,13 +81,20 @@ internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
 
 internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson, spoken: Boolean = true): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(vocabularyRoundProgress(lesson), "vocab:progress") }
-    if (lesson.status == "active") {
-        if (spoken || lesson.hints < 2) row {
+    if (lesson.status == "active" || lesson.status == "cards") {
+        if (spoken || lesson.hints < 1) row {
             if (spoken) dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle")
-            if (lesson.hints < 2) dataButton(if (lesson.hints == 0) "Hint" else "More hint",
+            if (lesson.hints < 1) dataButton("Hint",
                 "vocab:hint:${lesson.id}:${lesson.index}")
         }
         row { dataButton("End lesson", "vocab:end:${lesson.id}", style = KeyboardButtonStyle.Danger) }
+    } else if (lesson.status == "offer") {
+        row {
+            dataButton("🎲 Play", "vocab:play:${lesson.id}")
+            dataButton("Skip", "vocab:skip:${lesson.id}")
+        }
+        row { dataButton("End lesson", "vocab:end:${lesson.id}", style = KeyboardButtonStyle.Danger) }
+        if (spoken) row { dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle") }
     } else if (spoken) {
         row { dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle") }
     }
