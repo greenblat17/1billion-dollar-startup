@@ -74,7 +74,7 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
     val words = (lesson.total / 3).coerceAtLeast(1)
     val completed = if (lesson.index >= lesson.total) words else lesson.index % words
-    val dots = "🔵".repeat(completed) + "⚪️".repeat(words - completed)
+    val dots = "🟢".repeat(completed) + "⚪️".repeat(words - completed)
     if (lesson.index in 1 until lesson.total && completed == 0) {
         return "$words/$words → ${lesson.round} · $dots 0/$words"
     }

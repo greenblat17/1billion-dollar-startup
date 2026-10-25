@@ -44,11 +44,11 @@ class VocabularyMessagesTest {
             vocabularyRoundProgress(VocabularyLesson(index = index, total = 9, round = round, status = status))
 
         assertEquals("Guided · ⚪️⚪️⚪️ 0/3", label(0, "Guided"))
-        assertEquals("Guided · 🔵⚪️⚪️ 1/3", label(1, "Guided"))
+        assertEquals("Guided · 🟢⚪️⚪️ 1/3", label(1, "Guided"))
         assertEquals("3/3 → Contextual · ⚪️⚪️⚪️ 0/3", label(3, "Contextual"))
-        assertEquals("Contextual · 🔵🔵⚪️ 2/3", label(5, "Contextual"))
+        assertEquals("Contextual · 🟢🟢⚪️ 2/3", label(5, "Contextual"))
         assertEquals("3/3 → Independent · ⚪️⚪️⚪️ 0/3", label(6, "Independent"))
-        assertEquals("Independent · 🔵🔵🔵 3/3", label(9, "Independent", "finished"))
+        assertEquals("Independent · 🟢🟢🟢 3/3", label(9, "Independent", "finished"))
         assertEquals("Guided · ⚪️ 0/1", vocabularyRoundProgress(
             VocabularyLesson(index = 0, total = 3, round = "Guided")))
         assertEquals("1/1 → Contextual · ⚪️ 0/1", vocabularyRoundProgress(
