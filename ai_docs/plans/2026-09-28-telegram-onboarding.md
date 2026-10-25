@@ -16,6 +16,11 @@ Only new Telegram users automatically enter onboarding. Resolve eligibility befo
 
 ## Timing and boundaries
 
+После локальной реализации [плана времени речи](2026-10-24-telegram-speech-time-timers.md)
+новые попытки считают речевые интервалы VAD; начатые ранее попытки сохраняют старый метод.
+При сбое VAD отдельный ход использует длительность записи. При пустом STT прогресс не растёт.
+Приёмка DEV ещё не проведена. Следующие пункты описывают исторический метод.
+
 - Count whole recordings with recognized speech, including pauses, using STT duration with Telegram duration as fallback. This is not measured speaking time.
 - Before the time threshold, ask about missing profile fields: work, free time, and why English. "I don't work" or "no hobbies" fills the field; filling all fields is not required to finish.
 - Close when recognized speech has reached 120 seconds, regardless of whether work, leisure, or goal is filled. A missing level does not block this close. There is no limit on the number of answers.

@@ -11,6 +11,10 @@ on:
         description: ai-server
         type: boolean
         default: true
+      speech_time_benchmark:
+        description: Measure speech time on DEV AI without redeploying
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.speech_time_benchmark != true }}
         run: |
           echo "Enable cmp-server and/or ai-server" >&2
           exit 1
@@ -29,7 +33,7 @@ jobs:
   package-server:
     name: Package cmp-server
     needs: require-target
-    if: ${{ inputs.cmp_server }}
+    if: ${{ inputs.cmp_server && !inputs.speech_time_benchmark }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,7 +63,7 @@ jobs:
   package-ai:
     name: Package ai-server
     needs: require-target
-    if: ${{ inputs.ai_server }}
+    if: ${{ inputs.ai_server && !inputs.speech_time_benchmark }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -99,7 +103,7 @@ jobs:
     needs:
       - require-target
       - package-server
-    if: ${{ !cancelled() && inputs.cmp_server && needs.package-server.result == 'success' }}
+    if: ${{ !cancelled() && inputs.cmp_server && !inputs.speech_time_benchmark && needs.package-server.result == 'success' }}
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
       destination: dev
@@ -110,8 +114,54 @@ jobs:
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && needs.package-ai.result == 'success' }}
+    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && needs.package-ai.result == 'success' }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
     secrets: inherit
+
+  speech-time-benchmark:
+    name: Benchmark speech time on DEV AI
+    needs: require-target
+    if: ${{ inputs.speech_time_benchmark }}
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    concurrency:
+      group: ai-dev-benchmark
+      cancel-in-progress: false
+    env:
+      DEV_AI_SERVER_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+      DEV_AI_SERVER_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+      DEV_AI_SERVER_SSH_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Measure with real DEV STT in a temporary container
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DEV_AI_SERVER_HOST:?}"
+          : "${DEV_AI_SERVER_USER:?}"
+          : "${DEV_AI_SERVER_SSH_KEY:?}"
+          archive="$RUNNER_TEMP/speech-time-benchmark.tgz"
+          tar -czf "$archive" ai-service/app load/speech-time-dev-benchmark.py load/fixtures/librispeech-test-clean
+          key="$RUNNER_TEMP/dev-ai-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$DEV_AI_SERVER_SSH_KEY" > "$key"
+          opts=(-i "$key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          remote_archive="/tmp/speech-time-benchmark-${GITHUB_RUN_ID}.tgz"
+          scp "${opts[@]}" "$archive" "${DEV_AI_SERVER_USER}@${DEV_AI_SERVER_HOST}:$remote_archive"
+          ssh "${opts[@]}" "${DEV_AI_SERVER_USER}@${DEV_AI_SERVER_HOST}" \
+            "BENCH_RUN_ID=$GITHUB_RUN_ID bash -s" <<'REMOTE'
+          set -euo pipefail
+          archive="/tmp/speech-time-benchmark-${BENCH_RUN_ID}.tgz"
+          work=$(mktemp -d /tmp/speech-time-benchmark.XXXXXX)
+          trap 'rm -rf "$work" "$archive"' EXIT
+          tar -xzf "$archive" -C "$work"
+          echo "DEV AI logical CPUs: $(nproc)"
+          image=$(docker inspect --format '{{.Image}}' ai-service)
+          docker run --rm --name "speech-time-benchmark-${BENCH_RUN_ID}" \
+            --env-file /opt/ai-service/.env \
+            -v "$work:/bench:ro" -w /bench -e PYTHONPATH=/bench/ai-service \
+            "$image" sh -c \
+            'pip install --quiet --no-cache-dir webrtcvad-wheels==2.0.14.post1 && python load/speech-time-dev-benchmark.py'
+          REMOTE

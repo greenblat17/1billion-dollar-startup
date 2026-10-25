@@ -17,6 +17,7 @@ from app.onboarding_model import CALL_REVIEW_RESPONSE_FORMAT, OnboardingModel, R
 from app.onboarding_score import placed_level, step_score
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
+from app.speech_time import SpeechTime, SpeechTimeRollout
 from tests.conftest import FakeLlm, FakeTts
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -470,3 +471,63 @@ def _goal(minutes: int):
 def test_moscow_day_uses_the_practice_timezone():
     moment = datetime(2026, 9, 30, 23, 30, tzinfo=MOSCOW).timestamp()
     assert moscow_day(moment) == "2026-09-30"
+
+
+@pytest.mark.asyncio
+async def test_practice_switches_at_next_moscow_day_and_keeps_each_days_method():
+    clock = Clock(datetime(2026, 10, 24, 15, tzinfo=MOSCOW))
+    redis = FakeAsyncRedis(decode_responses=True)
+    rollout = SpeechTimeRollout(redis, clock)
+    store = CallStore(redis=redis, clock=clock, rollout=rollout)
+    first = await store.open("tg-time")
+    assert first["durationMethod"] == "recording"
+    await store.append_turn("tg-time", "hello", "hi", [], 10, [],
+                            recording_seconds=10, duration_source="recording_legacy")
+    clock.moment = datetime(2026, 10, 25, 9, tzinfo=MOSCOW)
+    next_day = await store.open("tg-time")
+    assert next_day["durationMethod"] == "vad"
+    await store.append_turn("tg-time", "more", "okay", [], 4, [],
+                            recording_seconds=10, duration_source="vad", attempt_id="same-voice")
+    repeated = await store.append_turn("tg-time", "more", "okay", [], 4, [],
+                                       recording_seconds=10, duration_source="vad", attempt_id="same-voice")
+    assert repeated["todaySeconds"] == 4
+    assert (await store.summary("tg-time"))["todaySeconds"] == 4
+    saved = await store.get(next_day["callId"])
+    assert saved["turns"][0]["recordingSeconds"] == 10
+    assert saved["turns"][0]["seconds"] == 4
+    assert len(saved["turns"]) == 1
+    restarted = CallStore(redis=redis, clock=clock, rollout=SpeechTimeRollout(redis, clock))
+    assert (await restarted.open("tg-time"))["durationMethod"] == "vad"
+    await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pipeline_sends_speech_time_to_daily_goal_and_keeps_recording_duration():
+    class VadRollout:
+        async def method_for_day(self, _day):
+            return "vad"
+
+    class Meter:
+        async def transcribe(self, stt, audio, content_type, filename, *, method):
+            assert method == "vad"
+            result = await stt.transcribe(audio, content_type, filename)
+            return result, SpeechTime(6, 3, "vad")
+
+    calls = CallStore(goal_of=_goal(5), rollout=VadRollout())
+    await calls.open("tg-vad")
+    pipeline = ClipPipeline(
+        SpeakingStt("I build software", 6), FakeLlm(notes=[]), FakeTts(),
+        MemoryDialogueStore(40, 86400), MemoryMetricsStore(DEFAULT_RATES),
+        calls=calls, speech_meter=Meter(),
+    )
+    await pipeline.dialogue.create("tg-vad")
+    result = await pipeline.run("tg-vad", b"audio", "audio/ogg", "voice.ogg", attempt_id="voice-1")
+    assert result.call["todaySeconds"] == 3
+    assert result.call["recognizedSeconds"] == 3
+    assert result.call["recordingSeconds"] == 6
+    assert result.call["durationSource"] == "vad"
+    saved = await calls.get(result.call["callId"])
+    assert saved["turns"][0]["seconds"] == 3
+    assert saved["turns"][0]["recordingSeconds"] == 6
+    repeated = await pipeline.run("tg-vad", b"audio", "audio/ogg", "voice.ogg", attempt_id="voice-1")
+    assert repeated.call["todaySeconds"] == 3

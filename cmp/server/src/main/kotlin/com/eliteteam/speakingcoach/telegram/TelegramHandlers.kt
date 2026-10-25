@@ -992,6 +992,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         "voice_processed", analyticsChatId, callId = callId,
                         messageId = message.messageId.long,
                         seconds = result.reply.call?.recognizedSeconds,
+                        state = result.reply.call?.durationSource?.let { source ->
+                            if (source == "recording_fallback")
+                                "$source:${result.reply.call.durationFallbackReason ?: "unknown"}" else source
+                        },
                         amount = result.reply.corrections.size))
                 }
                 if (result.reply.call != null &&

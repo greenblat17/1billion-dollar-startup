@@ -238,7 +238,8 @@ internal fun callDetailPage(row: CallDashboardRow, daySpeechSeconds: Double = ro
             "call_actual_open" -> "Звонок открыт в AI-service"
             "starter_delivered" -> "Вступительный ответ бота доставлен"
             "voice_received" -> "Голосовое #${event.messageId}: файл ${event.seconds?.let(::secondsText) ?: "—"}, ID попытки ${event.messageId?.let { voiceAttemptId(event.chatId, it) } ?: "—"}"
-            "voice_processed" -> "Голосовое #${event.messageId}: речь ${event.seconds?.let(::secondsText) ?: "—"}, исправлений ${event.amount ?: 0}"
+            "voice_processed" -> "Голосовое #${event.messageId}: речь ${event.seconds?.let(::secondsText) ?: "—"}, " +
+                "метод ${escapeHtml(event.state ?: "старый/неизвестен")}, исправлений ${event.amount ?: 0}"
             "correction_card" -> "Карточка исправления: ${event.state ?: "—"}"
             "reply_delivered" -> "Ответ на #${event.messageId}: ${event.state ?: "—"}, ожидание ${event.milliseconds?.let { "${it} мс" } ?: "—"}"
             "voice_outcome" -> "Исход голосового #${event.messageId}: ${event.state ?: "—"}"
