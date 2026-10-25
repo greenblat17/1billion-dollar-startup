@@ -27,7 +27,7 @@ if ! docker build -t ai-service:next "$BUILD" 2>&1 | tee "$BUILD/build.log"; the
     exit 1
   fi
   printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\n' > "$BUILD/Dockerfile.cached"
-  docker build -f Dockerfile.cached -t ai-service:next "$BUILD"
+  docker build -f "$BUILD/Dockerfile.cached" -t ai-service:next "$BUILD"
 fi
 docker image tag ai-service:next ai-service:local
 rm -rf "$BUILD"

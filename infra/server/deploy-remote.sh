@@ -36,7 +36,7 @@ if ! docker build -f Dockerfile.runtime -t speaking-coach:next "$BUILD" 2>&1 | t
     exit 1
   fi
   printf 'FROM speaking-coach:local\nCOPY server-all.jar /app/server-all.jar\n' > "$BUILD/Dockerfile.cached"
-  docker build -f Dockerfile.cached -t speaking-coach:next "$BUILD"
+  docker build -f "$BUILD/Dockerfile.cached" -t speaking-coach:next "$BUILD"
 fi
 docker image tag speaking-coach:next speaking-coach:local
 rm -rf "$BUILD"
