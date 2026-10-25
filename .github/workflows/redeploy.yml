@@ -195,7 +195,7 @@ jobs:
               if event['kind'] != 'sendVoice' or event['status'] != 'accepted' or not event['messageId']:
                   continue
               message_id=event['messageId']
-              redis_key=f'vocabulary:subtitle:tg-{chat_id}:{message_id}'
+              redis_key=f'vocabulary:subtitle:tg-ChatId(chatId={chat_id}):{message_id}'
               result=subprocess.run(['ssh','-i',key,'-o','StrictHostKeyChecking=accept-new',
                   '-o','IdentitiesOnly=yes',f"{os.environ['AI_USER']}@{os.environ['AI_HOST']}",
                   f'docker exec redis redis-cli --raw GET {redis_key}'],
