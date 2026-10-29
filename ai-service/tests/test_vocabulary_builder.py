@@ -7,7 +7,7 @@ from fakeredis import FakeAsyncRedis
 
 from app.stt import SttResult
 from app.tts import TtsAudio
-from app.vocabulary_builder import VocabularyBuilder
+from app.vocabulary_builder import GRADE_RESPONSE_FORMAT, VocabularyBuilder
 from app.vocabulary_builder import _trace_key
 
 
@@ -106,6 +106,33 @@ async def test_spoken_question_is_not_cut_mid_sentence():
     started = await builder.start("tg-long-prompt")
     assert started["text"].endswith("What did you talk about?")
     assert len(started["text"]) > 300
+
+
+@pytest.mark.asyncio
+async def test_grade_uses_strict_schema_and_invalid_json_is_logged_without_content(caplog):
+    class InvalidGradeModel(Model):
+        grade_format = None
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_grade":
+                self.grade_format = kwargs["response_format"]
+                return "not a JSON response with private learner content"
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = InvalidGradeModel()
+    builder = VocabularyBuilder(None, model, Stt(), Speech())
+    await builder.propose("tg-invalid-grade", "overwhelmed")
+    card = await builder.confirm("tg-invalid-grade")
+    await builder.select("tg-invalid-grade", card["id"], True)
+    lesson_id = (await builder.start("tg-invalid-grade"))["lesson"]["id"]
+    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
+        with pytest.raises(ValueError, match="invalid vocabulary JSON for vocabulary_grade"):
+            await builder.voice("tg-invalid-grade", lesson_id, 1, b"private audio")
+    assert model.grade_format == GRADE_RESPONSE_FORMAT
+    assert (await builder.list("tg-invalid-grade"))["lesson"]["attempts"] == 0
+    assert "operation=vocabulary_grade parser_error=Expecting value" in caplog.text
+    assert "private learner content" not in caplog.text
+    assert "private audio" not in caplog.text
 
 
 @pytest.mark.asyncio
