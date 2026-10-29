@@ -538,3 +538,41 @@ async def test_hume_guided_delivery_returns_actual_spoken_words(monkeypatch):
         'pause_assistant_message', 'session_settings', 'user_input', 'resume_assistant_message']
     prompt = sent[1]['system_prompt']
     assert json.loads(prompt[prompt.index('{'):])['TARGET_REPLY'] == 'That sounds hard.'
+
+
+@pytest.mark.asyncio
+async def test_public_kora_allows_new_telegram_users_without_changing_default_or_scenario():
+    characters = Characters(CharacterStore(), FakeLlm(), KoraSpeech(), enabled=True, allowlist='*')
+    for session in ['tg-789', 'tg-ChatId(chatId=987)']:
+        assert characters.allowed(session)
+        assert await characters.variant(session) is None
+        await characters.store.set(session, 'kora_h')
+        assert await characters.variant(session) == 'kora_h'
+        assert await characters.variant(session, scenario='roleplay') is None
+    for session in ['app-789', 'tg-789-extra', 'tg--789', 'tg-0']:
+        assert not characters.allowed(session)
+    characters.enabled = False
+    assert not characters.allowed('tg-789')
+    characters.enabled = True
+    characters.speech_h = None
+    assert not characters.allowed('tg-789')
+    with pytest.raises(ValueError, match='KORA_H_ALLOWLIST'):
+        Characters(CharacterStore(), enabled=True, allowlist='*,123')
+
+
+@pytest.mark.asyncio
+async def test_public_character_api_exposes_and_persists_selection_for_new_user():
+    app, *_ = build_app()
+    chars = app.state.pipeline.characters
+    public = Characters(chars.store, FakeLlm(), KoraSpeech(), enabled=True, allowlist='*')
+    app.state.pipeline.characters = public
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test',
+                                 headers={'X-Internal-Token': 'test-internal-token'}) as client:
+        status = await client.get('/internal/character/tg-987')
+        assert status.json()['koraHAvailable'] is True
+        assert status.json()['character'] == 'speaky'
+        selected = await client.post('/internal/character',
+                                     json={'sessionId': 'tg-987', 'character': 'kora_h'})
+        assert selected.json()['character'] == 'kora_h'
+        assert selected.json()['blocked'] is None
+        assert await public.variant('tg-987') == 'kora_h'

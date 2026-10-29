@@ -82,7 +82,8 @@ class Characters:
                  enabled: bool = False, allowlist: str = "") -> None:
         self.store, self.model_h, self.speech_h = store, model_h, speech_h
         self.enabled = enabled
-        values = [value.strip() for value in allowlist.split(",") if value.strip()]
+        self.public = allowlist.strip() == "*"
+        values = [] if self.public else [value.strip() for value in allowlist.split(",") if value.strip()]
         if any(not value.isdecimal() or int(value) <= 0 for value in values):
             raise ValueError("KORA_H_ALLOWLIST must contain positive Telegram IDs")
         self.allowlist = frozenset(int(value) for value in values)
@@ -96,7 +97,7 @@ class Characters:
             return False
         match = (re.fullmatch(r"tg-([1-9][0-9]*)", session_id)
                  or re.fullmatch(r"tg-ChatId\(chatId=([1-9][0-9]*)\)", session_id))
-        return match is not None and int(match.group(1)) in self.allowlist
+        return match is not None and (self.public or int(match.group(1)) in self.allowlist)
 
     async def variant(self, session_id: str, *, scenario=None) -> str | None:
         if scenario is not None or not session_id.startswith("tg-"):

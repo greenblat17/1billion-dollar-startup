@@ -68,8 +68,8 @@ jobs:
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
           sed -i '/^KORA_H_\(ENABLED\|ALLOWLIST\)=/d' vps-upload/.env
           if [ -n "$KORA_H_ALLOWLIST" ]; then
-            if [[ ! "$KORA_H_ALLOWLIST" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-              echo "Kora H allowlist must be comma-separated Telegram IDs" >&2
+            if [[ "$KORA_H_ALLOWLIST" != "*" && ! "$KORA_H_ALLOWLIST" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
+              echo "Kora H allowlist must be * or comma-separated Telegram IDs" >&2
               exit 1
             fi
             printf 'KORA_H_ENABLED=true\nKORA_H_ALLOWLIST=%s\n' "$KORA_H_ALLOWLIST" >> vps-upload/.env
