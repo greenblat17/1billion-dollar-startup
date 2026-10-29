@@ -91,6 +91,24 @@ class Model:
 
 
 @pytest.mark.asyncio
+async def test_spoken_question_is_not_cut_mid_sentence():
+    class LongPromptModel(Model):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_prompt":
+                question = "Tell me about a party where you did not know anyone. " * 6
+                return json.dumps({"prompt": question + "What did you talk about?"})
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, LongPromptModel(), Stt(), Speech())
+    await builder.propose("tg-long-prompt", "small talk")
+    card = await builder.confirm("tg-long-prompt")
+    await builder.select("tg-long-prompt", card["id"], True)
+    started = await builder.start("tg-long-prompt")
+    assert started["text"].endswith("What did you talk about?")
+    assert len(started["text"]) > 300
+
+
+@pytest.mark.asyncio
 async def test_one_word_has_understand_use_recall_and_optional_game():
     clock, stt, model = Clock(), Stt(), Model()
     builder = VocabularyBuilder(None, model, stt, Speech(), clock)

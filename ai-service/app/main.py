@@ -665,6 +665,10 @@ def create_app(
         try:
             return await vocabulary.voice(sessionId, lessonId, messageId, audio)
         except ValueError as error:
+            logger.warning(
+                "vocabulary voice rejected lesson_id=%s message_id=%s error_type=%s reason=%s",
+                lessonId, messageId, type(error).__name__, str(error),
+            )
             raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/internal/vocabulary/due")

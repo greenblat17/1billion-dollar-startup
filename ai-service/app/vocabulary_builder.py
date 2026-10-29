@@ -105,8 +105,11 @@ def _subtitle_key(session_id: str, message_id: int) -> str:
     return f"vocabulary:subtitle:{session_id}:{message_id}"
 
 
-def _clean(value: object, limit: int = 160) -> str:
-    return " ".join(value.split())[:limit] if isinstance(value, str) else ""
+def _clean(value: object, limit: int | None = 160) -> str:
+    if not isinstance(value, str):
+        return ""
+    cleaned = " ".join(value.split())
+    return cleaned if limit is None else cleaned[:limit]
 
 
 def _norm(value: str) -> str:
@@ -421,11 +424,11 @@ class VocabularyBuilder:
                 "retryForUnsafePrompt": attempt > 0},
                 "vocabulary_prompt")
             if phase == "Use":
-                scenario = _clean(raw.get("scenario"), 220)
+                scenario = _clean(raw.get("scenario"), None)
                 if scenario and not self._reveals(scenario, word["word"]):
                     return f"{scenario} Answer using {word['word']} in your own phrase."
                 continue
-            prompt = _clean(raw.get("prompt"), 300)
+            prompt = _clean(raw.get("prompt"), None)
             if prompt and not (phase == "Recall" and any(
                     self._reveals(prompt, item["word"]) for item in lesson["words"])):
                 return prompt

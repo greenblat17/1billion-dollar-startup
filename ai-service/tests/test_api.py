@@ -164,6 +164,23 @@ def test_vocabulary_review_requires_internal_token_and_returns_trace() -> None:
         assert client.post("/internal/vocabulary", json={**payload, "lessonId": "unknown"}).status_code == 409
 
 
+def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatch) -> None:
+    app, _, _, _ = build_app()
+
+    async def reject(*args):
+        raise ValueError("invalid vocabulary grade")
+
+    monkeypatch.setattr(app.state.vocabulary, "voice", reject)
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary/voice", data={
+            "sessionId": "tg-1", "lessonId": "lesson1", "messageId": "42"},
+            files={"file": ("voice.ogg", b"private-audio", "audio/ogg")})
+    assert response.status_code == 409
+    assert "lesson_id=lesson1 message_id=42" in caplog.text
+    assert "reason=invalid vocabulary grade" in caplog.text
+    assert "private-audio" not in caplog.text
+
+
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:
