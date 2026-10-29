@@ -148,6 +148,22 @@ def test_vocabulary_uses_kora_h_even_without_call_character_selection() -> None:
     assert app.state.vocabulary.kora_speech is speech
 
 
+def test_vocabulary_review_requires_internal_token_and_returns_trace() -> None:
+    app, _, _, _ = build_app()
+    app.state.vocabulary.traces["vocabulary:review:tg-1:lesson1"] = {
+        "lessonId": "lesson1", "words": [{"id": "word1", "meaning": "a light conversation"}],
+        "events": [{"type": "answer", "transcript": "I don't enjoy small talk.",
+                    "reason": "The phrase fits a casual conversation."}]}
+    payload = {"sessionId": "tg-1", "action": "review", "lessonId": "lesson1"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["events"][0]["transcript"] == "I don't enjoy small talk."
+        assert client.post("/internal/vocabulary", json={**payload, "lessonId": "unknown"}).status_code == 409
+
+
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:
