@@ -252,7 +252,18 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val customScenarioPrompts = ConcurrentHashMap<String, MessageId>()
     val vocabularyAddPrompts = ConcurrentHashMap.newKeySet<String>()
 
+    suspend fun acknowledgeVocabularyTurn(message: ChatMessage, result: VocabularyResponse, sentMessageId: Long) {
+        val turnId = result.turnId ?: return
+        val lessonId = result.lesson?.id ?: return
+        try {
+            ai.vocabulary(telegramSessionId(message.chat.id), "delivery", lessonId = lessonId,
+                messageId = sentMessageId, turnId = turnId)
+        } catch (error: CancellationException) { throw error
+        } catch (error: Throwable) { log.warn("Vocabulary delivery acknowledgement failed for lesson {}", lessonId, error) }
+    }
+
     suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
+        if (result.deliveredMessageId != null) return
         val audio = result.audio
         val lesson = result.lesson
         if (audio != null && lesson != null) {
@@ -260,6 +271,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
                 replyMarkup = vocabularyLessonKeyboard(lesson))
+            acknowledgeVocabularyTurn(message, result, voice.messageId.long)
             spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text
             try {
                 ai.vocabulary(telegramSessionId(message.chat.id), "subtitle-save",
@@ -267,8 +279,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             } catch (error: CancellationException) { throw error
             } catch (error: Throwable) { log.warn("Vocabulary subtitle storage failed", error) }
         } else if (result.text.isNotBlank()) {
-            reply(message, result.text, allowSendingWithoutReply = true,
+            val sent = reply(message, result.text, allowSendingWithoutReply = true,
                 replyMarkup = lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
+            acknowledgeVocabularyTurn(message, result, sent.messageId.long)
         }
         if (result.summary != null) {
             sendMessage(message.chat.id, result.summary, replyMarkup = startCallKeyboard())
@@ -1690,8 +1703,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                     allowSendingWithoutReply = true)
                             } else {
                                 val hint = ai.vocabulary(sessionId, "hint", lessonId = itemId)
-                                reply(message, "💡 ${hint.text}", allowSendingWithoutReply = true,
-                                    replyMarkup = hint.lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
+                                if (hint.deliveredMessageId == null) {
+                                    val sent = reply(message, "💡 ${hint.text}", allowSendingWithoutReply = true,
+                                        replyMarkup = hint.lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
+                                    acknowledgeVocabularyTurn(message, hint, sent.messageId.long)
+                                }
                             }
                         }
                         "play" -> {
@@ -2325,12 +2341,23 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             reply(message, "This recording is too large. Please send a shorter one; your attempt is safe.")
                         } else try {
                             val bytes = downloadFile(content.media)
-                            sendVocabularyTurn(message, ai.vocabularyVoice(telegramSessionId(message.chat.id),
-                                lesson.id, message.messageId.long, bytes))
+                            val result = coroutineScope {
+                                val delayedNotice = launch {
+                                    delay(5_000)
+                                    try { sendMessage(message.chat.id, "I'm still working on your answer.") }
+                                    catch (error: CancellationException) { throw error }
+                                    catch (error: Throwable) { log.warn("Vocabulary delay notice failed", error) }
+                                }
+                                try {
+                                    ai.vocabularyVoice(telegramSessionId(message.chat.id), lesson.id,
+                                        message.messageId.long, bytes)
+                                } finally { delayedNotice.cancelAndJoin() }
+                            }
+                            sendVocabularyTurn(message, result)
                         } catch (error: CancellationException) { throw error
                         } catch (error: Throwable) {
                             log.warn("Vocabulary voice failed for {}", message.chat.id, error)
-                            reply(message, "I couldn't process that recording. Please try again; your attempt is safe.")
+                            reply(message, "I couldn't finish that response. Open Vocabulary Builder to continue.")
                         }
                     } else if (lesson?.status == "offer") {
                         reply(message, "Tap Play or Skip under the last lesson message.")

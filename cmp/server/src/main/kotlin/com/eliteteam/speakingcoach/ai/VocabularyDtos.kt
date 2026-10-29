@@ -11,6 +11,7 @@ data class VocabularyActionRequest(
     val lessonId: String? = null,
     val text: String? = null,
     val messageId: Long? = null,
+    val turnId: String? = null,
 )
 
 @Serializable
@@ -51,6 +52,8 @@ data class VocabularyResponse(
     val audio: String? = null,
     val audioContentType: String = "audio/ogg",
     val summary: String? = null,
+    val turnId: String? = null,
+    val deliveredMessageId: Long? = null,
 )
 
 @Serializable

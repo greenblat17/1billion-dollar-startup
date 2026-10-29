@@ -151,7 +151,8 @@ async def test_one_word_has_understand_use_recall_and_optional_game():
     assert understood["lesson"]["phase"] == "Use"
     assert "using overwhelmed in your own phrase" in understood["text"]
     duplicate = await builder.voice("tg-1", lesson_id, 1, b"voice")
-    assert duplicate["status"] == "duplicate"
+    assert duplicate["turnId"] == understood["turnId"]
+    assert duplicate["text"] == understood["text"]
     stt.text = "I was overwhelmed by work."
     used = await builder.voice("tg-1", lesson_id, 2, b"voice")
     assert used["lesson"]["phase"] == "Recall"
@@ -374,3 +375,152 @@ async def test_kora_voice_and_subtitles_survive_service_restart():
     await builder.save_subtitle("tg-5", 44, turn["text"])
     restarted = VocabularyBuilder(redis, Model(), Stt(), Speech(), kora_speech=kora)
     assert await restarted.subtitle("tg-5", 44) == turn["text"]
+
+
+@pytest.mark.asyncio
+async def test_every_core_model_call_sees_current_lesson_history_and_delivery():
+    class RecordingModel(Model):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] in ("vocabulary_prompt", "vocabulary_grade", "vocabulary_hint"):
+                self.calls.append((kwargs["operation"], json.loads(payload)))
+            return await super().complete_json(system, payload, **kwargs)
+
+    redis = FakeAsyncRedis(decode_responses=True)
+    model, stt = RecordingModel(), Stt()
+    builder = VocabularyBuilder(redis, model, stt, Speech())
+    await builder.propose("tg-context", "overwhelmed")
+    card = await builder.confirm("tg-context")
+    await builder.select("tg-context", card["id"], True)
+    start = await builder.start("tg-context")
+    lesson_id = start["lesson"]["id"]
+    await builder.delivery("tg-context", lesson_id, start["turnId"], 100)
+    hint = await builder.hint("tg-context", lesson_id)
+    await builder.delivery("tg-context", lesson_id, hint["turnId"], 101)
+    stt.text = "I had too many tasks yesterday."
+    first = await builder.voice("tg-context", lesson_id, 1, b"voice")
+    grade = next(data for operation, data in model.calls if operation == "vocabulary_grade")
+    assert [event["type"] for event in grade["lessonHistory"]] == ["spoken", "hint", "answer"]
+    assert grade["lessonHistory"][0]["delivery"] == "delivered"
+    assert grade["lessonHistory"][1]["text"] == hint["text"]
+    next_prompt = [data for operation, data in model.calls if operation == "vocabulary_prompt"][-1]
+    assert next_prompt["lessonHistory"][-1]["transcript"] == stt.text
+    assert next_prompt["lessonHistory"][-1]["reason"]
+    restarted = VocabularyBuilder(redis, model, stt, Speech())
+    assert (await restarted.voice("tg-context", lesson_id, 1, b"voice"))["turnId"] == first["turnId"]
+    await restarted.delivery("tg-context", lesson_id, first["turnId"], 102)
+    replay = await restarted.voice("tg-context", lesson_id, 1, b"voice")
+    assert replay["deliveredMessageId"] == 102
+    trace = await restarted.review("tg-context", lesson_id)
+    assert [event["eventId"] for event in trace["events"]] == list(range(1, len(trace["events"]) + 1))
+    assert len([event for event in trace["events"] if event["type"] == "answer"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_long_lesson_keeps_originals_and_supplies_summary():
+    class SummaryModel(Model):
+        def __init__(self):
+            super().__init__()
+            self.contexts = []
+            self.summary_sources = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_context_summary":
+                self.summary_sources.append(data)
+                return json.dumps({"summary": "Earlier conversation and reasons are in events 1 through 5."})
+            if kwargs["operation"] in ("vocabulary_prompt", "vocabulary_grade"):
+                self.contexts.append(data)
+            return await super().complete_json(system, payload, **kwargs)
+
+    model, stt = SummaryModel(), Stt()
+    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=6000)
+    for word in ("overwhelmed", "postpone", "small talk"):
+        await builder.propose("tg-long", word)
+        card = await builder.confirm("tg-long")
+        await builder.select("tg-long", card["id"], True)
+    lesson_id = (await builder.start("tg-long"))["lesson"]["id"]
+    for message_id, transcript in enumerate((
+            "My work calendar was full of tasks from three different teams yesterday.",
+            "I was overwhelmed by work.",
+            "We could hold the meeting next week because our client is away.",
+            "I will postpone it.",
+            "My work calendar was full before that event.",
+            "I enjoy small talk before an event."), 1):
+        stt.text = transcript
+        await builder.voice("tg-long", lesson_id, message_id, b"voice")
+    assert any("earlierLessonSummary" in data for data in model.contexts)
+    assert all(len(json.dumps(data).encode()) < 6000 for data in model.summary_sources)
+    recall_context = next(data for data in model.contexts
+                          if data.get("phase") == "Recall" and "earlierLessonSummary" in data)
+    assert any("overwhelmed" in event.get("transcript", "").lower()
+               for event in recall_context["lessonHistory"])
+    reference_context = next(data for data in model.contexts
+                             if data.get("transcript") == "My work calendar was full before that event.")
+    assert any("work calendar was full of tasks" in event.get("transcript", "")
+               for event in reference_context["lessonHistory"])
+    trace = await builder.review("tg-long", lesson_id)
+    assert [event["transcript"] for event in trace["events"] if event["type"] == "answer"][:6] == [
+        "My work calendar was full of tasks from three different teams yesterday.",
+        "I was overwhelmed by work.",
+        "We could hold the meeting next week because our client is away.",
+        "I will postpone it.",
+        "My work calendar was full before that event.",
+        "I enjoy small talk before an event.",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_context_summary_failure_does_not_count_the_voice_attempt():
+    class FailingSummaryModel(Model):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_context_summary":
+                raise RuntimeError("summary provider unavailable")
+            return await super().complete_json(system, payload, **kwargs)
+
+    stt = Stt()
+    builder = VocabularyBuilder(None, FailingSummaryModel(), stt, Speech(),
+                                context_window_tokens=6000)
+    for word in ("overwhelmed", "postpone", "small talk"):
+        await builder.propose("tg-summary-fail", word)
+        card = await builder.confirm("tg-summary-fail")
+        await builder.select("tg-summary-fail", card["id"], True)
+    lesson_id = (await builder.start("tg-summary-fail"))["lesson"]["id"]
+    transcripts = ("I had too many tasks yesterday.", "I was overwhelmed at work.",
+                   "The meeting can wait.", "I will postpone it.",
+                   "People chatted before the event.", "I enjoy small talk.")
+    for message_id, transcript in enumerate(transcripts, 1):
+        stt.text = transcript
+        before = (await builder.list("tg-summary-fail"))["lesson"]
+        try:
+            await builder.voice("tg-summary-fail", lesson_id, message_id, b"voice")
+        except RuntimeError as error:
+            assert str(error) == "summary provider unavailable"
+            after = (await builder.list("tg-summary-fail"))["lesson"]
+            assert (after["index"], after["attempts"]) == (before["index"], before["attempts"])
+            assert all(event.get("transcript") != transcript for event in
+                       (await builder.review("tg-summary-fail", lesson_id))["events"])
+            break
+    else:
+        pytest.fail("the reduced context window did not exercise summary failure")
+
+
+@pytest.mark.asyncio
+async def test_active_previous_context_format_can_finish_without_forced_close():
+    redis = FakeAsyncRedis(decode_responses=True)
+    stt = Stt()
+    builder = VocabularyBuilder(redis, Model(), stt, Speech())
+    await builder.propose("tg-old-context", "overwhelmed")
+    card = await builder.confirm("tg-old-context")
+    await builder.select("tg-old-context", card["id"], True)
+    lesson_id = (await builder.start("tg-old-context"))["lesson"]["id"]
+    state = await builder._get("tg-old-context")
+    state["lesson"].pop("contextVersion")
+    await builder._save("tg-old-context", state)
+    resumed = VocabularyBuilder(redis, Model(), stt, Speech())
+    assert (await resumed.list("tg-old-context"))["lesson"]["status"] == "active"
+    stt.text = "I had too much work."
+    assert (await resumed.voice("tg-old-context", lesson_id, 1, b"voice"))["lesson"]["phase"] == "Use"

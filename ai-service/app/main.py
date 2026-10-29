@@ -113,6 +113,9 @@ def create_app(
         kora_model if kora_lesson_ready else clip_pipeline.llm,
         clip_pipeline.stt, clip_pipeline.speech,
         kora_speech=kora_speech if kora_lesson_ready else None,
+        context_window_tokens=(settings.vocabulary_context_window_tokens or
+                               (1_000_000 if kora_lesson_ready and settings.kora_model == "anthropic/claude-sonnet-4.6"
+                                else 8192)),
     )
     sessions = clip_pipeline.dialogue
     call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
@@ -632,6 +635,10 @@ def create_app(
                 if review is None:
                     raise ValueError("lesson review unavailable")
                 return review
+            if action == "delivery":
+                return await vocabulary.delivery(session_id, str(payload.get("lessonId") or ""),
+                                                 str(payload.get("turnId") or ""),
+                                                 int(payload.get("messageId") or 0))
             if action == "select":
                 if type(payload.get("selected")) is not bool:
                     raise HTTPException(status_code=400, detail="selected must be boolean")
