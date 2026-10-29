@@ -18,7 +18,7 @@ internal fun vocabularyListText(state: VocabularyResponse, page: Int): String {
     val shown = state.items.drop(safePage * PAGE_SIZE).take(PAGE_SIZE)
     val words = shown.joinToString("\n") { item ->
         val mark = if (item.id in state.selected) "✅" else "▫️"
-        "$mark ${item.word}"
+        "$mark ${item.word}${if (item.reviewDue) " · 🔁 Ready to revisit" else ""}"
     }
     return "📚 My words\nSelected ${state.selected.size}/5\n\n" +
         (words.ifEmpty { "No words yet. Add one to start your first lesson." }) +
@@ -31,7 +31,8 @@ internal fun vocabularyListKeyboard(state: VocabularyResponse, page: Int): Inlin
     return inlineKeyboard {
         state.items.drop(safePage * PAGE_SIZE).take(PAGE_SIZE).forEach { item ->
             row {
-                dataButton(if (item.id in state.selected) "✅ ${item.word}" else item.word,
+                dataButton(if (item.id in state.selected) "✅ ${item.word}" else
+                    if (item.reviewDue) "🔁 ${item.word}" else item.word,
                     "vocab:${if (item.id in state.selected) "unchoose" else "choose"}:${item.id}:$safePage")
                 dataButton("ℹ️", "vocab:card:${item.id}:$safePage")
             }
@@ -70,13 +71,18 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 }
 
 internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
-    val words = (if (lesson.round == "Word game") lesson.total else lesson.total / 2).coerceAtLeast(1)
-    val completed = if (lesson.index >= lesson.total) words else lesson.index % words
-    val dots = "🟢".repeat(completed) + "⚪️".repeat(words - completed)
-    if (lesson.index in 1 until lesson.total && completed == 0) {
-        return "$words/$words → ${lesson.round} · $dots 0/$words"
+    val words = (if (lesson.round == "Word game") lesson.total else lesson.total / 3).coerceAtLeast(1)
+    val completed = when (lesson.round) {
+        "Word game" -> lesson.index.coerceIn(0, words)
+        "Recall" -> (lesson.index - 2 * words).coerceIn(0, words)
+        else -> (lesson.index / 2).coerceIn(0, words)
     }
-    return "${lesson.round} · $dots $completed/$words"
+    val dots = "🟢".repeat(completed) + "⚪️".repeat(words - completed)
+    if (lesson.round == "Recall" && lesson.index == 2 * words) {
+        return "$words/$words → Recall · $dots 0/$words"
+    }
+    val stage = if (lesson.round == "Learn" && lesson.phase == "Use") "Make a phrase" else lesson.round
+    return "$stage · $dots $completed/$words"
 }
 
 internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson, spoken: Boolean = true): InlineKeyboardMarkup = inlineKeyboard {

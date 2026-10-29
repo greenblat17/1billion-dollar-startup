@@ -22,6 +22,7 @@ data class VocabularyCard(
     val example: String = "",
     val source: String = "",
     val mastered: Boolean = false,
+    val reviewDue: Boolean = false,
 )
 
 @Serializable
@@ -29,6 +30,7 @@ data class VocabularyLesson(
     val id: String = "",
     val status: String = "",
     val round: String = "",
+    val phase: String = "",
     val index: Int = 0,
     val total: Int = 0,
     val word: VocabularyCard? = null,

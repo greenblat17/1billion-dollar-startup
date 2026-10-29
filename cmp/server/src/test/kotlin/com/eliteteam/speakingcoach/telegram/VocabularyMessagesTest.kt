@@ -28,10 +28,10 @@ class VocabularyMessagesTest {
     @Test
     fun recallExerciseButtonsNeverExposeTarget() {
         val lesson = VocabularyLesson(id = "lesson1", status = "active", round = "Recall",
-            index = 3, total = 6, word = null, hints = 0)
+            phase = "Recall", index = 6, total = 9, word = null, hints = 0)
         val buttons = vocabularyLessonKeyboard(lesson).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:lesson1:3", "vocab:end:lesson1"),
+        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:lesson1:6", "vocab:end:lesson1"),
             buttons.map { it.callbackData })
         assertEquals("Hint", buttons[2].text)
         assertFalse(vocabularyLessonKeyboard(lesson, spoken = false).keyboard.flatten()
@@ -39,24 +39,22 @@ class VocabularyMessagesTest {
     }
 
     @Test
-    fun wordProgressResetsAtEachRound() {
-        fun label(index: Int, round: String, status: String = "active") =
-            vocabularyRoundProgress(VocabularyLesson(index = index, total = 6, round = round, status = status))
+    fun wordProgressCountsCompletedWordsAndResetsForRecall() {
+        fun label(index: Int, round: String, phase: String = "Understand", status: String = "active") =
+            vocabularyRoundProgress(VocabularyLesson(index = index, total = 9, round = round,
+                phase = phase, status = status))
 
-        assertEquals("Guided · ⚪️⚪️⚪️ 0/3", label(0, "Guided"))
-        assertEquals("Guided · 🟢⚪️⚪️ 1/3", label(1, "Guided"))
-        assertEquals("3/3 → Recall · ⚪️⚪️⚪️ 0/3", label(3, "Recall"))
-        assertEquals("Recall · 🟢🟢⚪️ 2/3", label(5, "Recall"))
-        assertEquals("Recall · 🟢🟢🟢 3/3", label(6, "Recall", "offer"))
-        assertEquals("Guided · ⚪️ 0/1", vocabularyRoundProgress(
-            VocabularyLesson(index = 0, total = 2, round = "Guided")))
-        assertEquals("1/1 → Recall · ⚪️ 0/1", vocabularyRoundProgress(
-            VocabularyLesson(index = 1, total = 2, round = "Recall")))
+        assertEquals("Learn · ⚪️⚪️⚪️ 0/3", label(0, "Learn"))
+        assertEquals("Make a phrase · ⚪️⚪️⚪️ 0/3", label(1, "Learn", "Use"))
+        assertEquals("Learn · 🟢⚪️⚪️ 1/3", label(2, "Learn"))
+        assertEquals("3/3 → Recall · ⚪️⚪️⚪️ 0/3", label(6, "Recall"))
+        assertEquals("Recall · 🟢🟢⚪️ 2/3", label(8, "Recall"))
+        assertEquals("Recall · 🟢🟢🟢 3/3", label(9, "Recall", status = "offer"))
     }
 
     @Test
     fun optionalWordGameOffersPlayAndSkip() {
-        val lesson = VocabularyLesson(id = "lesson1", status = "offer", round = "Recall", index = 2, total = 2)
+        val lesson = VocabularyLesson(id = "lesson1", status = "offer", round = "Recall", index = 3, total = 3)
         val buttons = vocabularyLessonKeyboard(lesson).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
         assertTrue(buttons.any { it.callbackData == "vocab:play:lesson1" })

@@ -8,6 +8,7 @@ from fakeredis import FakeAsyncRedis
 from app.stt import SttResult
 from app.tts import TtsAudio
 from app.vocabulary_builder import VocabularyBuilder
+from app.vocabulary_builder import _trace_key
 
 
 class Clock:
@@ -58,18 +59,26 @@ class Model:
                                           "translation": "перегруженный", "example": "I felt overwhelmed at work."}
                                          for item in data["inputs"]]})
         if operation == "vocabulary_prompt":
-            round_name = data["round"]
+            phase = data["phase"]
             number = len(self.prompts)
             word = data["target"]["word"]
-            prompt = (f"{word} means too much to manage. When did you feel {word} in situation {number}? Use {word}." if round_name != "Recall"
-                      else f"Tell me about too many tasks in situation {number}.")
+            prompt = (f"{word} means too much to manage. Have you faced too many tasks in situation {number}?"
+                      if phase == "Understand" else
+                      f"Tell me about your own experience in situation {number}."
+                      if phase == "Use" else
+                      f"Which expression fits too many tasks in a new situation {number}?")
             self.prompts.append(prompt)
-            return json.dumps({"prompt": prompt})
+            return json.dumps({"scenario": prompt} if phase == "Use" else {"prompt": prompt})
         if operation == "vocabulary_grade":
             word = data["target"]["word"]
-            matched = word if word in data["transcript"] else ""
-            return json.dumps({"correct": bool(matched), "uncertain": False,
-                               "matchedPhrase": matched, "feedback": "Good use." if matched else "Try another way."})
+            matched = data["transcript"][data["transcript"].lower().index(word):][:len(word)] if word in data["transcript"].lower() else ""
+            phase = data["phase"]
+            category = ("understood" if "don't understand" not in data["transcript"].lower() else "confused") if phase == "Understand" else (
+                "used" if matched and len(data["transcript"].split()) > 1 else "natural_without_target" if not matched else "misuse") if phase == "Use" else (
+                "recalled" if matched else "not_recalled")
+            return json.dumps({"category": category, "uncertain": False,
+                               "matchedPhrase": matched, "reason": "The answer shows " + category,
+                               "feedback": "That fits." if matched else "That makes sense."})
         if operation == "vocabulary_hint":
             return json.dumps({"hint": "Think about too many tasks."})
         if operation == "vocabulary_card_prompt":
@@ -77,165 +86,204 @@ class Model:
                                else "Which word means too much to manage?"})
         if operation == "vocabulary_card_grade":
             return json.dumps({"correct": "too much" in data["transcript"] or "overwhelmed" in data["transcript"],
-                               "uncertain": False, "feedback": "Good."})
+                               "uncertain": False, "feedback": "Good.", "reason": "Meaning fits."})
         raise AssertionError(operation)
 
 
 @pytest.mark.asyncio
-async def test_two_rounds_offer_optional_cards_without_mastered_status():
+async def test_one_word_has_understand_use_recall_and_optional_game():
     clock, stt, model = Clock(), Stt(), Model()
     builder = VocabularyBuilder(None, model, stt, Speech(), clock)
     await builder.propose("tg-1", "overwhelmed")
     card = await builder.confirm("tg-1")
     await builder.select("tg-1", card["id"], True)
-    assert (await builder.select("tg-1", card["id"], True))["selected"] == [card["id"]]
     start = await builder.start("tg-1")
     lesson_id = start["lesson"]["id"]
-    assert start["text"].startswith("Let's practice your words together.")
-    assert start["lesson"]["round"] == "Guided"
+    assert start["lesson"]["phase"] == "Understand"
+    assert "Use overwhelmed" not in start["text"]
+    stt.text = "I had so many tasks yesterday."
+    understood = await builder.voice("tg-1", lesson_id, 1, b"voice")
+    assert understood["lesson"]["phase"] == "Use"
+    assert "using overwhelmed in your own phrase" in understood["text"]
+    duplicate = await builder.voice("tg-1", lesson_id, 1, b"voice")
+    assert duplicate["status"] == "duplicate"
+    stt.text = "I was overwhelmed by work."
+    used = await builder.voice("tg-1", lesson_id, 2, b"voice")
+    assert used["lesson"]["phase"] == "Recall"
+    assert "overwhelmed" not in used["lesson"]["prompt"]
+    stt.text = "Overwhelmed"
+    recalled = await builder.voice("tg-1", lesson_id, 3, b"voice")
+    assert recalled["status"] == "offer"
+    assert "One quick word game?" in recalled["text"]
+    trace = await builder.review("tg-1", lesson_id)
+    assert trace["words"][0]["meaning"] == card["meaning"]
+    assert [e["transcript"] for e in trace["events"] if e["type"] == "answer"] == [
+        "I had so many tasks yesterday.", "I was overwhelmed by work.", "Overwhelmed"]
+    assert all(e["reason"] for e in trace["events"] if e["type"] == "answer")
     assert "mastered" not in (await builder.list("tg-1"))["items"][0]
-    for index in range(2):
-        result = await builder.voice("tg-1", lesson_id, index + 1, b"voice")
-        if index < 1:
-            assert result["lesson"]["status"] == "active"
-            duplicate = await builder.voice("tg-1", lesson_id, index + 1, b"voice")
-            assert duplicate["status"] == "duplicate"
-            assert duplicate["lesson"]["index"] == index + 1
-    assert result["status"] == "offer"
-    assert "word game" in result["text"]
-    assert "overwhelmed" not in model.prompts[1].lower()
+    assert (await builder.list("tg-1"))["items"][0]["reviewDue"] is False
     card_turn = await builder.play("tg-1", lesson_id)
     assert card_turn["lesson"]["status"] == "cards"
     stt.text = "It means too much to manage."
-    card_result = await builder.voice("tg-1", lesson_id, 3, b"voice")
-    assert card_result["status"] == "finished"
-    assert "word game: correct" in card_result["summary"]
-    assert "Round 2: recalled on your own" in card_result["summary"]
-    assert "mastered" not in (await builder.list("tg-1"))["items"][0]
+    result = await builder.voice("tg-1", lesson_id, 4, b"voice")
+    assert result["status"] == "finished"
+    assert "own phrase: used" in result["summary"]
+    assert "immediate recall" in result["summary"]
+    clock.now += 24 * 3600
+    assert (await builder.list("tg-1"))["items"][0]["reviewDue"] is True
 
 
 @pytest.mark.asyncio
-async def test_retry_hint_timeout_and_partial_summary():
-    clock, stt, model = Clock(), Stt(), Model()
-    builder = VocabularyBuilder(None, model, stt, Speech(), clock)
-    await builder.propose("tg-2", "overwhelmed")
-    card = await builder.confirm("tg-2")
-    await builder.select("tg-2", card["id"], True)
-    lesson = (await builder.start("tg-2"))["lesson"]
-    stt.text = "I had too much work."
-    first = await builder.voice("tg-2", lesson["id"], 1, b"voice")
+async def test_natural_answer_without_word_gets_second_attempt_not_english_error():
+    stt = Stt()
+    builder = VocabularyBuilder(None, Model(), stt, Speech())
+    await builder.propose("tg-natural", "overwhelmed")
+    card = await builder.confirm("tg-natural")
+    await builder.select("tg-natural", card["id"], True)
+    lesson_id = (await builder.start("tg-natural"))["lesson"]["id"]
+    stt.text = "I had too many tasks yesterday."
+    await builder.voice("tg-natural", lesson_id, 1, b"voice")
+    stt.text = "I took a break."
+    first = await builder.voice("tg-natural", lesson_id, 2, b"voice")
+    assert first["lesson"]["phase"] == "Use"
     assert first["lesson"]["attempts"] == 1
-    assert first["lesson"]["index"] == 0
-    assert first["lesson"]["hints"] == 1
-    assert "audio" in first and "Think about too many tasks." in first["text"]
-    assert "hintText" not in first
-    stt.text = "I was overwhelmed."
-    second = await builder.voice("tg-2", lesson["id"], 2, b"voice")
-    assert second["lesson"]["index"] == 1
-    assert "mastered" not in (await builder.list("tg-2"))["items"][0]
-    clock.now += 301
-    due = await builder.due()
-    assert len(due) == 1 and due[0]["kind"] == "reminder"
-    assert await builder.due() == []
-    clock.now += 3300
-    due = await builder.due()
-    assert len(due) == 1 and due[0]["kind"] == "ended"
-    assert "not completed" in due[0]["text"]
-    assert (await builder.end("tg-2", lesson["id"]))["status"] == "stale"
+    assert "using overwhelmed" in first["text"]
+    assert "wrong" not in first["text"].lower()
+    stt.text = "I felt overwhelmed after the meeting."
+    second = await builder.voice("tg-natural", lesson_id, 3, b"voice")
+    assert second["lesson"]["phase"] == "Recall"
+    trace = await builder.review("tg-natural", lesson_id)
+    answers = [e for e in trace["events"] if e["type"] == "answer"]
+    assert answers[1]["category"] == "natural_without_target"
+    assert answers[2]["category"] == "used"
 
 
 @pytest.mark.asyncio
-async def test_requested_hint_does_not_consume_attempt_and_skip_preserves_result():
-    builder = VocabularyBuilder(None, Model(), Stt(), Speech())
+async def test_confusion_gets_new_explanation_then_advances_after_second_answer():
+    stt, model = Stt(), Model()
+    builder = VocabularyBuilder(None, model, stt, Speech())
+    await builder.propose("tg-confused", "overwhelmed")
+    card = await builder.confirm("tg-confused")
+    await builder.select("tg-confused", card["id"], True)
+    lesson_id = (await builder.start("tg-confused"))["lesson"]["id"]
+    stt.text = "I don't understand."
+    first = await builder.voice("tg-confused", lesson_id, 1, b"voice")
+    assert first["lesson"]["phase"] == "Understand"
+    assert first["lesson"]["attempts"] == 1
+    assert model.prompts[1] != model.prompts[0]
+    stt.text = "I still don't understand."
+    second = await builder.voice("tg-confused", lesson_id, 2, b"voice")
+    assert second["lesson"]["phase"] == "Use"
+    assert "means too much to manage" in second["text"]
+    trace = await builder.review("tg-confused", lesson_id)
+    assert [event["category"] for event in trace["events"] if event["type"] == "answer"] == [
+        "confused", "confused"]
+
+
+@pytest.mark.asyncio
+async def test_recall_hint_is_text_and_does_not_show_word():
+    stt = Stt()
+    builder = VocabularyBuilder(None, Model(), stt, Speech())
+    await builder.propose("tg-recall-hint", "overwhelmed")
+    card = await builder.confirm("tg-recall-hint")
+    await builder.select("tg-recall-hint", card["id"], True)
+    lesson_id = (await builder.start("tg-recall-hint"))["lesson"]["id"]
+    stt.text = "My workload was too high."
+    await builder.voice("tg-recall-hint", lesson_id, 1, b"voice")
+    stt.text = "I was overwhelmed."
+    await builder.voice("tg-recall-hint", lesson_id, 2, b"voice")
+    hint = await builder.hint("tg-recall-hint", lesson_id)
+    assert "audio" not in hint
+    assert "overwhelmed" not in hint["text"].lower()
+    stt.text = "Overwhelmed"
+    result = await builder.voice("tg-recall-hint", lesson_id, 3, b"voice")
+    assert result["status"] == "offer"
+    summary = (await builder.skip("tg-recall-hint", lesson_id))["summary"]
+    assert "recalled with a hint" in summary
+
+
+@pytest.mark.asyncio
+async def test_hint_is_text_only_and_timeout_has_partial_summary():
+    clock, stt = Clock(), Stt()
+    builder = VocabularyBuilder(None, Model(), stt, Speech(), clock)
     await builder.propose("tg-hint", "overwhelmed")
     card = await builder.confirm("tg-hint")
     await builder.select("tg-hint", card["id"], True)
     lesson_id = (await builder.start("tg-hint"))["lesson"]["id"]
     hint = await builder.hint("tg-hint", lesson_id)
     assert hint["lesson"]["attempts"] == 0 and "audio" not in hint
-    await builder.voice("tg-hint", lesson_id, 1, b"voice")
-    await builder.voice("tg-hint", lesson_id, 2, b"voice")
-    result = await builder.skip("tg-hint", lesson_id)
-    assert "Round 2: recalled on your own" in result["summary"]
-    assert "word game" not in result["summary"]
+    assert any(e["type"] == "hint" for e in (await builder.review("tg-hint", lesson_id))["events"])
+    clock.now += 301
+    due = await builder.due()
+    assert len(due) == 1 and due[0]["kind"] == "reminder"
+    clock.now += 3300
+    due = await builder.due()
+    assert len(due) == 1 and due[0]["kind"] == "ended"
+    assert "not completed" in due[0]["text"]
 
 
 @pytest.mark.asyncio
-async def test_resume_replays_current_question_as_voice_without_using_an_attempt():
-    clock, speech = Clock(), KoraSpeech()
-    builder = VocabularyBuilder(None, Model(), Stt(), Speech(), clock, kora_speech=speech)
-    await builder.propose("tg-resume", "overwhelmed")
-    card = await builder.confirm("tg-resume")
-    await builder.select("tg-resume", card["id"], True)
-    started = await builder.start("tg-resume")
-    lesson_id = started["lesson"]["id"]
-    clock.now += 20
-    resumed = await builder.resume("tg-resume", lesson_id)
-    assert resumed["audio"] == started["audio"]
-    assert resumed["text"] == started["text"]
-    assert resumed["lesson"]["attempts"] == 0
-    assert resumed["lesson"]["index"] == 0
-    assert len(speech.calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_five_word_limit_and_unclear_voice_do_not_advance():
-    stt = Stt()
-    builder = VocabularyBuilder(None, Model(), stt, Speech())
-    for index in range(5):
-        await builder.propose("tg-five", f"word{index}")
-        card = await builder.confirm("tg-five")
-        await builder.select("tg-five", card["id"], True)
-    assert len((await builder.list("tg-five"))["selected"]) == 5
-    await builder.propose("tg-five", "sixth")
-    sixth = await builder.confirm("tg-five")
-    with pytest.raises(ValueError, match="five words"):
-        await builder.select("tg-five", sixth["id"], True)
-    lesson = (await builder.start("tg-five"))["lesson"]
-    assert lesson["total"] == 10
-    stt.text = ""
-    unclear = await builder.voice("tg-five", lesson["id"], 1, b"voice")
-    assert unclear["status"] == "repeat"
-    assert "audio" in unclear
-    assert unclear["lesson"]["attempts"] == 0
-
-
-@pytest.mark.asyncio
-async def test_words_are_interleaved_and_recall_prompt_uses_earlier_context():
+async def test_two_words_complete_a_b_before_delayed_recall():
     stt, model = Stt(), Model()
     builder = VocabularyBuilder(None, model, stt, Speech())
     for word in ("overwhelmed", "postpone"):
         await builder.propose("tg-order", word)
         card = await builder.confirm("tg-order")
         await builder.select("tg-order", card["id"], True)
-    lesson = (await builder.start("tg-order"))["lesson"]
-    lesson_id = lesson["id"]
-    stt.text = "I felt overwhelmed."
-    first = await builder.voice("tg-order", lesson_id, 1, b"voice")
-    assert first["lesson"]["word"]["word"] == "postpone"
+    lesson_id = (await builder.start("tg-order"))["lesson"]["id"]
+    stt.text = "I had too much work."
+    a1 = await builder.voice("tg-order", lesson_id, 1, b"voice")
+    assert a1["lesson"]["phase"] == "Use"
+    assert a1["lesson"]["word"]["word"] == "overwhelmed"
+    stt.text = "I was overwhelmed."
+    b1 = await builder.voice("tg-order", lesson_id, 2, b"voice")
+    assert b1["lesson"]["phase"] == "Understand"
+    assert b1["lesson"]["word"]["word"] == "postpone"
+    stt.text = "The meeting could wait."
+    await builder.voice("tg-order", lesson_id, 3, b"voice")
     stt.text = "I will postpone it."
-    second = await builder.voice("tg-order", lesson_id, 2, b"voice")
-    assert second["lesson"]["round"] == "Recall"
-    assert second["lesson"]["word"] is None
-    assert "overwhelmed" not in second["lesson"]["prompt"]
-    assert model.prompts[2] != model.prompts[0]
+    b2 = await builder.voice("tg-order", lesson_id, 4, b"voice")
+    assert b2["lesson"]["phase"] == "Recall"
+    assert b2["lesson"]["word"] is None
+    assert "overwhelmed" not in b2["lesson"]["prompt"]
+    assert model.prompts[4] != model.prompts[0]
 
 
 @pytest.mark.asyncio
-async def test_legacy_three_round_lesson_no_longer_blocks_new_start():
-    builder = VocabularyBuilder(None, Model(), Stt(), Speech())
-    await builder.propose("tg-legacy", "overwhelmed")
-    card = await builder.confirm("tg-legacy")
-    await builder.select("tg-legacy", card["id"], True)
-    builder.memory["tg-legacy"]["lesson"] = {
+async def test_resume_unclear_voice_and_legacy_lesson():
+    clock, speech, stt = Clock(), KoraSpeech(), Stt()
+    builder = VocabularyBuilder(None, Model(), stt, Speech(), clock, kora_speech=speech)
+    await builder.propose("tg-resume", "overwhelmed")
+    card = await builder.confirm("tg-resume")
+    await builder.select("tg-resume", card["id"], True)
+    started = await builder.start("tg-resume")
+    lesson_id = started["lesson"]["id"]
+    resumed = await builder.resume("tg-resume", lesson_id)
+    assert resumed["audio"] == started["audio"]
+    assert resumed["lesson"]["attempts"] == 0
+    stt.text = ""
+    unclear = await builder.voice("tg-resume", lesson_id, 1, b"voice")
+    assert unclear["status"] == "repeat" and unclear["lesson"]["attempts"] == 0
+    builder.memory["tg-resume"]["lesson"] = {
         "id": "old", "status": "active", "words": [card], "index": 0,
         "attempts": 0, "hints": 0, "results": {}, "prompts": [], "lastActivity": 1000.0,
-        "reminded": False, "processed": [], "prompt": "Old three-round question."}
-    state = await builder.list("tg-legacy")
-    assert state["lesson"]["status"] == "finished"
-    new_lesson = await builder.start("tg-legacy")
-    assert new_lesson["lesson"]["status"] == "active"
-    assert new_lesson["lesson"]["id"] != "old"
+        "reminded": False, "processed": [], "prompt": "Old question."}
+    assert (await builder.list("tg-resume"))["lesson"]["status"] == "finished"
+    assert (await builder.start("tg-resume"))["lesson"]["id"] != "old"
+
+
+@pytest.mark.asyncio
+async def test_five_word_limit():
+    builder = VocabularyBuilder(None, Model(), Stt(), Speech())
+    for index in range(5):
+        await builder.propose("tg-five", f"word{index}")
+        card = await builder.confirm("tg-five")
+        await builder.select("tg-five", card["id"], True)
+    await builder.propose("tg-five", "sixth")
+    sixth = await builder.confirm("tg-five")
+    with pytest.raises(ValueError, match="five words"):
+        await builder.select("tg-five", sixth["id"], True)
+    assert (await builder.start("tg-five"))["lesson"]["total"] == 15
 
 
 @pytest.mark.asyncio
@@ -262,6 +310,9 @@ async def test_dictionary_and_lesson_survive_service_instance_change():
     assert state["selected"] == [card["id"]]
     assert state["lesson"]["id"] == lesson_id
     assert (await restarted.voice("tg-4", lesson_id, 1, b"voice"))["lesson"]["index"] == 1
+    review = await restarted.review("tg-4", lesson_id)
+    assert [event for event in review["events"] if event["type"] == "answer"][-1]["transcript"] == stt.text
+    assert await redis.ttl(_trace_key("tg-4", lesson_id)) > 0
 
 
 @pytest.mark.asyncio

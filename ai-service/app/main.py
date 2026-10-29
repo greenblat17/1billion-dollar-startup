@@ -624,6 +624,14 @@ def create_app(
                 return {"ok": True}
             if action == "subtitle":
                 return {"text": await vocabulary.subtitle(session_id, int(payload.get("messageId") or 0)) or ""}
+            if action == "review":
+                lesson_id = str(payload.get("lessonId") or "")
+                if not lesson_id:
+                    raise ValueError("lessonId required")
+                review = await vocabulary.review(session_id, lesson_id)
+                if review is None:
+                    raise ValueError("lesson review unavailable")
+                return review
             if action == "select":
                 if type(payload.get("selected")) is not bool:
                     raise HTTPException(status_code=400, detail="selected must be boolean")
