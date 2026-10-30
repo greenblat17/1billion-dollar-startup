@@ -2341,18 +2341,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             reply(message, "This recording is too large. Please send a shorter one; your attempt is safe.")
                         } else try {
                             val bytes = downloadFile(content.media)
-                            val result = coroutineScope {
-                                val delayedNotice = launch {
-                                    delay(5_000)
-                                    try { sendMessage(message.chat.id, "I'm still working on your answer.") }
-                                    catch (error: CancellationException) { throw error }
-                                    catch (error: Throwable) { log.warn("Vocabulary delay notice failed", error) }
-                                }
-                                try {
-                                    ai.vocabularyVoice(telegramSessionId(message.chat.id), lesson.id,
-                                        message.messageId.long, bytes)
-                                } finally { delayedNotice.cancelAndJoin() }
-                            }
+                            val result = ai.vocabularyVoice(telegramSessionId(message.chat.id), lesson.id,
+                                message.messageId.long, bytes)
                             sendVocabularyTurn(message, result)
                         } catch (error: CancellationException) { throw error
                         } catch (error: Throwable) {
