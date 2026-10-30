@@ -64,21 +64,23 @@ class Model:
             transcript = data["transcript"]
             if data["action"] == "hint":
                 return json.dumps({"feedback": "Think about too many tasks.", "question": "",
-                                   "attempted": False, "category": "", "matchedPhrase": "", "reason": ""})
-            attempted = data["action"] == "answer" and "answer on what" not in transcript.lower()
+                                   "category": "", "matchedPhrase": "", "reason": ""})
             matched = transcript[transcript.lower().index(word.lower()):][:len(word)] if word.lower() in transcript.lower() else ""
             category = ("understood" if "don't understand" not in transcript.lower() else "confused") if phase == "Understand" else (
                 "used" if matched and len(transcript.split()) > 1 else "natural_without_target" if not matched else "misuse") if phase == "Use" else (
                 "recalled" if matched else "not_recalled")
-            if not attempted:
+            if data["action"] == "opening":
                 category = ""
+            elif "answer on what" in transcript.lower():
+                category = "conversation"
+            if category == "conversation":
                 matched = ""
             correct = category in ("understood", "used", "recalled")
-            next_phase = data["nextPhase"] if attempted and (correct or data["countedAttempts"] >= 1) else phase
+            next_phase = data["nextPhase"] if correct else phase
             number = len(self.prompts)
             question = (f"{word} means too much to manage. Have you faced too many tasks in situation {number}?"
                         if next_phase == "Understand" else
-                        f"What would you do in situation {number}? Use {word} in your answer."
+                        f"How would you describe your experience in situation {number}?"
                         if next_phase == "Use" else
                         f"Which expression fits too many tasks in a new situation {number}?"
                         if next_phase == "Recall" else "")
@@ -86,12 +88,11 @@ class Model:
                 self.prompts.append(question)
             feedback = ("Let's practise your words together." if data["action"] == "opening" else
                         "That fits." if correct else
-                        f"For example, I felt {word} at work." if attempted and data["countedAttempts"] >= 1 else
                         "Let me make the question clearer.")
             return json.dumps({"feedback": feedback,
-                               "question": question, "attempted": attempted,
+                               "question": question,
                                "category": category, "matchedPhrase": matched,
-                               "reason": "The answer shows " + category if attempted else "The learner asked for clarification."})
+                               "reason": "The answer shows " + category if category else ""})
         if operation == "vocabulary_prompt":
             phase = data["phase"]
             number = len(self.prompts)
@@ -131,7 +132,7 @@ async def test_spoken_question_is_not_cut_mid_sentence():
             if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "opening":
                 question = "Tell me about a party where you did not know anyone. " * 6
                 return json.dumps({"feedback": "Let's start.", "question": question + "What did you talk about?",
-                                   "attempted": False, "category": "", "matchedPhrase": "", "reason": ""})
+                                   "category": "", "matchedPhrase": "", "reason": ""})
             return await super().complete_json(system, payload, **kwargs)
 
     builder = VocabularyBuilder(None, LongPromptModel(), Stt(), Speech())
@@ -164,7 +165,7 @@ async def test_grade_uses_strict_schema_and_invalid_json_is_logged_without_conte
         with pytest.raises(ValueError, match="invalid vocabulary JSON for vocabulary_tutor"):
             await builder.voice("tg-invalid-grade", lesson_id, 1, b"private audio")
     assert model.tutor_format == TUTOR_RESPONSE_FORMAT
-    assert (await builder.list("tg-invalid-grade"))["lesson"]["attempts"] == 0
+    assert (await builder.list("tg-invalid-grade"))["lesson"]["phase"] == "Understand"
     assert "operation=vocabulary_tutor parser_error=Expecting value" in caplog.text
     assert "private learner content" not in caplog.text
     assert "private audio" not in caplog.text
@@ -184,7 +185,8 @@ async def test_one_word_has_understand_use_recall_and_optional_game():
     stt.text = "I had so many tasks yesterday."
     understood = await builder.voice("tg-1", lesson_id, 1, b"voice")
     assert understood["lesson"]["phase"] == "Use"
-    assert "Use overwhelmed in your answer" in understood["text"]
+    assert "How would you describe your experience" in understood["text"]
+    assert "Use overwhelmed" not in understood["text"]
     duplicate = await builder.voice("tg-1", lesson_id, 1, b"voice")
     assert duplicate["turnId"] == understood["turnId"]
     assert duplicate["text"] == understood["text"]
@@ -215,7 +217,7 @@ async def test_one_word_has_understand_use_recall_and_optional_game():
 
 
 @pytest.mark.asyncio
-async def test_natural_answer_without_word_gets_second_attempt_not_english_error():
+async def test_natural_answer_without_word_keeps_the_same_goal():
     stt = Stt()
     builder = VocabularyBuilder(None, Model(), stt, Speech())
     await builder.propose("tg-natural", "overwhelmed")
@@ -227,8 +229,8 @@ async def test_natural_answer_without_word_gets_second_attempt_not_english_error
     stt.text = "I took a break."
     first = await builder.voice("tg-natural", lesson_id, 2, b"voice")
     assert first["lesson"]["phase"] == "Use"
-    assert first["lesson"]["attempts"] == 1
-    assert "Use overwhelmed" in first["text"]
+    assert "attempts" not in first["lesson"]
+    assert "How would you describe your experience" in first["text"]
     assert "wrong" not in first["text"].lower()
     stt.text = "I felt overwhelmed after the meeting."
     second = await builder.voice("tg-natural", lesson_id, 3, b"voice")
@@ -236,11 +238,12 @@ async def test_natural_answer_without_word_gets_second_attempt_not_english_error
     trace = await builder.review("tg-natural", lesson_id)
     answers = [e for e in trace["events"] if e["type"] == "answer"]
     assert answers[1]["category"] == "natural_without_target"
+    assert "counted" not in answers[1]
     assert answers[2]["category"] == "used"
 
 
 @pytest.mark.asyncio
-async def test_tutor_repairs_unclear_question_without_spending_an_attempt():
+async def test_tutor_repairs_unclear_question_without_changing_the_goal():
     class ConversationModel(Model):
         async def complete_json(self, system, payload, **kwargs):
             data = json.loads(payload)
@@ -250,24 +253,24 @@ async def test_tutor_repairs_unclear_question_without_spending_an_attempt():
             if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
                 transcript = data["transcript"]
                 if transcript == "Answer on what? There was no question.":
-                    assert data["currentQuestion"] == "You are in a lift with a colleague. Use small talk."
+                    assert data["currentQuestion"] == "You are in a lift with a colleague. What might you say or do?"
                     return json.dumps({"feedback": "You're right. I didn't ask a clear question.",
-                                       "question": "What could you do to make the short ride less awkward? Use small talk in your answer.",
-                                       "attempted": False, "category": "", "matchedPhrase": "",
+                                       "question": "How would you describe the kind of chat that could make the short ride less awkward?",
+                                       "category": "conversation", "matchedPhrase": "",
                                        "reason": "The learner asked what the task was."})
                 if transcript == "I could ask about their weekend.":
                     return json.dumps({"feedback": "Asking about their weekend is a good idea.",
-                                       "question": "What would you call that kind of conversation? Use small talk in your answer.",
-                                       "attempted": True, "category": "natural_without_target",
+                                       "question": "How would you describe the kind of conversation you'd start with them?",
+                                       "category": "natural_without_target",
                                        "matchedPhrase": "", "reason": "Natural idea without the target expression."})
                 if transcript == "I could make small talk about the weekend.":
                     return json.dumps({"feedback": "That sounds natural.",
                                        "question": "What expression fits a brief chat before a meeting?",
-                                       "attempted": True, "category": "used", "matchedPhrase": "small talk",
+                                       "category": "used", "matchedPhrase": "small talk",
                                        "reason": "The learner used the expression in their own phrase."})
             result = json.loads(await super().complete_json(system, payload, **kwargs))
             if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Understand" and data["action"] == "answer":
-                result["question"] = "You are in a lift with a colleague. Use small talk."
+                result["question"] = "You are in a lift with a colleague. What might you say or do?"
             return json.dumps(result)
 
     model, stt = ConversationModel(), Stt()
@@ -281,25 +284,25 @@ async def test_tutor_repairs_unclear_question_without_spending_an_attempt():
     stt.text = "Answer on what? There was no question."
     clarification = await builder.voice("tg-clarify", lesson_id, 2, b"voice")
     assert clarification["lesson"]["phase"] == "Use"
-    assert clarification["lesson"]["attempts"] == 0
+    assert "attempts" not in clarification["lesson"]
     assert "You're right" in clarification["text"]
-    assert "What could you do" in clarification["text"]
+    assert "How would you describe" in clarification["text"]
     stt.text = "I could ask about their weekend."
     natural = await builder.voice("tg-clarify", lesson_id, 3, b"voice")
-    assert natural["lesson"]["attempts"] == 1
+    assert natural["lesson"]["phase"] == "Use"
     assert "good idea" in natural["text"]
     stt.text = "I could make small talk about the weekend."
     used = await builder.voice("tg-clarify", lesson_id, 4, b"voice")
     assert used["lesson"]["phase"] == "Recall"
     trace = await builder.review("tg-clarify", lesson_id)
     answers = [event for event in trace["events"] if event["type"] == "answer"]
-    assert [(event["category"], event["counted"]) for event in answers] == [
-        ("understood", True), ("conversation", False),
-        ("natural_without_target", True), ("used", True)]
+    assert [event["category"] for event in answers] == [
+        "understood", "conversation", "natural_without_target", "used"]
+    assert all("counted" not in event for event in answers)
 
 
 @pytest.mark.asyncio
-async def test_confusion_gets_new_explanation_then_advances_after_second_answer():
+async def test_confusion_stays_on_word_until_learner_understands():
     stt, model = Stt(), Model()
     builder = VocabularyBuilder(None, model, stt, Speech())
     await builder.propose("tg-confused", "overwhelmed")
@@ -309,15 +312,47 @@ async def test_confusion_gets_new_explanation_then_advances_after_second_answer(
     stt.text = "I don't understand."
     first = await builder.voice("tg-confused", lesson_id, 1, b"voice")
     assert first["lesson"]["phase"] == "Understand"
-    assert first["lesson"]["attempts"] == 1
+    assert "attempts" not in first["lesson"]
     assert model.prompts[1] != model.prompts[0]
     stt.text = "I still don't understand."
     second = await builder.voice("tg-confused", lesson_id, 2, b"voice")
-    assert second["lesson"]["phase"] == "Use"
-    assert "For example" in second["text"]
+    assert second["lesson"]["phase"] == "Understand"
+    stt.text = "I had too many tasks yesterday."
+    third = await builder.voice("tg-confused", lesson_id, 3, b"voice")
+    assert third["lesson"]["phase"] == "Use"
     trace = await builder.review("tg-confused", lesson_id)
     assert [event["category"] for event in trace["events"] if event["type"] == "answer"] == [
-        "confused", "confused"]
+        "confused", "confused", "understood"]
+
+
+@pytest.mark.asyncio
+async def test_use_and_recall_continue_until_the_learner_succeeds():
+    stt = Stt()
+    builder = VocabularyBuilder(None, Model(), stt, Speech())
+    await builder.propose("tg-no-limit", "overwhelmed")
+    card = await builder.confirm("tg-no-limit")
+    await builder.select("tg-no-limit", card["id"], True)
+    lesson_id = (await builder.start("tg-no-limit"))["lesson"]["id"]
+    stt.text = "I had too much work yesterday."
+    await builder.voice("tg-no-limit", lesson_id, 1, b"voice")
+    for message_id in range(2, 6):
+        stt.text = "Overwhelmed"
+        turn = await builder.voice("tg-no-limit", lesson_id, message_id, b"voice")
+        assert turn["lesson"]["phase"] == "Use"
+        assert turn["lesson"]["word"]["word"] == "overwhelmed"
+    stt.text = "I felt overwhelmed by work."
+    used = await builder.voice("tg-no-limit", lesson_id, 6, b"voice")
+    assert used["lesson"]["phase"] == "Recall"
+    for message_id in range(7, 11):
+        stt.text = "I can't remember it."
+        turn = await builder.voice("tg-no-limit", lesson_id, message_id, b"voice")
+        assert turn["lesson"]["phase"] == "Recall"
+    stt.text = "Overwhelmed"
+    recalled = await builder.voice("tg-no-limit", lesson_id, 11, b"voice")
+    assert recalled["status"] == "offer"
+    trace = await builder.review("tg-no-limit", lesson_id)
+    assert [event["category"] for event in trace["events"] if event["type"] == "answer"] == [
+        "understood", *("misuse",) * 4, "used", *("not_recalled",) * 4, "recalled"]
 
 
 @pytest.mark.asyncio
@@ -351,7 +386,7 @@ async def test_hint_is_text_only_and_timeout_has_partial_summary():
     await builder.select("tg-hint", card["id"], True)
     lesson_id = (await builder.start("tg-hint"))["lesson"]["id"]
     hint = await builder.hint("tg-hint", lesson_id)
-    assert hint["lesson"]["attempts"] == 0 and "audio" not in hint
+    assert "attempts" not in hint["lesson"] and "audio" not in hint
     assert any(e["type"] == "hint" for e in (await builder.review("tg-hint", lesson_id))["events"])
     clock.now += 301
     due = await builder.due()
@@ -400,10 +435,10 @@ async def test_resume_unclear_voice_and_legacy_lesson():
     lesson_id = started["lesson"]["id"]
     resumed = await builder.resume("tg-resume", lesson_id)
     assert resumed["audio"] == started["audio"]
-    assert resumed["lesson"]["attempts"] == 0
+    assert "attempts" not in resumed["lesson"]
     stt.text = ""
     unclear = await builder.voice("tg-resume", lesson_id, 1, b"voice")
-    assert unclear["status"] == "repeat" and unclear["lesson"]["attempts"] == 0
+    assert unclear["status"] == "repeat" and "attempts" not in unclear["lesson"]
     builder.memory["tg-resume"]["lesson"] = {
         "id": "old", "status": "active", "words": [card], "index": 0,
         "attempts": 0, "hints": 0, "results": {}, "prompts": [], "lastActivity": 1000.0,
@@ -529,7 +564,7 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
             return await super().complete_json(system, payload, **kwargs)
 
     model, stt = SummaryModel(), Stt()
-    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=9000)
+    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=10000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-long", word)
         card = await builder.confirm("tg-long")
@@ -546,7 +581,7 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
         stt.text = transcript
         await builder.voice("tg-long", lesson_id, message_id, b"voice")
     assert any("earlierLessonSummary" in data for data in model.contexts)
-    assert all(len(json.dumps(data).encode()) < 9000 for data in model.summary_sources)
+    assert all(len(json.dumps(data).encode()) < 10000 for data in model.summary_sources)
     recall_context = next(data for data in model.contexts
                           if data.get("phase") == "Recall" and "earlierLessonSummary" in data)
     assert any("overwhelmed" in event.get("transcript", "").lower()
@@ -568,7 +603,37 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
 
 
 @pytest.mark.asyncio
-async def test_context_summary_failure_does_not_count_the_voice_attempt():
+async def test_long_exchange_on_one_goal_keeps_the_lesson_active():
+    class SummaryModel(Model):
+        def __init__(self):
+            super().__init__()
+            self.summarized = 0
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_context_summary":
+                self.summarized += 1
+                return json.dumps({"summary": "The learner is still discussing how to describe a difficult day."})
+            return await super().complete_json(system, payload, **kwargs)
+
+    model, stt = SummaryModel(), Stt()
+    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=10000)
+    await builder.propose("tg-long-goal", "overwhelmed")
+    card = await builder.confirm("tg-long-goal")
+    await builder.select("tg-long-goal", card["id"], True)
+    lesson_id = (await builder.start("tg-long-goal"))["lesson"]["id"]
+    stt.text = "There were many tasks at work yesterday."
+    await builder.voice("tg-long-goal", lesson_id, 1, b"voice")
+    for message_id in range(2, 18):
+        stt.text = f"I had to deal with projects and meetings all day, and it was difficult. {message_id}"
+        turn = await builder.voice("tg-long-goal", lesson_id, message_id, b"voice")
+        assert turn["lesson"]["phase"] == "Use"
+    assert model.summarized > 0
+    trace = await builder.review("tg-long-goal", lesson_id)
+    assert len([event for event in trace["events"] if event["type"] == "answer"]) == 17
+
+
+@pytest.mark.asyncio
+async def test_context_summary_failure_does_not_change_the_learning_goal():
     class FailingSummaryModel(Model):
         async def complete_json(self, system, payload, **kwargs):
             if kwargs["operation"] == "vocabulary_context_summary":
@@ -577,7 +642,7 @@ async def test_context_summary_failure_does_not_count_the_voice_attempt():
 
     stt = Stt()
     builder = VocabularyBuilder(None, FailingSummaryModel(), stt, Speech(),
-                                context_window_tokens=9000)
+                                context_window_tokens=10000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-summary-fail", word)
         card = await builder.confirm("tg-summary-fail")
@@ -594,7 +659,7 @@ async def test_context_summary_failure_does_not_count_the_voice_attempt():
         except RuntimeError as error:
             assert str(error) == "summary provider unavailable"
             after = (await builder.list("tg-summary-fail"))["lesson"]
-            assert (after["index"], after["attempts"]) == (before["index"], before["attempts"])
+            assert after["index"] == before["index"]
             assert all(event.get("transcript") != transcript for event in
                        (await builder.review("tg-summary-fail", lesson_id))["events"])
             break
@@ -613,6 +678,8 @@ async def test_active_previous_context_format_can_finish_without_forced_close():
     lesson_id = (await builder.start("tg-old-context"))["lesson"]["id"]
     state = await builder._get("tg-old-context")
     state["lesson"].pop("contextVersion")
+    state["lesson"].pop("tutorVersion")
+    state["lesson"]["attempts"] = 0
     await builder._save("tg-old-context", state)
     resumed = VocabularyBuilder(redis, Model(), stt, Speech())
     assert (await resumed.list("tg-old-context"))["lesson"]["status"] == "active"
