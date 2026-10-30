@@ -7,7 +7,7 @@ from fakeredis import FakeAsyncRedis
 
 from app.stt import SttResult
 from app.tts import TtsAudio
-from app.vocabulary_builder import GRADE_RESPONSE_FORMAT, VocabularyBuilder
+from app.vocabulary_builder import TUTOR_RESPONSE_FORMAT, VocabularyBuilder
 from app.vocabulary_builder import _trace_key
 
 
@@ -58,6 +58,40 @@ class Model:
             return json.dumps({"cards": [{"word": item.get("better") or item.get("alternative"), "meaning": "too much to manage",
                                           "translation": "перегруженный", "example": "I felt overwhelmed at work."}
                                          for item in data["inputs"]]})
+        if operation == "vocabulary_tutor":
+            phase = data["phase"]
+            word = data["target"]["word"]
+            transcript = data["transcript"]
+            if data["action"] == "hint":
+                return json.dumps({"feedback": "Think about too many tasks.", "question": "",
+                                   "attempted": False, "category": "", "matchedPhrase": "", "reason": ""})
+            attempted = data["action"] == "answer" and "answer on what" not in transcript.lower()
+            matched = transcript[transcript.lower().index(word.lower()):][:len(word)] if word.lower() in transcript.lower() else ""
+            category = ("understood" if "don't understand" not in transcript.lower() else "confused") if phase == "Understand" else (
+                "used" if matched and len(transcript.split()) > 1 else "natural_without_target" if not matched else "misuse") if phase == "Use" else (
+                "recalled" if matched else "not_recalled")
+            if not attempted:
+                category = ""
+                matched = ""
+            correct = category in ("understood", "used", "recalled")
+            next_phase = data["nextPhase"] if attempted and (correct or data["countedAttempts"] >= 1) else phase
+            number = len(self.prompts)
+            question = (f"{word} means too much to manage. Have you faced too many tasks in situation {number}?"
+                        if next_phase == "Understand" else
+                        f"What would you do in situation {number}? Use {word} in your answer."
+                        if next_phase == "Use" else
+                        f"Which expression fits too many tasks in a new situation {number}?"
+                        if next_phase == "Recall" else "")
+            if question:
+                self.prompts.append(question)
+            feedback = ("Let's practise your words together." if data["action"] == "opening" else
+                        "That fits." if correct else
+                        f"For example, I felt {word} at work." if attempted and data["countedAttempts"] >= 1 else
+                        "Let me make the question clearer.")
+            return json.dumps({"feedback": feedback,
+                               "question": question, "attempted": attempted,
+                               "category": category, "matchedPhrase": matched,
+                               "reason": "The answer shows " + category if attempted else "The learner asked for clarification."})
         if operation == "vocabulary_prompt":
             phase = data["phase"]
             number = len(self.prompts)
@@ -94,9 +128,10 @@ class Model:
 async def test_spoken_question_is_not_cut_mid_sentence():
     class LongPromptModel(Model):
         async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] == "vocabulary_prompt":
+            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "opening":
                 question = "Tell me about a party where you did not know anyone. " * 6
-                return json.dumps({"prompt": question + "What did you talk about?"})
+                return json.dumps({"feedback": "Let's start.", "question": question + "What did you talk about?",
+                                   "attempted": False, "category": "", "matchedPhrase": "", "reason": ""})
             return await super().complete_json(system, payload, **kwargs)
 
     builder = VocabularyBuilder(None, LongPromptModel(), Stt(), Speech())
@@ -110,27 +145,27 @@ async def test_spoken_question_is_not_cut_mid_sentence():
 
 @pytest.mark.asyncio
 async def test_grade_uses_strict_schema_and_invalid_json_is_logged_without_content(caplog):
-    class InvalidGradeModel(Model):
-        grade_format = None
+    class InvalidTutorModel(Model):
+        tutor_format = None
 
         async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] == "vocabulary_grade":
-                self.grade_format = kwargs["response_format"]
+            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
+                self.tutor_format = kwargs["response_format"]
                 return "not a JSON response with private learner content"
             return await super().complete_json(system, payload, **kwargs)
 
-    model = InvalidGradeModel()
+    model = InvalidTutorModel()
     builder = VocabularyBuilder(None, model, Stt(), Speech())
     await builder.propose("tg-invalid-grade", "overwhelmed")
     card = await builder.confirm("tg-invalid-grade")
     await builder.select("tg-invalid-grade", card["id"], True)
     lesson_id = (await builder.start("tg-invalid-grade"))["lesson"]["id"]
     with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
-        with pytest.raises(ValueError, match="invalid vocabulary JSON for vocabulary_grade"):
+        with pytest.raises(ValueError, match="invalid vocabulary JSON for vocabulary_tutor"):
             await builder.voice("tg-invalid-grade", lesson_id, 1, b"private audio")
-    assert model.grade_format == GRADE_RESPONSE_FORMAT
+    assert model.tutor_format == TUTOR_RESPONSE_FORMAT
     assert (await builder.list("tg-invalid-grade"))["lesson"]["attempts"] == 0
-    assert "operation=vocabulary_grade parser_error=Expecting value" in caplog.text
+    assert "operation=vocabulary_tutor parser_error=Expecting value" in caplog.text
     assert "private learner content" not in caplog.text
     assert "private audio" not in caplog.text
 
@@ -149,7 +184,7 @@ async def test_one_word_has_understand_use_recall_and_optional_game():
     stt.text = "I had so many tasks yesterday."
     understood = await builder.voice("tg-1", lesson_id, 1, b"voice")
     assert understood["lesson"]["phase"] == "Use"
-    assert "using overwhelmed in your own phrase" in understood["text"]
+    assert "Use overwhelmed in your answer" in understood["text"]
     duplicate = await builder.voice("tg-1", lesson_id, 1, b"voice")
     assert duplicate["turnId"] == understood["turnId"]
     assert duplicate["text"] == understood["text"]
@@ -193,7 +228,7 @@ async def test_natural_answer_without_word_gets_second_attempt_not_english_error
     first = await builder.voice("tg-natural", lesson_id, 2, b"voice")
     assert first["lesson"]["phase"] == "Use"
     assert first["lesson"]["attempts"] == 1
-    assert "using overwhelmed" in first["text"]
+    assert "Use overwhelmed" in first["text"]
     assert "wrong" not in first["text"].lower()
     stt.text = "I felt overwhelmed after the meeting."
     second = await builder.voice("tg-natural", lesson_id, 3, b"voice")
@@ -202,6 +237,65 @@ async def test_natural_answer_without_word_gets_second_attempt_not_english_error
     answers = [e for e in trace["events"] if e["type"] == "answer"]
     assert answers[1]["category"] == "natural_without_target"
     assert answers[2]["category"] == "used"
+
+
+@pytest.mark.asyncio
+async def test_tutor_repairs_unclear_question_without_spending_an_attempt():
+    class ConversationModel(Model):
+        async def complete_json(self, system, payload, **kwargs):
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_card":
+                return json.dumps({"word": "small talk", "meaning": "light conversation about everyday topics",
+                                   "translation": "светская беседа", "example": "We made small talk in the lift."})
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
+                transcript = data["transcript"]
+                if transcript == "Answer on what? There was no question.":
+                    assert data["currentQuestion"] == "You are in a lift with a colleague. Use small talk."
+                    return json.dumps({"feedback": "You're right. I didn't ask a clear question.",
+                                       "question": "What could you do to make the short ride less awkward? Use small talk in your answer.",
+                                       "attempted": False, "category": "", "matchedPhrase": "",
+                                       "reason": "The learner asked what the task was."})
+                if transcript == "I could ask about their weekend.":
+                    return json.dumps({"feedback": "Asking about their weekend is a good idea.",
+                                       "question": "What would you call that kind of conversation? Use small talk in your answer.",
+                                       "attempted": True, "category": "natural_without_target",
+                                       "matchedPhrase": "", "reason": "Natural idea without the target expression."})
+                if transcript == "I could make small talk about the weekend.":
+                    return json.dumps({"feedback": "That sounds natural.",
+                                       "question": "What expression fits a brief chat before a meeting?",
+                                       "attempted": True, "category": "used", "matchedPhrase": "small talk",
+                                       "reason": "The learner used the expression in their own phrase."})
+            result = json.loads(await super().complete_json(system, payload, **kwargs))
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Understand" and data["action"] == "answer":
+                result["question"] = "You are in a lift with a colleague. Use small talk."
+            return json.dumps(result)
+
+    model, stt = ConversationModel(), Stt()
+    builder = VocabularyBuilder(None, model, stt, Speech())
+    await builder.propose("tg-clarify", "small talk")
+    card = await builder.confirm("tg-clarify")
+    await builder.select("tg-clarify", card["id"], True)
+    lesson_id = (await builder.start("tg-clarify"))["lesson"]["id"]
+    stt.text = "People talk about the weather or their hobbies."
+    await builder.voice("tg-clarify", lesson_id, 1, b"voice")
+    stt.text = "Answer on what? There was no question."
+    clarification = await builder.voice("tg-clarify", lesson_id, 2, b"voice")
+    assert clarification["lesson"]["phase"] == "Use"
+    assert clarification["lesson"]["attempts"] == 0
+    assert "You're right" in clarification["text"]
+    assert "What could you do" in clarification["text"]
+    stt.text = "I could ask about their weekend."
+    natural = await builder.voice("tg-clarify", lesson_id, 3, b"voice")
+    assert natural["lesson"]["attempts"] == 1
+    assert "good idea" in natural["text"]
+    stt.text = "I could make small talk about the weekend."
+    used = await builder.voice("tg-clarify", lesson_id, 4, b"voice")
+    assert used["lesson"]["phase"] == "Recall"
+    trace = await builder.review("tg-clarify", lesson_id)
+    answers = [event for event in trace["events"] if event["type"] == "answer"]
+    assert [(event["category"], event["counted"]) for event in answers] == [
+        ("understood", True), ("conversation", False),
+        ("natural_without_target", True), ("used", True)]
 
 
 @pytest.mark.asyncio
@@ -220,7 +314,7 @@ async def test_confusion_gets_new_explanation_then_advances_after_second_answer(
     stt.text = "I still don't understand."
     second = await builder.voice("tg-confused", lesson_id, 2, b"voice")
     assert second["lesson"]["phase"] == "Use"
-    assert "means too much to manage" in second["text"]
+    assert "For example" in second["text"]
     trace = await builder.review("tg-confused", lesson_id)
     assert [event["category"] for event in trace["events"] if event["type"] == "answer"] == [
         "confused", "confused"]
@@ -385,7 +479,7 @@ async def test_every_core_model_call_sees_current_lesson_history_and_delivery():
             self.calls = []
 
         async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] in ("vocabulary_prompt", "vocabulary_grade", "vocabulary_hint"):
+            if kwargs["operation"] == "vocabulary_tutor":
                 self.calls.append((kwargs["operation"], json.loads(payload)))
             return await super().complete_json(system, payload, **kwargs)
 
@@ -402,13 +496,11 @@ async def test_every_core_model_call_sees_current_lesson_history_and_delivery():
     await builder.delivery("tg-context", lesson_id, hint["turnId"], 101)
     stt.text = "I had too many tasks yesterday."
     first = await builder.voice("tg-context", lesson_id, 1, b"voice")
-    grade = next(data for operation, data in model.calls if operation == "vocabulary_grade")
-    assert [event["type"] for event in grade["lessonHistory"]] == ["spoken", "hint", "answer"]
-    assert grade["lessonHistory"][0]["delivery"] == "delivered"
-    assert grade["lessonHistory"][1]["text"] == hint["text"]
-    next_prompt = [data for operation, data in model.calls if operation == "vocabulary_prompt"][-1]
-    assert next_prompt["lessonHistory"][-1]["transcript"] == stt.text
-    assert next_prompt["lessonHistory"][-1]["reason"]
+    answer_context = next(data for _, data in model.calls if data["action"] == "answer")
+    assert [event["type"] for event in answer_context["lessonHistory"]] == ["spoken", "hint", "answer"]
+    assert answer_context["lessonHistory"][0]["delivery"] == "delivered"
+    assert answer_context["lessonHistory"][1]["text"] == hint["text"]
+    assert answer_context["lessonHistory"][-1]["transcript"] == stt.text
     restarted = VocabularyBuilder(redis, model, stt, Speech())
     assert (await restarted.voice("tg-context", lesson_id, 1, b"voice"))["turnId"] == first["turnId"]
     await restarted.delivery("tg-context", lesson_id, first["turnId"], 102)
@@ -432,12 +524,12 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
             if kwargs["operation"] == "vocabulary_context_summary":
                 self.summary_sources.append(data)
                 return json.dumps({"summary": "Earlier conversation and reasons are in events 1 through 5."})
-            if kwargs["operation"] in ("vocabulary_prompt", "vocabulary_grade"):
+            if kwargs["operation"] == "vocabulary_tutor":
                 self.contexts.append(data)
             return await super().complete_json(system, payload, **kwargs)
 
     model, stt = SummaryModel(), Stt()
-    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=6000)
+    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=9000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-long", word)
         card = await builder.confirm("tg-long")
@@ -449,11 +541,12 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
             "We could hold the meeting next week because our client is away.",
             "I will postpone it.",
             "My work calendar was full before that event.",
-            "I enjoy small talk before an event."), 1):
+            "I enjoy small talk before an event.",
+            "I felt overwhelmed before the event."), 1):
         stt.text = transcript
         await builder.voice("tg-long", lesson_id, message_id, b"voice")
     assert any("earlierLessonSummary" in data for data in model.contexts)
-    assert all(len(json.dumps(data).encode()) < 6000 for data in model.summary_sources)
+    assert all(len(json.dumps(data).encode()) < 9000 for data in model.summary_sources)
     recall_context = next(data for data in model.contexts
                           if data.get("phase") == "Recall" and "earlierLessonSummary" in data)
     assert any("overwhelmed" in event.get("transcript", "").lower()
@@ -463,13 +556,14 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
     assert any("work calendar was full of tasks" in event.get("transcript", "")
                for event in reference_context["lessonHistory"])
     trace = await builder.review("tg-long", lesson_id)
-    assert [event["transcript"] for event in trace["events"] if event["type"] == "answer"][:6] == [
+    assert [event["transcript"] for event in trace["events"] if event["type"] == "answer"][:7] == [
         "My work calendar was full of tasks from three different teams yesterday.",
         "I was overwhelmed by work.",
         "We could hold the meeting next week because our client is away.",
         "I will postpone it.",
         "My work calendar was full before that event.",
         "I enjoy small talk before an event.",
+        "I felt overwhelmed before the event.",
     ]
 
 
@@ -483,7 +577,7 @@ async def test_context_summary_failure_does_not_count_the_voice_attempt():
 
     stt = Stt()
     builder = VocabularyBuilder(None, FailingSummaryModel(), stt, Speech(),
-                                context_window_tokens=6000)
+                                context_window_tokens=9000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-summary-fail", word)
         card = await builder.confirm("tg-summary-fail")
