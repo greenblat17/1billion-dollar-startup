@@ -151,7 +151,8 @@ VOLUMES="
 volumes:
   speaking-coach-prometheus:
   speaking-coach-loki:
-  speaking-coach-alloy:"
+  speaking-coach-alloy:
+  speaking-coach-daily-report:"
 
 cat > "$MON/compose.yml" <<EOF
 x-logging: &bounded_logging
@@ -299,10 +300,31 @@ volumes:
   speaking-coach-prometheus:
   speaking-coach-grafana:
   speaking-coach-loki:
-  speaking-coach-alloy:"
+  speaking-coach-alloy:
+  speaking-coach-daily-report:"
+fi
+
+if [ "$ALERTS_ENABLED" = true ]; then
+  cat >> "$MON/compose.yml" <<EOF
+  daily-report:
+    logging: *bounded_logging
+    build: ./reporter
+    image: speaking-coach-daily-report:local
+    container_name: speaking-coach-daily-report
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - ./alerts.env
+    environment:
+      AI_SERVICE_BASE_URL: ${AI_URL}
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_token
+    volumes:
+      - ./ai_token:/run/secrets/ai_token:ro
+      - speaking-coach-daily-report:/state
+EOF
 fi
 
 printf '%s\n' "$VOLUMES" >> "$MON/compose.yml"
 
 cd "$MON"
-docker compose -p speaking-coach-monitoring -f compose.yml up -d
+docker compose -p speaking-coach-monitoring -f compose.yml up -d --build

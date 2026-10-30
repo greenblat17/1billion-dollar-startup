@@ -10,6 +10,12 @@ Rules:
 - Either Ktor or AI metrics scrape is unsuccessful for three minutes.
 - At least three Telegram voice requests fail or hit a full queue in five minutes, sustained for one evaluation minute. This is an operational threshold, not the user-visible failure rate on `/admin/metrics/errors`.
 
-The repo Actions secrets `TELEGRAM_ALERT_BOT_TOKEN` and `TELEGRAM_ALERT_CHAT_ID` supply the contact point. The PROD CMP deploy writes them to `/opt/speaking-coach/monitoring/alerts.env` with mode 600. Only the Grafana container receives this env file. Do not put either value in Git, logs, or chat. A missing secret stops the PROD deploy before SSH.
+The repo Actions secrets `TELEGRAM_ALERT_BOT_TOKEN` and `TELEGRAM_ALERT_CHAT_ID` supply the contact point. The PROD CMP deploy writes them to `/opt/speaking-coach/monitoring/alerts.env` with mode 600. Only the Grafana and daily-report containers receive this env file. Do not put either value in Git, logs, or chat. A missing secret stops the PROD deploy before SSH.
 
 Grafana, Prometheus, and blackbox run on the CMP host. If the whole host or its network fails, this stack cannot send an alert. An independent external uptime check is a separate later step. Before calling the rollout complete, verify Grafana loaded all three rules, test the contact point from Grafana, and trigger and recover one rule in a controlled way.
+
+## Daily audience message
+
+The same PROD bot sends one report to the same chat at 23:00 Europe/Moscow. `infra/monitoring/reporter/daily_report.py` reads the existing authenticated AI `/internal/metrics/overview` endpoint for the current Moscow date and the six preceding dates. It uses `habits.days` from the shared HabitAnalytics calculation, not the older `speaking_dau` chart series. DAU is unique normalized Telegram chats with a completed AI turn today, preliminary at 23:00. WAU is the union of those chats over the seven dates ending today. The message shows both dates and states that the values are for completed AI turns; Telegram delivery is not part of this measure. See [habit analytics](2026-10-19-habit-analytics.md) for the population and history limits.
+
+The reporter runs in a separate container on the CMP host. It receives only the alert bot credentials, the AI URL, and a read-only AI internal token file. It stores the last successfully sent Moscow date in a persistent Docker volume to avoid a second report after restart. If the habit source is unhealthy or a value is unavailable, it sends an explicit `данные недоступны` message rather than a zero. A Telegram send failure is retried every five minutes; a crash between a successful send and saving the date can duplicate that day's message. A whole-host outage also stops this report.
