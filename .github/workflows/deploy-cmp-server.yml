@@ -30,6 +30,8 @@ jobs:
       DEV_CMP_SERVER_SSH_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
       DEV_CMP_SERVER_ENV: ${{ secrets.DEV_CMP_SERVER_ENV }}
       METRICS_PASSWORD: ${{ secrets.METRICS_PASSWORD }}
+      TELEGRAM_ALERT_BOT_TOKEN: ${{ secrets.TELEGRAM_ALERT_BOT_TOKEN }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -69,6 +71,14 @@ jobs:
             mv "$tmp" vps-upload/.env
           fi
           chmod 600 vps-upload/.env
+          if [ "$DESTINATION" = prod ]; then
+            : "${TELEGRAM_ALERT_BOT_TOKEN:?Missing Telegram alert bot token}"
+            : "${TELEGRAM_ALERT_CHAT_ID:?Missing Telegram alert chat ID}"
+            printf 'TELEGRAM_ALERT_BOT_TOKEN=%s\nTELEGRAM_ALERT_CHAT_ID=%s\n' \
+              "$TELEGRAM_ALERT_BOT_TOKEN" "$TELEGRAM_ALERT_CHAT_ID" \
+              > vps-upload/monitoring/alerts.env
+            chmod 600 vps-upload/monitoring/alerts.env
+          fi
 
       - name: Copy files and restart container
         run: |

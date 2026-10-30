@@ -13,6 +13,7 @@ when changing product behavior, UI, navigation, or backend contracts. Put new de
 these files, not only in chat.
 
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
+PROD Telegram alerts: `integrations/2026-10-30-prod-telegram-alerts.md`.
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.

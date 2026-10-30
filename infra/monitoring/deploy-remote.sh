@@ -30,6 +30,19 @@ VOICE_COST_DB_USER=$(env_get POSTGRES_USER)
 SPEAKY_ENV=$(env_get SPEAKY_ENV)
 SPEAKY_ENV=${SPEAKY_ENV:-unknown}
 
+ALERT_ENV="$MON/alerts.env"
+ALERT_PROVISIONING="$MON/grafana/provisioning/alerting"
+if [ "$SPEAKY_ENV" = prod ]; then
+  if [ ! -s "$ALERT_ENV" ]; then
+    echo "Missing PROD Telegram alert configuration" >&2
+    exit 1
+  fi
+  mkdir -p "$ALERT_PROVISIONING"
+  cp "$MON/alerts/speaky.yml" "$ALERT_PROVISIONING/speaky.yml"
+else
+  rm -f "$ALERT_PROVISIONING/speaky.yml"
+fi
+
 SERVER_PORT=${SERVER_PORT:-443}
 MONITORING_PORT=${MONITORING_PORT:-8081}
 AI_URL=${AI_URL:-http://127.0.0.1:8090}
@@ -266,6 +279,7 @@ EOF
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT}
       VOICE_COST_DB_PASSWORD: \${VOICE_COST_DB_PASSWORD}
       VOICE_COST_DB_NAME: \${VOICE_COST_DB_NAME}
+$(if [ "$SPEAKY_ENV" = prod ]; then printf '    env_file:\n      - ./alerts.env\n'; fi)
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
