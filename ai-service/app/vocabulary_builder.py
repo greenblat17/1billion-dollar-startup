@@ -337,12 +337,17 @@ def _finished_text(lesson: dict) -> str:
     if _new_lesson(lesson):
         words = len(lesson["words"])
         if lesson["index"] == 3 * words:
-            result = ("Lesson complete! You used the word in your own sentence." if words == 1 else
-                      f"Lesson complete! You used all {words} words in your own sentences.")
-            if any(correct is False for correct in lesson.get("cardResults", {}).values()):
-                return result + " We'll revisit the tricky cards next time."
-            return result + (" We'll revisit it in a future lesson." if words == 1 else
-                             " We'll revisit them in a future lesson.")
+            practice = ("You used this word in a sentence of your own." if words == 1 else
+                        "You used both words in your own sentences." if words == 2 else
+                        f"You used all {words} words in your own sentences.")
+            tricky = sum(correct is False for correct in lesson.get("cardResults", {}).values())
+            if tricky:
+                next_time = ("One card was tricky; you can give it another go next time." if tricky == 1 else
+                             f"{tricky} cards were tricky; you can give them another go next time.")
+            else:
+                next_time = ("It'll be here for another round whenever you're ready." if words == 1 else
+                             "They'll be here for another round whenever you're ready.")
+            return f"🎉 Nice work — lesson complete!\n\n{practice} {next_time}"
         return "Lesson ended. We can pick up these words another time."
     lines = ["Vocabulary lesson complete." if lesson["index"] == 3 * len(lesson["words"]) else "Lesson ended. Here is your progress:"]
     for word in lesson["words"]:

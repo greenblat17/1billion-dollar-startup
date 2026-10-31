@@ -189,8 +189,9 @@ async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card
     finished = await builder.text("one", lesson_id, 3, "It means understanding something.")
     assert finished["lesson"]["status"] == "finished"
     assert finished["lesson"]["index"] == 3
-    assert finished["summary"] == ("Lesson complete! You used the word in your own sentence. "
-                                   "We'll revisit it in a future lesson.")
+    assert finished["summary"] == ("🎉 Nice work — lesson complete!\n\n"
+                                   "You used this word in a sentence of your own. "
+                                   "It'll be here for another round whenever you're ready.")
     assert "figure out:" not in finished["text"]
     trace = await builder.review("one", lesson_id)
     assert [event["phase"] for event in trace["events"] if event["type"] == "answer"] == [
@@ -216,6 +217,9 @@ async def test_two_words_run_understand_then_use_for_each_before_cards():
     assert phases == [("Use", 1), ("Understand", 2), ("Use", 3),
                       ("Word game", 4), ("Word game", 5), ("Word game", 6)]
     assert turn["lesson"]["status"] == "finished"
+    assert turn["summary"] == ("🎉 Nice work — lesson complete!\n\n"
+                               "You used both words in your own sentences. "
+                               "They'll be here for another round whenever you're ready.")
     assert "first minute" in prompts[0]
     assert "test means" in prompts[1]
     assert "feature works" in prompts[2]
@@ -265,7 +269,7 @@ async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
     assert "Clue number" in first["text"]
     second = await builder.text("card", lesson_id, 8, "I don't know")
     assert second["lesson"]["status"] == "finished"
-    assert "card" in second["summary"]
+    assert second["summary"].endswith("One card was tricky; you can give it another go next time.")
     assert second["lesson"]["index"] == 3
 
 
