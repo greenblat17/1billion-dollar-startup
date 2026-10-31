@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 from typing import Any, Callable
 
+from app.characters import Characters, CharacterStore
 from app.dialogue import ChatMessage, DialogueStore
 from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
@@ -72,6 +73,7 @@ class ClipPipeline:
         speech: SessionSpeech | None = None,
         notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
         v2: MetricsV2 | None = None,
+        characters: Characters | None = None,
     ) -> None:
         if notes_timeout_seconds <= 0:
             raise ValueError("notes timeout must be positive")
@@ -85,6 +87,7 @@ class ClipPipeline:
         self._v2 = v2
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
+        self.characters = characters or Characters(CharacterStore())
         self._notes_timeout_seconds = notes_timeout_seconds
 
     @property
@@ -197,10 +200,15 @@ class ClipPipeline:
         if self._v2 is not None:
             await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
 
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        scenario = active_call.get("scenario") if active_call else None
+        variant = await self.characters.variant(session_id, scenario=scenario)
+        kora = variant is not None
+        history_id = self.characters.history_id(session_id, variant) if variant else session_id
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             stage("tts")
-            reply_audio = await self.speech.synthesize(session_id, CLARIFY_TEXT)
+            reply_audio = await self.characters.synthesize(CLARIFY_TEXT, speed=await self.speech.speed(session_id), guided=False, variant=variant) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
             timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
             stage("metrics")
@@ -226,7 +234,7 @@ class ClipPipeline:
         context_started = time.perf_counter()
         stage("state")
         history_started = time.perf_counter()
-        history = await self._dialogue.history(session_id)
+        history = await self._dialogue.history(history_id)
         timings["contextHistory"] = _elapsed_ms(history_started)
         call_started = time.perf_counter()
         scenario_call = None
@@ -267,17 +275,28 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
-            await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
+            reply = await measured("reply", self.characters.reply_turn(history, stt_result.text, variant=variant,
+                                                                        profile_note=profile_note) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
+            reply_text = reply.text if kora else reply
+            if kora:
+                await record_artifact("reply_draft", reply_text)
+                await record_artifact("reply", reply_text)
+            else:
+                await record_artifact("reply", reply_text)
+            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id), variant=variant, tone=reply.tone) if kora else self.speech.synthesize(session_id, reply_text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
-            if scenario_call is None and not load_test_active():
+            if scenario_call is None and not load_test_active() and not kora:
                 await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
+            if kora:
+                reply_text = reply_audio.spoken_text or reply_text
+                await record_artifact("reply", reply_text)
+            if kora and not load_test_active():
+                await self._dialogue.record_turn(history_id, stt_result.text, reply_text)
         finally:
             for task in tasks:
                 if not task.done():

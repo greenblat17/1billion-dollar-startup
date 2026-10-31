@@ -47,13 +47,24 @@ class Settings:
     ai_internal_token: str | None
     openai_realtime_api_key: str | None
     notes_model: str = "openai/gpt-5.6-luna"
-    onboarding_review_model: str | None = None
+    onboarding_review_model: str | None = "openai/gpt-4o-mini"
     onboarding_review_fallback_model: str | None = None
+    correction_verification_model: str = "openai/gpt-4o-mini"
+    vocabulary_verification_model: str = "openai/gpt-5.6-luna"
+    person_memory_model: str = "openai/gpt-4o-mini"
     tts_provider: str = "openrouter"
     deepgram_api_key: str | None = None
     tts_output_format: str = "ogg"
     tts_speed: float = 0.9
     log_file: str = ""
+    hume_api_key: str | None = None
+    hume_config_id: str | None = None
+    hume_config_version: str = "0"
+    kora_model: str = "anthropic/claude-sonnet-4.6"
+    kora_tts_model: str = "google/gemini-3.1-flash-tts-preview"
+    kora_tts_voice: str = "Leda"
+    kora_h_enabled: bool = False
+    kora_h_allowlist: str = ""
 
     @staticmethod
     def from_env() -> Settings:
@@ -77,11 +88,22 @@ class Settings:
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
             notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
-            onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL"),
+            onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL", "openai/gpt-4o-mini"),
             onboarding_review_fallback_model=_env("ONBOARDING_REVIEW_FALLBACK_MODEL"),
+            correction_verification_model=_env("CORRECTION_VERIFICATION_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
+            vocabulary_verification_model=_env("VOCABULARY_VERIFICATION_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
+            person_memory_model=_env("PERSON_MEMORY_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
             tts_provider=_env("TTS_PROVIDER", "openrouter") or "openrouter",
             deepgram_api_key=_env("DEEPGRAM_API_KEY"),
             tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
             tts_speed=_float_env("TTS_SPEED", 0.9),
             log_file=_env("LOG_FILE", "") or "",
+            hume_api_key=_env("HUME_API_KEY"),
+            hume_config_id=_env("HUME_CONFIG_ID"),
+            hume_config_version=_env("HUME_CONFIG_VERSION", "0") or "0",
+            kora_model=_env("KORA_MODEL", "anthropic/claude-sonnet-4.6") or "anthropic/claude-sonnet-4.6",
+            kora_tts_model=_env("KORA_TTS_MODEL", "google/gemini-3.1-flash-tts-preview") or "google/gemini-3.1-flash-tts-preview",
+            kora_tts_voice=_env("KORA_TTS_VOICE", "Leda") or "Leda",
+            kora_h_enabled=_env("KORA_H_ENABLED", "false").lower() == "true",
+            kora_h_allowlist=_env("KORA_H_ALLOWLIST", "") or "",
         )

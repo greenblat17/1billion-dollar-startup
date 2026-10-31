@@ -11,6 +11,7 @@ import dev.inmo.tgbotapi.types.buttons.KeyboardButtonStyle
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.buildEntities
+import dev.inmo.tgbotapi.utils.italic
 import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.row
@@ -20,7 +21,10 @@ internal const val CALL_END_CALLBACK = "call:end"
 internal const val CALL_CLOCK_HINT =
     "This tracks how much English you've spoken today."
 internal const val CALL_RETRY_TEXT = "Couldn't score this conversation. Try again."
-internal const val CALL_REVIEW_WAIT_TEXT = "Thanks for the chat 💙\nI’m putting your feedback together now."
+internal const val CALL_REVIEW_DONE_TEXT = "Thanks for the chat 💙"
+internal const val CALL_INSUFFICIENT_TITLE = "🎙 Let’s talk a bit more"
+internal const val CALL_INSUFFICIENT_BODY = "I need to hear more of your English to give you useful feedback."
+internal const val CALL_INSUFFICIENT_CTA = "Start a new chat when you’re ready."
 internal const val CALL_YESTERDAY_TEXT = "Yesterday's conversation is ready."
 internal const val START_CALL_BUTTON = "🎙 Start call"
 internal const val PRACTICE_SITUATION_BUTTON = "🎭 Practice a situation"
@@ -48,7 +52,9 @@ internal fun scenarioBackKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 
 internal data class CallCallback(val action: String, val callId: String)
 
-private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", "retry", "review", "end")
+private val callSlideActions = setOf("grammar", "vocab", "fluency", "level", "progress", "retry", "review", "end")
+
+internal fun CallReviewResponse.isNewFullReview(): Boolean = presentationVersion >= 2 && reviewKind == "full"
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
@@ -104,6 +110,7 @@ internal fun callSlideKeyboard(action: String, callId: String): InlineKeyboardMa
             "grammar" -> "See what I noticed →"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
+            "level" -> "Level →"
             else -> "Continue →"
         }
         dataButton(label, "call:$action:$callId")
@@ -115,6 +122,7 @@ internal fun callRetryKeyboard(callId: String): InlineKeyboardMarkup = inlineKey
 }
 
 internal const val FIRST_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор со Speaky?"
+internal const val KORA_CALL_FEEDBACK_PROMPT = "Как тебе этот разговор с Kora H?"
 internal const val FIRST_CALL_FEEDBACK_LIKED_QUESTION = "Что тебе особенно понравилось?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
 internal const val FIRST_CALL_FEEDBACK_IMPROVE_QUESTION = "Что можно улучшить?\n\nНапиши ответ текстом в чат или нажми «Пропустить»."
 internal const val FIRST_CALL_FEEDBACK_THANKS = "Спасибо за отзыв 💙"
@@ -148,6 +156,30 @@ internal fun callYesterdayKeyboard(callId: String): InlineKeyboardMarkup = inlin
     row { dataButton("Yesterday's results", "call:review:$callId") }
 }
 
+internal fun callReviewStart(review: CallReviewResponse): Pair<TextSourcesList, String?> = when {
+    review.reviewKind == "insufficient" -> buildEntities {
+        bold(CALL_INSUFFICIENT_TITLE)
+        regularln("")
+        regularln("")
+        regular(CALL_INSUFFICIENT_BODY)
+        regularln("")
+        regularln("")
+        italic(CALL_INSUFFICIENT_CTA)
+    } to null
+    review.isNewFullReview() -> grammarSlide(review.asOnboardingReview()) to "vocab"
+    else -> levelSlide(review.cefr, review.levelText, review.overallScore,
+        review.nextBand, review.pointsToNext) to "grammar"
+}
+
+internal fun callReviewSlide(review: CallReviewResponse, action: String): Pair<TextSourcesList, String> {
+    val wrapped = review.asOnboardingReview()
+    return when (action) {
+        "grammar" -> grammarSlide(wrapped) to "vocab"
+        "vocab" -> vocabularySlide(wrapped) to "fluency"
+        else -> fluencySlide(wrapped) to (if (review.isNewFullReview()) "level" else "progress")
+    }
+}
+
 internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
     val today = if (review.goalSeconds > 0.0) " today" else ""
     bold("${callClockLabel(review.todaySeconds, review.goalSeconds)}$today")
@@ -157,6 +189,21 @@ internal fun callProgressMessage(review: CallReviewResponse, offerReminder: Bool
         regularln("")
         regular(recap)
     }
+    if (review.streak > 0) {
+        regularln("")
+        regularln("")
+        regular("🔥 ${review.streak} day streak")
+    }
+    if (offerReminder) {
+        regularln("")
+        regularln("")
+        regular(REMINDER_OFFER)
+    }
+}
+
+internal fun callFinalLevelMessage(review: CallReviewResponse, offerReminder: Boolean = false): TextSourcesList = buildEntities {
+    addAll(levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand,
+        review.pointsToNext, showExplanation = false))
     if (review.streak > 0) {
         regularln("")
         regularln("")
