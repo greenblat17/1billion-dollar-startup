@@ -94,6 +94,58 @@ async def start_lesson(builder, session_id, words):
 
 
 @pytest.mark.asyncio
+async def test_tutor_uses_remembered_context_without_exposing_it_in_lesson_result():
+    class Personalization:
+        async def learning_context(self, session_id):
+            assert session_id == "personalized"
+            return {"person": {"work": "building an app"},
+                    "proficiency": {"overall_cefr": "B1"}}
+
+    class InspectingModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.tutor_requests = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                self.tutor_requests.append((system, json.loads(payload)))
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = InspectingModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech(),
+                                personalization=Personalization())
+    lesson_id = await start_lesson(builder, "personalized", ["figure out"])
+    await builder.text("personalized", lesson_id, 1, "Yes, I have had problems with my app.")
+
+    assert len(model.tutor_requests) == 2
+    for system, request in model.tutor_requests:
+        assert request["learnerContext"] == {
+            "person": {"work": "building an app"},
+            "proficiency": {"overall_cefr": "B1"},
+        }
+        assert "Never invent a past event" in system
+    assert "learnerContext" not in (await builder.list("personalized"))["lesson"]
+    assert "learnerContext" not in await builder.review("personalized", lesson_id)
+
+
+@pytest.mark.asyncio
+async def test_tutor_starts_without_personal_memory():
+    class EmptyPersonalization:
+        async def learning_context(self, session_id):
+            return {}
+
+    class InspectingModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                assert "learnerContext" not in json.loads(payload)
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, InspectingModel(), NoStt(), Speech(),
+                                personalization=EmptyPersonalization())
+    await start_lesson(builder, "no-memory", ["figure out"])
+
+
+@pytest.mark.asyncio
 async def test_retry_reuses_text_answer_after_speech_failure_without_double_progress():
     class FlakySpeech(Speech):
         fail = False

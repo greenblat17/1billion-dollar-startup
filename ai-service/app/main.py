@@ -116,6 +116,7 @@ def create_app(
         context_window_tokens=(settings.vocabulary_context_window_tokens or
                                (1_000_000 if kora_lesson_ready and settings.kora_model == "anthropic/claude-sonnet-4.6"
                                 else 8192)),
+        personalization=onboarding.personalization,
     )
     sessions = clip_pipeline.dialogue
     call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
