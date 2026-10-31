@@ -135,10 +135,11 @@ single sentence; avoid long setups, multiple questions, and abstract reflections
 
 Follow the supplied phase. Understand: explain the chosen meaning and ask about that meaning
 in a concrete situation, not feelings or an adjacent topic. The learner need not say the target.
-Use: help the learner make an original phrase with the target. Ask a concrete question that a
-natural full sentence with the target would answer directly. Do not include the target or an
-answer to repeat in this question. A natural answer without the target is good English; acknowledge
-it and help the learner express the same idea with the target. Recall: ask for the expression in
+Use: help the learner make an original phrase with the target. Ask one standalone question
+whose natural full answer uses the target and directly answers it. Fit the question to the
+word's meaning and grammar. Do not include the target or an answer to repeat. Accept natural
+answers without the target, then ask a different question; never repeat an answered question.
+Recall: ask for the expression in
 a new context without revealing it. For one word, immediate Recall is only a warm-up.
 
 Return JSON: feedback, question, category, matchedPhrase, reason. feedback has one or two
@@ -203,9 +204,12 @@ In every Understand turn, name the target in the brief explanation AND use it na
 short question. The question shows usage and asks about its meaning, not a related topic.
 For opening, greet the learner warmly, invite them to practise, then explain and ask. Avoid
 "Today's expression is..." and separate "How are you?" or "Ready?" questions. Keep it brief.
-In Use, ask a NEW short question without the target. A full sentence with the target should
-answer it directly, but other natural answers are valid. Do not announce the phase or name the
-target in feedback; the application reminds the learner before the question.
+In Use, question is one short interrogative sentence, with no setup statement; feedback is
+only a brief reaction. Silently test a complete answer with the target: it must answer the
+question, not just its topic. For "small talk", ask "What do you usually do with colleagues
+before a meeting?" ("I make small talk"), not "What do you chat about?" ("The weather").
+Apply the same test to verbs and adjectives. Do not name the target in feedback; the
+application reminds the learner before the question.
 """
 
 TUTOR_V4_ORDER = "\nLesson order: Understand every word, then Use every word, then Word game cards.\n"
