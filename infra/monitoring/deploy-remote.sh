@@ -37,7 +37,15 @@ ALERTS_ENABLED=false
 if [ -s "$ALERT_ENV" ]; then
   ALERTS_ENABLED=true
   mkdir -p "$ALERT_PROVISIONING"
-  cp "$MON/alerts/speaky.yml" "$ALERT_PROVISIONING/speaky.yml"
+  alert_chat_id=$(sed -n 's/^TELEGRAM_ALERT_CHAT_ID=//p' "$ALERT_ENV" | tail -n 1)
+  if [[ ! "$alert_chat_id" =~ ^-?[0-9]+$ ]]; then
+    echo "TELEGRAM_ALERT_CHAT_ID must be a numeric Telegram chat ID" >&2
+    exit 1
+  fi
+  # Grafana substitutes env vars before parsing YAML, so a numeric value
+  # becomes a number even when the placeholder is quoted in the template.
+  awk -v chat_id="$alert_chat_id" '{ gsub(/\$TELEGRAM_ALERT_CHAT_ID/, chat_id); print }' \
+    "$MON/alerts/speaky.yml" > "$ALERT_PROVISIONING/speaky.yml"
 else
   rm -f "$ALERT_PROVISIONING/speaky.yml"
 fi
