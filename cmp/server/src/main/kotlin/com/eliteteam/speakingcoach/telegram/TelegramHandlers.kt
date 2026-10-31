@@ -262,11 +262,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) { log.warn("Vocabulary delivery acknowledgement failed for lesson {}", lessonId, error) }
     }
 
-    suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse, asText: Boolean = false) {
+    suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
         if (result.deliveredMessageId != null) return
         val audio = result.audio
         val lesson = result.lesson
-        if (!asText && audio != null && lesson != null) {
+        if (audio != null && lesson != null) {
             val bytes = Base64.getDecoder().decode(audio)
             val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
@@ -2370,7 +2370,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         } else try {
                             val result = ai.vocabulary(telegramSessionId(message.chat.id), "answer",
                                 lessonId = currentLesson.id, text = content.text, messageId = message.messageId.long)
-                            sendVocabularyTurn(message, result, asText = true)
+                            sendVocabularyTurn(message, result)
                         } catch (error: CancellationException) { throw error
                         } catch (error: Throwable) {
                             log.warn("Vocabulary text failed for {}", message.chat.id, error)

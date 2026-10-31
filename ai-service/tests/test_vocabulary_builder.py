@@ -184,7 +184,8 @@ async def test_text_answer_uses_the_same_tutor_turn_without_transcription():
     lesson_id = (await builder.start("tg-text"))["lesson"]["id"]
     first = await builder.text("tg-text", lesson_id, 1, "I had so many tasks yesterday.")
     assert first["lesson"]["phase"] == "Use"
-    assert "audio" not in first
+    assert first["audio"]
+    assert first["audioContentType"] == "audio/ogg"
     assert (await builder.text("tg-text", lesson_id, 1, "I had so many tasks yesterday."))["turnId"] == first["turnId"]
     second = await builder.text("tg-text", lesson_id, 2, "I was overwhelmed by work.")
     assert second["lesson"]["phase"] == "Recall"

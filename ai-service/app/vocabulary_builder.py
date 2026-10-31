@@ -1132,11 +1132,11 @@ class VocabularyBuilder:
                 active["reminded"] = False
         await self._change(session_id, touch)
         if lesson.get("tutorVersion") and lesson.get("contextVersion"):
-            return await self._tutor_voice(session_id, lesson, message_id, transcript, text_only=True)
+            return await self._tutor_voice(session_id, lesson, message_id, transcript)
         raise ValueError("text answers are unavailable for this older lesson")
 
     async def _tutor_voice(self, session_id: str, lesson: dict, message_id: int,
-                           transcript: str, text_only: bool = False) -> dict:
+                           transcript: str) -> dict:
         word = _current(lesson)
         phase, _ = _position(lesson)
         turn = await self._tutor(session_id, lesson, "answer", transcript, [{
@@ -1186,7 +1186,7 @@ class VocabularyBuilder:
                         if next_lesson["status"] == "active" else "One quick word game?") if part)
         if not text:
             raise ValueError("empty vocabulary tutor response")
-        spoken = await self._spoken(session_id, text, self._lesson_view(next_lesson), text_only=text_only)
+        spoken = await self._spoken(session_id, text, self._lesson_view(next_lesson))
         spoken["status"] = "offer" if next_lesson["status"] == "offer" else "ok"
         spoken["lesson"] = self._lesson_view(next_lesson)
         await self._cache_response(session_id, lesson["id"], message_id, spoken)
@@ -1408,12 +1408,7 @@ class VocabularyBuilder:
                 **({"attempts": lesson["cardAttempts"]} if status == "cards" else
                    {"attempts": lesson["attempts"]} if "attempts" in lesson else {})}
 
-    async def _spoken(self, session_id: str, text: str, lesson: dict,
-                      text_only: bool = False) -> dict:
-        if text_only:
-            return {"status": "ok", "text": text, "lesson": lesson,
-                    **({"turnId": uuid4().hex[:16]} if lesson.get("contextVersion") and
-                       lesson.get("phase") != "Word game" else {})}
+    async def _spoken(self, session_id: str, text: str, lesson: dict) -> dict:
         if self.kora_speech is not None:
             audio = await self.kora_speech.synthesize(text, speed=await self.speech.speed(session_id),
                                                       delivery="plain")
