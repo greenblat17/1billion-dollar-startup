@@ -157,27 +157,54 @@ async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card
 
 
 @pytest.mark.asyncio
-async def test_two_words_run_all_understand_then_all_use_then_cards():
+async def test_two_words_run_understand_then_use_for_each_before_cards():
     builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
     lesson_id = await start_lesson(builder, "two", ["small talk", "test"])
     phases = []
     prompts = []
     spoken = []
-    for number, answer in enumerate(("Yes", "Yes", "I would make small talk about the event.",
-                                     "I would test the feature.", "small talk", "It means understanding."), 1):
+    for number, answer in enumerate(("Yes", "I would make small talk about the event.",
+                                     "Yes", "I would test the feature.",
+                                     "small talk", "It means understanding."), 1):
         turn = await builder.text("two", lesson_id, number, answer)
         phases.append((turn["lesson"]["phase"], turn["lesson"]["index"]))
         prompts.append(turn["lesson"]["prompt"])
         spoken.append(turn["text"])
-    assert phases == [("Understand", 1), ("Use", 2), ("Use", 3),
+    assert phases == [("Use", 1), ("Understand", 2), ("Use", 3),
                       ("Word game", 4), ("Word game", 5), ("Word game", 6)]
     assert turn["lesson"]["status"] == "finished"
-    assert "test means" in prompts[0]
-    assert "first minute" in prompts[1]
+    assert "first minute" in prompts[0]
+    assert "test means" in prompts[1]
     assert "feature works" in prompts[2]
-    assert sum(text.count("Now let's use these expressions in your own sentences.")
-               for text in spoken) == 1
-    assert "Now let's use these expressions in your own sentences." in spoken[1]
+    assert sum(text.count("Now let's try using it in your own sentence.")
+               for text in spoken) == 2
+    assert "Now let's try using it in your own sentence." in spoken[0]
+    assert "Now let's try using it in your own sentence." in spoken[2]
+    trace = await builder.review("two", lesson_id)
+    first_id, second_id = (word["id"] for word in trace["words"])
+    assert [(event["phase"], event["wordId"]) for event in trace["events"]
+            if event["type"] == "answer"] == [
+                ("Understand", first_id), ("Use", first_id),
+                ("Understand", second_id), ("Use", second_id),
+                ("Word game", first_id), ("Word game", second_id)]
+
+
+@pytest.mark.asyncio
+async def test_active_format_four_lesson_keeps_grouped_order_and_card_delivery_id():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "format-four", ["small talk", "test"])
+    builder.memory["format-four"]["lesson"]["format"] = 4
+    first = await builder.text("format-four", lesson_id, 1, "Yes")
+    assert (first["lesson"]["format"], first["lesson"]["phase"]) == (4, "Understand")
+    second = await builder.text("format-four", lesson_id, 2, "Yes")
+    assert (second["lesson"]["format"], second["lesson"]["phase"]) == (4, "Use")
+    await builder.text("format-four", lesson_id, 3, "I would make small talk about the event.")
+    fourth = await builder.text("format-four", lesson_id, 4, "I would test the feature.")
+    assert (fourth["lesson"]["format"], fourth["lesson"]["phase"]) == (4, "Word game")
+    assert fourth.get("turnId")
+    await builder.text("format-four", lesson_id, 5, "small talk")
+    finished = await builder.text("format-four", lesson_id, 6, "I understand the meaning.")
+    assert (finished["lesson"]["format"], finished["lesson"]["status"]) == (4, "finished")
 
 
 @pytest.mark.asyncio
@@ -286,19 +313,19 @@ async def test_clarification_and_natural_answer_without_target_stay_on_use():
 
 
 @pytest.mark.asyncio
-async def test_five_words_complete_in_three_passes_and_only_then_become_due():
+async def test_five_words_complete_each_understand_use_pair_before_cards():
     builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
     words = ["small talk", "test", "figure out", "postpone", "reflect"]
     lesson_id = await start_lesson(builder, "five", words)
     assert all("reviewDueAt" not in item for item in builder.memory["five"]["items"])
-    for number in range(1, 6):
-        turn = await builder.text("five", lesson_id, number, "Yes")
-        assert turn["lesson"]["index"] == number
-        assert turn["lesson"]["phase"] == ("Use" if number == 5 else "Understand")
-    for number, word in enumerate(words, 6):
-        turn = await builder.text("five", lesson_id, number, f"I would try to {word} it.")
-        assert turn["lesson"]["index"] == number
-    assert turn["lesson"]["status"] == "cards"
+    for word_number, word in enumerate(words):
+        understood = await builder.text("five", lesson_id, 2 * word_number + 1, "Yes")
+        assert (understood["lesson"]["index"], understood["lesson"]["phase"]) == (
+            2 * word_number + 1, "Use")
+        used = await builder.text("five", lesson_id, 2 * word_number + 2, f"I would try to {word} it.")
+        assert used["lesson"]["index"] == 2 * word_number + 2
+        assert used["lesson"]["phase"] == ("Word game" if word_number == 4 else "Understand")
+    assert used["lesson"]["status"] == "cards"
     assert all("reviewDueAt" not in item for item in builder.memory["five"]["items"])
     for number, word in enumerate(words, 11):
         answer = word if (number - 11) % 2 == 0 else "I understand the meaning."

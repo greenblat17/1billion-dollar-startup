@@ -16,7 +16,7 @@ from redis.asyncio import Redis
 from redis.exceptions import WatchError
 
 logger = logging.getLogger(__name__)
-LESSON_FORMAT = 4
+LESSON_FORMAT = 5
 CONTEXT_VERSION = 1
 LESSON_SECONDS = 3600
 REMINDER_SECONDS = 300
@@ -181,8 +181,7 @@ TUTOR_RESPONSE_FORMAT = {
 }
 
 TUTOR_NEW_SYSTEM = TUTOR_SYSTEM + """
-New lesson order: first Understand every word, then Use every word, then one Word game
-card per word. There is no separate Recall or optional game. A simple relevant agreement
+There is no separate Recall or optional game. A simple relevant agreement
 can confirm Understand; do not demand an example. In Use, a small grammar error outside
 the target expression does not block progress: correct it briefly. The learner must supply
 their own phrase with the target. When nextPhase is Use, or a Use question is being repaired,
@@ -199,8 +198,11 @@ repeat it or use an inflected form in an example before the learner answers. Omi
 when the meaning and question are already clear. Keep feedback and question together under
 55 words.
 When nextPhase is Use, do not announce the phase in feedback. The application adds one
-short instruction before the first Use question for the whole lesson.
+short instruction before the Use question.
 """
+
+TUTOR_V4_ORDER = "\nLesson order: Understand every word, then Use every word, then Word game cards.\n"
+TUTOR_V5_ORDER = "\nLesson order: Understand and Use each word before moving to the next; then Word game cards.\n"
 
 TUTOR_NEW_RESPONSE_FORMAT = deepcopy(TUTOR_RESPONSE_FORMAT)
 TUTOR_NEW_RESPONSE_FORMAT["json_schema"]["name"] = "vocabulary_tutor_turn_v4"
@@ -312,11 +314,18 @@ def _legacy_lesson(lesson: dict | None) -> bool:
 
 
 def _new_lesson(lesson: dict) -> bool:
-    return lesson.get("format") == LESSON_FORMAT
+    return lesson.get("format", 0) >= 4
+
+
+def _interleaved_lesson(lesson: dict) -> bool:
+    return lesson.get("format", 0) >= 5
 
 
 def _position(lesson: dict) -> tuple[str, int]:
     index, count = lesson["index"], len(lesson["words"])
+    if _interleaved_lesson(lesson):
+        return (("Understand" if index % 2 == 0 else "Use", index // 2)
+                if index < 2 * count else ("Word game", index - 2 * count))
     if _new_lesson(lesson):
         return (("Understand", index) if index < count else
                 ("Use", index - count) if index < 2 * count else
@@ -770,7 +779,8 @@ class VocabularyBuilder:
 
         for attempt in range(2 if _new_lesson(lesson) and action != "hint" else 1):
             raw = await self._lesson_json(session_id, lesson,
-                TUTOR_NEW_SYSTEM if _new_lesson(lesson) else TUTOR_SYSTEM,
+                (TUTOR_NEW_SYSTEM + (TUTOR_V5_ORDER if _interleaved_lesson(lesson) else TUTOR_V4_ORDER))
+                if _new_lesson(lesson) else TUTOR_SYSTEM,
                 {**request, **({"retryForUnsafeQuestion": attempt > 0} if _new_lesson(lesson) else {})},
                 "vocabulary_tutor", pending,
                 response_format=TUTOR_NEW_RESPONSE_FORMAT if _new_lesson(lesson) else None)
@@ -1393,7 +1403,7 @@ class VocabularyBuilder:
                 self._reveals(next_lesson["prompt"], _current(next_lesson)["word"])):
             raise ValueError("vocabulary tutor revealed the target")
         use_transition = ("Now let's try using it in your own sentence."
-                          if len(lesson["words"]) == 1 else
+                          if _interleaved_lesson(lesson) or len(lesson["words"]) == 1 else
                           "Now let's use these expressions in your own sentences.") if (
                           advance and phase == "Understand" and next_lesson["status"] == "active"
                           and _position(next_lesson)[0] == "Use") else ""
@@ -1741,7 +1751,7 @@ class VocabularyBuilder:
         current = _current(lesson)
         status = lesson["status"]
         if _new_lesson(lesson):
-            return {"id": lesson["id"], "format": LESSON_FORMAT, "status": status,
+            return {"id": lesson["id"], "format": lesson["format"], "status": status,
                     "contextVersion": lesson.get("contextVersion"),
                     "round": "Word game" if status == "cards" else phase,
                     "phase": "Word game" if status == "cards" else phase,
@@ -1770,5 +1780,5 @@ class VocabularyBuilder:
             audio = await self.speech.synthesize(session_id, text)
         return {"status": "ok", "text": text, "lesson": lesson,
                 **({"turnId": uuid4().hex[:16]} if lesson.get("contextVersion") and
-                    (lesson.get("phase") != "Word game" or lesson.get("format") == LESSON_FORMAT) else {}),
+                    (lesson.get("phase") != "Word game" or _new_lesson(lesson)) else {}),
                 "audio": base64.b64encode(audio.data).decode("ascii"), "audioContentType": audio.content_type}
