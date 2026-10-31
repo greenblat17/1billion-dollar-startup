@@ -262,11 +262,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         } catch (error: Throwable) { log.warn("Vocabulary delivery acknowledgement failed for lesson {}", lessonId, error) }
     }
 
-    suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
+    suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse, asText: Boolean = false) {
         if (result.deliveredMessageId != null) return
         val audio = result.audio
         val lesson = result.lesson
-        if (audio != null && lesson != null) {
+        if (!asText && audio != null && lesson != null) {
             val bytes = Base64.getDecoder().decode(audio)
             val voice = sendVoice(message.chat.id,
                 bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
@@ -1691,7 +1691,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 val result = ai.vocabulary(sessionId, "start")
                                 vocabularyAddPrompts.remove(message.chat.id.toString())
                                 editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
-                                sendMessage(message.chat.id, "Listen and answer with a voice message.",
+                                sendMessage(message.chat.id, "Answer with a voice or text message.",
                                     replyMarkup = ReplyKeyboardRemove())
                                 sendVocabularyTurn(message, result)
                             }
@@ -2353,13 +2353,29 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         reply(message, "Tap Play or Skip under the last lesson message.")
                     } else voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
                 }
-                is TextContent -> when {
-                    content.text == VOCABULARY_BUTTON || wordsCommand.matches(content.text) -> {
+                is TextContent -> {
+                    val vocabularyMenu = content.text == VOCABULARY_BUTTON || wordsCommand.matches(content.text)
+                    val lesson = if (vocabularyMenu) null
+                        else ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson
+                    when {
+                    vocabularyMenu -> {
                         vocabularyAddPrompts.remove(message.chat.id.toString())
                         showVocabularyList(message)
                     }
-                    ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards") ->
-                        reply(message, "Continue with the last lesson message, or tap End lesson.")
+                    lesson?.status in setOf("active", "offer", "cards") -> {
+                        val currentLesson = checkNotNull(lesson)
+                        if (currentLesson.status != "active" || content.text.startsWith("/")) {
+                            reply(message, "Continue with the last lesson message, or tap End lesson.")
+                        } else try {
+                            val result = ai.vocabulary(telegramSessionId(message.chat.id), "answer",
+                                lessonId = currentLesson.id, text = content.text, messageId = message.messageId.long)
+                            sendVocabularyTurn(message, result, asText = true)
+                        } catch (error: CancellationException) { throw error
+                        } catch (error: Throwable) {
+                            log.warn("Vocabulary text failed for {}", message.chat.id, error)
+                            reply(message, "I couldn't finish that response. Open Vocabulary Builder to continue.")
+                        }
+                    }
                     vocabularyAddPrompts.remove(message.chat.id.toString()) && !content.text.startsWith("/") -> {
                         try {
                             val proposed = ai.vocabulary(telegramSessionId(message.chat.id), "propose", text = content.text)
@@ -2500,6 +2516,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             }
                         }
                     }
+                }
                 }
                 else -> log.info("Ignoring message")
             }

@@ -164,6 +164,27 @@ def test_vocabulary_review_requires_internal_token_and_returns_trace() -> None:
         assert client.post("/internal/vocabulary", json={**payload, "lessonId": "unknown"}).status_code == 409
 
 
+def test_vocabulary_text_answer_uses_internal_action(monkeypatch) -> None:
+    app, _, _, _ = build_app()
+    received = []
+
+    async def answer(session_id, lesson_id, message_id, text):
+        received.append((session_id, lesson_id, message_id, text))
+        return {"status": "ok", "text": "Next question"}
+
+    monkeypatch.setattr(app.state.vocabulary, "text", answer)
+    payload = {"sessionId": "tg-1", "action": "answer", "lessonId": "lesson1",
+               "messageId": 42, "text": "My own phrase"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["text"] == "Next question"
+        assert client.post("/internal/vocabulary", json={**payload, "text": " "}).status_code == 400
+    assert received == [("tg-1", "lesson1", 42, "My own phrase")]
+
+
 def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatch) -> None:
     app, _, _, _ = build_app()
 

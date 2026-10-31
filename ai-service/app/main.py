@@ -655,6 +655,13 @@ def create_app(
                 return await vocabulary.skip(session_id, str(payload.get("lessonId") or ""))
             if action == "hint":
                 return await vocabulary.hint(session_id, str(payload.get("lessonId") or ""))
+            if action == "answer":
+                message_id = int(payload.get("messageId") or 0)
+                answer = str(payload.get("text") or "")
+                if message_id <= 0 or not answer.strip() or len(answer) > 4000:
+                    raise HTTPException(status_code=400, detail="invalid vocabulary answer")
+                return await vocabulary.text(session_id, str(payload.get("lessonId") or ""),
+                                             message_id, answer)
             if action == "end":
                 return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
         except ValueError as error:

@@ -172,6 +172,28 @@ async def test_grade_uses_strict_schema_and_invalid_json_is_logged_without_conte
 
 
 @pytest.mark.asyncio
+async def test_text_answer_uses_the_same_tutor_turn_without_transcription():
+    class NoStt(Stt):
+        async def transcribe(self, *args, **kwargs):
+            raise AssertionError("text answer must bypass STT")
+
+    builder = VocabularyBuilder(None, Model(), NoStt(), Speech())
+    await builder.propose("tg-text", "overwhelmed")
+    card = await builder.confirm("tg-text")
+    await builder.select("tg-text", card["id"], True)
+    lesson_id = (await builder.start("tg-text"))["lesson"]["id"]
+    first = await builder.text("tg-text", lesson_id, 1, "I had so many tasks yesterday.")
+    assert first["lesson"]["phase"] == "Use"
+    assert "audio" not in first
+    assert (await builder.text("tg-text", lesson_id, 1, "I had so many tasks yesterday."))["turnId"] == first["turnId"]
+    second = await builder.text("tg-text", lesson_id, 2, "I was overwhelmed by work.")
+    assert second["lesson"]["phase"] == "Recall"
+    trace = await builder.review("tg-text", lesson_id)
+    assert [event["transcript"] for event in trace["events"] if event["type"] == "answer"] == [
+        "I had so many tasks yesterday.", "I was overwhelmed by work."]
+
+
+@pytest.mark.asyncio
 async def test_one_word_has_understand_use_recall_and_optional_game():
     clock, stt, model = Clock(), Stt(), Model()
     builder = VocabularyBuilder(None, model, stt, Speech(), clock)
