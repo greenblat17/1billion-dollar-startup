@@ -758,6 +758,16 @@ class VocabularyBuilder:
                    "nextPhase": next_phase_name, "nextTarget": next_target,
                    "selectedWords": lesson["words"], "currentQuestion": lesson["prompt"],
                    "transcript": transcript}
+
+        def log_rejection(raw: dict, question: str, example: str, target: dict | None, attempt: int,
+                          reason: str, verifier_reason: str = "") -> None:
+            logger.warning("vocabulary question rejected %s", json.dumps({
+                "lessonId": lesson["id"], "phase": phase, "action": action,
+                "attempt": attempt, "targetWord": target["word"] if target else None, "reason": reason,
+                "question": question, "exampleAnswer": example,
+                "verifierReason": _clean(verifier_reason, None),
+            }, ensure_ascii=False))
+
         for attempt in range(2 if _new_lesson(lesson) and action != "hint" else 1):
             raw = await self._lesson_json(session_id, lesson,
                 TUTOR_NEW_SYSTEM if _new_lesson(lesson) else TUTOR_SYSTEM,
@@ -766,8 +776,12 @@ class VocabularyBuilder:
                 response_format=TUTOR_NEW_RESPONSE_FORMAT if _new_lesson(lesson) else None)
             question = _clean(raw.get("question"), None)
             if _new_lesson(lesson) and action != "hint":
+                if action == "opening" and not question:
+                    log_rejection(raw, question, "", word, attempt + 1, "missing_question")
+                    continue
                 opening_text = f"{_clean(raw.get('feedback'), None)} {question}"
                 if action == "opening" and len(opening_text.split()) > 55:
+                    log_rejection(raw, question, "", word, attempt + 1, "opening_too_long")
                     continue
                 question_phase = (phase if action == "opening" or
                                   raw.get("category") not in ("understood", "used") else next_phase_name)
@@ -775,15 +789,21 @@ class VocabularyBuilder:
                     example = _clean(raw.get("exampleAnswer"), None)
                     target = (next_target if action != "opening" and
                               raw.get("category") in ("understood", "used") else word)
-                    if (not question.endswith("?") or not example or target is None
-                            or self._reveals(question, target["word"])
-                            or not self._reveals(example, target["word"])
-                            or len(example.split()) < 4):
+                    reason = ("question_not_complete" if not question.endswith("?") else
+                              "missing_example_answer" if not example else
+                              "missing_target" if target is None else
+                              "question_reveals_target" if self._reveals(question, target["word"]) else
+                              "example_omits_target" if not self._reveals(example, target["word"]) else
+                              "example_too_short" if len(example.split()) < 4 else "")
+                    if reason:
+                        log_rejection(raw, question, example, target, attempt + 1, reason)
                         continue
                     check = await self._lesson_json(session_id, lesson, USE_QUESTION_CHECK_SYSTEM,
                         {"question": question, "exampleAnswer": example, "target": target},
                         "vocabulary_use_check", pending)
                     if check.get("fits") is not True:
+                        log_rejection(raw, question, example, target, attempt + 1,
+                                      "example_does_not_answer_question", check.get("reason") or "")
                         continue
             break
         else:

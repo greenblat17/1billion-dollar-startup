@@ -212,7 +212,7 @@ async def test_unsafe_use_question_is_regenerated_before_delivery():
 
 
 @pytest.mark.asyncio
-async def test_failed_question_check_and_isolated_target_leave_goal_unchanged():
+async def test_failed_question_check_and_isolated_target_leave_goal_unchanged(caplog):
     class RejectingModel(TutorModel):
         async def complete_json(self, system, payload, **kwargs):
             if kwargs["operation"] == "vocabulary_use_check":
@@ -222,9 +222,19 @@ async def test_failed_question_check_and_isolated_target_leave_goal_unchanged():
     model = RejectingModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
     lesson_id = await start_lesson(builder, "reject", ["test"])
-    with pytest.raises(ValueError, match="unsafe vocabulary use question"):
-        await builder.text("reject", lesson_id, 1, "Yes")
+    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
+        with pytest.raises(ValueError, match="unsafe vocabulary use question"):
+            await builder.text("reject", lesson_id, 1, "Yes")
     assert (await builder.list("reject"))["lesson"]["index"] == 0
+    rejections = [json.loads(record.getMessage().removeprefix("vocabulary question rejected "))
+                  for record in caplog.records if record.getMessage().startswith("vocabulary question rejected ")]
+    assert [event["attempt"] for event in rejections] == [1, 2]
+    assert all(event["reason"] == "example_does_not_answer_question" for event in rejections)
+    assert all(event["question"] == "What would you do to check that the feature works?"
+               for event in rejections)
+    assert all(event["exampleAnswer"] == "I would test the feature with a few users."
+               for event in rejections)
+    assert all(event["verifierReason"] == "The answer misses the question." for event in rejections)
 
     model = TutorModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
@@ -233,6 +243,32 @@ async def test_failed_question_check_and_isolated_target_leave_goal_unchanged():
     with pytest.raises(ValueError, match="unsupported vocabulary match"):
         await builder.text("isolated", lesson_id, 2, "test")
     assert (await builder.list("isolated"))["lesson"]["index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_rejected_question_shape_logs_the_candidate_without_learner_transcript(caplog):
+    class MissingExampleModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["action"] == "answer":
+                return json.dumps({"feedback": "Let's continue.",
+                                   "question": "What would you do to solve the problem?",
+                                   "category": "understood", "matchedPhrase": "",
+                                   "reason": "Learner agreed.", "exampleAnswer": ""})
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, MissingExampleModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "missing-example", ["figure out"])
+    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
+        with pytest.raises(ValueError, match="unsafe vocabulary use question"):
+            await builder.text("missing-example", lesson_id, 1, "My private learner answer")
+    rejections = [json.loads(record.getMessage().removeprefix("vocabulary question rejected "))
+                  for record in caplog.records if record.getMessage().startswith("vocabulary question rejected ")]
+    assert len(rejections) == 2
+    assert all(event["reason"] == "missing_example_answer" for event in rejections)
+    assert all(event["question"] == "What would you do to solve the problem?" for event in rejections)
+    assert "My private learner answer" not in caplog.text
+    assert (await builder.list("missing-example"))["lesson"]["index"] == 0
 
 
 @pytest.mark.asyncio
