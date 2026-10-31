@@ -18,6 +18,7 @@ from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
 from app.pipeline import NOTES_TIMEOUT_SECONDS, ClipPipeline
 from app.stt import SttResult
+from app.speech_time import SpeechTime
 from tests.conftest import FakeLlm, FakeTts, test_settings as settings
 
 AUTH = {"X-Internal-Token": "test-internal-token"}
@@ -1106,3 +1107,39 @@ async def test_voice_analytics_reports_milestones_without_the_transcript():
     assert failed.onboarding["analytics"]["assessmentFailed"] is True
     assert failed.onboarding["analytics"]["completedNow"] is False
     assert "provider unavailable" not in str(failed.onboarding["analytics"])
+
+
+@pytest.mark.asyncio
+async def test_new_onboarding_counts_voiced_time_and_old_attempt_keeps_recording_time():
+    class Meter:
+        async def transcribe(self, stt, audio, content_type, filename, *, language, method, telegram_seconds):
+            result = await stt.transcribe(audio, content_type, filename, language=language)
+            if method == "vad":
+                return result, SpeechTime(60, 30, "vad")
+            return result, SpeechTime(60, 60, "recording_legacy")
+
+    updated = service(stt=Stt(60))
+    updated.pipeline.speech_meter = Meter()
+    run = await begin(updated)
+    for index in range(3):
+        result = await turn(updated, run, f"v{index}")
+        assert result.onboarding["status"] == "active"
+        assert result.onboarding["seconds"] == 30 * (index + 1)
+        assert result.onboarding["analytics"]["durationSource"] == "vad"
+        assert result.onboarding["analytics"]["recordingDurationSec"] == 60
+        if index == 0:
+            assert result.onboarding["phase"] == "checkpoint"
+            assert (await updated.store.get("tg-test"))["turns"][-1]["counted"] is True
+            assert (await updated.pipeline.metrics.snapshot())["sttSeconds"] == 60
+    final = await turn(updated, run, "v3")
+    assert final.onboarding["status"] == "completed"
+    assert final.onboarding["seconds"] == 120
+    assert (await updated.pipeline.metrics.snapshot())["sttSeconds"] == 240
+    assert (await updated.store.get("tg-test"))["turns"][-1]["recordingSeconds"] == 60
+
+    existing = service(stt=Stt(60))
+    old_run = await begin(existing, session="tg-old")
+    existing.pipeline.speech_meter = Meter()
+    old = await turn(existing, old_run, session="tg-old")
+    assert old.onboarding["seconds"] == 60
+    assert old.onboarding["analytics"]["durationMethod"] == "recording"

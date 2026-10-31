@@ -148,6 +148,9 @@ class PostgresOnboardingAnalyticsTest {
                 recognized = true,
                 telegramDurationSec = 121.0,
                 recognizedDurationSec = 121.0,
+                recordingDurationSec = 150.0,
+                durationMethod = "vad",
+                durationSource = "vad",
                 milestones = listOf(30, 60, 90, 120),
                 speechBeforeSec = 0.0,
                 speechAfterSec = 121.0,
@@ -184,6 +187,16 @@ class PostgresOnboardingAnalyticsTest {
             assertEquals(1, activation.activated)
             assertEquals(1, activation.practiceTwoDays)
             DriverManager.getConnection(if (url.startsWith("jdbc:")) url else "jdbc:$url").use { connection ->
+                connection.prepareStatement("""SELECT recording_duration_sec, duration_method, duration_source
+                    FROM onboarding_voices WHERE attempt_id = ?""").use { statement ->
+                    statement.setString(1, runId)
+                    statement.executeQuery().use { rows ->
+                        assertTrue(rows.next())
+                        assertEquals(150.0, rows.getDouble(1))
+                        assertEquals("vad", rows.getString(2))
+                        assertEquals("vad", rows.getString(3))
+                    }
+                }
                 connection.prepareStatement("SELECT COUNT(*), MIN(processing_ms) FROM onboarding_voices WHERE attempt_id = ?").use { statement ->
                     statement.setString(1, runId)
                     statement.executeQuery().use { rows ->

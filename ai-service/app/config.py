@@ -54,6 +54,7 @@ class Settings:
     tts_output_format: str = "ogg"
     tts_speed: float = 0.9
     log_file: str = ""
+    speech_time_enabled: bool = True
 
     @staticmethod
     def from_env() -> Settings:
@@ -84,4 +85,5 @@ class Settings:
             tts_output_format=_env("TTS_OUTPUT_FORMAT", "ogg") or "ogg",
             tts_speed=_float_env("TTS_SPEED", 0.9),
             log_file=_env("LOG_FILE", "") or "",
+            speech_time_enabled=_env("SPEECH_TIME_ENABLED", "true").lower() == "true",
         )

@@ -85,7 +85,8 @@ internal class MemoryCallEventStore : CallEventStore {
             val key = "${safe.callId}:${safe.kind}:$suffix"
             val prior = habitFacts[key]
             habitFacts[key] = CallEvent(key, safe.kind, 0, minOf(prior?.at ?: safe.at, safe.at),
-                callId = safe.callId, messageId = safe.messageId, seconds = prior?.seconds ?: safe.seconds)
+                callId = safe.callId, messageId = safe.messageId, seconds = prior?.seconds ?: safe.seconds,
+                state = prior?.state ?: safe.state)
         }
         Unit
     }

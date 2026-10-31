@@ -69,7 +69,7 @@ class OnboardingMessagesTest {
         assertEquals("🎯 1:17 / 2:00", onboardingProgressLabel(77.0, extended = true))
         assertEquals("🎯 2:00+", onboardingProgressLabel(120.0, extended = true))
         assertEquals(
-            "🎙 This tracks the duration of your recognized voice messages, including pauses.",
+            "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted.",
             ONBOARDING_PROGRESS_HINT,
         )
         val run = "a".repeat(32)

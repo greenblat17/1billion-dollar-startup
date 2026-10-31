@@ -19,6 +19,7 @@ from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
+from app.speech_time import SpeechTime, SpeechTimeMeter, recording_time
 from app.tts import TextToSpeech, TtsAudio
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class ClipPipeline:
         speech: SessionSpeech | None = None,
         notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
         v2: MetricsV2 | None = None,
+        speech_meter: SpeechTimeMeter | None = None,
     ) -> None:
         if notes_timeout_seconds <= 0:
             raise ValueError("notes timeout must be positive")
@@ -86,6 +88,7 @@ class ClipPipeline:
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
         self._notes_timeout_seconds = notes_timeout_seconds
+        self.speech_meter = speech_meter
 
     @property
     def stt(self) -> SpeechToText:
@@ -160,6 +163,7 @@ class ClipPipeline:
         filename: str,
         profile_note: str | None = None,
         on_stage: Callable[[str], None] | None = None,
+        attempt_id: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
         platform = None
@@ -170,11 +174,12 @@ class ClipPipeline:
                 logger.warning("could not resolve client platform for provider logs")
         bound = bind_metrics(session_id, platform)
         try:
-            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started,
+                                         on_stage, attempt_id)
         finally:
             reset_metrics(bound)
 
-    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage):
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage, attempt_id):
         timings = _job_timings.get()
         if timings is None:
             timings = {}
@@ -182,10 +187,20 @@ class ClipPipeline:
             if on_stage is not None:
                 on_stage(name)
 
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        method = active_call.get("durationMethod", "recording") if active_call else "recording"
         stt_started = time.perf_counter()
         stage("stt")
         try:
-            stt_result = await self._stt.transcribe(audio, content_type, filename)
+            if self.speech_meter is not None:
+                stt_result, speech_time = await self.speech_meter.transcribe(
+                    self._stt, audio, content_type, filename, method=method,
+                )
+            else:
+                stt_result = await self._stt.transcribe(audio, content_type, filename)
+                speech_time = (SpeechTime(stt_result.duration_seconds, stt_result.duration_seconds,
+                                          "recording_fallback", "disabled") if method == "vad"
+                               else recording_time(stt_result.duration_seconds))
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error(session_id, "stt", "failed")
@@ -193,6 +208,7 @@ class ClipPipeline:
         finally:
             timings["stt"] = _elapsed_ms(stt_started)
         stt_ms = timings["stt"]
+        timings["vad"] = speech_time.vad_ms
         await record_artifact("transcript", stt_result.text)
         if self._v2 is not None:
             await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
@@ -292,7 +308,9 @@ class ClipPipeline:
             await self._v2.record_turn(session_id)
         await self._metrics.record_exchange(session_id)
         streak = None if load_test_active() else await self._record_streak(session_id)
-        call = None if load_test_active() else await self._record_call(session_id, stt_result, reply_text, corrections)
+        call = None if load_test_active() else await self._record_call(
+            session_id, stt_result, speech_time, reply_text, corrections, attempt_id,
+        )
         timings["finalize"] = _elapsed_ms(finalize_started)
         timings["total"] = _elapsed_ms(started)
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
@@ -317,7 +335,8 @@ class ClipPipeline:
             await self._v2.record_turn(session_id)
         return await self._record_streak(session_id)
 
-    async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:
+    async def _record_call(self, session_id: str, stt_result: SttResult, speech_time: SpeechTime,
+                           reply_text: str, corrections: list[Correction], attempt_id: str | None) -> dict | None:
         if self.calls is None:
             return None
         await self.record_partial("call_turn", "attempted")
@@ -327,11 +346,19 @@ class ClipPipeline:
                 stt_result.text,
                 reply_text,
                 [item.to_json() for item in corrections],
-                stt_result.duration_seconds,
+                speech_time.speech_seconds,
                 stt_result.words,
+                recording_seconds=speech_time.recording_seconds,
+                duration_source=speech_time.source,
+                duration_fallback_reason=speech_time.fallback_reason,
+                attempt_id=attempt_id,
             )
             await self.record_partial("call_turn", "succeeded")
-            return {**result, "recognizedSeconds": stt_result.duration_seconds} if result is not None else None
+            return {**result, "recognizedSeconds": speech_time.speech_seconds,
+                    "recordingSeconds": speech_time.recording_seconds,
+                    "durationSource": speech_time.source,
+                    "durationFallbackReason": speech_time.fallback_reason,
+                    } if result is not None else None
         except Exception as error:
             await self.record_partial("call_turn", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("call turn failed session=%s", session_id)

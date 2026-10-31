@@ -195,7 +195,8 @@ def _timed_words(turn: dict) -> list[dict]:
 
 
 def _seconds(turn: dict) -> float:
-    raw = turn.get("seconds") or 0
+    # Fluency pace still uses the full recording; the timer uses voiced seconds.
+    raw = turn.get("recordingSeconds", turn.get("seconds")) or 0
     try:
         value = float(raw)
     except (TypeError, ValueError):

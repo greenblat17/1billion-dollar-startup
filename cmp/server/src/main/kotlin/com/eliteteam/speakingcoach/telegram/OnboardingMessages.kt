@@ -59,7 +59,7 @@ internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val SEE_RESULTS_BUTTON = "🔥 See results"
 internal const val ONBOARDING_PROGRESS_HINT =
-    "🎙 This tracks the duration of your recognized voice messages, including pauses."
+    "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted."
 
 internal fun onboardingProgressLabel(seconds: Double, extended: Boolean = false): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0

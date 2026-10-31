@@ -18,6 +18,7 @@ from app.onboarding_score import apply_skill, normalize_shade, overall_progress
 from app.vocabulary_suggestions import select_vocabulary_suggestions
 from app.personalization import Personalization
 from app.pipeline import CLARIFY_TEXT, ClipPipeline, PipelineResult, current_job_timings
+from app.speech_time import SpeechTime, recording_time
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.tts import TtsAudio
 
@@ -328,12 +329,14 @@ def _public_fluency(skill: dict) -> dict:
     }
 
 
-def _attempt(receipts: list[str] | None = None, legacy_user: bool = False) -> dict:
+def _attempt(receipts: list[str] | None = None, legacy_user: bool = False,
+             duration_method: str = "recording") -> dict:
     return {
         "runId": uuid4().hex,
         "status": "waiting",
         "legacyUser": legacy_user,
         "seconds": 0.0,
+        "durationMethod": duration_method,
         "turns": [],
         "profile": {},
         "cefr": None,
@@ -399,7 +402,7 @@ class OnboardingService:
             state = await self.store.get(session_id)
             if state is None:
                 known = await self.pipeline.metrics.is_known(session_id)
-                state = _attempt(legacy_user=known)
+                state = _attempt(legacy_user=known, duration_method=self._duration_method())
                 if known:
                     state["status"] = "exempt"
             if request_id not in state["receipts"]:
@@ -409,10 +412,13 @@ class OnboardingService:
                         await self.store.save(session_id, state)
                     state = _attempt(state["receipts"], legacy_user=bool(
                         state.get("legacyUser") or state["status"] == "exempt"
-                    ))
+                    ), duration_method=self._duration_method())
                 state["receipts"] = (state["receipts"] + [request_id])[-256:]
                 await self.store.save(session_id, state)
             return public_state(state)
+
+    def _duration_method(self) -> str:
+        return "vad" if self.pipeline.speech_meter is not None else "recording"
 
     async def legacy_invitation(self, session_id: str, action: str) -> bool:
         async with self.store.lock(session_id):
@@ -552,13 +558,24 @@ class OnboardingService:
                     await self.store.save(session_id, state)
                 try:
                     stt_started = time.perf_counter()
-                    stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
+                    if self.pipeline.speech_meter is not None:
+                        stt, speech_time = await self.pipeline.speech_meter.transcribe(
+                            self.pipeline.stt, audio, content_type, filename, language=None,
+                            method=state.get("durationMethod", "recording"), telegram_seconds=duration,
+                        )
+                    else:
+                        stt = await self.pipeline.stt.transcribe(audio, content_type, filename, language=None)
+                        recorded = stt.duration_seconds or duration
+                        speech_time = (SpeechTime(recorded, recorded, "recording_fallback", "disabled")
+                                       if state.get("durationMethod") == "vad" else recording_time(recorded))
                 except Exception as error:
                     raise OnboardingSttError() from error
                 finally:
                     timings = current_job_timings()
                     if timings is not None:
                         timings["stt"] = int((time.perf_counter() - stt_started) * 1000)
+                        if "speech_time" in locals():
+                            timings["vad"] = speech_time.vad_ms
                 if stt.no_speech or not stt.text.strip():
                     return self._result(
                         state, CLARIFY_TEXT, await self.pipeline.speech.synthesize(session_id, CLARIFY_TEXT),
@@ -573,20 +590,27 @@ class OnboardingService:
                         ),
                     )
                 await record_artifact("transcript", stt.text)
-                seconds = stt.duration_seconds if stt.duration_seconds > 0 else duration
+                seconds = speech_time.speech_seconds
                 if not math.isfinite(seconds) or seconds <= 0:
                     raise ValueError("recording duration unavailable")
                 before = float(state["seconds"])
                 turn = {
                     "requestId": request_id, "question": state["question"], "transcript": stt.text,
                     "receivedAt": recorded_at(),
-                    "seconds": seconds, "words": [dict(word) for word in stt.words],
+                    "seconds": seconds, "recordingSeconds": speech_time.recording_seconds,
+                    "durationSource": speech_time.source,
+                    "durationFallbackReason": speech_time.fallback_reason,
+                    "words": [dict(word) for word in stt.words],
                     "corrections": None, "analysis": None, "delivered": False,
                     "_analytics": _voice_analytics(
                         voice_index=len(state["turns"]) + 1,
                         telegram_duration=duration,
                         recognized_duration=seconds,
                         recognized=True,
+                        duration_source=speech_time.source,
+                        duration_method=state.get("durationMethod", "recording"),
+                        duration_fallback_reason=speech_time.fallback_reason,
+                        recording_duration=speech_time.recording_seconds,
                         milestones=[mark for mark in SPEECH_MILESTONES if before < mark <= before + seconds],
                         speech_before=before,
                         speech_after=before + seconds,
@@ -657,7 +681,7 @@ class OnboardingService:
                 turn["delivered"] = True
                 await self.store.save(session_id, state)
                 result = self._result(state, CHECKPOINT_TEXT, turn=turn)
-                result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(CHECKPOINT_TEXT))
+                result.streak = await self.pipeline.record_completed_turn(session_id, turn.get("recordingSeconds", turn["seconds"]), len(CHECKPOINT_TEXT))
                 turn["counted"] = True
                 await self.store.save(session_id, state)
                 return result
@@ -668,7 +692,8 @@ class OnboardingService:
             turn["delivered"] = True
             await self.store.save(session_id, state)
             result = self._result(state, question, reply_audio, turn)
-            result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(question))
+            result.streak = await self.pipeline.record_completed_turn(
+                session_id, turn.get("recordingSeconds", turn["seconds"]), len(question))
             turn["counted"] = True
             await self.store.save(session_id, state)
             return result
@@ -728,7 +753,7 @@ class OnboardingService:
             },
         )
         if not turn.get("counted"):
-            result.streak = await self.pipeline.record_completed_turn(session_id, turn["seconds"], len(RESULT_READY_TEXT))
+            result.streak = await self.pipeline.record_completed_turn(session_id, turn.get("recordingSeconds", turn["seconds"]), len(RESULT_READY_TEXT))
             turn["counted"] = True
             await self.store.save(session_id, state)
         return result
@@ -836,6 +861,10 @@ def _voice_analytics(
     milestones: list[int] | None = None,
     speech_before: float | None = None,
     speech_after: float | None = None,
+    duration_source: str | None = None,
+    duration_method: str | None = None,
+    duration_fallback_reason: str | None = None,
+    recording_duration: float | None = None,
 ) -> dict:
     telegram = telegram_duration if math.isfinite(telegram_duration) and telegram_duration > 0 else 0.0
     recognized_seconds = recognized_duration if math.isfinite(recognized_duration) and recognized_duration > 0 else 0.0
@@ -848,6 +877,10 @@ def _voice_analytics(
         "milestones": list(milestones or []),
         "speechBeforeSec": speech_before,
         "speechAfterSec": speech_after,
+        "durationSource": duration_source,
+        "durationMethod": duration_method,
+        "durationFallbackReason": duration_fallback_reason,
+        "recordingDurationSec": recording_duration,
     }
 
 
@@ -867,6 +900,10 @@ def _public_analytics(turn: dict | None, update: dict | None) -> dict | None:
         "voiceIndex": int(facts.get("voiceIndex") or 0),
         "telegramDurationSec": float(facts.get("telegramDurationSec") or 0),
         "recognizedDurationSec": float(facts.get("recognizedDurationSec") or 0),
+        "recordingDurationSec": facts.get("recordingDurationSec"),
+        "durationMethod": facts.get("durationMethod"),
+        "durationSource": facts.get("durationSource"),
+        "durationFallbackReason": facts.get("durationFallbackReason"),
         "recognized": bool(facts.get("recognized")),
         "failureReason": facts.get("failureReason") if isinstance(facts.get("failureReason"), str) else None,
         "milestones": milestones,

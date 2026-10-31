@@ -18,6 +18,7 @@ from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
 from app.calls import CallStore, moscow_day
+from app.speech_time import SpeechTimeMeter, SpeechTimeRollout
 from app.first_call_feedback import FirstCallFeedback, offer_eligibility
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
@@ -81,6 +82,9 @@ def create_app(
     configure_user_id_hash_key(settings.ai_internal_token)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
+    rollout = SpeechTimeRollout(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+    ) if clip_pipeline.speech_meter is not None and call_store is None else None
     onboarding = OnboardingService(
         onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
         clip_pipeline, onboarding_model or OnboardingModel(
@@ -93,6 +97,7 @@ def create_app(
     calls = call_store or CallStore(
         redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
         goal_of=onboarding.store.get_goal,
+        rollout=rollout,
     )
     first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
     clip_pipeline.calls = calls
@@ -114,6 +119,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if rollout is not None:
+            await rollout.activation_day()
         await streaks.backfill()
         memory_task = asyncio.create_task(memory_jobs.run())
         habit_task = asyncio.create_task(habits.run())
@@ -147,6 +154,10 @@ def create_app(
             await asyncio.gather(intro_warmup, retention_task, *( [cost_task] if cost_task else [] ),
                                  return_exceptions=True)
         await onboarding.store.aclose()
+        if rollout is not None:
+            await rollout.aclose()
+        if clip_pipeline.speech_meter is not None:
+            clip_pipeline.speech_meter.close()
         if owns_calls:
             await calls.aclose()
         await sessions.aclose()
@@ -783,6 +794,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
         v2=v2,
+        speech_meter=SpeechTimeMeter(settings.ffmpeg_bin) if settings.speech_time_enabled else None,
     )
 
 
@@ -893,7 +905,8 @@ async def _run_job(
     try:
         result = await asyncio.wait_for(
             onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
-            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename, on_stage=set_stage),
+            if onboarding is not None and run_id else pipeline.run(
+                job.session_id, audio, content_type, filename, on_stage=set_stage, attempt_id=job.attempt_id),
             timeout=timeout_seconds,
         )
         if result.transcript and job.transcript is None:
