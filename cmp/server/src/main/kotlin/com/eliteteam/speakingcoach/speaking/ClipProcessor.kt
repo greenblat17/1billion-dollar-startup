@@ -102,4 +102,5 @@ data class OnboardingStatus(
     val nextBand: String? = null,
     val pointsToNext: Int? = null,
     val analytics: OnboardingVoiceFacts? = null,
+    val phase: String = "initial",
 )

@@ -48,7 +48,7 @@ internal enum class AttemptMark(val column: String) {
     BYE("bye_at"),
 }
 
-internal const val ONBOARDING_ANALYTICS_VERSION = "v2"
+internal const val ONBOARDING_ANALYTICS_VERSION = "v3"
 
 internal fun safeOnboardingUsername(value: String?): String? =
     value?.removePrefix("@")?.takeIf { it.length in 1..32 && it.all { char -> char.isLetterOrDigit() || char == '_' } }
