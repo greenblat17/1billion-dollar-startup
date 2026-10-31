@@ -308,6 +308,10 @@ volumes:
 fi
 
 if [ "$ALERTS_ENABLED" = true ]; then
+  if [ ! -s "$CREDIT_ENV" ]; then
+    echo "Daily report requires OpenRouter management key configuration" >&2
+    exit 1
+  fi
   cat >> "$MON/compose.yml" <<EOF
   daily-report:
     logging: *bounded_logging
@@ -318,6 +322,7 @@ if [ "$ALERTS_ENABLED" = true ]; then
     restart: unless-stopped
     env_file:
       - ./alerts.env
+      - ./openrouter.env
     environment:
       AI_SERVICE_BASE_URL: ${AI_URL}
       AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_token

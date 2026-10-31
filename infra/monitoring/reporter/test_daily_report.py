@@ -1,7 +1,9 @@
 import unittest
 from datetime import date, datetime
+from decimal import Decimal
+from unittest.mock import patch
 
-from daily_report import MOSCOW, is_due, report_message
+from daily_report import MOSCOW, current_balance_line, is_due, report_message
 
 
 class DailyReportTest(unittest.TestCase):
@@ -26,6 +28,15 @@ class DailyReportTest(unittest.TestCase):
         self.assertFalse(is_due(before, ""))
         self.assertTrue(is_due(due, ""))
         self.assertFalse(is_due(due, "2026-10-30"))
+
+    def test_daily_balance_uses_fresh_credit_check(self) -> None:
+        with patch("daily_report.fetch_balance", return_value=Decimal("4.99")) as fetch:
+            self.assertRegex(current_balance_line(), r"Баланс OpenRouter \(\d{2}:\d{2} МСК\): \$4\.99\.")
+        fetch.assert_called_once_with()
+
+    def test_daily_balance_failure_is_not_reported_as_zero(self) -> None:
+        with patch("daily_report.fetch_balance", side_effect=OSError):
+            self.assertEqual("Баланс OpenRouter: данные недоступны.", current_balance_line())
 
 
 if __name__ == "__main__":

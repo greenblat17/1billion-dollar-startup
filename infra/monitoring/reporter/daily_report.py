@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from credit_monitor import fetch_balance
 from telegram_delivery import send_message
 
 
@@ -41,6 +42,16 @@ def fetch_report(day: date) -> str:
     with urlopen(request, timeout=20) as response:
         payload = json.load(response)
     return report_message(day, payload)
+
+
+def current_balance_line() -> str:
+    try:
+        balance = fetch_balance()
+    except (OSError, ValueError, KeyError) as error:
+        LOG.warning("OpenRouter balance unavailable for daily report: %s", type(error).__name__)
+        return "Баланс OpenRouter: данные недоступны."
+    checked_at = datetime.now(MOSCOW)
+    return f"Баланс OpenRouter ({checked_at:%H:%M} МСК): ${balance:.2f}."
 
 
 def last_sent_day() -> str:
@@ -76,6 +87,7 @@ def run() -> None:
             except (OSError, ValueError, KeyError, TypeError) as error:
                 LOG.warning("Habit metrics unavailable: %s", type(error).__name__)
                 message = f"Speaky · {day:%d.%m.%Y}, 23:00 МСК\nDAU и WAU: данные недоступны."
+            message += "\n" + current_balance_line()
             send_message(message)
             record_sent(day)
             LOG.info("Daily report delivered for %s", day.isoformat())
