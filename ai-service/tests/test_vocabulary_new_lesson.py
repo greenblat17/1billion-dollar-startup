@@ -229,9 +229,9 @@ async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card
     lesson_id = await start_lesson(builder, "one", ["figure out"])
     first = await builder.text("one", lesson_id, 1, "Yes, that happened to me.")
     assert (first["lesson"]["phase"], first["lesson"]["index"]) == ("Use", 1)
-    assert first["text"].count("Now let's try using it in your own sentence.") == 1
+    assert first["text"].count("Now let's make your own sentence with 'figure out'.") == 1
     assert "figure out" not in first["lesson"]["prompt"]
-    assert "figure out" not in first["text"]
+    assert first["text"].count("figure out") == 1
     assert "vocabulary_use_check" not in model.operations
     second = await builder.text("one", lesson_id, 2, "I would figure out the problem carefully.")
     assert (second["lesson"]["status"], second["lesson"]["index"]) == ("cards", 2)
@@ -275,10 +275,10 @@ async def test_two_words_run_understand_then_use_for_each_before_cards():
     assert "first minute" in prompts[0]
     assert "test means" in prompts[1]
     assert "feature works" in prompts[2]
-    assert sum(text.count("Now let's try using it in your own sentence.")
+    assert sum(text.count("Now let's make your own sentence with '")
                for text in spoken) == 2
-    assert "Now let's try using it in your own sentence." in spoken[0]
-    assert "Now let's try using it in your own sentence." in spoken[2]
+    assert "Now let's make your own sentence with 'small talk'." in spoken[0]
+    assert "Now let's make your own sentence with 'test'." in spoken[2]
     trace = await builder.review("two", lesson_id)
     first_id, second_id = (word["id"] for word in trace["words"])
     assert [(event["phase"], event["wordId"]) for event in trace["events"]

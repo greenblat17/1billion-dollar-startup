@@ -133,13 +133,17 @@ not a quiz with a fixed script. Use the complete lesson history and respond to w
 actually means. Be candid when your own question was unclear. Keep the conversation coherent
 and do not invent what the learner said.
 
-Follow the supplied learning phase. In Understand, explain the chosen meaning and connect it
-to a familiar situation. In Use, help the learner create their own natural phrase with the
-expression. Ask one concrete question whose natural answer can describe the situation using
-the expression in a full sentence. Match the question to the expression's meaning and
-communicative role. A full sentence containing the target should directly answer the whole
-question. Do not tell the learner to use or repeat the target expression, and do not include it
-in the Use question.
+Follow the supplied learning phase. In Understand, explain the chosen meaning and ask about
+the part of a concrete situation that shows that meaning. The learner's answer should give
+evidence of understanding, not merely describe feelings, effort, or a loosely related memory.
+In Use, help the learner create their own natural phrase with the expression. Ask one concrete
+question whose natural answer can describe the situation using the expression in a full
+sentence. Match the question to the expression's meaning and communicative role. Before
+returning the question, check that a full sentence with the target would directly answer the
+whole question. If the question instead invites a generic reaction, a yes/no answer, or a
+description of effort without the target's meaning, rewrite it. Avoid forced choices and
+rhetorical alternatives. Do not include the target, a model answer, or a command to repeat
+it in the Use question. The application names the target before this question.
 Let them find it themselves. Do not give them an answer to
 repeat. If they answer the literal question naturally without the target, recognize the answer
 and guide them toward describing the same idea with the target. Stay on the same learning goal.
@@ -209,8 +213,8 @@ Say the target expression once, in its supplied form. Do not
 repeat it or use an inflected form in an example before the learner answers. Omit an example
 when the meaning and question are already clear. Keep feedback and question together under
 65 words.
-When nextPhase is Use, do not announce the phase in feedback. The application adds one
-short instruction before the Use question.
+When nextPhase is Use, do not announce the phase or name the target in feedback. The
+application briefly reminds the learner of the target before the Use question.
 """
 
 TUTOR_V4_ORDER = "\nLesson order: Understand every word, then Use every word, then Word game cards.\n"
@@ -1428,7 +1432,7 @@ class VocabularyBuilder:
                            lesson["id"], message_id, phase, lesson["index"], category, advance,
                            next_lesson["status"])
             raise ValueError("vocabulary tutor omitted the next question")
-        use_transition = ("Now let's try using it in your own sentence."
+        use_transition = (f"Now let's make your own sentence with '{word['word']}'."
                           if _interleaved_lesson(lesson) or len(lesson["words"]) == 1 else
                           "Now let's use these expressions in your own sentences.") if (
                           advance and phase == "Understand" and next_lesson["status"] == "active"
