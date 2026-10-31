@@ -1725,7 +1725,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
                             if (result.summary != null) sendMessage(message.chat.id, result.summary,
                                 replyMarkup = startCallKeyboard())
-                            else reply(message, "That lesson has already ended.", allowSendingWithoutReply = true)
+                            else reply(message, "That lesson has already ended.", allowSendingWithoutReply = true,
+                                replyMarkup = startCallKeyboard())
                         }
                         else -> showVocabularyList(message, 0)
                     }
