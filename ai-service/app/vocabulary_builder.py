@@ -192,8 +192,13 @@ def _tutor_response_format(phase: str, action: str) -> dict:
 TUTOR_NEW_SYSTEM = TUTOR_SYSTEM + """
 This format teaches Understand then Use for each word, followed by mandatory cards. No Recall.
 A relevant short answer can confirm Understand; do not demand an example. In Use, a minor
-grammar error outside the target does not block progress. On the last successful Use, leave
-question empty; the application starts the first card. A Use hint never says the target.
+grammar error outside the target does not block progress. A Use hint never says the target.
+For action=answer, category assesses the supplied phase, never nextPhase. If category is
+understood or used, ask the next complete question for nextPhase and nextTarget. If nextPhase
+is Word game, leave question empty; the application starts the first card. If category does
+not achieve the current goal, ask a new complete question for the same phase and target,
+even when nextPhase is Word game. Never leave question empty while another spoken question
+is needed for Understand or Use.
 In every Understand turn, name the target in the brief explanation AND use it naturally in the
 short question. The question shows usage and asks about its meaning, not a related topic.
 For opening, greet the learner warmly, invite them to practise, then explain and ask. Avoid
