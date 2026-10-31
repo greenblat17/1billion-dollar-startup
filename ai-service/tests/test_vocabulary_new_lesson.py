@@ -273,6 +273,22 @@ async def test_failed_question_check_and_isolated_target_leave_goal_unchanged(ca
 
 
 @pytest.mark.asyncio
+async def test_use_question_check_cannot_grade_the_learner_reply_instead_of_the_example():
+    class IsolatedCheckModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_use_check":
+                data = json.loads(payload)
+                assert set(data) == {"question", "exampleAnswer", "target"}
+                assert data["target"]["word"] in data["exampleAnswer"]
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, IsolatedCheckModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "question-check-context", ["figure out"])
+    response = await builder.text("question-check-context", lesson_id, 1, "yeah sure")
+    assert (response["lesson"]["phase"], response["lesson"]["index"]) == ("Use", 1)
+
+
+@pytest.mark.asyncio
 async def test_rejected_question_shape_logs_the_candidate_without_learner_transcript(caplog):
     class MissingExampleModel(TutorModel):
         async def complete_json(self, system, payload, **kwargs):

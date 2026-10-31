@@ -808,9 +808,9 @@ class VocabularyBuilder:
                     if reason:
                         log_rejection(raw, question, example, target, attempt + 1, reason)
                         continue
-                    check = await self._lesson_json(session_id, lesson, USE_QUESTION_CHECK_SYSTEM,
+                    check = await self._json(USE_QUESTION_CHECK_SYSTEM,
                         {"question": question, "exampleAnswer": example, "target": target},
-                        "vocabulary_use_check", pending)
+                        "vocabulary_use_check")
                     if check.get("fits") is not True:
                         log_rejection(raw, question, example, target, attempt + 1,
                                       "example_does_not_answer_question", check.get("reason") or "")
