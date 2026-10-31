@@ -201,11 +201,14 @@ Only after the last Use succeeds and
 nextPhase is Word game, leave question empty: the application creates the first card in
 the same spoken turn.
 For action=hint in Use, give a clue without saying or spelling the target expression.
-For action=opening, keep the whole spoken turn brief: explain one meaning in plain English
-and ask one clear question. Say the target expression once, in its supplied form. Do not
+For action=opening, begin with a brief, friendly greeting and a natural invitation to practise
+together. Then explain one meaning in plain English and ask one clear learning question.
+Do not open abruptly with a label such as "Today's expression is...". Do not ask a separate
+"How are you?" or "Ready?" question unless you will wait for its answer before teaching.
+Say the target expression once, in its supplied form. Do not
 repeat it or use an inflected form in an example before the learner answers. Omit an example
 when the meaning and question are already clear. Keep feedback and question together under
-55 words.
+65 words.
 When nextPhase is Use, do not announce the phase in feedback. The application adds one
 short instruction before the Use question.
 """
