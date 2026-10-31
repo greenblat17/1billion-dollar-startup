@@ -46,7 +46,7 @@ The first spoken line is exactly:
 
 > Alright, now you can hear me. And yep, this is actually my voice. I’d really love to get to know you a little. Let's start with something simple. What do you do — do you work or study?
 
-Under that voice message show **🎯 Speaking progress: 0:00 / 0:30** and **CC · Show subtitles**. Show this hint once, with the first question:
+Under that voice message show **🎯 0:00 / 0:30** and **Subtitles** on the same row, using the compact button labels from the earlier onboarding. Show this hint once, with the first question:
 
 > 💡 Reply with a voice message. You can give short answers — I'll keep the conversation going.
 
@@ -69,7 +69,7 @@ Inline buttons:
 
 Show the checkpoint once per attempt. Both choices are mutually exclusive and idempotent. A new voice message while the checkpoint is open counts as choosing **Keep talking**: accept it in the same attempt, process it once, and send the next contextual reply or the automatic result if it crosses 120 seconds. An old checkpoint button cannot later finalize a completed attempt. A recording that crosses both 30 and 120 seconds bypasses the checkpoint and goes directly to the automatic result.
 
-After **Keep talking**, show progress against **2:00**, starting from the actual accumulated duration (for example, `0:38 / 2:00`, not resetting to `0:30`). Keep **🎯 See my results** available under the latest Speaky voice, alongside **CC · Show subtitles**. The user may stop at any later point before two minutes; that action finalizes the accepted answers so far. At **at least 120 seconds**, finalize automatically after processing the full recording. Do not send an additional voice goodbye. The next bot message is the result card. Remove or invalidate old stop and continue buttons when the attempt ends.
+After **Keep talking**, show progress against **2:00**, starting from the actual accumulated duration (for example, `🎯 0:38 / 2:00`, not resetting to `0:30`). Keep **Subtitles** beside the progress button and **🎯 See my results** on the row below under the latest Speaky voice. The user may stop at any later point before two minutes; that action finalizes the accepted answers so far. At **at least 120 seconds**, finalize automatically after processing the full recording. Do not send an additional voice goodbye. The next bot message is the result card. Remove or invalidate old stop and continue buttons when the attempt ends.
 
 ## 4. Results and feedback
 

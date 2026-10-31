@@ -63,11 +63,12 @@ class OnboardingMessagesTest {
 
     @Test
     fun progressButtonsCountSpeechUpToTwoMinutes() {
-        assertEquals("🎯 Speaking progress: 0:00 / 0:30", progressLabels(0.0).single())
-        assertEquals("🎯 Speaking progress: 0:38 / 2:00", onboardingProgressLabel(38.0, extended = true))
-        assertEquals("🎯 Speaking progress: 1:17 / 2:00", onboardingProgressLabel(77.0, extended = true))
+        assertEquals("🎯 0:00 / 0:30", progressLabels(0.0).single())
+        assertEquals("🎯 0:38 / 2:00", onboardingProgressLabel(38.0, extended = true))
+        assertEquals("🎯 1:17 / 2:00", onboardingProgressLabel(77.0, extended = true))
+        assertEquals("🎯 2:00+", onboardingProgressLabel(120.0, extended = true))
         assertEquals(
-            "🎙 This tracks the duration of your recognized voice messages, including pauses.",
+            "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted.",
             ONBOARDING_PROGRESS_HINT,
         )
         val run = "a".repeat(32)
@@ -78,9 +79,12 @@ class OnboardingMessagesTest {
         assertEquals("Retry", labels.last())
         val sideBySide = withSpokenText(onboardingProgressKeyboard(0.0), spoken = true)!!.keyboard.single()
         val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("🎯 Speaking progress: 0:00 / 0:30", SPOKEN_TEXT_BUTTON), texts)
+        assertEquals(listOf("🎯 0:00 / 0:30", "Subtitles"), texts)
         val extended = onboardingProgressKeyboard(38.0, "extended", run).keyboard
         assertEquals("🎯 See my results", (extended.last().single() as CallbackDataInlineKeyboardButton).text)
+        val extendedWithSubtitles = withSpokenText(onboardingProgressKeyboard(38.0, "extended", run), spoken = true)!!.keyboard
+        assertEquals(listOf("🎯 0:38 / 2:00", "Subtitles"), extendedWithSubtitles.first().map { (it as CallbackDataInlineKeyboardButton).text })
+        assertEquals("🎯 See my results", (extendedWithSubtitles.last().single() as CallbackDataInlineKeyboardButton).text)
         assertEquals(2, onboardingCheckpointKeyboard(run).keyboard.size)
         assertEquals(2, onboardingResultKeyboard(run).keyboard.size)
     }

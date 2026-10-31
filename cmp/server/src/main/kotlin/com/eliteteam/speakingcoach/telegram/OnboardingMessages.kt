@@ -56,15 +56,15 @@ internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val LEGACY_ONBOARDING_CALLBACK = "campaign:onboarding"
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
-internal const val SPOKEN_TEXT_BUTTON = "CC · Show subtitles"
+internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val ONBOARDING_PROGRESS_HINT =
-    "🎙 This tracks the duration of your recognized voice messages, including pauses."
+    "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted."
 
 internal fun onboardingProgressLabel(seconds: Double, extended: Boolean = false): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
     val whole = elapsed.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
-    return "🎯 Speaking progress: $clock / ${if (extended) "2:00" else "0:30"}"
+    return if (extended && whole >= 120) "🎯 2:00+" else "🎯 $clock / ${if (extended) "2:00" else "0:30"}"
 }
 
 internal fun onboardingProgressKeyboard(seconds: Double, phase: String = "initial", runId: String = ""): InlineKeyboardMarkup = inlineKeyboard {
@@ -83,7 +83,7 @@ internal fun withSpokenText(keyboard: InlineKeyboardMarkup?, spoken: Boolean): I
         keyboard.keyboard.forEachIndexed { index, buttons ->
             row {
                 buttons.forEach { add(it) }
-                if (index == keyboard.keyboard.lastIndex) {
+                if (index == 0) {
                     dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
                 }
             }
