@@ -591,7 +591,7 @@ async def test_long_lesson_keeps_originals_and_supplies_summary():
             return await super().complete_json(system, payload, **kwargs)
 
     model, stt = SummaryModel(), Stt()
-    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=10000)
+    builder = VocabularyBuilder(None, model, stt, Speech(), context_window_tokens=8000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-long", word)
         card = await builder.confirm("tg-long")
@@ -669,7 +669,7 @@ async def test_context_summary_failure_does_not_change_the_learning_goal():
 
     stt = Stt()
     builder = VocabularyBuilder(None, FailingSummaryModel(), stt, Speech(),
-                                context_window_tokens=10000)
+                                context_window_tokens=8000)
     for word in ("overwhelmed", "postpone", "small talk"):
         await builder.propose("tg-summary-fail", word)
         card = await builder.confirm("tg-summary-fail")
