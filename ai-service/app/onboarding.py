@@ -14,6 +14,8 @@ from redis.asyncio import Redis
 
 from app.audit_artifacts import record_artifact, recorded_at
 from app.correction_verification import verify_corrections_with_metrics
+from app.conversation import (ConversationMode, ConversationRoute, HistoryContext, Personality)
+from app.dialogue import ChatMessage
 from app.llm import Correction
 from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
 from app.onboarding_score import apply_skill, normalize_shade, overall_progress
@@ -407,9 +409,15 @@ class OnboardingService:
 
     async def intro_audio(self, session_id: str | None = None) -> TtsAudio:
         speed = await self.pipeline.speech.speed(session_id) if session_id else self.pipeline.speech.default_speed
+        state = await self.store.get(session_id) if session_id else None
+        personality = Personality(state["character"]) if state and state.get("character") in {"speaky", "kora_h"} else Personality.SPEAKY
+        if personality == Personality.KORA_H:
+            return await self.pipeline.synthesize_onboarding(session_id or "", FIRST_QUESTION, speed=speed,
+                                                             personality=personality)
         async with self._intro_lock:
             if speed not in self._intro_audio:
-                audio = await self.pipeline.speech.synthesize(session_id or "", FIRST_QUESTION, speed=speed)
+                audio = await self.pipeline.synthesize_onboarding(session_id or "", FIRST_QUESTION, speed=speed,
+                                                                  personality=personality)
                 if not audio.data:
                     raise ValueError("empty onboarding intro audio")
                 self._intro_audio[speed] = audio
@@ -420,6 +428,41 @@ class OnboardingService:
             await asyncio.wait_for(self.intro_audio(), timeout=timeout)
         except Exception:
             logger.exception("Onboarding intro warmup failed; next request will retry")
+
+    async def _pin_personality(self, session_id: str, state: dict) -> Personality:
+        if state.get("character") not in {"speaky", "kora_h"}:
+            route = await self.pipeline.routing.resolve(session_id, ConversationMode.ONBOARDING)
+            state["character"] = route.personality.value
+            await self.store.save(session_id, state)
+        return Personality(state["character"])
+
+    async def _synthesize(self, session_id: str, state: dict, text: str) -> TtsAudio:
+        personality = await self._pin_personality(session_id, state)
+        return await self.pipeline.synthesize_onboarding(session_id, text, personality=personality)
+
+    async def _spoken_question(self, session_id: str, state: dict, turn: dict,
+                               assessment: dict) -> str:
+        personality = await self._pin_personality(session_id, state)
+        if personality == Personality.SPEAKY:
+            return assessment["question"]
+        if turn.get("spokenQuestion"):
+            return turn["spokenQuestion"]
+        previous = state["turns"][-9:-1]
+        history = []
+        for item in previous:
+            if item.get("question"):
+                history.append(ChatMessage("assistant", item["question"]))
+            if item.get("transcript"):
+                history.append(ChatMessage("user", item["transcript"]))
+        history.append(ChatMessage("assistant", turn["question"]))
+        route = ConversationRoute(ConversationMode.ONBOARDING, personality)
+        context = HistoryContext(f"onboarding:{state['runId']}", history, ConversationMode.ONBOARDING, personality)
+        instructions = json.dumps({"requiredQuestion": assessment["question"],
+                                   "ask": state.get("ask"), "profile": assessment["profile"]}, ensure_ascii=False)
+        spoken = await self.pipeline.personality.reply(route, context, turn["transcript"], instructions)
+        turn["spokenQuestion"] = spoken.text
+        await self.store.save(session_id, state)
+        return spoken.text
 
     async def resolve(self, session_id: str, request_id: str, reset: str = "") -> dict:
         async with self.store.lock(session_id):
@@ -473,6 +516,7 @@ class OnboardingService:
 
     async def _action(self, session_id: str, state: dict, action: str) -> PipelineResult:
         if action == "begin" and (state["status"] == "waiting" or (state["status"] == "active" and not state["turns"])):
+            await self._pin_personality(session_id, state)
             audio = await self.intro_audio(session_id)
             state["status"] = "active"
             await self.store.save(session_id, state)
@@ -486,23 +530,28 @@ class OnboardingService:
                 turn = state["turns"][-1]
                 if turn["delivered"]:
                     question = turn["reply"]
-                    return self._result(state, question, await self.pipeline.speech.synthesize(session_id, question), turn)
+                    return self._result(state, question, await self._synthesize(session_id, state, question), turn)
                 return await self._advance_turn(session_id, state, turn)
         if action == "continue" and state["status"] == "completed":
+            free_route = ConversationRoute(ConversationMode.FREE, Personality.SPEAKY)
             if not state.get("continueQuestion"):
                 state["continueQuestion"] = await self.model.continue_question({
                     "context": await self.personalization.prepare(session_id, continuation=True),
                     "recentConversation": [
                         {"role": item.role, "content": item.content}
-                        for item in (await self.pipeline.dialogue.history(session_id))[-8:]
+                        for item in (await self.pipeline.history.load(session_id, free_route)).messages[-8:]
                     ],
                 })
                 await self.store.save(session_id, state)
             question = state["continueQuestion"]
-            audio = await self.pipeline.speech.synthesize(session_id, question)
+            audio = await self._synthesize(session_id, state, question)
             # Old chats can still tap this button. New attempts never send it.
             if not state["continued"]:
-                await self.pipeline.dialogue.record_turn(session_id, "Let's continue our conversation.", question)
+                await self.pipeline.history.record(
+                    self.pipeline.history.target(session_id, free_route),
+                    "Let's continue our conversation.", question,
+                    turn_id=f"onboarding-continue:{state['runId']}",
+                )
             await self.personalization.observe(session_id, "")
             state["continued"] = True
             await self.store.save(session_id, state)
@@ -537,6 +586,7 @@ class OnboardingService:
                 )
             if state["status"] == "pending":
                 return await self._finish(session_id, state)
+            await self._pin_personality(session_id, state)
             if turn is None:
                 if not state.get("voiceArrived"):
                     state["voiceArrived"] = True
@@ -552,7 +602,7 @@ class OnboardingService:
                         timings["stt"] = int((time.perf_counter() - stt_started) * 1000)
                 if stt.no_speech or not stt.text.strip():
                     return self._result(
-                        state, CLARIFY_TEXT, await self.pipeline.speech.synthesize(session_id, CLARIFY_TEXT),
+                        state, CLARIFY_TEXT, await self._synthesize(session_id, state, CLARIFY_TEXT),
                         analytics=_voice_analytics(
                             voice_index=len(state["turns"]) + 1,
                             telegram_duration=duration,
@@ -630,8 +680,9 @@ class OnboardingService:
             state["profile"] = assessment["profile"]
             _apply_level(state, assessment)
             if not closing:
+                question = await self._spoken_question(session_id, state, turn, assessment)
                 audio_task = asyncio.create_task(
-                    self.pipeline.speech.synthesize(session_id, assessment["question"])
+                    self._synthesize(session_id, state, question)
                 )
             if notes_task is not None:
                 notes = await notes_task
@@ -642,7 +693,6 @@ class OnboardingService:
                 state["assessment"] = assessment
                 await self.store.save(session_id, state)
                 return await self._finish(session_id, state, turn, closing_task)
-            question = assessment["question"]
             reply_audio = await audio_task
             state["question"] = question
             turn["reply"] = question
@@ -663,20 +713,36 @@ class OnboardingService:
     async def _closing_voice(self, session_id: str, state: dict) -> tuple[str, str, TtsAudio]:
         transcripts = [str(item.get("transcript") or "").strip() for item in state["turns"]]
         transcripts = [text for text in transcripts if text]
+        personality = await self._pin_personality(session_id, state)
         try:
             await self.pipeline.record_partial("closing_callback", "attempted")
-            callback = grounded_callback(
-                await self.model.closing_callback(transcripts), transcripts[-1] if transcripts else "",
-            )
+            if personality == Personality.KORA_H:
+                history = []
+                for item in state["turns"][-9:-1]:
+                    if item.get("question"):
+                        history.append(ChatMessage("assistant", item["question"]))
+                    if item.get("transcript"):
+                        history.append(ChatMessage("user", item["transcript"]))
+                context = HistoryContext(f"onboarding:{state['runId']}", history,
+                                         ConversationMode.ONBOARDING, personality)
+                route = ConversationRoute(ConversationMode.ONBOARDING, personality)
+                turn = await self.pipeline.personality.reply(route, context, transcripts[-1] if transcripts else "",
+                                                             closing=True)
+                generated = turn.text
+            else:
+                generated = await self.model.closing_callback(transcripts)
+            callback = grounded_callback(generated, transcripts[-1] if transcripts else "")
             await self.pipeline.record_partial("closing_callback", "succeeded")
         except Exception as error:
             await self.pipeline.record_partial("closing_callback", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+            if personality == Personality.KORA_H:
+                raise
             logger.exception("onboarding closing callback failed; using standard closing")
             callback = None
         subtitle, spoken = closing_lines(callback)
         tts_started = time.perf_counter()
         try:
-            audio = await self.pipeline.speech.synthesize(session_id, spoken)
+            audio = await self._synthesize(session_id, state, spoken)
         finally:
             timings = current_job_timings()
             if timings is not None:
@@ -699,6 +765,8 @@ class OnboardingService:
             await self.pipeline.record_partial("closing_voice", "succeeded")
         except Exception as error:
             await self.pipeline.record_partial("closing_voice", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+            if state.get("character") == Personality.KORA_H.value:
+                raise
             logger.exception("onboarding closing voice failed; sending text")
             subtitle, spoken = closing_lines(None)
             audio = None
@@ -732,8 +800,8 @@ class OnboardingService:
             state["profile"] = assessment["profile"]
             _apply_level(state, assessment)
             if not should_close(state):
-                question = assessment["question"]
-                audio = await self.pipeline.speech.synthesize(session_id, question)
+                question = await self._spoken_question(session_id, state, turn, assessment)
+                audio = await self._synthesize(session_id, state, question)
                 state["question"] = question
                 turn["reply"] = question
                 turn["delivered"] = True
@@ -855,11 +923,15 @@ class OnboardingService:
         }
 
     async def _remember(self, session_id: str, state: dict) -> None:
+        free_route = ConversationRoute(ConversationMode.FREE, Personality(state.get("character", "speaky")))
         for item in state["turns"]:
             reply = item.get("reply")
             if item.get("remembered") or not reply or not str(item.get("transcript") or "").strip():
                 continue
-            await self.pipeline.dialogue.record_turn(session_id, item["transcript"], reply)
+            await self.pipeline.history.record(
+                self.pipeline.history.target(session_id, free_route), item["transcript"], reply,
+                turn_id=f"onboarding:{state['runId']}:{item['requestId']}",
+            )
             item["remembered"] = True
 
     async def _current(self, session_id: str, run_id: str) -> dict | None:

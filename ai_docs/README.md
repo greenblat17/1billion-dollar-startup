@@ -100,3 +100,4 @@ Keep each document focused on one topic. When a document describes ongoing work,
 status and link related plans, investigations, decisions, or implementation files.
 
 Telegram optional character Kora H and ordinary Kora retirement: [integration guide](integrations/2026-10-20-telegram-kora.md).
+Agreed staged Telegram personality/mode/history refactor and mandatory Kora H end state: [plan](plans/2026-10-31-personality-mode-history-refactor.md).

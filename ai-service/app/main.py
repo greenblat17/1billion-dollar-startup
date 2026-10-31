@@ -20,7 +20,8 @@ from app.call_start import CallStarter
 from app.characters import Characters, CharacterStore, KoraHModel
 from app.gemini_speech import GeminiKoraSpeech
 from app.calls import CallStore, moscow_day
-from app.first_call_feedback import FirstCallFeedback, offer_eligibility
+from app.first_call_feedback import FirstCallFeedback, ModeFeedback, offer_eligibility
+from app.conversation import ConversationMode, ConversationRouting
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -101,10 +102,12 @@ def create_app(
         goal_of=onboarding.store.get_goal,
     )
     first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    mode_feedback = ModeFeedback(first_call_feedback)
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
     sessions = clip_pipeline.dialogue
-    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech, clip_pipeline.characters)
+    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions,
+                              clip_pipeline.speech, clip_pipeline.characters, clip_pipeline.history)
     streaks = clip_pipeline.streaks
     habits = HabitAnalytics(clip_pipeline.metrics)
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -338,9 +341,10 @@ def create_app(
     async def character_status(session_id: str, blocked: str | None = None) -> dict:
         allowed = clip_pipeline.characters.allowed(session_id)
         selected = await clip_pipeline.characters.store.get(session_id)
-        return {"character": selected if selected != "kora_h" or allowed else "speaky",
+        return {"character": selected,
                 "koraAvailable": False,  # Older Telegram servers still require this field.
-                "koraHAvailable": allowed, "blocked": blocked}
+                "koraHAvailable": allowed,
+                "blocked": blocked or ("unavailable" if selected == "kora_h" and not allowed else None)}
 
     @app.get("/internal/character/{session_id}")
     async def character(session_id: str) -> dict:
@@ -359,7 +363,10 @@ def create_app(
             if await clip_pipeline.characters.store.get(session_id) == selected:
                 return await character_status(session_id)
             active = await calls.open_call_today(session_id)
-            if jobs.pending(session_id) or (active and (active["turns"] or active.get("openingDelivered"))):
+            attempt = await onboarding.store.get(session_id)
+            if (jobs.pending(session_id) or
+                    (attempt and attempt.get("status") in {"active", "pending"}) or
+                    (active and (active["turns"] or active.get("openingDelivered")))):
                 return await character_status(session_id, "active_conversation")
             # A failed opening must not trap the user in an unavailable character.
             if active:
@@ -487,11 +494,11 @@ def create_app(
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
         session_id = _call_session_id(payload)
+        route = await ConversationRouting(clip_pipeline.characters).resolve(session_id, ConversationMode.FREE)
         summary = await calls.open(session_id)
         if not summary["alreadyActive"]:
-            variant = await clip_pipeline.characters.variant(session_id)
-            await calls.set_character(summary["callId"], variant or "speaky")
-            summary["character"] = variant or "speaky"
+            await calls.set_character(summary["callId"], route.personality.value)
+            summary["character"] = route.personality.value
         return summary
 
     @app.post("/internal/calls/status")
@@ -590,29 +597,47 @@ def create_app(
         if action == "offer":
             call = await calls.get(call_id)
             onboarding_state = await onboarding.store.get(session_id)
-            ineligible = offer_eligibility(call, onboarding_state, session_id)
+            if call is not None:
+                ineligible = offer_eligibility(call, onboarding_state, session_id)
+                mode = "situation" if call.get("scenario") else "free"
+                character = call.get("character", "speaky")
+            elif (onboarding_state and onboarding_state.get("runId") == call_id
+                  and onboarding_state.get("status") == "completed" and onboarding_state.get("review")):
+                ineligible = None
+                mode = "onboarding"
+                character = onboarding_state.get("character", "speaky")
+            else:
+                ineligible = "unknown_completed_instance"
             if ineligible is not None:
                 return {"status": "ignored", "reason": ineligible}
-            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""),
-                                                   character=call.get("character", "speaky"))
+            await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids)
+            return await mode_feedback.offer(session_id, call_id, mode,
+                                             str(payload.get("username") or ""), character)
         if action == "rate":
             try:
-                return await first_call_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+                result = await mode_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+                if result.pop("_legacy", False) and result["status"] == "rated":
+                    await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids, force=True)
+                return result
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+        if action == "confirm":
+            return await mode_feedback.confirm(session_id, call_id)
+        if action == "release":
+            return await mode_feedback.release(session_id, call_id)
         if action == "answer":
             value = payload.get("text")
             if not isinstance(value, str):
                 raise HTTPException(status_code=400, detail="text required")
-            return await first_call_feedback.answer(session_id, text=value)
+            return await mode_feedback.answer(session_id, text=value)
         if action == "skip":
-            return await first_call_feedback.answer(session_id, call_id=call_id)
+            return await mode_feedback.answer(session_id, instance_id=call_id)
         raise HTTPException(status_code=400, detail="invalid feedback action")
 
     @app.get("/internal/calls/feedback")
     async def calls_feedback_list(offset: int = Query(0, ge=0, le=10_000),
                                   limit: int = Query(25, ge=1, le=50)) -> dict[str, Any]:
-        return await first_call_feedback.list_rated(offset, limit)
+        return await mode_feedback.list_rated(offset, limit)
 
     @app.post("/internal/onboarding/goal")
     async def onboarding_goal(request: Request) -> dict:
@@ -951,7 +976,9 @@ async def _run_job(
     try:
         result = await asyncio.wait_for(
             onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
-            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename, on_stage=set_stage),
+            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename,
+                                                                    on_stage=set_stage,
+                                                                    turn_id=job.attempt_id or job.job_id),
             timeout=timeout_seconds,
         )
         if result.transcript and job.transcript is None:

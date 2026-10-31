@@ -1,5 +1,13 @@
 # Kora in Telegram
 
+The [2026-10-31 personality/mode/history plan](../plans/2026-10-31-personality-mode-history-refactor.md)
+records the agreed future architecture. The sections below document the current
+optional-character implementation and its rollout history.
+
+Local Phase C work in the linked plan now applies selected Kora H to onboarding
+and situations too. This has not been accepted on DEV or deployed. The historical
+free-call-only descriptions below describe earlier releases.
+
 Current release decision (2026-10-23): ordinary Kora is retired. The selector
 offers Speaky and Kora H only; the historical sections below record the
 experiments that led to Kora H. See [retirement](#ordinary-kora-retired-2026-10-23).
