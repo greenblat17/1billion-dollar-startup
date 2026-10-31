@@ -71,7 +71,20 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 }
 
 internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
-    if (lesson.format >= 4) return "Vocabulary · ${lesson.index.coerceIn(0, lesson.total)}/${lesson.total}"
+    if (lesson.format >= 4) {
+        val words = (lesson.total / 3).coerceAtLeast(1)
+        val progress = lesson.index.coerceIn(0, 3 * words)
+        return (0 until words).joinToString("") { word ->
+            when {
+                progress >= 2 * words + word + 1 -> "🟢"
+                lesson.format >= 5 && progress >= 2 * (word + 1) -> "🟠"
+                lesson.format >= 5 && progress >= 2 * word + 1 -> "🟡"
+                lesson.format == 4 && progress >= words + word + 1 -> "🟠"
+                lesson.format == 4 && progress >= word + 1 -> "🟡"
+                else -> "⚪️"
+            }
+        }
+    }
     val words = (if (lesson.round == "Word game") lesson.total else lesson.total / 3).coerceAtLeast(1)
     val completed = when (lesson.round) {
         "Word game" -> lesson.index.coerceIn(0, words)
