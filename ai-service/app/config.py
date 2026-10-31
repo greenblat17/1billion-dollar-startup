@@ -51,6 +51,7 @@ class Settings:
     onboarding_review_fallback_model: str | None = None
     correction_verification_model: str = "openai/gpt-4o-mini"
     vocabulary_verification_model: str = "openai/gpt-5.6-luna"
+    vocabulary_context_window_tokens: int | None = None
     person_memory_model: str = "openai/gpt-4o-mini"
     tts_provider: str = "openrouter"
     deepgram_api_key: str | None = None
@@ -92,6 +93,8 @@ class Settings:
             onboarding_review_fallback_model=_env("ONBOARDING_REVIEW_FALLBACK_MODEL"),
             correction_verification_model=_env("CORRECTION_VERIFICATION_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
             vocabulary_verification_model=_env("VOCABULARY_VERIFICATION_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
+            vocabulary_context_window_tokens=(int(os.environ["VOCABULARY_CONTEXT_WINDOW_TOKENS"])
+                                              if os.getenv("VOCABULARY_CONTEXT_WINDOW_TOKENS") else None),
             person_memory_model=_env("PERSON_MEMORY_MODEL", "openai/gpt-4o-mini") or "openai/gpt-4o-mini",
             tts_provider=_env("TTS_PROVIDER", "openrouter") or "openrouter",
             deepgram_api_key=_env("DEEPGRAM_API_KEY"),

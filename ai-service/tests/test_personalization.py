@@ -75,6 +75,22 @@ async def test_failed_update_preserves_person_and_still_marks_contact():
 
 
 @pytest.mark.asyncio
+async def test_learning_context_returns_only_durable_learner_data():
+    store = OnboardingStore()
+    service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
+    await store.save_learner("tg-1", {
+        "person": {"work": "building an app"},
+        "proficiency": {"overall_cefr": "B1"},
+        "lastConversationAt": 99,
+    })
+
+    assert await service.learning_context("tg-1") == {
+        "person": {"work": "building an app"},
+        "proficiency": {"overall_cefr": "B1"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_extraction_does_not_persist_until_successful_turn_is_committed():
     store = OnboardingStore()
     service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
