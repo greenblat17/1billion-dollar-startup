@@ -189,7 +189,9 @@ async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card
     finished = await builder.text("one", lesson_id, 3, "It means understanding something.")
     assert finished["lesson"]["status"] == "finished"
     assert finished["lesson"]["index"] == 3
-    assert "word game: correct" in finished["summary"]
+    assert finished["summary"] == ("Lesson complete! You used the word in your own sentence. "
+                                   "We'll revisit it in a future lesson.")
+    assert "figure out:" not in finished["text"]
     trace = await builder.review("one", lesson_id)
     assert [event["phase"] for event in trace["events"] if event["type"] == "answer"] == [
         "Understand", "Use", "Word game"]
@@ -263,7 +265,7 @@ async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
     assert "Clue number" in first["text"]
     second = await builder.text("card", lesson_id, 8, "I don't know")
     assert second["lesson"]["status"] == "finished"
-    assert "word game: not recalled" in second["summary"]
+    assert "card" in second["summary"]
     assert second["lesson"]["index"] == 3
 
 
@@ -394,18 +396,17 @@ async def test_five_words_complete_each_understand_use_pair_before_cards():
 
 
 @pytest.mark.asyncio
-async def test_card_hint_can_repeat_unclear_answer_does_not_advance_and_end_is_partial():
+async def test_card_has_no_button_hint_unclear_answer_does_not_advance_and_end_is_partial():
     builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
     lesson_id = await start_lesson(builder, "partial", ["test"])
     await builder.text("partial", lesson_id, 1, "Yes")
     await builder.text("partial", lesson_id, 2, "I would test the feature.")
-    for number in range(2):
-        hint = await builder.hint("partial", lesson_id)
-        assert hint["lesson"]["hints"] == number + 1
+    with pytest.raises(ValueError, match="only available during Understand and Use"):
+        await builder.hint("partial", lesson_id)
     unclear = await builder.text("partial", lesson_id, 3, "unclear")
     assert unclear["status"] == "repeat"
     assert unclear["lesson"]["index"] == 2
     partial = await builder.end("partial", lesson_id)
     assert partial["status"] == "finished"
-    assert "word game: not completed" in partial["summary"]
+    assert partial["summary"] == "Lesson ended. We can pick up these words another time."
     assert "reviewDueAt" not in builder.memory["partial"]["items"][0]

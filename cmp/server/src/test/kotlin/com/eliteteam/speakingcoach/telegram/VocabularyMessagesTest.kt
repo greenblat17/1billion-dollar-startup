@@ -26,14 +26,13 @@ class VocabularyMessagesTest {
     }
 
     @Test
-    fun recallExerciseButtonsNeverExposeTarget() {
+    fun recallExerciseButtonsDoNotOfferHint() {
         val lesson = VocabularyLesson(id = "lesson1", status = "active", round = "Recall",
             phase = "Recall", index = 6, total = 9, word = null, hints = 0)
         val buttons = vocabularyLessonKeyboard(lesson).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:lesson1:6", "vocab:end:lesson1"),
+        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:end:lesson1"),
             buttons.map { it.callbackData })
-        assertEquals("Hint", buttons[2].text)
         assertFalse(vocabularyLessonKeyboard(lesson, spoken = false).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>().any { it.callbackData == "vocab:subtitle" })
     }
@@ -62,33 +61,48 @@ class VocabularyMessagesTest {
     }
 
     @Test
-    fun newLessonTracksEachWordThroughMeaningPhraseAndCard() {
+    fun newLessonTracksEachWordThroughMeaningAndPhrase() {
         fun progress(index: Int, words: Int = 2) = vocabularyRoundProgress(
             VocabularyLesson(format = 5, status = "active", index = index, total = 3 * words))
 
-        assertEquals(listOf("Progress: ⚪️⚪️", "Progress: 🟡⚪️", "Progress: 🟠⚪️",
-            "Progress: 🟠🟡", "Progress: 🟠🟠", "Progress: 🟢🟠", "Progress: 🟢🟢"),
+        assertEquals(listOf("Progress: ⚪️⚪️", "Progress: 🟡⚪️", "Progress: 🟢⚪️",
+            "Progress: 🟢🟡", "Progress: 🟢🟢", "Progress: 🟢🟢", "Progress: 🟢🟢"),
             (0..6).map { progress(it) })
-        assertEquals(listOf("Progress: ⚪️", "Progress: 🟡", "Progress: 🟠", "Progress: 🟢"),
+        assertEquals(listOf("Progress: ⚪️", "Progress: 🟡", "Progress: 🟢", "Progress: 🟢"),
             (0..3).map { progress(it, words = 1) })
-        assertEquals("Progress: 🟠🟠🟠🟠🟠", progress(10, words = 5))
+        assertEquals("Progress: 🟢🟢🟢🟢🟢", progress(10, words = 5))
         assertEquals("Progress: 🟢🟢🟢🟢🟢", progress(15, words = 5))
     }
 
     @Test
-    fun existingGroupedLessonKeepsItsOrderAndCardHint() {
+    fun existingGroupedLessonKeepsItsOrderAndHidesCardControls() {
         val card = VocabularyLesson(id = "new", format = 4, status = "cards",
             round = "Word game", phase = "Word game", index = 4, total = 6, hints = 3)
         assertEquals(listOf("Progress: ⚪️⚪️", "Progress: 🟡⚪️", "Progress: 🟡🟡",
-            "Progress: 🟠🟡", "Progress: 🟠🟠", "Progress: 🟢🟠", "Progress: 🟢🟢"),
+            "Progress: 🟢🟡", "Progress: 🟢🟢", "Progress: 🟢🟢", "Progress: 🟢🟢"),
             (0..6).map { vocabularyRoundProgress(card.copy(index = it)) })
         val buttons = vocabularyLessonKeyboard(card).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
-        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:new:4", "vocab:end:new"),
+        assertEquals(listOf("vocab:subtitle", "vocab:end:new"),
             buttons.map { it.callbackData })
         assertFalse(buttons.any { it.callbackData.startsWith("vocab:play") || it.callbackData.startsWith("vocab:skip") })
-        assertEquals("Progress: 🟠🟠", vocabularyRoundProgress(card.copy(status = "finished")))
+        assertEquals("Progress: 🟢🟢", vocabularyRoundProgress(card.copy(status = "finished")))
         assertEquals("Progress: 🟢🟢", vocabularyRoundProgress(card.copy(status = "finished", index = 6)))
+    }
+
+    @Test
+    fun hintIsAvailableOnlyOnceDuringUnderstandAndUse() {
+        val understand = VocabularyLesson(id = "lesson", format = 5, status = "active",
+            phase = "Understand", index = 0, total = 3)
+        val use = understand.copy(phase = "Use", index = 1)
+        fun callbacks(lesson: VocabularyLesson) = vocabularyLessonKeyboard(lesson).keyboard.flatten()
+            .filterIsInstance<CallbackDataInlineKeyboardButton>().map { it.callbackData }
+        assertTrue("vocab:hint:lesson:0" in callbacks(understand))
+        assertTrue("vocab:hint:lesson:1" in callbacks(use))
+        assertFalse(callbacks(use.copy(hints = 1)).any { it.startsWith("vocab:hint:") })
+        assertFalse(callbacks(use.copy(status = "cards", phase = "Word game")).any {
+            it.startsWith("vocab:hint:") || it == "vocab:progress"
+        })
     }
 
 }

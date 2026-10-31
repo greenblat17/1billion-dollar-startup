@@ -1619,7 +1619,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     if (action == "progress") {
                         val current = ai.vocabulary(sessionId, "list").lesson
                         reply(message, if ((current?.format ?: 3) >= 4)
-                            "The count shows completed parts of this lesson: understanding, your own phrases, and cards."
+                            "White means not started, yellow means you understand the word, and green means you used it in your own phrase."
                             else "Green circles show words practised in this round. The count restarts in the next round.",
                             allowSendingWithoutReply = true)
                         return@run
@@ -1721,6 +1721,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             val current = ai.vocabulary(sessionId, "list").lesson
                             if (current?.id != itemId || current.index != page) {
                                 reply(message, "That hint button belongs to an earlier exercise.",
+                                    allowSendingWithoutReply = true)
+                            } else if (current.status != "active" || current.phase !in setOf("Understand", "Use")) {
+                                reply(message, "Hints are available during Understand and Use.",
+                                    allowSendingWithoutReply = true)
+                            } else if (current.hints >= 1) {
+                                reply(message, "You've already used the hint for this question.",
                                     allowSendingWithoutReply = true)
                             } else {
                                 val hint = ai.vocabulary(sessionId, "hint", lessonId = itemId)

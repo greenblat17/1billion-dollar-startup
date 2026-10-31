@@ -381,7 +381,7 @@ async def test_use_and_recall_continue_until_the_learner_succeeds():
 
 
 @pytest.mark.asyncio
-async def test_recall_hint_is_text_and_does_not_show_word():
+async def test_recall_has_no_button_hint():
     stt = Stt()
     builder = VocabularyBuilder(None, Model(), stt, Speech())
     await builder.propose("tg-recall-hint", "overwhelmed")
@@ -392,14 +392,13 @@ async def test_recall_hint_is_text_and_does_not_show_word():
     await builder.voice("tg-recall-hint", lesson_id, 1, b"voice")
     stt.text = "I was overwhelmed."
     await builder.voice("tg-recall-hint", lesson_id, 2, b"voice")
-    hint = await builder.hint("tg-recall-hint", lesson_id)
-    assert "audio" not in hint
-    assert "overwhelmed" not in hint["text"].lower()
+    with pytest.raises(ValueError, match="only available during Understand and Use"):
+        await builder.hint("tg-recall-hint", lesson_id)
     stt.text = "Overwhelmed"
     result = await builder.voice("tg-recall-hint", lesson_id, 3, b"voice")
     assert result["status"] == "offer"
     summary = (await builder.skip("tg-recall-hint", lesson_id))["summary"]
-    assert "recalled with a hint" in summary
+    assert "recalled in this lesson" in summary
 
 
 @pytest.mark.asyncio

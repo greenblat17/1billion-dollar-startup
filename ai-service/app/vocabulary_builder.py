@@ -329,6 +329,16 @@ def _current(lesson: dict) -> dict | None:
 
 
 def _finished_text(lesson: dict) -> str:
+    if _new_lesson(lesson):
+        words = len(lesson["words"])
+        if lesson["index"] == 3 * words:
+            result = ("Lesson complete! You used the word in your own sentence." if words == 1 else
+                      f"Lesson complete! You used all {words} words in your own sentences.")
+            if any(correct is False for correct in lesson.get("cardResults", {}).values()):
+                return result + " We'll revisit the tricky cards next time."
+            return result + (" We'll revisit it in a future lesson." if words == 1 else
+                             " We'll revisit them in a future lesson.")
+        return "Lesson ended. We can pick up these words another time."
     lines = ["Vocabulary lesson complete." if lesson["index"] == 3 * len(lesson["words"]) else "Lesson ended. Here is your progress:"]
     for word in lesson["words"]:
         understood = lesson["results"].get(f"Understand:{word['id']}")
@@ -1033,36 +1043,13 @@ class VocabularyBuilder:
     async def hint(self, session_id: str, lesson_id: str) -> dict:
         state = await self._get(session_id)
         lesson = state["lesson"]
-        if lesson is None or lesson["id"] != lesson_id or lesson["status"] not in ("active", "cards"):
-            raise ValueError("lesson is no longer active")
-        if lesson["status"] == "cards" and _new_lesson(lesson):
-            return await self._new_card_hint(session_id, lesson)
-        if lesson["status"] == "cards":
-            if lesson["cardHints"] >= 1:
-                raise ValueError("no more hints")
-            word = lesson["words"][lesson["cardIndex"]]
-            direction = self._card_direction(lesson)
-            raw = await self._json(HINT_SYSTEM, {"round": "Word game", "direction": direction,
-                "target": word, "prompt": lesson["prompt"]}, "vocabulary_hint")
-            hint = _clean(raw.get("hint"), 240)
-            if not hint or (direction == "meaning_to_word" and self._reveals(hint, word["word"])):
-                raise ValueError("unsafe word game hint")
-            def update_card(state):
-                active = state["lesson"]
-                if (active is None or active["id"] != lesson_id or active["status"] != "cards"
-                        or active["cardIndex"] != lesson["cardIndex"]):
-                    raise ValueError("stale word game hint")
-                active["cardHints"] = 1
-                active["lastActivity"] = self.clock()
-                active["reminded"] = False
-                return self._lesson_view(active)
-            view = await self._change(session_id, update_card)
-            await self._trace(session_id, lesson, {"type": "hint", "phase": "Word game",
-                "wordId": word["id"], "text": hint})
-            return {"status": "ok", "text": hint, "lesson": view}
+        if lesson is None or lesson["id"] != lesson_id or lesson["status"] != "active":
+            raise ValueError("hints are only available during Understand and Use")
         if lesson["hints"] >= 1:
             raise ValueError("no more hints")
         phase, _ = _position(lesson)
+        if phase not in ("Understand", "Use"):
+            raise ValueError("hints are only available during Understand and Use")
         word = _current(lesson)
         if lesson.get("tutorVersion") and lesson.get("contextVersion"):
             raw = await self._tutor(session_id, lesson, "hint")
@@ -1559,12 +1546,9 @@ class VocabularyBuilder:
         if next_lesson["status"] == "cards":
             spoken_text += " " + next_lesson["prompt"]
         elif next_lesson["status"] == "finished":
-            spoken_text += " " + " ".join(
-                f"{item['word']}: you used it in your own phrase, and " +
-                ("answered its card." if next_lesson["cardResults"][item["id"]] else
-                 "we'll practise its card again.")
-                for item in lesson["words"])
-            spoken_text += " We'll return to these words in another lesson."
+            spoken_text += (" That's our lesson for today. We'll come back to the tricky cards." if
+                            any(correct is False for correct in next_lesson["cardResults"].values()) else
+                            " Nice work — that's our lesson for today.")
         spoken = await self._spoken(session_id, spoken_text, self._lesson_view(next_lesson))
         if next_lesson["status"] == "finished":
             spoken["status"] = "finished"
