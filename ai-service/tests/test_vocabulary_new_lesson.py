@@ -44,14 +44,14 @@ class TutorModel:
                 return json.dumps({"feedback": "Think about the situation.", "question": "",
                                    "category": "", "matchedPhrase": "", "reason": ""})
             transcript = data["transcript"]
-            category = ("" if action == "opening" else
+            category = ("" if action in ("opening", "question") else
                         "conversation" if "what should i answer" in transcript.lower() else
                         "understood" if phase == "Understand" else
                         "used" if word in transcript else "natural_without_target")
-            next_phase = (phase if action == "opening" or category not in ("understood", "used")
-                          else data["nextPhase"])
-            next_word = (data["nextTarget"] if category in ("understood", "used")
-                         and data["nextTarget"] is not None else data["target"])
+            next_phase = (phase if action in ("opening", "question") or category not in ("understood", "used")
+                          else data.get("nextPhase", phase))
+            next_word = (data.get("nextTarget") if category in ("understood", "used")
+                         and data.get("nextTarget") is not None else data["target"])
             if next_phase == "Understand":
                 question = f"{next_word['word']} means {next_word['meaning']}. Is that familiar?"
             elif next_phase == "Use":
@@ -116,12 +116,34 @@ async def test_tutor_category_schema_follows_current_phase_and_action():
     await builder.text("phase-schema", lesson_id, 2, "I can figure out why it failed.")
 
     assert model.categories == [
-        ("Understand", "opening", [""]),
+        ("Understand", "question", [""]),
         ("Understand", "hint", [""]),
         ("Understand", "answer", ["understood", "confused", "conversation"]),
+        ("Use", "question", [""]),
         ("Use", "hint", [""]),
         ("Use", "answer", ["used", "natural_without_target", "misuse", "conversation"]),
     ]
+
+
+@pytest.mark.asyncio
+async def test_understand_assessment_cannot_supply_the_use_question():
+    class MisleadingAssessment(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = json.loads(await super().complete_json(system, payload, **kwargs))
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["action"] == "answer":
+                result["question"] = "Have you ever made small talk before a meeting?"
+            elif (kwargs["operation"] == "vocabulary_tutor" and data["action"] == "question"
+                  and data["phase"] == "Use"):
+                result["question"] = "What do you usually do with colleagues before a meeting?"
+            return json.dumps(result)
+
+    builder = VocabularyBuilder(None, MisleadingAssessment(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "question-phase", ["small talk"])
+    turn = await builder.text("question-phase", lesson_id, 1, "We chatted about the weather.")
+
+    assert turn["lesson"]["phase"] == "Use"
+    assert turn["lesson"]["prompt"] == "What do you usually do with colleagues before a meeting?"
 
 
 @pytest.mark.asyncio
@@ -148,7 +170,7 @@ async def test_tutor_uses_remembered_context_without_exposing_it_in_lesson_resul
     lesson_id = await start_lesson(builder, "personalized", ["figure out"])
     await builder.text("personalized", lesson_id, 1, "Yes, I have had problems with my app.")
 
-    assert len(model.tutor_requests) == 2
+    assert len(model.tutor_requests) == 3
     for system, request in model.tutor_requests:
         assert request["learnerContext"] == {
             "person": {"work": "building an app"},
@@ -235,7 +257,8 @@ async def test_new_lesson_uses_one_tutor_response_for_opening():
             self.openings = 0
 
         async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "opening":
+            if (kwargs["operation"] == "vocabulary_tutor" and
+                    json.loads(payload).get("isLessonOpening")):
                 self.openings += 1
                 if self.openings == 1:
                     return json.dumps({"feedback": "word " * 60, "question": "Is that familiar?",
@@ -393,7 +416,9 @@ async def test_use_question_with_ordinary_word_from_expression_is_delivered_once
 
         async def complete_json(self, system, payload, **kwargs):
             result = await super().complete_json(system, payload, **kwargs)
-            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
+            data = json.loads(payload)
+            if (kwargs["operation"] == "vocabulary_tutor" and data["action"] == "question"
+                    and data["phase"] == "Use"):
                 self.answer_calls += 1
                 candidate = json.loads(result)
                 candidate["question"] = "How could you ease the wait by talking to someone?"

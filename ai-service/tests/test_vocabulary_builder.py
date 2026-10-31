@@ -81,14 +81,14 @@ class Model:
             category = ("understood" if "don't understand" not in transcript.lower() else "confused") if phase == "Understand" else (
                 "used" if matched and len(transcript.split()) > 1 else "natural_without_target" if not matched else "misuse") if phase == "Use" else (
                 "recalled" if matched else "not_recalled")
-            if data["action"] == "opening":
+            if data["action"] in ("opening", "question"):
                 category = ""
             elif "answer on what" in transcript.lower():
                 category = "conversation"
             if category == "conversation":
                 matched = ""
             correct = category in ("understood", "used", "recalled")
-            next_phase = data["nextPhase"] if correct else phase
+            next_phase = data.get("nextPhase", phase) if correct else phase
             number = len(self.prompts)
             question = (f"{word} means too much to manage. Have you faced too many tasks in situation {number}?"
                         if next_phase == "Understand" else
