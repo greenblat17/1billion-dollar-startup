@@ -12,6 +12,8 @@ Rules:
 
 The repo Actions secrets `TELEGRAM_ALERT_BOT_TOKEN` and `TELEGRAM_ALERT_CHAT_ID` supply the contact point. The PROD CMP deploy writes them to `/opt/speaking-coach/monitoring/alerts.env` with mode 600. Only the Grafana, daily-report, and credit-monitor containers receive this env file. Do not put either value in Git, logs, or chat. A missing secret stops the PROD deploy before SSH.
 
+Keep `chatid` quoted in the Grafana provisioning YAML. Grafana 11.3.1 requires the Telegram contact point's chat ID to be a string; an unquoted numeric ID makes Grafana fail at startup and the monitoring proxy return 502.
+
 Grafana, Prometheus, and blackbox run on the CMP host. If the whole host or its network fails, this stack cannot send an alert. An independent external uptime check is a separate later step. Before calling the rollout complete, verify Grafana loaded all three rules, test the contact point from Grafana, and trigger and recover one rule in a controlled way.
 
 ## Daily audience message

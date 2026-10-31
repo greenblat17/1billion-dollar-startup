@@ -9,7 +9,7 @@ contactPoints:
         disableResolveMessage: false
         settings:
           bottoken: $TELEGRAM_ALERT_BOT_TOKEN
-          chatid: $TELEGRAM_ALERT_CHAT_ID
+          chatid: "$TELEGRAM_ALERT_CHAT_ID"
 
 groups:
   - orgId: 1
