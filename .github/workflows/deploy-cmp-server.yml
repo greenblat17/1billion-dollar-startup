@@ -32,6 +32,7 @@ jobs:
       METRICS_PASSWORD: ${{ secrets.METRICS_PASSWORD }}
       TELEGRAM_ALERT_BOT_TOKEN: ${{ secrets.TELEGRAM_ALERT_BOT_TOKEN }}
       TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+      OPENROUTER_MANAGEMENT_KEY: ${{ secrets.OPENROUTER_MANAGEMENT_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -78,6 +79,10 @@ jobs:
               "$TELEGRAM_ALERT_BOT_TOKEN" "$TELEGRAM_ALERT_CHAT_ID" \
               > vps-upload/monitoring/alerts.env
             chmod 600 vps-upload/monitoring/alerts.env
+            : "${OPENROUTER_MANAGEMENT_KEY:?Missing OpenRouter management key}"
+            printf 'OPENROUTER_MANAGEMENT_KEY=%s\n' "$OPENROUTER_MANAGEMENT_KEY" \
+              > vps-upload/monitoring/openrouter.env
+            chmod 600 vps-upload/monitoring/openrouter.env
           fi
 
       - name: Copy files and restart container

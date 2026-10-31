@@ -10,6 +10,8 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
+from telegram_delivery import send_message
+
 
 MOSCOW = ZoneInfo("Europe/Moscow")
 STATE = Path("/state/last_sent_day")
@@ -39,15 +41,6 @@ def fetch_report(day: date) -> str:
     with urlopen(request, timeout=20) as response:
         payload = json.load(response)
     return report_message(day, payload)
-
-
-def send_message(message: str) -> None:
-    token = os.environ["TELEGRAM_ALERT_BOT_TOKEN"]
-    body = urlencode({"chat_id": os.environ["TELEGRAM_ALERT_CHAT_ID"], "text": message}).encode()
-    request = Request(f"https://api.telegram.org/bot{token}/sendMessage", data=body)
-    with urlopen(request, timeout=20) as response:
-        if not json.load(response).get("ok"):
-            raise RuntimeError("Telegram rejected daily report")
 
 
 def last_sent_day() -> str:

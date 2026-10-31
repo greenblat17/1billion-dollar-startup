@@ -31,6 +31,7 @@ SPEAKY_ENV=$(env_get SPEAKY_ENV)
 SPEAKY_ENV=${SPEAKY_ENV:-unknown}
 
 ALERT_ENV="$MON/alerts.env"
+CREDIT_ENV="$MON/openrouter.env"
 ALERT_PROVISIONING="$MON/grafana/provisioning/alerting"
 ALERTS_ENABLED=false
 if [ -s "$ALERT_ENV" ]; then
@@ -152,7 +153,8 @@ volumes:
   speaking-coach-prometheus:
   speaking-coach-loki:
   speaking-coach-alloy:
-  speaking-coach-daily-report:"
+  speaking-coach-daily-report:
+  speaking-coach-openrouter-credit:"
 
 cat > "$MON/compose.yml" <<EOF
 x-logging: &bounded_logging
@@ -301,7 +303,8 @@ volumes:
   speaking-coach-grafana:
   speaking-coach-loki:
   speaking-coach-alloy:
-  speaking-coach-daily-report:"
+  speaking-coach-daily-report:
+  speaking-coach-openrouter-credit:"
 fi
 
 if [ "$ALERTS_ENABLED" = true ]; then
@@ -321,6 +324,27 @@ if [ "$ALERTS_ENABLED" = true ]; then
     volumes:
       - ./ai_token:/run/secrets/ai_token:ro
       - speaking-coach-daily-report:/state
+EOF
+fi
+
+if [ -s "$CREDIT_ENV" ]; then
+  if [ "$ALERTS_ENABLED" != true ]; then
+    echo "OpenRouter credit monitor requires Telegram alert configuration" >&2
+    exit 1
+  fi
+  cat >> "$MON/compose.yml" <<EOF
+  openrouter-credit:
+    logging: *bounded_logging
+    image: speaking-coach-daily-report:local
+    container_name: speaking-coach-openrouter-credit
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "/app/credit_monitor.py"]
+    env_file:
+      - ./alerts.env
+      - ./openrouter.env
+    volumes:
+      - speaking-coach-openrouter-credit:/state
 EOF
 fi
 
