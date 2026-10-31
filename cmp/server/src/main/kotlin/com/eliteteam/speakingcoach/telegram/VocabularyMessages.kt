@@ -71,6 +71,7 @@ internal fun vocabularyDraftKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
 }
 
 internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
+    if (lesson.format >= 4) return "Vocabulary · ${lesson.index.coerceIn(0, lesson.total)}/${lesson.total}"
     val words = (if (lesson.round == "Word game") lesson.total else lesson.total / 3).coerceAtLeast(1)
     val completed = when (lesson.round) {
         "Word game" -> lesson.index.coerceIn(0, words)
@@ -88,9 +89,9 @@ internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
 internal fun vocabularyLessonKeyboard(lesson: VocabularyLesson, spoken: Boolean = true): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(vocabularyRoundProgress(lesson), "vocab:progress") }
     if (lesson.status == "active" || lesson.status == "cards") {
-        if (spoken || lesson.hints < 1) row {
+        if (spoken || lesson.format >= 4 || lesson.hints < 1) row {
             if (spoken) dataButton(SPOKEN_TEXT_BUTTON, "vocab:subtitle")
-            if (lesson.hints < 1) dataButton("Hint",
+            if (lesson.format >= 4 || lesson.hints < 1) dataButton("Hint",
                 "vocab:hint:${lesson.id}:${lesson.index}")
         }
         row { dataButton("End lesson", "vocab:end:${lesson.id}", style = KeyboardButtonStyle.Danger) }

@@ -1617,7 +1617,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val itemId = parts.getOrNull(2).orEmpty()
                     val page = parts.getOrNull(3)?.toIntOrNull() ?: 0
                     if (action == "progress") {
-                        reply(message, "Green circles show words practised in this round. The count restarts in the next round.",
+                        val current = ai.vocabulary(sessionId, "list").lesson
+                        reply(message, if ((current?.format ?: 3) >= 4)
+                            "The count shows completed parts of this lesson: understanding, your own phrases, and cards."
+                            else "Green circles show words practised in this round. The count restarts in the next round.",
                             allowSendingWithoutReply = true)
                         return@run
                     }
@@ -1636,7 +1639,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                     if (((currentLesson?.status == "active" && currentLesson.round == "Recall") ||
                         currentLesson?.status == "cards") &&
-                        action !in setOf("hint", "end")) {
+                        action !in setOf("hint", "end", "progress", "subtitle")) {
                         showVocabularyList(message)
                         return@run
                     }
@@ -2365,7 +2368,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                     lesson?.status in setOf("active", "offer", "cards") -> {
                         val currentLesson = checkNotNull(lesson)
-                        if (currentLesson.status != "active" || content.text.startsWith("/")) {
+                        if ((currentLesson.status != "active" &&
+                             !(currentLesson.status == "cards" && currentLesson.format >= 4)) ||
+                            content.text.startsWith("/")) {
                             reply(message, "Continue with the last lesson message, or tap End lesson.")
                         } else try {
                             val result = ai.vocabulary(telegramSessionId(message.chat.id), "answer",

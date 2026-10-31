@@ -61,4 +61,17 @@ class VocabularyMessagesTest {
         assertTrue(buttons.any { it.callbackData == "vocab:skip:lesson1" })
     }
 
+    @Test
+    fun newLessonUsesOneProgressCountAndKeepsCardHintAvailable() {
+        val card = VocabularyLesson(id = "new", format = 4, status = "cards",
+            round = "Word game", phase = "Word game", index = 4, total = 6, hints = 3)
+        assertEquals("Vocabulary · 4/6", vocabularyRoundProgress(card))
+        val buttons = vocabularyLessonKeyboard(card).keyboard.flatten()
+            .filterIsInstance<CallbackDataInlineKeyboardButton>()
+        assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:new:4", "vocab:end:new"),
+            buttons.map { it.callbackData })
+        assertFalse(buttons.any { it.callbackData.startsWith("vocab:play") || it.callbackData.startsWith("vocab:skip") })
+        assertEquals("Vocabulary · 6/6", vocabularyRoundProgress(card.copy(status = "finished", index = 6)))
+    }
+
 }

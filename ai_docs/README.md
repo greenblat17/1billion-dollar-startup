@@ -9,6 +9,7 @@ Working documentation next to the code. A coding agent in a new session should s
 Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). CMP WebRTC: `architecture/2026-09-20-webrtc-client.md`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
 Vocabulary Builder decisions after the product interview: [`product/2026-10-24-vocabulary-builder.md`](product/2026-10-24-vocabulary-builder.md).
+New Vocabulary Builder lesson order and mandatory cards: [`product/2026-10-31-vocabulary-builder-lesson.md`](product/2026-10-31-vocabulary-builder-lesson.md); [implementation plan](plans/2026-10-31-vocabulary-builder-new-lesson.md). This supersedes the earlier lesson order and optional-game decision for new lessons.
 
 Agents: start here, then open the linked docs for the current task. Do not skip this tree
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in

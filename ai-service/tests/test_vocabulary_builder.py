@@ -7,8 +7,20 @@ from fakeredis import FakeAsyncRedis
 
 from app.stt import SttResult
 from app.tts import TtsAudio
-from app.vocabulary_builder import TUTOR_RESPONSE_FORMAT, VocabularyBuilder
+from app.vocabulary_builder import TUTOR_RESPONSE_FORMAT, VocabularyBuilder as CurrentVocabularyBuilder
 from app.vocabulary_builder import _trace_key
+
+
+class VocabularyBuilder(CurrentVocabularyBuilder):
+    """Exercise the stored v3 contract while new v4 tests cover new lessons separately."""
+
+    async def start(self, session_id):
+        result = await super().start(session_id)
+        def mark_previous_format(state):
+            state["lesson"]["format"] = 3
+            return self._lesson_view(state["lesson"])
+        result["lesson"] = await self._change(session_id, mark_previous_format)
+        return result
 
 
 class Clock:
@@ -466,7 +478,10 @@ async def test_resume_unclear_voice_and_legacy_lesson():
         "id": "old", "status": "active", "words": [card], "index": 0,
         "attempts": 0, "hints": 0, "results": {}, "prompts": [], "lastActivity": 1000.0,
         "reminded": False, "processed": [], "prompt": "Old question."}
-    assert (await builder.list("tg-resume"))["lesson"]["status"] == "finished"
+    assert (await builder.list("tg-resume"))["lesson"]["status"] == "active"
+    with pytest.raises(ValueError, match="lesson already active"):
+        await builder.start("tg-resume")
+    await builder.end("tg-resume", "old")
     assert (await builder.start("tg-resume"))["lesson"]["id"] != "old"
 
 

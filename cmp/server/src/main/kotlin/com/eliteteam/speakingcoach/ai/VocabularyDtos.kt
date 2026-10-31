@@ -29,6 +29,7 @@ data class VocabularyCard(
 @Serializable
 data class VocabularyLesson(
     val id: String = "",
+    val format: Int = 3,
     val status: String = "",
     val round: String = "",
     val phase: String = "",
