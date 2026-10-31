@@ -5,7 +5,7 @@ import asyncio
 import json
 import time
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -105,6 +105,15 @@ class CallStore:
             if call is None:
                 return None
             return await self._summary(session_id, call, unseen=None, crossed=False)
+
+    async def recent_ids(self, session_id: str) -> list[str]:
+        """Call IDs in the raw-content retention window, including the boundary day."""
+        today = datetime.fromtimestamp(self._clock(), _TZ).date()
+        ids: list[str] = []
+        for offset in range(8):
+            day = (today - timedelta(days=offset)).isoformat()
+            ids.extend(str(call_id) for call_id in (await self._day(session_id, day)).get("ids") or [])
+        return list(dict.fromkeys(ids))
 
     async def append_turn(
         self,

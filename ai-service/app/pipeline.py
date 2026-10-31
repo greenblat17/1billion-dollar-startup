@@ -10,7 +10,9 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.characters import Characters, CharacterStore
-from app.dialogue import ChatMessage, DialogueStore
+from app.conversation import (ConversationHistory, ConversationMode, ConversationRoute, ConversationRouting,
+                              Personality, PersonalityRuntime, SpokenTurn)
+from app.dialogue import DialogueStore
 from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.load_test import load_test_active
@@ -88,6 +90,9 @@ class ClipPipeline:
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
         self.characters = characters or Characters(CharacterStore())
+        self.routing = ConversationRouting(self.characters)
+        self.history = ConversationHistory(dialogue)
+        self.personality = PersonalityRuntime(llm, self.speech, self.characters)
         self._notes_timeout_seconds = notes_timeout_seconds
 
     @property
@@ -109,6 +114,12 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
+
+    async def synthesize_onboarding(self, session_id: str, text: str, *, speed: float | None = None,
+                                    personality: Personality | None = None) -> TtsAudio:
+        route = (ConversationRoute(ConversationMode.ONBOARDING, personality) if personality is not None
+                 else await self.routing.resolve(session_id, ConversationMode.ONBOARDING))
+        return await self.personality.synthesize(session_id, route, SpokenTurn(text), speed=speed)
 
     async def complete_live_notes(self, transcript: str) -> list[Correction]:
         started = time.perf_counter()
@@ -163,6 +174,7 @@ class ClipPipeline:
         filename: str,
         profile_note: str | None = None,
         on_stage: Callable[[str], None] | None = None,
+        turn_id: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
         platform = None
@@ -173,11 +185,11 @@ class ClipPipeline:
                 logger.warning("could not resolve client platform for provider logs")
         bound = bind_metrics(session_id, platform)
         try:
-            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage, turn_id)
         finally:
             reset_metrics(bound)
 
-    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage):
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage, turn_id):
         timings = _job_timings.get()
         if timings is None:
             timings = {}
@@ -202,13 +214,15 @@ class ClipPipeline:
 
         active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
         scenario = active_call.get("scenario") if active_call else None
-        variant = await self.characters.variant(session_id, scenario=scenario)
-        kora = variant is not None
-        history_id = self.characters.history_id(session_id, variant) if variant else session_id
+        mode = ConversationMode.SITUATION if scenario is not None else ConversationMode.FREE
+        route = (ConversationRoute(mode, Personality(active_call["character"]))
+                 if active_call and active_call.get("character") in {"speaky", "kora_h"}
+                 else await self.routing.resolve(session_id, mode))
+        kora = route.personality == Personality.KORA_H
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             stage("tts")
-            reply_audio = await self.characters.synthesize(CLARIFY_TEXT, speed=await self.speech.speed(session_id), guided=False, variant=variant) if kora else await self.speech.synthesize(session_id, CLARIFY_TEXT)
+            reply_audio = await self.personality.synthesize(session_id, route, SpokenTurn(CLARIFY_TEXT), guided=False)
             timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
             stage("metrics")
@@ -234,7 +248,8 @@ class ClipPipeline:
         context_started = time.perf_counter()
         stage("state")
         history_started = time.perf_counter()
-        history = await self._dialogue.history(history_id)
+        history_context = (self.history.target(session_id, route) if mode == ConversationMode.SITUATION
+                           else await self.history.load(session_id, route))
         timings["contextHistory"] = _elapsed_ms(history_started)
         call_started = time.perf_counter()
         scenario_call = None
@@ -246,9 +261,7 @@ class ClipPipeline:
                     scenario_call = candidate
         timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
-            history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
-            for turn in scenario_call.get("turns", []):
-                history.extend((ChatMessage("user", turn["transcript"]), ChatMessage("assistant", turn["reply"])))
+            history_context = self.history.situation(history_context, scenario_call)
         personalization_started = time.perf_counter()
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
@@ -275,28 +288,29 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply = await measured("reply", self.characters.reply_turn(history, stt_result.text, variant=variant,
-                                                                        profile_note=profile_note) if kora else self._llm.complete_reply(history, stt_result.text, profile_note))
-            reply_text = reply.text if kora else reply
+            reply = await measured("reply", self.personality.reply(route, history_context, stt_result.text,
+                                                                    profile_note))
+            reply_text = reply.text
             if kora:
                 await record_artifact("reply_draft", reply_text)
                 await record_artifact("reply", reply_text)
             else:
                 await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.characters.synthesize(reply_text, history=history, user=stt_result.text, speed=await self.speech.speed(session_id), variant=variant, tone=reply.tone) if kora else self.speech.synthesize(session_id, reply_text)))
+            tts_task = asyncio.create_task(measured("tts", self.personality.synthesize(
+                session_id, route, reply, history=history_context, user=stt_result.text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
-            if scenario_call is None and not load_test_active() and not kora:
-                await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
+            if scenario_call is None and not load_test_active() and not kora and not self.history.is_shared(history_context):
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
             if kora:
                 reply_text = reply_audio.spoken_text or reply_text
                 await record_artifact("reply", reply_text)
-            if kora and not load_test_active():
-                await self._dialogue.record_turn(history_id, stt_result.text, reply_text)
+            if (kora or self.history.is_shared(history_context)) and not load_test_active():
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
         finally:
             for task in tasks:
                 if not task.done():

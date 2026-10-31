@@ -782,7 +782,7 @@ data class CallFeedbackRequest(
 
 @Serializable
 data class CallFeedbackResponse(val status: String = "ignored", val reason: String? = null,
-                                val character: String = "speaky")
+                                val character: String = "speaky", val mode: String? = null)
 
 @Serializable
 data class CallFeedbackEntry(
@@ -792,6 +792,7 @@ data class CallFeedbackEntry(
     val message: String? = null,
     val character: String = "speaky",
     val callId: String = "",
+    val mode: String? = null,
 )
 
 @Serializable

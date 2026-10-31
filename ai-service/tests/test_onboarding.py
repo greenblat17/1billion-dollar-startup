@@ -9,6 +9,8 @@ from fakeredis import FakeAsyncRedis
 from fastapi.testclient import TestClient
 
 from app.dialogue import MemoryDialogueStore
+from app.characters import Characters, CharacterStore, KoraHModel
+from app.conversation import ConversationRouting, PersonalityRuntime
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
@@ -163,6 +165,37 @@ async def begin(s, session="tg-test"):
 
 async def turn(s, run, request="v1", session="tg-test", duration=0.0):
     return await s.turn(session, run, request, b"voice", "audio/ogg", "voice.ogg", duration)
+
+
+@pytest.mark.asyncio
+async def test_kora_onboarding_keeps_assessment_and_pins_voice(monkeypatch):
+    model_h = KoraHModel(None, "test")
+    prompts = []
+
+    async def complete(messages, *args, **kwargs):
+        prompts.append(messages)
+        return '{"reply":"That sounds interesting. What do you enjoy about your work?"}'
+
+    monkeypatch.setattr(model_h, "_complete", complete)
+    voice = FakeTts()
+    characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist="1")
+    await characters.store.set("tg-1", "kora_h")
+    s = service()
+    s.pipeline.characters = characters
+    s.pipeline.routing = ConversationRouting(characters)
+    s.pipeline.personality = PersonalityRuntime(s.pipeline._llm, s.pipeline.speech, characters)
+    run = await begin(s, "tg-1")
+    assert FIRST_QUESTION in voice.texts
+    result = await turn(s, run, session="tg-1")
+    state = await s.store.get("tg-1")
+    assert state["character"] == "kora_h"
+    assert state["profile"] == s.model.assessment["profile"]
+    assert state["turns"][0]["analysis"]["question"] == s.model.assessment["question"]
+    assert result.reply_text == "That sounds interesting. What do you enjoy about your work?"
+    assert result.reply_text in voice.texts
+    assert "requiredQuestion" in prompts[0][1]["content"]
+    await characters.store.set("tg-1", "speaky")
+    assert (await s._pin_personality("tg-1", state)).value == "kora_h"
 
 
 @pytest.mark.asyncio

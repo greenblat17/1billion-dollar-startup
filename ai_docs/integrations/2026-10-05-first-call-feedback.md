@@ -29,3 +29,23 @@ button. Speaky keeps its existing `first-call-feedback:{sessionId}` record.
 The rated dashboard index contains both survey types and shows the character
 for each row. The same seven-day conversation-content retention does not apply
 to the optional feedback text, matching the existing first-call survey.
+
+## Mode-based feedback, local Phase C implementation, 2026-10-31
+
+New offers use `mode-feedback:entry:{instanceId}` and one accepted-rating marker
+per Telegram session and mode: onboarding, free conversation, or all situations.
+The call ID identifies a completed free/situation conversation; the onboarding
+run ID identifies a completed reviewed attempt. Every eligible completion can
+show the existing rating buttons until a rating is accepted in that mode. A
+skipped optional comment or unanswered rating does not stop later offers.
+The prompt is confirmed after Telegram sends it; a failed send releases its
+claim. The first accepted rating wins under a Redis transaction. The optional
+text answer still has a 24-hour window. Feedback responses and dashboard rows
+carry mode and character independently.
+
+Old `first-call-feedback` and `kora-call-feedback` rows remain readable with
+their original character labels. At first new offer, a past rating suppresses
+the matching mode only if a linked call still proves whether it was free or a
+situation. Expired or missing scenario data is not guessed. New call ratings
+are also written to the old key where possible for a rollback; the dashboard
+deduplicates such rows by call ID. Onboarding ratings have no old key.

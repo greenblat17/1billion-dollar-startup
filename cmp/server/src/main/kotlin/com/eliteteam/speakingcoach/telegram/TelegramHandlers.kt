@@ -450,6 +450,33 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         log.warn("Failed to read reminder time for {}", message.chat.id, error)
         false
     }
+    suspend fun showModeFeedback(message: ChatMessage, instanceId: String) {
+        val session = telegramSessionId(message.chat.id)
+        try {
+            val offered = ai.callFeedback(session, "offer", callId = instanceId,
+                username = telegramProfile(message.chat).username.orEmpty())
+            if (offered.status != "offered") {
+                log.info("Feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
+                return
+            }
+            try {
+                reply(message, if (offered.mode == "onboarding") ONBOARDING_FEEDBACK_PROMPT else MODE_FEEDBACK_PROMPT,
+                    allowSendingWithoutReply = true, replyMarkup = firstCallFeedbackKeyboard(instanceId))
+            } catch (error: Throwable) {
+                try { ai.callFeedback(session, "release", callId = instanceId) }
+                catch (releaseError: Throwable) { log.warn("Failed to release feedback offer", releaseError) }
+                throw error
+            }
+            ai.callFeedback(session, "confirm", callId = instanceId)
+            if (offered.mode != "onboarding") callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "call:$instanceId:feedback-offered", "feedback_offered", chatId,
+                callId = instanceId, state = offered.character)) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to show feedback for {}", message.chat.id, error)
+        }
+    }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false,
                         onCorrection: (Boolean) -> Unit = {},
                         onMainDelivered: (Long, String) -> Unit = { _, _ -> }): Boolean {
@@ -1148,6 +1175,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     } catch (error: Throwable) {
                         log.warn("Failed to react to the last onboarding voice for {}", sessionId.value, error)
                     }
+                    if (delivered && result.reply.onboarding.review != null) {
+                        showModeFeedback(message, result.reply.onboarding.runId)
+                    }
                 }
             }
         }
@@ -1454,25 +1484,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to edit call progress for {}", message.chat.id, error)
             reply(message, progress, allowSendingWithoutReply = true)
         }
-        try {
-            val offered = ai.callFeedback(telegramSessionId(message.chat.id), "offer", callId = callId,
-                username = telegramProfile(message.chat).username.orEmpty())
-            if (offered.status == "offered") {
-                reply(message, if (offered.character == "kora_h") KORA_CALL_FEEDBACK_PROMPT else FIRST_CALL_FEEDBACK_PROMPT,
-                    allowSendingWithoutReply = true,
-                    replyMarkup = firstCallFeedbackKeyboard(callId))
-                callChat(message)?.let { chatId -> callEvent(CallEvent(
-                    "call:$callId:feedback-offered", "feedback_offered", chatId,
-                    callId = callId, state = offered.character)) }
-            } else {
-                log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            log.warn("Failed to show first-call feedback for {}", message.chat.id, error)
-        }
+        showModeFeedback(message, callId)
     }
+
     suspend fun endPracticeCall(message: ChatMessage, callbackId: String, pressedAt: Instant,
                                 expectedCallId: String) {
         log.info("Ending call")
@@ -2034,7 +2048,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         if (callback.action == "begin" && result.onboarding?.status == "active") {
                             analytics.safely { mark(callback.runId, AttemptMark.BEGIN_PRESSED, Instant.now()) }
                         }
-                        deliver(message, result, firstQuestion = callback.action == "begin")
+                        val delivered = deliver(message, result, firstQuestion = callback.action == "begin")
                         if (callback.action == "begin" && result.onboarding?.status == "active" &&
                             (result.audio != null || result.text.isNotBlank())) {
                             analytics.safely { mark(callback.runId, AttemptMark.FIRST_QUESTION_DELIVERED, Instant.now()) }
@@ -2061,6 +2075,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 scoreAvailable = result.onboarding.overallScore != null,
                             ).withReview(result.onboarding.review)
                             analytics.safely { recordOutcome(callback.runId, details, Instant.now()) }
+                            if (delivered) showModeFeedback(message, callback.runId)
                         }
                         if (callback.action == "begin" && result.onboarding?.status == "active") {
                             analytics.safely { mark(callback.runId, AttemptMark.LETS_CHAT, Instant.now()) }
