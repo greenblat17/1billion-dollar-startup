@@ -104,12 +104,39 @@ async def start_lesson(builder, session_id, words):
 
 
 @pytest.mark.asyncio
+async def test_new_lesson_retries_an_overlong_spoken_opening():
+    class LongOpeningModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.openings = 0
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "opening":
+                self.openings += 1
+                if self.openings == 1:
+                    return json.dumps({"feedback": "word " * 60, "question": "Is that familiar?",
+                                       "category": "", "matchedPhrase": "", "reason": "", "exampleAnswer": ""})
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = LongOpeningModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    await builder.propose("short-opening", "figure out")
+    card = await builder.confirm("short-opening")
+    await builder.select("short-opening", card["id"], True)
+
+    opening = await builder.start("short-opening")
+    assert model.openings == 2
+    assert len(opening["text"].split()) <= 55
+
+
+@pytest.mark.asyncio
 async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card():
     model = TutorModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
     lesson_id = await start_lesson(builder, "one", ["figure out"])
     first = await builder.text("one", lesson_id, 1, "Yes, that happened to me.")
     assert (first["lesson"]["phase"], first["lesson"]["index"]) == ("Use", 1)
+    assert first["text"].count("Now let's try using it in your own sentence.") == 1
     assert "figure out" not in first["lesson"]["prompt"]
     assert "figure out" not in first["text"]
     assert model.checks == 1
@@ -135,17 +162,22 @@ async def test_two_words_run_all_understand_then_all_use_then_cards():
     lesson_id = await start_lesson(builder, "two", ["small talk", "test"])
     phases = []
     prompts = []
+    spoken = []
     for number, answer in enumerate(("Yes", "Yes", "I would make small talk about the event.",
                                      "I would test the feature.", "small talk", "It means understanding."), 1):
         turn = await builder.text("two", lesson_id, number, answer)
         phases.append((turn["lesson"]["phase"], turn["lesson"]["index"]))
         prompts.append(turn["lesson"]["prompt"])
+        spoken.append(turn["text"])
     assert phases == [("Understand", 1), ("Use", 2), ("Use", 3),
                       ("Word game", 4), ("Word game", 5), ("Word game", 6)]
     assert turn["lesson"]["status"] == "finished"
     assert "test means" in prompts[0]
     assert "first minute" in prompts[1]
     assert "feature works" in prompts[2]
+    assert sum(text.count("Now let's use these expressions in your own sentences.")
+               for text in spoken) == 1
+    assert "Now let's use these expressions in your own sentences." in spoken[1]
 
 
 @pytest.mark.asyncio

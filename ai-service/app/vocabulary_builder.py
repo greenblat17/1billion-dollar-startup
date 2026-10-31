@@ -193,6 +193,13 @@ For other questions return an empty exampleAnswer. Only after the last Use succe
 nextPhase is Word game, leave question empty: the application creates the first card in
 the same spoken turn.
 For action=hint in Use, give a clue without saying or spelling the target expression.
+For action=opening, keep the whole spoken turn brief: explain one meaning in plain English
+and ask one clear question. Say the target expression once, in its supplied form. Do not
+repeat it or use an inflected form in an example before the learner answers. Omit an example
+when the meaning and question are already clear. Keep feedback and question together under
+55 words.
+When nextPhase is Use, do not announce the phase in feedback. The application adds one
+short instruction before the first Use question for the whole lesson.
 """
 
 TUTOR_NEW_RESPONSE_FORMAT = deepcopy(TUTOR_RESPONSE_FORMAT)
@@ -759,6 +766,9 @@ class VocabularyBuilder:
                 response_format=TUTOR_NEW_RESPONSE_FORMAT if _new_lesson(lesson) else None)
             question = _clean(raw.get("question"), None)
             if _new_lesson(lesson) and action != "hint":
+                opening_text = f"{_clean(raw.get('feedback'), None)} {question}"
+                if action == "opening" and len(opening_text.split()) > 55:
+                    continue
                 question_phase = (phase if action == "opening" or
                                   raw.get("category") not in ("understood", "used") else next_phase_name)
                 if question_phase == "Use":
@@ -1362,7 +1372,12 @@ class VocabularyBuilder:
         if next_lesson["status"] == "active" and _position(next_lesson)[0] == "Use" and (
                 self._reveals(next_lesson["prompt"], _current(next_lesson)["word"])):
             raise ValueError("vocabulary tutor revealed the target")
-        spoken_text = " ".join(part for part in (turn["feedback"],
+        use_transition = ("Now let's try using it in your own sentence."
+                          if len(lesson["words"]) == 1 else
+                          "Now let's use these expressions in your own sentences.") if (
+                          advance and phase == "Understand" and next_lesson["status"] == "active"
+                          and _position(next_lesson)[0] == "Use") else ""
+        spoken_text = " ".join(part for part in (turn["feedback"], use_transition,
             "Let's finish with a quick word game." if next_lesson["status"] == "cards" else "",
             next_lesson["prompt"]) if part)
         spoken = await self._spoken(session_id, spoken_text, self._lesson_view(next_lesson))
