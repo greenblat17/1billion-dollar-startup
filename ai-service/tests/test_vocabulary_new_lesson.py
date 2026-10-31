@@ -42,7 +42,7 @@ class TutorModel:
             action = data["action"]
             if action == "hint":
                 return json.dumps({"feedback": "Think about the situation.", "question": "",
-                                   "category": "", "matchedPhrase": "", "reason": "", "exampleAnswer": ""})
+                                   "category": "", "matchedPhrase": "", "reason": ""})
             transcript = data["transcript"]
             category = ("" if action == "opening" else
                         "conversation" if "what should i answer" in transcript.lower() else
@@ -61,14 +61,10 @@ class TutorModel:
                             .get(next_word["word"], "What would you do in that situation?"))
             else:
                 question = ""
-            example = ({"small talk": "I would make small talk about the event.",
-                        "test": "I would test the feature with a few users.",
-                        "figure out": "I would figure out why the app broke."}
-                       .get(next_word["word"], f"I would try to {next_word['word']} it.")) if next_phase == "Use" else ""
             return json.dumps({"feedback": "That makes sense." if action != "opening" else "Let's begin.",
                                "question": question, "category": category,
                                "matchedPhrase": word if category == "used" else "",
-                               "reason": "The response is relevant.", "exampleAnswer": example})
+                               "reason": "The response is relevant."})
         if operation == "vocabulary_card_prompt":
             word = data["target"]["word"]
             prompt = (f"What does {word} mean?" if data["direction"] == "word_to_meaning" else
@@ -98,7 +94,7 @@ async def start_lesson(builder, session_id, words):
 
 
 @pytest.mark.asyncio
-async def test_new_lesson_retries_an_overlong_spoken_opening():
+async def test_new_lesson_uses_one_tutor_response_for_opening():
     class LongOpeningModel(TutorModel):
         def __init__(self):
             super().__init__()
@@ -109,7 +105,7 @@ async def test_new_lesson_retries_an_overlong_spoken_opening():
                 self.openings += 1
                 if self.openings == 1:
                     return json.dumps({"feedback": "word " * 60, "question": "Is that familiar?",
-                                       "category": "", "matchedPhrase": "", "reason": "", "exampleAnswer": ""})
+                                       "category": "", "matchedPhrase": "", "reason": ""})
             return await super().complete_json(system, payload, **kwargs)
 
     model = LongOpeningModel()
@@ -119,8 +115,8 @@ async def test_new_lesson_retries_an_overlong_spoken_opening():
     await builder.select("short-opening", card["id"], True)
 
     opening = await builder.start("short-opening")
-    assert model.openings == 2
-    assert len(opening["text"].split()) <= 55
+    assert model.openings == 1
+    assert opening["text"].endswith("Is that familiar?")
 
 
 @pytest.mark.asyncio
@@ -221,8 +217,8 @@ async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
 
 
 @pytest.mark.asyncio
-async def test_use_question_with_invalid_example_is_regenerated_before_delivery():
-    class InvalidFirstExampleModel(TutorModel):
+async def test_use_question_with_ordinary_word_from_expression_is_delivered_once():
+    class TalkingQuestionModel(TutorModel):
         def __init__(self):
             super().__init__()
             self.answer_calls = 0
@@ -231,52 +227,23 @@ async def test_use_question_with_invalid_example_is_regenerated_before_delivery(
             result = await super().complete_json(system, payload, **kwargs)
             if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
                 self.answer_calls += 1
-                if self.answer_calls == 1:
-                    candidate = json.loads(result)
-                    candidate["exampleAnswer"] = "I would check the feature with a few users."
-                    return json.dumps(candidate)
-            return result
-
-    model = InvalidFirstExampleModel()
-    builder = VocabularyBuilder(None, model, NoStt(), Speech())
-    lesson_id = await start_lesson(builder, "check", ["test"])
-    turn = await builder.text("check", lesson_id, 1, "Yes")
-    assert turn["lesson"]["phase"] == "Use"
-    assert model.answer_calls == 2
-    assert "vocabulary_use_check" not in model.operations
-    assert "I would test" not in turn["text"]
-
-
-@pytest.mark.asyncio
-async def test_invalid_example_and_isolated_target_leave_goal_unchanged(caplog):
-    class InvalidExampleModel(TutorModel):
-        async def complete_json(self, system, payload, **kwargs):
-            result = await super().complete_json(system, payload, **kwargs)
-            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
                 candidate = json.loads(result)
-                candidate["exampleAnswer"] = "I would check the feature with a few users."
+                candidate["question"] = "How could you ease the wait by talking to someone?"
                 return json.dumps(candidate)
             return result
 
-    model = InvalidExampleModel()
+    model = TalkingQuestionModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
-    lesson_id = await start_lesson(builder, "reject", ["test"])
-    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
-        with pytest.raises(ValueError, match="unsafe vocabulary use question"):
-            await builder.text("reject", lesson_id, 1, "Yes")
-    assert (await builder.list("reject"))["lesson"]["index"] == 0
-    rejections = [json.loads(record.getMessage().removeprefix("vocabulary question rejected "))
-                  for record in caplog.records if record.getMessage().startswith("vocabulary question rejected ")]
-    assert [event["attempt"] for event in rejections] == [1, 2]
-    assert all(event["reason"] == "example_omits_target" for event in rejections)
-    assert all(event["question"] == "What would you do to check that the feature works?"
-               for event in rejections)
-    assert all(event["exampleAnswer"] == "I would check the feature with a few users."
-               for event in rejections)
-    assert all("verifierReason" not in event for event in rejections)
+    lesson_id = await start_lesson(builder, "check", ["small talk"])
+    turn = await builder.text("check", lesson_id, 1, "Yeah")
+    assert turn["lesson"]["phase"] == "Use"
+    assert turn["lesson"]["prompt"] == "How could you ease the wait by talking to someone?"
+    assert model.answer_calls == 1
 
-    model = TutorModel()
-    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+
+@pytest.mark.asyncio
+async def test_isolated_target_does_not_count_as_own_phrase():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
     lesson_id = await start_lesson(builder, "isolated", ["test"])
     await builder.text("isolated", lesson_id, 1, "Yes")
     with pytest.raises(ValueError, match="unsupported vocabulary match"):
@@ -292,32 +259,6 @@ async def test_learner_agreement_reaches_use_without_a_second_model_check():
     response = await builder.text("question-check-context", lesson_id, 1, "yeah sure")
     assert (response["lesson"]["phase"], response["lesson"]["index"]) == ("Use", 1)
     assert "vocabulary_use_check" not in model.operations
-
-
-@pytest.mark.asyncio
-async def test_rejected_question_shape_logs_the_candidate_without_learner_transcript(caplog):
-    class MissingExampleModel(TutorModel):
-        async def complete_json(self, system, payload, **kwargs):
-            data = json.loads(payload)
-            if kwargs["operation"] == "vocabulary_tutor" and data["action"] == "answer":
-                return json.dumps({"feedback": "Let's continue.",
-                                   "question": "What would you do to solve the problem?",
-                                   "category": "understood", "matchedPhrase": "",
-                                   "reason": "Learner agreed.", "exampleAnswer": ""})
-            return await super().complete_json(system, payload, **kwargs)
-
-    builder = VocabularyBuilder(None, MissingExampleModel(), NoStt(), Speech())
-    lesson_id = await start_lesson(builder, "missing-example", ["figure out"])
-    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
-        with pytest.raises(ValueError, match="unsafe vocabulary use question"):
-            await builder.text("missing-example", lesson_id, 1, "My private learner answer")
-    rejections = [json.loads(record.getMessage().removeprefix("vocabulary question rejected "))
-                  for record in caplog.records if record.getMessage().startswith("vocabulary question rejected ")]
-    assert len(rejections) == 2
-    assert all(event["reason"] == "missing_example_answer" for event in rejections)
-    assert all(event["question"] == "What would you do to solve the problem?" for event in rejections)
-    assert "My private learner answer" not in caplog.text
-    assert (await builder.list("missing-example"))["lesson"]["index"] == 0
 
 
 @pytest.mark.asyncio
