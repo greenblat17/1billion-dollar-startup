@@ -673,17 +673,14 @@ class VocabularyBuilder:
         if summary is None:
             summary = await asyncio.wait_for(self._summarize(session_id, lesson, older, digest), timeout=5)
         compact = {**data, "earlierLessonSummary": summary, "lessonHistory": protected}
-        removed = False
-        while self._context_size(system, compact) > limit and len(protected) > 2:
-            # Keep the latest exchange verbatim; summarize any older turn that no longer fits.
-            removable = next((i for i, event in enumerate(protected)
-                              if event not in protected[-2:]), None)
-            if removable is None:
-                break
-            protected.pop(removable)
-            removed = True
-        if removed:
-            # Every omitted source must be represented by the summary.
+        while self._context_size(system, compact) > limit and protected:
+            # The request already carries the current question and answer. Summarize even the
+            # newest events when the prompt leaves too little room for a verbatim exchange.
+            while self._context_size(system, compact) > limit and protected:
+                protected.pop(0)
+                compact["lessonHistory"] = protected
+            # Every omitted source must be represented by the summary. A longer replacement
+            # summary may require another pass with fewer verbatim events.
             older = [event for event in events if event not in protected]
             digest = hashlib.sha256(json.dumps(older, ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:16]
             summary = (trace or {}).get("summaries", {}).get(digest)
