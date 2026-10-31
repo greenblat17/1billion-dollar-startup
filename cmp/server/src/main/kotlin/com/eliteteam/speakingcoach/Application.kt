@@ -251,7 +251,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             store = store,
             state = { candidate ->
                 val current = ai.onboardingState(SessionId(candidate.sessionId), "followup:check:${candidate.runId}")
-                current.runId to current.status
+                current.runId to (if (current.status == "active") current.phase else current.status)
             },
             reminderTime = { sessionId -> ai.reminderTime(SessionId(sessionId)) },
             send = { claim ->

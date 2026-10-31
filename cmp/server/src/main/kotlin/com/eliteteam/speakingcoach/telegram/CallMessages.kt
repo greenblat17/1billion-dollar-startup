@@ -52,6 +52,7 @@ private val callSlideActions = setOf("grammar", "vocab", "fluency", "progress", 
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
+    "completed" -> "open"
     else -> when {
         (legacyUser || onboardingStatus == "exempt") && overallScore == null -> "legacy"
         overallScore == null -> "need-onboarding"

@@ -476,7 +476,7 @@ class HttpClipClient(
                         onboarding = status.onboarding?.let {
                             OnboardingStatus(
                                 it.runId, it.status, it.seconds, it.cefr, it.review,
-                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
+                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(), it.phase,
                             )
                         },
                         transcript = status.transcript,

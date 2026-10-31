@@ -679,6 +679,7 @@ data class OnboardingStateResponse(
     val react: Boolean = false,
     val review: OnboardingReview? = null,
     val analytics: OnboardingVoiceAnalyticsResponse? = null,
+    val phase: String = "initial",
 )
 
 @Serializable

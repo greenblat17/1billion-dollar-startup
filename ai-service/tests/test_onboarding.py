@@ -12,7 +12,7 @@ from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.main import create_app
 from app.llm import REPLY_SYSTEM
-from app.onboarding import FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore
+from app.onboarding import CHECKPOINT_TEXT, FIRST_QUESTION, OnboardingService, OnboardingSttError, OnboardingStore
 from app.onboarding_model import SYSTEM as ONBOARDING_SYSTEM
 from app.realtime import SPEAKY_REALTIME_INSTRUCTIONS
 from app.onboarding_model import parse_assessment
@@ -25,7 +25,7 @@ AUTH = {"X-Internal-Token": "test-internal-token"}
 
 def test_spoken_turns_introduce_speaky_and_stay_with_the_person():
     assert "this is actually my voice" in FIRST_QUESTION
-    assert "tell me about yourself" in FIRST_QUESTION
+    assert FIRST_QUESTION.endswith("What do you do — do you work or study?")
     assert "good to hear you" not in FIRST_QUESTION
     for prompt in (REPLY_SYSTEM, ONBOARDING_SYSTEM, SPEAKY_REALTIME_INSTRUCTIONS):
         assert "2–4 short sentences" not in prompt
@@ -184,13 +184,11 @@ async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
     result = await turn(s, run)
     assert result.onboarding["status"] == status
     assert result.onboarding["seconds"] == seconds
-    assert result.audio
+    assert result.audio is None
     assert result.corrections
     assert "Estimated English" not in result.reply_text
     if status == "completed":
-        assert result.reply_text.startswith("Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now. 😊")
-        assert "Let me show you what I noticed." in result.reply_text
-        assert "😊" not in s.pipeline.tts.texts[-1]
+        assert result.reply_text == "Your results are ready."
         assert result.onboarding["resultText"] is None
         assert result.onboarding["review"]["grammar"]["score"] == 57
         assert result.onboarding["review"]["vocabulary"]["score"] == 52
@@ -209,8 +207,92 @@ async def test_speech_cap_closes_and_keeps_the_whole_recording(seconds, status):
         assert "notes" in stored_review["grammar"]
         history = await s.pipeline.dialogue.history("tg-test")
         assert history[-2].content == "I build software. I need English to work with clients."
-        assert "I really enjoyed talking with you" in history[-1].content
-        assert "😊" not in history[-1].content
+        assert history[-1].content == "Your results are ready."
+    else:
+        assert result.onboarding["phase"] == "checkpoint"
+        assert result.reply_text == CHECKPOINT_TEXT
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_can_finalize_a_preliminary_result_without_more_speech():
+    s = service(stt=Stt(32), model=Model(cefr=None))
+    run = await begin(s)
+    checkpoint = await turn(s, run)
+    assert checkpoint.onboarding["phase"] == "checkpoint"
+    assert checkpoint.reply_text == CHECKPOINT_TEXT
+    assert checkpoint.audio is None
+    assert s.model.review_calls == 0
+    assert (await turn(s, run)).onboarding["status"] == "ignored"
+
+    result = await s.action("tg-test", run, "see_results", "result-click")
+    assert result.onboarding["status"] == "completed"
+    assert result.onboarding["seconds"] == 32
+    assert result.onboarding["overallScore"] is None
+    assert result.onboarding["review"] is not None
+    assert result.audio is None
+    assert s.pipeline.stt.calls == 1
+    assert (await s.action("tg-test", run, "see_results", "result-click")).onboarding["status"] == "ignored"
+    again = await s.action("tg-test", run, "see_results", "another-result-click")
+    assert again.onboarding["status"] == "completed"
+    assert s.model.review_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_continues_same_attempt_and_can_end_early():
+    redis = FakeAsyncRedis(decode_responses=True)
+    s = service(stt=Stt(35), store=OnboardingStore(redis))
+    run = await begin(s)
+    await turn(s, run)
+    continued = await s.action("tg-test", run, "keep_talking", "keep-click")
+    assert continued.onboarding["phase"] == "extended"
+    assert continued.onboarding["seconds"] == 35
+    assert continued.audio is not None
+    assert continued.reply_text == s.model.assessment["question"]
+
+    restarted = service(stt=Stt(35), store=OnboardingStore(redis))
+    state = await restarted.resolve("tg-test", "read-after-restart")
+    assert state["phase"] == "extended"
+    assert state["runId"] == run
+    second = await turn(restarted, run, "voice-2")
+    assert second.onboarding["phase"] == "extended"
+    assert second.onboarding["seconds"] == 70
+    assert second.audio is not None
+    early = await restarted.action("tg-test", run, "see_results", "early-click")
+    assert early.onboarding["status"] == "completed"
+    assert early.onboarding["seconds"] == 70
+    assert restarted.model.review_calls == 1
+    assert (await restarted.action("tg-test", run, "keep_talking", "late-click")).onboarding["status"] == "ignored"
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_assessment_failure_retries_into_the_choice():
+    model = Model()
+    model.fail = True
+    s = service(stt=Stt(35), model=model)
+    run = await begin(s)
+    failed = await turn(s, run)
+    assert failed.onboarding["status"] == "pending"
+    model.fail = False
+    retried = await s.action("tg-test", run, "retry")
+    assert retried.onboarding["status"] == "active"
+    assert retried.onboarding["phase"] == "checkpoint"
+    assert retried.reply_text == CHECKPOINT_TEXT
+    assert s.pipeline.stt.calls == 1
+    assert model.review_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_voice_at_checkpoint_implicitly_continues_and_can_cross_two_minutes():
+    s = service(stt=Stt(60))
+    run = await begin(s)
+    first = await turn(s, run)
+    assert first.onboarding["phase"] == "checkpoint"
+    second = await turn(s, run, "voice-2")
+    assert second.onboarding["status"] == "completed"
+    assert second.onboarding["seconds"] == 120
+    assert second.audio is None
+    assert s.pipeline.stt.calls == 2
+    assert (await s.action("tg-test", run, "see_results", "stale-stop")).onboarding["status"] == "ignored"
 
 
 @pytest.mark.asyncio
@@ -227,7 +309,7 @@ async def test_incomplete_profile_closes_at_two_minutes(missing):
     assert model.asks[-1] == missing[0]
     assert second.onboarding["seconds"] == 120
     assert second.onboarding["review"]
-    assert "Let me show you what I noticed." in second.reply_text
+    assert second.reply_text == "Your results are ready."
     state = await s.store.get("tg-test")
     assert all(state["profile"][field] is None for field in missing)
 
@@ -237,11 +319,11 @@ async def test_failed_short_answer_does_not_close_or_wait_for_a_saved_retry():
     model = Model(leisure=None)
     s = service(stt=Stt(5), model=model)
     run = await begin(s)
-    for i in range(9):
+    for i in range(4):
         assert (await turn(s, run, f"v{i}")).onboarding["status"] == "active"
     model.fail = True
     with pytest.raises(RuntimeError):
-        await turn(s, run, "v9")
+        await turn(s, run, "v4")
     assert (await s.store.get("tg-test"))["status"] == "active"
     model.fail = False
     retried = await s.action("tg-test", run, "retry")
@@ -355,40 +437,15 @@ async def test_onboarding_assessment_and_voice_overlap_live_corrections():
 
 
 @pytest.mark.asyncio
-async def test_final_voice_overlaps_review_and_memory():
-    review_started = asyncio.Event()
-    voice_started = asyncio.Event()
-    memory_started = asyncio.Event()
-
-    class ParallelModel(Model):
-        async def closing_callback(self, transcripts):
-            await asyncio.wait_for(review_started.wait(), 0.5)
-            return None
-
-        async def compose_review(self, payload):
-            review_started.set()
-            await asyncio.wait_for(voice_started.wait(), 0.5)
-            return await super().compose_review(payload)
-
-    class ParallelTts(FakeTts):
-        async def synthesize(self, text, speed=None):
-            if text.startswith("Thanks for sharing that with me"):
-                voice_started.set()
-                await asyncio.wait_for(memory_started.wait(), 0.5)
-            return await super().synthesize(text, speed)
-
-    s = service(stt=Stt(120), model=ParallelModel(), tts=ParallelTts())
-
-    async def seed(session, state):
-        memory_started.set()
-        await asyncio.wait_for(voice_started.wait(), 0.5)
-
-    s.personalization.seed = seed
+async def test_final_recording_builds_review_without_a_closing_voice():
+    s = service(stt=Stt(120))
     run = await begin(s)
-    result = await asyncio.wait_for(turn(s, run), 1)
+    intro_count = len(s.pipeline.tts.texts)
+    result = await turn(s, run)
     assert result.onboarding["status"] == "completed"
-    assert result.audio is not None
-    assert review_started.is_set() and voice_started.is_set() and memory_started.is_set()
+    assert result.audio is None
+    assert len(s.pipeline.tts.texts) == intro_count
+    assert s.model.review_calls == 1
 
 
 @pytest.mark.asyncio
@@ -413,14 +470,14 @@ async def test_duplicate_voice_is_not_counted_twice_even_after_completion():
 
 
 @pytest.mark.asyncio
-async def test_summary_failure_retries_only_assessment_after_closing_voice():
+async def test_summary_failure_retries_only_assessment_without_more_speech():
     model = Model(work=None, leisure=None, goal=None)
     model.fail = True
     s = service(stt=Stt(120), model=model)
     run = await begin(s)
     failed = await turn(s, run)
     assert failed.onboarding["status"] == "pending"
-    assert failed.audio is not None
+    assert failed.audio is None
     voice_count = len(s.pipeline.tts.texts)
     model.fail = False
     result = await s.action("tg-test", run, "retry")
@@ -501,7 +558,7 @@ async def test_close_remembers_profile_and_restart_wipes_it():
         "Old topic",
         "Old reply",
         "I build software. I need English to work with clients.",
-        "Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now.\nAnd I can already hear your English a little. Let me show you what I noticed.",
+        "Your results are ready.",
     ]
     saved = await s.store.get("tg-test")
     assert saved["profile"]["work"] == "software developer"
@@ -551,7 +608,7 @@ def test_assessment_validation_rejects_invalid_cefr_and_missing_fields():
 
 
 @pytest.mark.parametrize("media_type", ["audio/ogg", "audio/mpeg"])
-def test_http_contract_returns_closing_audio_and_requires_auth(media_type):
+def test_http_contract_returns_text_result_and_requires_auth(media_type):
     s = service(stt=Stt(120), tts=FakeTts(media_type))
     app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
     with TestClient(app) as client:
@@ -577,8 +634,8 @@ def test_http_contract_returns_closing_audio_and_requires_auth(media_type):
             if body["status"] != "pending":
                 break
         assert body["status"] == "ok"
-        assert body["result"]["audioAvailable"] is True
-        assert "I really enjoyed talking with you" in body["replyText"]
+        assert body["result"]["audioAvailable"] is False
+        assert body["replyText"] == "Your results are ready."
         assert body["result"]["onboarding"]["review"]["levelText"]
         assert body["result"]["onboarding"]["status"] == "completed"
         profile = client.get("/internal/profile/tg-new", headers=AUTH).json()
@@ -586,9 +643,7 @@ def test_http_contract_returns_closing_audio_and_requires_auth(media_type):
         assert profile["assessment"]["grammar"] == 57
         assert profile["currentStreak"] == 1
         assert body["result"]["onboarding"]["resultText"] is None
-        closing_audio = client.get(f"/v1/clips/{job_id}/audio", headers=AUTH)
-        assert closing_audio.status_code == 200
-        assert closing_audio.headers["content-type"].startswith(media_type)
+        assert client.get(f"/v1/clips/{job_id}/audio", headers=AUTH).status_code == 404
 
 
 def test_http_assessment_retry_has_no_second_voice():
@@ -618,8 +673,8 @@ def test_http_assessment_retry_has_no_second_voice():
                                 files={"audio": ("voice.ogg", b"voice", "audio/ogg")}).json()["jobId"]
         first = completed(first_job)
         assert first["result"]["onboarding"]["status"] == "pending"
-        assert first["result"]["audioAvailable"] is True
-        assert client.get(f"/v1/clips/{first_job}/audio", headers=AUTH).status_code == 200
+        assert first["result"]["audioAvailable"] is False
+        assert client.get(f"/v1/clips/{first_job}/audio", headers=AUTH).status_code == 404
 
         model.review_fail = False
         retry_job = client.post("/internal/onboarding/actions", headers=AUTH, json={
@@ -671,37 +726,21 @@ async def test_stt_failure_never_counts_the_recording():
 
 
 @pytest.mark.asyncio
-async def test_last_answer_reaction_opens_the_closing_voice():
-    ordinary_model = Model()
-    ordinary_model.review_callback = "I can see why English matters for your work."
-    generic = service(stt=Stt(120, "I work as a developer. I like movies. I need English for work."), model=ordinary_model)
-    generic_run = await begin(generic)
-    generic_result = await turn(generic, generic_run)
-    assert generic_result.reply_text.startswith(
-        "I can see why English matters for your work. I really enjoyed talking with you. I feel like I know you a little better now. 😊"
-    )
-    assert "startup" not in generic_result.reply_text
-    assert "Let me show you what I noticed." in generic_result.reply_text
+async def test_last_answer_goes_directly_to_result_without_callback():
+    class NoGoodbye(Model):
+        async def closing_callback(self, transcripts):
+            raise AssertionError("closing callback must not run")
 
-    model = Model()
-    model.review_callback = "Building a startup with friends sounds exciting."
-    ungrounded = service(stt=Stt(120, "I work as a developer."), model=model)
-    ungrounded_run = await begin(ungrounded, "tg-plain")
-    dropped = await turn(ungrounded, ungrounded_run, session="tg-plain")
-    assert "startup" not in dropped.reply_text
-
-    specific = service(stt=Stt(120, "I am building a startup with two friends."))
-    specific_run = await begin(specific, "tg-startup")
-    heard = await turn(specific, specific_run, session="tg-startup")
-    text = heard.reply_text
-    assert text.index("startup") < text.index("enjoyed talking with you") < text.index("I feel like I know you")
-    assert text.endswith("Let me show you what I noticed.")
-    assert "😊" in text
-    assert "😊" not in specific.pipeline.tts.texts[-1]
+    s = service(stt=Stt(120, "I work as a developer."), model=NoGoodbye())
+    run = await begin(s)
+    result = await turn(s, run)
+    assert result.reply_text == "Your results are ready."
+    assert result.audio is None
+    assert result.onboarding["review"] is not None
 
 
 @pytest.mark.asyncio
-async def test_closing_callback_failure_keeps_standard_voice():
+async def test_closing_callback_is_not_needed_for_results():
     class FailingCallback(Model):
         async def closing_callback(self, transcripts):
             raise RuntimeError("provider unavailable")
@@ -710,8 +749,8 @@ async def test_closing_callback_failure_keeps_standard_voice():
     run = await begin(s)
     result = await turn(s, run)
     assert result.onboarding["status"] == "completed"
-    assert result.audio is not None
-    assert "startup" not in result.reply_text
+    assert result.audio is None
+    assert result.reply_text == "Your results are ready."
 
 
 @pytest.mark.asyncio
@@ -751,7 +790,7 @@ async def test_review_failure_retries_without_another_recording():
     run = await begin(s)
     failed = await turn(s, run)
     assert failed.onboarding["status"] == "pending"
-    assert failed.audio is not None
+    assert failed.audio is None
     voice_count = len(s.pipeline.tts.texts)
     model.review_fail = False
     result = await s.action("tg-test", run, "retry")

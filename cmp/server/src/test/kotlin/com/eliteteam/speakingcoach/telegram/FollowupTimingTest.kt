@@ -64,6 +64,8 @@ class FollowupTimingTest {
     fun actionFollowsVerifiedStageAndLiveState() {
         assertEquals("resume", followupAction("first_question", "active"))
         assertEquals("resume", followupAction("speech_60", "active"))
+        assertEquals("checkpoint", followupAction("speech_30", "checkpoint"))
+        assertEquals("resume", followupAction("speech_60", "extended"))
         assertEquals("retry", followupAction("voice_received", "pending"))
         assertEquals("level", followupAction("result_delivered", "completed"))
         assertEquals("practice", followupAction("reminder_offered", "completed"))
@@ -82,11 +84,14 @@ class FollowupTimingTest {
                 .filterIsInstance<CallbackDataInlineKeyboardButton>()
             assertEquals(listOf(expected), buttons.map { it.callbackData })
         }
-        assertEquals("Let’s chat 👋", followupKeyboard("resume", "run", "invitation")
+        assertEquals("🎙 Let's chat", followupKeyboard("resume", "run", "invitation")
             .keyboard.flatten().single().text)
         assertEquals("Continue 🎙", followupKeyboard("resume", "run", "speech_60")
             .keyboard.flatten().single().text)
         assertEquals(4, followupKeyboard("goal", "run").keyboard.flatten().size)
+        assertEquals(listOf("ob:see_results:run", "ob:keep_talking:run"),
+            followupKeyboard("checkpoint", "run").keyboard.flatten()
+                .filterIsInstance<CallbackDataInlineKeyboardButton>().map { it.callbackData })
     }
 
     @Test
