@@ -63,6 +63,7 @@ class OnboardingMessagesTest {
 
     @Test
     fun progressButtonsCountSpeechUpToTwoMinutes() {
+        assertEquals("🔥 See results", SEE_RESULTS_BUTTON)
         assertEquals("🎯 0:00 / 0:30", progressLabels(0.0).single())
         assertEquals("🎯 0:38 / 2:00", onboardingProgressLabel(38.0, extended = true))
         assertEquals("🎯 1:17 / 2:00", onboardingProgressLabel(77.0, extended = true))
@@ -81,11 +82,12 @@ class OnboardingMessagesTest {
         val texts = sideBySide.map { (it as CallbackDataInlineKeyboardButton).text }
         assertEquals(listOf("🎯 0:00 / 0:30", "Subtitles"), texts)
         val extended = onboardingProgressKeyboard(38.0, "extended", run).keyboard
-        assertEquals("🎯 See my results", (extended.last().single() as CallbackDataInlineKeyboardButton).text)
+        assertEquals(SEE_RESULTS_BUTTON, (extended.last().single() as CallbackDataInlineKeyboardButton).text)
         val extendedWithSubtitles = withSpokenText(onboardingProgressKeyboard(38.0, "extended", run), spoken = true)!!.keyboard
         assertEquals(listOf("🎯 0:38 / 2:00", "Subtitles"), extendedWithSubtitles.first().map { (it as CallbackDataInlineKeyboardButton).text })
-        assertEquals("🎯 See my results", (extendedWithSubtitles.last().single() as CallbackDataInlineKeyboardButton).text)
+        assertEquals(SEE_RESULTS_BUTTON, (extendedWithSubtitles.last().single() as CallbackDataInlineKeyboardButton).text)
         assertEquals(2, onboardingCheckpointKeyboard(run).keyboard.size)
+        assertEquals(SEE_RESULTS_BUTTON, (onboardingCheckpointKeyboard(run).keyboard.first().single() as CallbackDataInlineKeyboardButton).text)
         assertEquals(2, onboardingResultKeyboard(run).keyboard.size)
     }
 
@@ -198,7 +200,7 @@ class OnboardingMessagesTest {
         assertEquals(3, FOUNDER_NOTE.windowed(2).count { it == "\n\n" })
         val closing = withSpokenText(onboardingKeyboard("level", run), spoken = true)!!.keyboard.single()
         val closingLabels = closing.map { (it as CallbackDataInlineKeyboardButton).text }
-        assertEquals(listOf("🔥 See my results", SPOKEN_TEXT_BUTTON), closingLabels)
+        assertEquals(listOf(SEE_RESULTS_BUTTON, SPOKEN_TEXT_BUTTON), closingLabels)
         val report = onboardingKeyboard("results", run).keyboard.single().single() as CallbackDataInlineKeyboardButton
         assertEquals("📊 View detailed feedback", report.text)
         assertEquals(

@@ -14,7 +14,7 @@ internal fun followupKeyboard(action: String, runId: String, stage: String? = nu
                 val label = when (action) {
                     "begin" -> "🎙 Let's chat"
                     "retry" -> "Retry"
-                    "level" -> "🔥 See my results"
+                    "level" -> SEE_RESULTS_BUTTON
                     "resume" -> if (stage in setOf("start", "invitation", "begin")) "🎙 Let's chat"
                         else "Continue 🎙"
                     else -> "📊 View detailed feedback"
@@ -22,7 +22,7 @@ internal fun followupKeyboard(action: String, runId: String, stage: String? = nu
                 dataButton(label, if (action == "resume") "fu:resume:$runId" else "ob:$action:$runId")
             }
             "checkpoint" -> {
-                row { dataButton("🎯 See my results", "ob:see_results:$runId") }
+                row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
                 row { dataButton("🎙 Keep talking · 2 min", "ob:keep_talking:$runId") }
             }
             "goal" -> {

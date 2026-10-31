@@ -57,6 +57,7 @@ internal const val LEGACY_ONBOARDING_CALLBACK = "campaign:onboarding"
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
+internal const val SEE_RESULTS_BUTTON = "🔥 See results"
 internal const val ONBOARDING_PROGRESS_HINT =
     "🎙 This tracks the duration of your recognized voice messages, including pauses."
 
@@ -69,7 +70,7 @@ internal fun onboardingProgressLabel(seconds: Double, extended: Boolean = false)
 
 internal fun onboardingProgressKeyboard(seconds: Double, phase: String = "initial", runId: String = ""): InlineKeyboardMarkup = inlineKeyboard {
     row { dataButton(onboardingProgressLabel(seconds, phase == "extended"), ONBOARDING_PROGRESS_CALLBACK) }
-    if (phase == "extended" && runId.isNotBlank()) row { dataButton("🎯 See my results", "ob:see_results:$runId") }
+    if (phase == "extended" && runId.isNotBlank()) row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
 }
 
 internal fun spokenTextKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
@@ -124,13 +125,13 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
         val label = when (action) {
             "begin" -> "🎙 Let's chat"
             "retry" -> "Retry"
-            "level" -> "🔥 See my results"
+            "level" -> SEE_RESULTS_BUTTON
             "results" -> "📊 View detailed feedback"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
             "finish", "practice" -> "🎙 Start practicing"
             "keep_talking" -> "🎙 Keep talking · 2 min"
-            "see_results" -> "🎯 See my results"
+            "see_results" -> SEE_RESULTS_BUTTON
             "talk" -> "Keep talking 🎙"
             "bye" -> "See you tomorrow"
             "m5" -> PRACTICE_5_LABEL
@@ -143,7 +144,7 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
 }
 
 internal fun onboardingCheckpointKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
-    row { dataButton("🎯 See my results", "ob:see_results:$runId") }
+    row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
     row { dataButton("🎙 Keep talking · 2 min", "ob:keep_talking:$runId") }
 }
 

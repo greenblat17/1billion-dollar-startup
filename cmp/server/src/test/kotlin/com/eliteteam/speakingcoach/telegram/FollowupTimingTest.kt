@@ -92,6 +92,8 @@ class FollowupTimingTest {
         assertEquals(listOf("ob:see_results:run", "ob:keep_talking:run"),
             followupKeyboard("checkpoint", "run").keyboard.flatten()
                 .filterIsInstance<CallbackDataInlineKeyboardButton>().map { it.callbackData })
+        assertEquals(SEE_RESULTS_BUTTON, followupKeyboard("checkpoint", "run")
+            .keyboard.first().single().text)
     }
 
     @Test

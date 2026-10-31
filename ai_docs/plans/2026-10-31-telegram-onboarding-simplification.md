@@ -15,9 +15,9 @@ The approved [user-flow screenshot](../design/screens/telegram-onboarding-30s-us
                                     ↓ reaches 0:30
                               text checkpoint
                               ↙           ↘
-                      See my results    Keep talking · 2 min
+                      See results       Keep talking · 2 min
                               ↓                ↓ same conversation
-                         level card       voice turns + See my results
+                         level card       voice turns + See results
                               ↑                ↓ reaches 2:00
                               └────────── automatic result
                               ↓
@@ -64,16 +64,18 @@ After processing the recording that first brings the total to **at least 30 seco
 
 Inline buttons:
 
-- **🎯 See my results**: finalize the attempt from all accepted answers and show the level card.
+- **🔥 See results**: finalize the attempt from all accepted answers and show the level card.
 - **🎙 Keep talking · 2 min**: keep the same attempt, transcripts, profile facts, and conversation history; immediately send a contextual follow-up question by voice.
 
 Show the checkpoint once per attempt. Both choices are mutually exclusive and idempotent. A new voice message while the checkpoint is open counts as choosing **Keep talking**: accept it in the same attempt, process it once, and send the next contextual reply or the automatic result if it crosses 120 seconds. An old checkpoint button cannot later finalize a completed attempt. A recording that crosses both 30 and 120 seconds bypasses the checkpoint and goes directly to the automatic result.
 
-After **Keep talking**, show progress against **2:00**, starting from the actual accumulated duration (for example, `🎯 0:38 / 2:00`, not resetting to `0:30`). Keep **Subtitles** beside the progress button and **🎯 See my results** on the row below under the latest Speaky voice. The user may stop at any later point before two minutes; that action finalizes the accepted answers so far. At **at least 120 seconds**, finalize automatically after processing the full recording. Do not send an additional voice goodbye. The next bot message is the result card. Remove or invalidate old stop and continue buttons when the attempt ends.
+After **Keep talking**, show progress against **2:00**, starting from the actual accumulated duration (for example, `🎯 0:38 / 2:00`, not resetting to `0:30`). Keep **Subtitles** beside the progress button and **🔥 See results** on the row below under the latest Speaky voice. The user may stop at any later point before two minutes; that action finalizes the accepted answers so far. At **at least 120 seconds**, finalize automatically after processing the full recording. Do not send an additional voice goodbye. The next bot message is the result card. Remove or invalidate old stop and continue buttons when the attempt ends.
 
 ## 4. Results and feedback
 
 Use the existing Telegram level card layout, CEFR and score mapping, evidence rules, and insufficient-evidence state. The result is generated from the accepted transcript, not from a fixed 30-second score. Any result finalized before 120 seconds must be marked **Preliminary estimate**. Longer conversations may support more detail, but the report must only make claims supported by the actual speech sample. If there is too little connected English for a reliable CEFR estimate, show the existing no-clear-level state; never invent a level to unlock practice.
+
+The `levelText` explanation on the card is one plain English sentence of at most 25 words about an observed language ability. Use a short exact excerpt only when it clarifies the evidence. Avoid formal openings such as “You demonstrate a strong ability”. For weak evidence, keep the explanation tentative; for insufficient evidence, say briefly that this sample cannot support a clear estimate.
 
 Under the level card show two actions:
 
@@ -100,7 +102,7 @@ Daily-goal choice (`5/10/15 min`) and reminder setup are removed from the requir
 1. First-time `/start` shows the exact Welcome copy and button. A double tap produces one first question.
 2. The first voice, one-time hint, progress, and subtitles use the specified copy. A short answer gets a contextual spoken turn and at most one reliable correction card.
 3. The first crossing of 30 seconds shows one text checkpoint, with no spoken next question. A single recording crossing 120 seconds goes directly to results.
-4. **Keep talking** immediately produces one contextual voice question. Progress keeps its accumulated value and changes its target to 2:00; **See my results** stays accessible on the latest voice.
+4. **Keep talking** immediately produces one contextual voice question. Progress keeps its accumulated value and changes its target to 2:00; **See results** stays accessible on the latest voice.
 5. Either stop action and automatic two-minute completion show one cached level card without a goodbye voice. A 30-second result is marked preliminary; insufficient evidence remains an honest no-clear-level result.
 6. The level card opens detailed feedback or practice. The last feedback card opens practice. The menu offers **Start call** and **Practice a situation**; both are usable without a goal or numeric assessment.
 7. Silence, failed STT, retries, repeated callbacks, concurrent voice arrivals, stale buttons, and `/start` or `/onboarding` interruption do not duplicate time, results, or conversations.
