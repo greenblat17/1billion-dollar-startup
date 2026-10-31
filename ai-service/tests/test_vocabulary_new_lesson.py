@@ -94,6 +94,37 @@ async def start_lesson(builder, session_id, words):
 
 
 @pytest.mark.asyncio
+async def test_tutor_category_schema_follows_current_phase_and_action():
+    class InspectingModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.categories = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                data = json.loads(payload)
+                category = kwargs["response_format"]["json_schema"]["schema"]["properties"]["category"]
+                self.categories.append((data["phase"], data["action"], category["enum"]))
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = InspectingModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "phase-schema", ["figure out"])
+    await builder.hint("phase-schema", lesson_id)
+    await builder.text("phase-schema", lesson_id, 1, "I need to find the cause.")
+    await builder.hint("phase-schema", lesson_id)
+    await builder.text("phase-schema", lesson_id, 2, "I can figure out why it failed.")
+
+    assert model.categories == [
+        ("Understand", "opening", [""]),
+        ("Understand", "hint", [""]),
+        ("Understand", "answer", ["understood", "confused", "conversation"]),
+        ("Use", "hint", [""]),
+        ("Use", "answer", ["used", "natural_without_target", "misuse", "conversation"]),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_tutor_uses_remembered_context_without_exposing_it_in_lesson_result():
     class Personalization:
         async def learning_context(self, session_id):

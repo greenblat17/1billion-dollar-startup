@@ -7,7 +7,7 @@ from fakeredis import FakeAsyncRedis
 
 from app.stt import SttResult
 from app.tts import TtsAudio
-from app.vocabulary_builder import TUTOR_RESPONSE_FORMAT, VocabularyBuilder as CurrentVocabularyBuilder
+from app.vocabulary_builder import _tutor_response_format, VocabularyBuilder as CurrentVocabularyBuilder
 from app.vocabulary_builder import _trace_key
 
 
@@ -166,7 +166,7 @@ async def test_grade_uses_strict_schema_and_invalid_json_is_logged_without_conte
     with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
         with pytest.raises(ValueError, match="invalid vocabulary JSON for vocabulary_tutor"):
             await builder.voice("tg-invalid-grade", lesson_id, 1, b"private audio")
-    assert model.tutor_format == TUTOR_RESPONSE_FORMAT
+    assert model.tutor_format == _tutor_response_format("Understand", "answer")
     assert (await builder.list("tg-invalid-grade"))["lesson"]["phase"] == "Understand"
     assert "operation=vocabulary_tutor parser_error=Expecting value" in caplog.text
     assert "private learner content" not in caplog.text

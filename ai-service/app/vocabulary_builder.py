@@ -174,6 +174,21 @@ TUTOR_RESPONSE_FORMAT = {
     },
 }
 
+TUTOR_ANSWER_CATEGORIES = {
+    "Understand": ["understood", "confused", "conversation"],
+    "Use": ["used", "natural_without_target", "misuse", "conversation"],
+    "Recall": ["recalled", "not_recalled", "conversation"],
+}
+
+
+def _tutor_response_format(phase: str, action: str) -> dict:
+    response_format = deepcopy(TUTOR_RESPONSE_FORMAT)
+    response_format["json_schema"]["schema"]["properties"]["category"]["enum"] = (
+        TUTOR_ANSWER_CATEGORIES[phase] if action == "answer" else [""]
+    )
+    return response_format
+
+
 TUTOR_NEW_SYSTEM = TUTOR_SYSTEM + """
 This format teaches Understand then Use for each word, followed by mandatory cards. No Recall.
 A relevant short answer can confirm Understand; do not demand an example. In Use, a minor
@@ -829,7 +844,8 @@ class VocabularyBuilder:
         raw = await self._lesson_json(session_id, lesson,
             (TUTOR_NEW_SYSTEM + (TUTOR_V5_ORDER if _interleaved_lesson(lesson) else TUTOR_V4_ORDER))
             if _new_lesson(lesson) else TUTOR_SYSTEM,
-            request, "vocabulary_tutor", pending)
+            request, "vocabulary_tutor", pending,
+            response_format=_tutor_response_format(phase, action))
         question = _clean(raw.get("question"), None)
         feedback = _clean(raw.get("feedback"), None)
         if action == "hint":
