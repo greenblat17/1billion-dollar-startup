@@ -66,26 +66,29 @@ class VocabularyMessagesTest {
         fun progress(index: Int, words: Int = 2) = vocabularyRoundProgress(
             VocabularyLesson(format = 5, status = "active", index = index, total = 3 * words))
 
-        assertEquals(listOf("⚪️⚪️", "🟡⚪️", "🟠⚪️", "🟠🟡", "🟠🟠", "🟢🟠", "🟢🟢"),
+        assertEquals(listOf("Progress: ⚪️⚪️", "Progress: 🟡⚪️", "Progress: 🟠⚪️",
+            "Progress: 🟠🟡", "Progress: 🟠🟠", "Progress: 🟢🟠", "Progress: 🟢🟢"),
             (0..6).map { progress(it) })
-        assertEquals(listOf("⚪️", "🟡", "🟠", "🟢"), (0..3).map { progress(it, words = 1) })
-        assertEquals("🟠🟠🟠🟠🟠", progress(10, words = 5))
-        assertEquals("🟢🟢🟢🟢🟢", progress(15, words = 5))
+        assertEquals(listOf("Progress: ⚪️", "Progress: 🟡", "Progress: 🟠", "Progress: 🟢"),
+            (0..3).map { progress(it, words = 1) })
+        assertEquals("Progress: 🟠🟠🟠🟠🟠", progress(10, words = 5))
+        assertEquals("Progress: 🟢🟢🟢🟢🟢", progress(15, words = 5))
     }
 
     @Test
     fun existingGroupedLessonKeepsItsOrderAndCardHint() {
         val card = VocabularyLesson(id = "new", format = 4, status = "cards",
             round = "Word game", phase = "Word game", index = 4, total = 6, hints = 3)
-        assertEquals(listOf("⚪️⚪️", "🟡⚪️", "🟡🟡", "🟠🟡", "🟠🟠", "🟢🟠", "🟢🟢"),
+        assertEquals(listOf("Progress: ⚪️⚪️", "Progress: 🟡⚪️", "Progress: 🟡🟡",
+            "Progress: 🟠🟡", "Progress: 🟠🟠", "Progress: 🟢🟠", "Progress: 🟢🟢"),
             (0..6).map { vocabularyRoundProgress(card.copy(index = it)) })
         val buttons = vocabularyLessonKeyboard(card).keyboard.flatten()
             .filterIsInstance<CallbackDataInlineKeyboardButton>()
         assertEquals(listOf("vocab:progress", "vocab:subtitle", "vocab:hint:new:4", "vocab:end:new"),
             buttons.map { it.callbackData })
         assertFalse(buttons.any { it.callbackData.startsWith("vocab:play") || it.callbackData.startsWith("vocab:skip") })
-        assertEquals("🟠🟠", vocabularyRoundProgress(card.copy(status = "finished")))
-        assertEquals("🟢🟢", vocabularyRoundProgress(card.copy(status = "finished", index = 6)))
+        assertEquals("Progress: 🟠🟠", vocabularyRoundProgress(card.copy(status = "finished")))
+        assertEquals("Progress: 🟢🟢", vocabularyRoundProgress(card.copy(status = "finished", index = 6)))
     }
 
 }

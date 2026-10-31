@@ -74,7 +74,7 @@ internal fun vocabularyRoundProgress(lesson: VocabularyLesson): String {
     if (lesson.format >= 4) {
         val words = (lesson.total / 3).coerceAtLeast(1)
         val progress = lesson.index.coerceIn(0, 3 * words)
-        return (0 until words).joinToString("") { word ->
+        return "Progress: " + (0 until words).joinToString("") { word ->
             when {
                 progress >= 2 * words + word + 1 -> "🟢"
                 lesson.format >= 5 && progress >= 2 * (word + 1) -> "🟠"
