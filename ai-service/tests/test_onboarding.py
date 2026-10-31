@@ -688,6 +688,47 @@ def test_http_assessment_retry_has_no_second_voice():
         assert client.get(f"/v1/clips/{retry_job}/audio", headers=AUTH).status_code == 404
 
 
+@pytest.mark.parametrize("action, expected_status, expected_audio", [
+    ("see_results", "completed", False),
+    ("keep_talking", "active", True),
+])
+def test_http_checkpoint_actions_are_accepted(action, expected_status, expected_audio):
+    s = service(stt=Stt(32))
+    app = create_app(settings=settings(), pipeline=s.pipeline, onboarding_model=s.model)
+    with TestClient(app) as client:
+        def result(job_id):
+            for _ in range(200):
+                body = client.get(f"/v1/clips/{job_id}", headers=AUTH).json()
+                if body["status"] != "pending":
+                    return body
+                time.sleep(0.005)
+            raise AssertionError("onboarding job did not finish")
+
+        state = client.post("/internal/onboarding/state", headers=AUTH,
+                            json={"sessionId": "tg-checkpoint", "requestId": "start"}).json()
+        run_id = state["runId"]
+        begin = client.post("/internal/onboarding/actions", headers=AUTH, json={
+            "sessionId": "tg-checkpoint", "requestId": "begin", "runId": run_id, "action": "begin",
+        })
+        assert begin.status_code == 202
+        assert result(begin.json()["jobId"])["status"] == "ok"
+        voice = client.post("/v1/clips", headers=AUTH,
+                            data={"sessionId": "tg-checkpoint", "onboardingRunId": run_id,
+                                  "requestId": "voice", "durationSeconds": "32"},
+                            files={"audio": ("voice.ogg", b"voice", "audio/ogg")})
+        assert voice.status_code == 202
+        assert result(voice.json()["jobId"])["result"]["onboarding"]["phase"] == "checkpoint"
+
+        response = client.post("/internal/onboarding/actions", headers=AUTH, json={
+            "sessionId": "tg-checkpoint", "requestId": action, "runId": run_id, "action": action,
+        })
+        assert response.status_code == 202
+        completed = result(response.json()["jobId"])
+        assert completed["status"] == "ok"
+        assert completed["result"]["onboarding"]["status"] == expected_status
+        assert completed["result"]["audioAvailable"] is expected_audio
+
+
 @pytest.mark.asyncio
 async def test_callback_receipt_survives_restart_and_cannot_repeat_action():
     redis = FakeAsyncRedis(decode_responses=True)
