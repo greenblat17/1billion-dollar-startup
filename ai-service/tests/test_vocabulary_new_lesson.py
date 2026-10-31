@@ -94,6 +94,57 @@ async def start_lesson(builder, session_id, words):
 
 
 @pytest.mark.asyncio
+async def test_retry_reuses_text_answer_after_speech_failure_without_double_progress():
+    class FlakySpeech(Speech):
+        fail = False
+
+        async def synthesize(self, session_id, text):
+            if self.fail:
+                self.fail = False
+                raise RuntimeError("temporary TTS failure")
+            return await super().synthesize(session_id, text)
+
+    speech = FlakySpeech()
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), speech)
+    lesson_id = await start_lesson(builder, "retry-text", ["figure out"])
+    await builder.save_retry_input("retry-text", lesson_id, 7, text="Yes")
+    speech.fail = True
+    with pytest.raises(RuntimeError, match="temporary TTS failure"):
+        await builder.text("retry-text", lesson_id, 7, "Yes")
+    assert (await builder.list("retry-text"))["lesson"]["index"] == 0
+
+    response = await builder.retry("retry-text", lesson_id, 7)
+    assert response["lesson"]["index"] == 1
+    assert (await builder.retry("retry-text", lesson_id, 7))["turnId"] == response["turnId"]
+    assert len([event for event in (await builder.review("retry-text", lesson_id))["events"]
+                if event["type"] == "answer"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_reuses_saved_voice_bytes_after_transcription_failure():
+    class FlakyStt:
+        calls = 0
+
+        async def transcribe(self, audio, *args, **kwargs):
+            assert audio == b"original voice"
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary STT failure")
+            from types import SimpleNamespace
+            return SimpleNamespace(no_speech=False, text="Yes")
+
+    builder = VocabularyBuilder(None, TutorModel(), FlakyStt(), Speech())
+    lesson_id = await start_lesson(builder, "retry-voice", ["figure out"])
+    await builder.save_retry_input("retry-voice", lesson_id, 8, audio=b"original voice")
+    with pytest.raises(RuntimeError, match="temporary STT failure"):
+        await builder.voice("retry-voice", lesson_id, 8, b"original voice")
+
+    response = await builder.retry("retry-voice", lesson_id, 8)
+    assert response["lesson"]["index"] == 1
+    assert builder.stt.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_new_lesson_uses_one_tutor_response_for_opening():
     class LongOpeningModel(TutorModel):
         def __init__(self):

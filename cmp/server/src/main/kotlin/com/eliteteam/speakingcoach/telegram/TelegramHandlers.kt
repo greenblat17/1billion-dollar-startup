@@ -1639,7 +1639,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                     if (((currentLesson?.status == "active" && currentLesson.round == "Recall") ||
                         currentLesson?.status == "cards") &&
-                        action !in setOf("hint", "end", "progress", "subtitle")) {
+                        action !in setOf("hint", "end", "progress", "subtitle", "retry")) {
                         showVocabularyList(message)
                         return@run
                     }
@@ -1649,6 +1649,24 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         return@run
                     }
                     when (action) {
+                        "retry" -> {
+                            val sourceMessageId = parts.getOrNull(3)?.toLongOrNull()
+                            if (sourceMessageId == null || sourceMessageId <= 0 || currentLesson?.id != itemId) {
+                                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                                reply(message, "This retry is no longer available.", allowSendingWithoutReply = true)
+                            } else try {
+                                val result = ai.vocabulary(sessionId, "retry", lessonId = itemId,
+                                    messageId = sourceMessageId)
+                                sendVocabularyTurn(message, result)
+                                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            } catch (error: CancellationException) { throw error
+                            } catch (error: Throwable) {
+                                log.warn("Vocabulary retry failed for chat={} lesson={} message={}",
+                                    message.chat.id, itemId, sourceMessageId, error)
+                                reply(message, "Still couldn't finish that response. Try Retry again in a moment.",
+                                    allowSendingWithoutReply = true)
+                            }
+                        }
                         "list" -> showVocabularyList(message, parts.getOrNull(2)?.toIntOrNull() ?: 0, edit = true)
                         "add" -> {
                             vocabularyAddPrompts.add(message.chat.id.toString())
@@ -2351,7 +2369,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         } catch (error: CancellationException) { throw error
                         } catch (error: Throwable) {
                             log.warn("Vocabulary voice failed for {}", message.chat.id, error)
-                            reply(message, "I couldn't finish that response. Open Vocabulary Builder to continue.")
+                            reply(message, VOCABULARY_RETRY_TEXT,
+                                replyMarkup = vocabularyRetryKeyboard(lesson.id, message.messageId.long))
                         }
                     } else if (lesson?.status == "offer") {
                         reply(message, "Tap Play or Skip under the last lesson message.")
@@ -2379,7 +2398,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         } catch (error: CancellationException) { throw error
                         } catch (error: Throwable) {
                             log.warn("Vocabulary text failed for {}", message.chat.id, error)
-                            reply(message, "I couldn't finish that response. Open Vocabulary Builder to continue.")
+                            reply(message, VOCABULARY_RETRY_TEXT,
+                                replyMarkup = vocabularyRetryKeyboard(currentLesson.id, message.messageId.long))
                         }
                     }
                     vocabularyAddPrompts.remove(message.chat.id.toString()) && !content.text.startsWith("/") -> {

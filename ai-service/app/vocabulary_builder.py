@@ -268,6 +268,10 @@ def _response_key(session_id: str, lesson_id: str, message_id: int) -> str:
     return f"vocabulary:response:{session_id}:{lesson_id}:{message_id}"
 
 
+def _retry_key(session_id: str, lesson_id: str, message_id: int) -> str:
+    return f"vocabulary:retry:{session_id}:{lesson_id}:{message_id}"
+
+
 def _clean(value: object, limit: int | None = 160) -> str:
     if not isinstance(value, str):
         return ""
@@ -357,6 +361,7 @@ class VocabularyBuilder:
         self.subtitles: dict[str, str] = {}
         self.traces: dict[str, dict] = {}
         self.responses: dict[str, dict] = {}
+        self.retry_inputs: dict[str, dict] = {}
         self.locks: dict[str, asyncio.Lock] = {}
         # UTF-8 bytes are a conservative proxy for prompt tokens across providers.
         self.context_budget = context_window_tokens - 1024
@@ -452,6 +457,61 @@ class VocabularyBuilder:
             return deepcopy(self.responses.get(key))
         raw = await self.redis.get(key)
         return json.loads(raw) if raw else None
+
+    async def save_retry_input(self, session_id: str, lesson_id: str, message_id: int,
+                               *, text: str | None = None, audio: bytes | None = None) -> None:
+        if (text is None) == (audio is None):
+            raise ValueError("exactly one vocabulary retry input required")
+        lesson = (await self._get(session_id))["lesson"]
+        if (lesson is None or lesson["id"] != lesson_id or
+                lesson["status"] not in ("active", "cards") or message_id <= 0):
+            raise ValueError("lesson is no longer active")
+        payload = {"index": lesson["index"], "text": text,
+                   "audio": base64.b64encode(audio).decode("ascii") if audio is not None else None}
+        key = _retry_key(session_id, lesson_id, message_id)
+        if self.redis is None:
+            self.retry_inputs[key] = payload
+        else:
+            await self.redis.set(key, json.dumps(payload), ex=LESSON_SECONDS * 2)
+
+    async def clear_retry_input(self, session_id: str, lesson_id: str, message_id: int) -> None:
+        key = _retry_key(session_id, lesson_id, message_id)
+        if self.redis is None:
+            self.retry_inputs.pop(key, None)
+        else:
+            await self.redis.delete(key)
+
+    async def retry(self, session_id: str, lesson_id: str, message_id: int) -> dict:
+        if message_id <= 0:
+            raise ValueError("invalid vocabulary retry")
+        lesson = (await self._get(session_id))["lesson"]
+        if lesson is None or lesson["id"] != lesson_id:
+            raise ValueError("vocabulary retry is no longer available")
+        cached = await self._cached_response(session_id, lesson_id, message_id)
+        if cached is not None:
+            trace = await self.review(session_id, lesson_id)
+            event = next((event for event in (trace or {}).get("events", [])
+                          if event.get("turnId") == cached.get("turnId") and
+                          event.get("delivery") == "delivered"), None)
+            if event is not None:
+                cached["deliveredMessageId"] = event["deliveredMessageId"]
+            return cached
+        key = _retry_key(session_id, lesson_id, message_id)
+        payload = self.retry_inputs.get(key) if self.redis is None else await self.redis.get(key)
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if (not payload or lesson is None or lesson["id"] != lesson_id or
+                lesson["status"] not in ("active", "cards") or lesson["index"] != payload.get("index")):
+            raise ValueError("vocabulary retry is no longer available")
+        if payload.get("text") is not None:
+            result = await self.text(session_id, lesson_id, message_id, payload["text"])
+        elif payload.get("audio") is not None:
+            result = await self.voice(session_id, lesson_id, message_id,
+                                      base64.b64decode(payload["audio"]))
+        else:
+            raise ValueError("vocabulary retry input is missing")
+        await self.clear_retry_input(session_id, lesson_id, message_id)
+        return result
 
     async def _record_spoken(self, session_id: str, lesson: dict, response: dict,
                              phase: str, word_id: str) -> None:

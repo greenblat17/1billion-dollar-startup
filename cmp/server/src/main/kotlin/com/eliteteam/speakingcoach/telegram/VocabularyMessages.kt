@@ -10,7 +10,12 @@ import dev.inmo.tgbotapi.types.buttons.KeyboardButtonStyle
 import dev.inmo.tgbotapi.utils.row
 
 internal const val VOCABULARY_BUTTON = "📚 Vocabulary Builder"
+internal const val VOCABULARY_RETRY_TEXT = "Something went wrong. Tap Retry to try again."
 private const val PAGE_SIZE = 5
+
+internal fun vocabularyRetryKeyboard(lessonId: String, messageId: Long): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("Retry", "vocab:retry:$lessonId:$messageId") }
+}
 
 internal fun vocabularyListText(state: VocabularyResponse, page: Int): String {
     val totalPages = maxOf(1, (state.items.size + PAGE_SIZE - 1) / PAGE_SIZE)

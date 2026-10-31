@@ -660,8 +660,14 @@ def create_app(
                 answer = str(payload.get("text") or "")
                 if message_id <= 0 or not answer.strip() or len(answer) > 4000:
                     raise HTTPException(status_code=400, detail="invalid vocabulary answer")
-                return await vocabulary.text(session_id, str(payload.get("lessonId") or ""),
-                                             message_id, answer)
+                lesson_id = str(payload.get("lessonId") or "")
+                await vocabulary.save_retry_input(session_id, lesson_id, message_id, text=answer)
+                result = await vocabulary.text(session_id, lesson_id, message_id, answer)
+                await vocabulary.clear_retry_input(session_id, lesson_id, message_id)
+                return result
+            if action == "retry":
+                return await vocabulary.retry(session_id, str(payload.get("lessonId") or ""),
+                                              int(payload.get("messageId") or 0))
             if action == "end":
                 return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
         except ValueError as error:
@@ -679,7 +685,10 @@ def create_app(
         if not audio or len(audio) > 20 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="invalid audio size")
         try:
-            return await vocabulary.voice(sessionId, lessonId, messageId, audio)
+            await vocabulary.save_retry_input(sessionId, lessonId, messageId, audio=audio)
+            result = await vocabulary.voice(sessionId, lessonId, messageId, audio)
+            await vocabulary.clear_retry_input(sessionId, lessonId, messageId)
+            return result
         except ValueError as error:
             logger.warning(
                 "vocabulary voice rejected lesson_id=%s message_id=%s error_type=%s reason=%s",

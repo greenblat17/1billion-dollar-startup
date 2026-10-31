@@ -173,6 +173,14 @@ def test_vocabulary_text_answer_uses_internal_action(monkeypatch) -> None:
         return {"status": "ok", "text": "Next question"}
 
     monkeypatch.setattr(app.state.vocabulary, "text", answer)
+    async def save_retry(*args, **kwargs):
+        received.append(("saved", args[0], args[1], args[2], kwargs["text"]))
+
+    async def clear_retry(*args):
+        received.append(("cleared", *args))
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
+    monkeypatch.setattr(app.state.vocabulary, "clear_retry_input", clear_retry)
     payload = {"sessionId": "tg-1", "action": "answer", "lessonId": "lesson1",
                "messageId": 42, "text": "My own phrase"}
     with TestClient(app) as client:
@@ -182,7 +190,9 @@ def test_vocabulary_text_answer_uses_internal_action(monkeypatch) -> None:
         assert response.status_code == 200
         assert response.json()["text"] == "Next question"
         assert client.post("/internal/vocabulary", json={**payload, "text": " "}).status_code == 400
-    assert received == [("tg-1", "lesson1", 42, "My own phrase")]
+    assert received == [("saved", "tg-1", "lesson1", 42, "My own phrase"),
+                        ("tg-1", "lesson1", 42, "My own phrase"),
+                        ("cleared", "tg-1", "lesson1", 42)]
 
 
 def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatch) -> None:
@@ -192,6 +202,10 @@ def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatc
         raise ValueError("invalid vocabulary grade")
 
     monkeypatch.setattr(app.state.vocabulary, "voice", reject)
+    async def save_retry(*args, **kwargs):
+        assert kwargs["audio"] == b"private-audio"
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
     with _client(app) as client:
         response = client.post("/internal/vocabulary/voice", data={
             "sessionId": "tg-1", "lessonId": "lesson1", "messageId": "42"},
