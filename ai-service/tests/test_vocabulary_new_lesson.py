@@ -270,6 +270,34 @@ async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
 
 
 @pytest.mark.asyncio
+async def test_card_accepts_core_meaning_with_minor_connotation_correction():
+    class CloseMeaningModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_card_grade":
+                data = json.loads(payload)
+                assert data["direction"] == "word_to_meaning"
+                assert data["transcript"] == "It's a useless conversation between people to pass the time."
+                return json.dumps({"correct": True, "uncertain": False, "giveUp": False,
+                                   "feedback": "Yes, it's light conversation. I wouldn't call it useless; it helps people feel comfortable.",
+                                   "reason": "The learner described light social conversation but misjudged its purpose."})
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, CloseMeaningModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "close-card", ["small talk"])
+    await builder.text("close-card", lesson_id, 1, "Yes")
+    await builder.text("close-card", lesson_id, 2, "I would make small talk about the weekend.")
+    turn = await builder.text("close-card", lesson_id, 3,
+                              "It's a useless conversation between people to pass the time.")
+    assert turn["lesson"]["status"] == "finished"
+    assert "I wouldn't call it useless" in turn["text"]
+    assert "What does small talk mean?" not in turn["text"]
+    trace = await builder.review("close-card", lesson_id)
+    answer = [event for event in trace["events"] if event["type"] == "answer"][-1]
+    assert answer["category"] == "correct"
+    assert "misjudged its purpose" in answer["reason"]
+
+
+@pytest.mark.asyncio
 async def test_use_question_with_ordinary_word_from_expression_is_delivered_once():
     class TalkingQuestionModel(TutorModel):
         def __init__(self):
