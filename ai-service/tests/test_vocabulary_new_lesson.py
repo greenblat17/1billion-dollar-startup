@@ -24,8 +24,6 @@ class NoStt:
 class TutorModel:
     def __init__(self):
         self.operations = []
-        self.reject_first_check = False
-        self.checks = 0
 
     async def complete_json(self, system, payload, **kwargs):
         data = json.loads(payload)
@@ -71,10 +69,6 @@ class TutorModel:
                                "question": question, "category": category,
                                "matchedPhrase": word if category == "used" else "",
                                "reason": "The response is relevant.", "exampleAnswer": example})
-        if operation == "vocabulary_use_check":
-            self.checks += 1
-            return json.dumps({"fits": not (self.reject_first_check and self.checks == 1),
-                               "reason": "The example answers the question."})
         if operation == "vocabulary_card_prompt":
             word = data["target"]["word"]
             prompt = (f"What does {word} mean?" if data["direction"] == "word_to_meaning" else
@@ -139,7 +133,7 @@ async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card
     assert first["text"].count("Now let's try using it in your own sentence.") == 1
     assert "figure out" not in first["lesson"]["prompt"]
     assert "figure out" not in first["text"]
-    assert model.checks == 1
+    assert "vocabulary_use_check" not in model.operations
     second = await builder.text("one", lesson_id, 2, "I would figure out the problem carefully.")
     assert (second["lesson"]["status"], second["lesson"]["index"]) == ("cards", 2)
     assert "quick word game" in second["text"]
@@ -227,26 +221,44 @@ async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
 
 
 @pytest.mark.asyncio
-async def test_unsafe_use_question_is_regenerated_before_delivery():
-    model = TutorModel()
-    model.reject_first_check = True
+async def test_use_question_with_invalid_example_is_regenerated_before_delivery():
+    class InvalidFirstExampleModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.answer_calls = 0
+
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
+                self.answer_calls += 1
+                if self.answer_calls == 1:
+                    candidate = json.loads(result)
+                    candidate["exampleAnswer"] = "I would check the feature with a few users."
+                    return json.dumps(candidate)
+            return result
+
+    model = InvalidFirstExampleModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
     lesson_id = await start_lesson(builder, "check", ["test"])
     turn = await builder.text("check", lesson_id, 1, "Yes")
     assert turn["lesson"]["phase"] == "Use"
-    assert model.checks == 2
+    assert model.answer_calls == 2
+    assert "vocabulary_use_check" not in model.operations
     assert "I would test" not in turn["text"]
 
 
 @pytest.mark.asyncio
-async def test_failed_question_check_and_isolated_target_leave_goal_unchanged(caplog):
-    class RejectingModel(TutorModel):
+async def test_invalid_example_and_isolated_target_leave_goal_unchanged(caplog):
+    class InvalidExampleModel(TutorModel):
         async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] == "vocabulary_use_check":
-                return json.dumps({"fits": False, "reason": "The answer misses the question."})
-            return await super().complete_json(system, payload, **kwargs)
+            result = await super().complete_json(system, payload, **kwargs)
+            if kwargs["operation"] == "vocabulary_tutor" and json.loads(payload)["action"] == "answer":
+                candidate = json.loads(result)
+                candidate["exampleAnswer"] = "I would check the feature with a few users."
+                return json.dumps(candidate)
+            return result
 
-    model = RejectingModel()
+    model = InvalidExampleModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
     lesson_id = await start_lesson(builder, "reject", ["test"])
     with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
@@ -256,12 +268,12 @@ async def test_failed_question_check_and_isolated_target_leave_goal_unchanged(ca
     rejections = [json.loads(record.getMessage().removeprefix("vocabulary question rejected "))
                   for record in caplog.records if record.getMessage().startswith("vocabulary question rejected ")]
     assert [event["attempt"] for event in rejections] == [1, 2]
-    assert all(event["reason"] == "example_does_not_answer_question" for event in rejections)
+    assert all(event["reason"] == "example_omits_target" for event in rejections)
     assert all(event["question"] == "What would you do to check that the feature works?"
                for event in rejections)
-    assert all(event["exampleAnswer"] == "I would test the feature with a few users."
+    assert all(event["exampleAnswer"] == "I would check the feature with a few users."
                for event in rejections)
-    assert all(event["verifierReason"] == "The answer misses the question." for event in rejections)
+    assert all("verifierReason" not in event for event in rejections)
 
     model = TutorModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())
@@ -273,19 +285,13 @@ async def test_failed_question_check_and_isolated_target_leave_goal_unchanged(ca
 
 
 @pytest.mark.asyncio
-async def test_use_question_check_cannot_grade_the_learner_reply_instead_of_the_example():
-    class IsolatedCheckModel(TutorModel):
-        async def complete_json(self, system, payload, **kwargs):
-            if kwargs["operation"] == "vocabulary_use_check":
-                data = json.loads(payload)
-                assert set(data) == {"question", "exampleAnswer", "target"}
-                assert data["target"]["word"] in data["exampleAnswer"]
-            return await super().complete_json(system, payload, **kwargs)
-
-    builder = VocabularyBuilder(None, IsolatedCheckModel(), NoStt(), Speech())
+async def test_learner_agreement_reaches_use_without_a_second_model_check():
+    model = TutorModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
     lesson_id = await start_lesson(builder, "question-check-context", ["figure out"])
     response = await builder.text("question-check-context", lesson_id, 1, "yeah sure")
     assert (response["lesson"]["phase"], response["lesson"]["index"]) == ("Use", 1)
+    assert "vocabulary_use_check" not in model.operations
 
 
 @pytest.mark.asyncio
