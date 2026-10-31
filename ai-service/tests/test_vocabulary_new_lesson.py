@@ -252,6 +252,50 @@ async def test_isolated_target_does_not_count_as_own_phrase():
 
 
 @pytest.mark.asyncio
+async def test_full_answer_can_be_the_supporting_phrase():
+    class WholeAnswerMatchModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
+                turn = json.loads(result)
+                turn["matchedPhrase"] = data["transcript"]
+                return json.dumps(turn)
+            return result
+
+    builder = VocabularyBuilder(None, WholeAnswerMatchModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "diagnostic", ["small talk"])
+    await builder.text("diagnostic", lesson_id, 1, "Yes")
+    answer = await builder.text("diagnostic", lesson_id, 2,
+                                "We made small talk before the meeting.")
+    assert answer["lesson"]["status"] == "cards"
+
+
+@pytest.mark.asyncio
+async def test_rejected_use_assessment_logs_the_exact_failed_check_without_transcript(caplog):
+    class WrongMatchModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
+                turn = json.loads(result)
+                turn["matchedPhrase"] = "not in the learner's answer"
+                return json.dumps(turn)
+            return result
+
+    builder = VocabularyBuilder(None, WrongMatchModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "diagnostic-reject", ["small talk"])
+    await builder.text("diagnostic-reject", lesson_id, 1, "Yes")
+    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
+        with pytest.raises(ValueError, match="unsupported vocabulary match"):
+            await builder.text("diagnostic-reject", lesson_id, 2,
+                               "We made small talk before the meeting.")
+    assert "matched_in_answer=False" in caplog.text
+    assert "matched_has_target=False" in caplog.text
+    assert "We made small talk before the meeting." not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_learner_agreement_reaches_use_without_a_second_model_check():
     model = TutorModel()
     builder = VocabularyBuilder(None, model, NoStt(), Speech())

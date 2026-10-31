@@ -1310,12 +1310,21 @@ class VocabularyBuilder:
         allowed = ({"understood", "confused", "conversation"} if phase == "Understand" else
                    {"used", "natural_without_target", "misuse", "conversation"})
         if category not in allowed or not turn["reason"]:
+            logger.warning("vocabulary tutor assessment rejected lesson_id=%s message_id=%s phase=%s "
+                           "index=%s category=%s reason_present=%s",
+                           lesson["id"], message_id, phase, lesson["index"], category, bool(turn["reason"]))
             raise ValueError("invalid vocabulary tutor assessment")
         matched = turn["matchedPhrase"]
         if category == "used" and (not matched or _norm(transcript) == _norm(word["word"])
-                                   or _norm(transcript) == _norm(matched)
                                    or _norm(matched) not in _norm(transcript)
                                    or not self._reveals(matched, word["word"])):
+            logger.warning("vocabulary tutor match rejected lesson_id=%s message_id=%s phase=%s "
+                           "index=%s category=%s matched_present=%s isolated_target=%s "
+                           "matched_in_answer=%s matched_has_target=%s",
+                           lesson["id"], message_id, phase, lesson["index"], category, bool(matched),
+                           _norm(transcript) == _norm(word["word"]),
+                           bool(matched) and _norm(matched) in _norm(transcript),
+                           bool(matched) and self._reveals(matched, word["word"]))
             raise ValueError("unsupported vocabulary match")
         advance = category in ("understood", "used")
         next_lesson = deepcopy(lesson)
@@ -1336,6 +1345,10 @@ class VocabularyBuilder:
         else:
             next_lesson["prompt"] = turn["question"]
         if not next_lesson["prompt"]:
+            logger.warning("vocabulary tutor question missing lesson_id=%s message_id=%s phase=%s "
+                           "index=%s category=%s advance=%s next_status=%s",
+                           lesson["id"], message_id, phase, lesson["index"], category, advance,
+                           next_lesson["status"])
             raise ValueError("vocabulary tutor omitted the next question")
         use_transition = ("Now let's try using it in your own sentence."
                           if _interleaved_lesson(lesson) or len(lesson["words"]) == 1 else

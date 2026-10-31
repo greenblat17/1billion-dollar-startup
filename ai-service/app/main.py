@@ -665,6 +665,8 @@ def create_app(
             if action == "end":
                 return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
         except ValueError as error:
+            logger.warning("vocabulary action conflict action=%s lesson_id=%s message_id=%s reason=%s",
+                           action, payload.get("lessonId"), payload.get("messageId"), error)
             raise HTTPException(status_code=409, detail=str(error)) from error
         raise HTTPException(status_code=400, detail="invalid vocabulary action")
 
