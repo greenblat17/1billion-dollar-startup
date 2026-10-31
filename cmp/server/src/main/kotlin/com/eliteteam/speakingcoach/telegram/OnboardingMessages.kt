@@ -16,8 +16,7 @@ import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.row
 
 internal const val ONBOARDING_VOICE_HINT =
-    "🎙 Reply with a voice message in English\n\n" +
-        "No need to talk for 2 minutes at once. Just answer naturally — I’ll keep the conversation going."
+    "💡 Reply with a voice message. You can give short answers — I'll keep the conversation going."
 internal fun voiceMessagesForbiddenText(): TextSourcesList = buildEntities {
     regular("🎙 Пока не могу прислать тебе голосовое.\n\n")
     regular("Telegram блокирует голосовые от меня. Открой:\n")
@@ -55,23 +54,23 @@ internal const val FOUNDER_NOTE =
         "Я читаю каждое сообщение и всегда отвечаю сам. Буду рад любому фидбеку 😊"
 internal const val ONBOARDING_BEGIN_HINT = "Tap Let’s chat 👋 to start."
 internal const val LEGACY_ONBOARDING_CALLBACK = "campaign:onboarding"
-internal const val ONBOARDING_PROGRESS_SECONDS = 120.0
 internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
+internal const val SEE_RESULTS_BUTTON = "🔥 See results"
 internal const val ONBOARDING_PROGRESS_HINT =
-    "🎙 This tracks how much English you've spoken. Around 2 minutes gives me enough to get to know you and estimate your English level."
+    "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted."
 
-internal fun onboardingProgressLabel(seconds: Double): String {
+internal fun onboardingProgressLabel(seconds: Double, extended: Boolean = false): String {
     val elapsed = if (seconds.isFinite() && seconds > 0.0) seconds else 0.0
-    if (elapsed >= ONBOARDING_PROGRESS_SECONDS) return "🎯 2:00+"
     val whole = elapsed.toInt()
     val clock = "%d:%02d".format(whole / 60, whole % 60)
-    return "🎯 $clock / 2:00"
+    return if (extended && whole >= 120) "🎯 2:00+" else "🎯 $clock / ${if (extended) "2:00" else "0:30"}"
 }
 
-internal fun onboardingProgressKeyboard(seconds: Double): InlineKeyboardMarkup = inlineKeyboard {
-    row { dataButton(onboardingProgressLabel(seconds), ONBOARDING_PROGRESS_CALLBACK) }
+internal fun onboardingProgressKeyboard(seconds: Double, phase: String = "initial", runId: String = ""): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton(onboardingProgressLabel(seconds, phase == "extended"), ONBOARDING_PROGRESS_CALLBACK) }
+    if (phase == "extended" && runId.isNotBlank()) row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
 }
 
 internal fun spokenTextKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
@@ -85,7 +84,7 @@ internal fun withSpokenText(keyboard: InlineKeyboardMarkup?, spoken: Boolean): I
         keyboard.keyboard.forEachIndexed { index, buttons ->
             row {
                 buttons.forEach { add(it) }
-                if (index == keyboard.keyboard.lastIndex) {
+                if (index == 0) {
                     dataButton(SPOKEN_TEXT_BUTTON, SPOKEN_TEXT_CALLBACK)
                 }
             }
@@ -96,21 +95,20 @@ internal fun withSpokenText(keyboard: InlineKeyboardMarkup?, spoken: Boolean): I
 internal val noInlineKeyboard: InlineKeyboardMarkup = inlineKeyboard { }
 
 internal fun onboardingInvitation(firstName: String?): String {
-    val name = firstName?.trim().orEmpty()
-    val hello = if (name.isEmpty()) "Hey!" else "Hey, $name!"
-    return "👋 $hello I’m Speaky, your English practice buddy.\n\n" +
-        "Let’s talk in English for about 2 minutes. I’ll get to know you and see what your English level is."
+    return "👋 Hey! I'm Speaky, your English speaking buddy.\n\n" +
+        "Let's talk for just 30 seconds to estimate your English level.\n\n" +
+        "🎯 After our chat, you'll get your first speaking feedback."
 }
 
 internal data class OnboardingCallback(val action: String, val runId: String)
 
 private val onboardingActions = setOf(
     "begin", "retry", "continue", "level", "results", "vocab", "fluency", "finish", "talk", "profile", "bye",
-    "m5", "m10", "m15", "skip", "remind", "later",
+    "m5", "m10", "m15", "skip", "remind", "later", "keep_talking", "see_results", "practice",
 )
 
 internal fun onboardingCallbackRequestId(action: String, runId: String, queryId: String): String = when (action) {
-    "retry", "level", "results", "vocab", "fluency", "finish", "profile" -> "callback:$queryId"
+    "retry", "level", "results", "vocab", "fluency", "finish", "profile", "practice", "see_results" -> "callback:$queryId"
     "m5", "m10", "m15", "skip" -> "callback:goal:$runId"
     else -> "callback:$action:$runId"
 }
@@ -125,13 +123,15 @@ internal fun parseOnboardingCallback(data: String): OnboardingCallback? {
 internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMarkup = inlineKeyboard {
     row {
         val label = when (action) {
-            "begin" -> "Let’s chat 👋"
+            "begin" -> "🎙 Let's chat"
             "retry" -> "Retry"
-            "level" -> "🔥 See my results"
-            "results" -> "See what I noticed →"
+            "level" -> SEE_RESULTS_BUTTON
+            "results" -> "📊 View detailed feedback"
             "vocab" -> "Vocabulary →"
             "fluency" -> "Fluency →"
-            "finish" -> "Continue →"
+            "finish", "practice" -> "🎙 Start practicing"
+            "keep_talking" -> "🎙 Keep talking · 2 min"
+            "see_results" -> SEE_RESULTS_BUTTON
             "talk" -> "Keep talking 🎙"
             "bye" -> "See you tomorrow"
             "m5" -> PRACTICE_5_LABEL
@@ -141,6 +141,16 @@ internal fun onboardingKeyboard(action: String, runId: String): InlineKeyboardMa
         }
         dataButton(label, "ob:$action:$runId")
     }
+}
+
+internal fun onboardingCheckpointKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
+    row { dataButton("🎙 Keep talking · 2 min", "ob:keep_talking:$runId") }
+}
+
+internal fun onboardingResultKeyboard(runId: String): InlineKeyboardMarkup = inlineKeyboard {
+    row { dataButton("📊 View detailed feedback", "ob:results:$runId") }
+    row { dataButton("🎙 Start practicing", "ob:practice:$runId") }
 }
 
 internal const val PRACTICE_5_LABEL = "☕ 5 min/day"
@@ -250,8 +260,13 @@ internal fun levelSlide(
     overallScore: Int? = null,
     nextBand: String? = null,
     pointsToNext: Int? = null,
+    preliminary: Boolean = false,
 ): TextSourcesList = buildEntities {
     bold("🎯 $LEVEL_TITLE")
+    if (preliminary) {
+        regularln("")
+        regularln("Preliminary estimate")
+    }
     regularln("")
     regularln("")
     val band = cefrBandName(cefr)

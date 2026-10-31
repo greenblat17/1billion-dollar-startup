@@ -81,7 +81,11 @@ private fun habitDurationHtml(duration: HabitDuration): String {
     val value = if (duration.calls > 0) String.format(Locale.US, "%.2f мин", duration.speechSeconds / duration.calls / 60) else "—"
     return """<h3>Речь пользователя на разговор</h3><p><strong>$value</strong> · звонков: ${duration.calls}.</p>
         <p class="coverage">Средняя сумма распознанной речи на закрытый практический звонок.
-        Период — по дате начала; речь AI и паузы не входят. Исключено открытых, пустых или неполных: ${duration.excluded},
+        Период — по дате начала; речь AI не входит. Старый метод считает запись с паузами:
+        ${duration.legacyCalls} звонков; новый метод (VAD или fallback): ${duration.vadCalls};
+        смешанных: ${duration.mixedCalls}.
+        Ходов с возвратом к длительности записи: ${duration.fallbackTurns}.
+        Исключено открытых, пустых или неполных: ${duration.excluded},
         из них неполных: ${duration.incomplete}. История с ${escapeHtml(duration.historySince ?: "неизвестной даты")}.
         Первый день может быть неполным. Потерь записи в текущем процессе: ${duration.writeFailures};
         необнаруженные потери могут занизить результат. ${if (duration.memoryOnly) "Хранилище в памяти: история теряется после рестарта." else "Компактная история хранится 365 дней."}</p>"""

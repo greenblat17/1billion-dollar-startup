@@ -1,5 +1,7 @@
 # Onboarding analytics
 
+The 30-second onboarding flow writes new attempts as `v3`. Its decision counters include `30s_checkpoint_reached`, `results_at_checkpoint`, `continued_to_2min`, `results_early_after_continue`, `results_at_2min`, `feedback_opened`, and `practice_menu_opened`. The final result uses the full accepted recording duration. The legacy required-stage journey below describes `v1`/`v2`; its 60/90/120-second and goal/reminder steps are optional or absent in `v3`. Compare versions separately and use the new decision counters for `v3` branch conversion. See [the current flow](../plans/2026-10-31-telegram-onboarding-simplification.md).
+
 Status: local implementation of the [decision analytics plan](../plans/2026-09-30-onboarding-analytics-decision-plan.md). Live DEV acceptance and before/after latency measurements remain release gates.
 
 ## Storage and identity

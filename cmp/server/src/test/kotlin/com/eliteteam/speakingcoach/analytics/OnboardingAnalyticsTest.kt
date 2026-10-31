@@ -11,6 +11,23 @@ import kotlin.test.assertTrue
 
 class OnboardingAnalyticsTest {
     @Test
+    fun checkpointChoicesAndPracticeHandoffAreVisibleInDecisionMetrics() = runTest {
+        val analytics = MemoryOnboardingAnalytics()
+        val at = Instant.parse("2026-10-31T09:00:00Z")
+        analytics.startAttempt("tg-1", "run-new", "start", at)
+        for (type in listOf("30s_checkpoint_reached", "continued_to_2min", "results_early_after_continue",
+            "feedback_opened", "practice_menu_opened")) {
+            analytics.event("run-new", type, type, at.plusSeconds(1))
+        }
+        val metrics = analytics.report(at.plusSeconds(60)).decisions
+        assertEquals(1, metrics.checkpointReached)
+        assertEquals(1, metrics.continuedToTwoMinutes)
+        assertEquals(1, metrics.earlyResultAfterContinue)
+        assertEquals(1, metrics.feedbackOpened)
+        assertEquals(1, metrics.practiceMenuOpened)
+    }
+
+    @Test
     fun reminderOffersCountDistinctTelegramUsersAndOnlySavedAfterOffer() = runTest {
         val analytics = MemoryOnboardingAnalytics()
         val at = Instant.parse("2026-10-05T09:00:00Z")

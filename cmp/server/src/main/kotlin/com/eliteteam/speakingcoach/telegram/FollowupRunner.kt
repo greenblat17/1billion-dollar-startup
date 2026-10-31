@@ -19,10 +19,12 @@ internal fun followupAction(stage: String, aiStatus: String): String? = when (ai
     "pending" -> "retry"
     "waiting" -> if (stage in setOf("start", "invitation", "begin")) "begin" else null
     "active" -> "resume"
+    "initial", "extended" -> "resume"
+    "checkpoint" -> "checkpoint"
     "completed" -> when (stage) {
         "result_delivered" -> "level"
         "result_opened" -> "results"
-        "goal_shown" -> "goal"
+        "goal_shown" -> "practice"
         "goal_decided", "reminder_offered", "reminder_resolved", "practice" -> "practice"
         else -> null
     }

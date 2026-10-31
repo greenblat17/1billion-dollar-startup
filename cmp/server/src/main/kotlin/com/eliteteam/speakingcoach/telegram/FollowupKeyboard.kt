@@ -12,14 +12,18 @@ internal fun followupKeyboard(action: String, runId: String, stage: String? = nu
         when (action) {
             "begin", "retry", "level", "results", "resume" -> row {
                 val label = when (action) {
-                    "begin" -> "Let’s chat 👋"
+                    "begin" -> "🎙 Let's chat"
                     "retry" -> "Retry"
-                    "level" -> "🔥 See my results"
-                    "resume" -> if (stage in setOf("start", "invitation", "begin")) "Let’s chat 👋"
+                    "level" -> SEE_RESULTS_BUTTON
+                    "resume" -> if (stage in setOf("start", "invitation", "begin")) "🎙 Let's chat"
                         else "Continue 🎙"
-                    else -> "See what I noticed →"
+                    else -> "📊 View detailed feedback"
                 }
                 dataButton(label, if (action == "resume") "fu:resume:$runId" else "ob:$action:$runId")
+            }
+            "checkpoint" -> {
+                row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
+                row { dataButton("🎙 Keep talking · 2 min", "ob:keep_talking:$runId") }
             }
             "goal" -> {
                 row { dataButton(PRACTICE_5_LABEL, "ob:m5:$runId") }

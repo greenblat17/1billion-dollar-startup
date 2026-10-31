@@ -25,6 +25,10 @@ data class CallProgress(
     val goalSeconds: Double,
     val goalJustCrossed: Boolean,
     val recognizedSeconds: Double? = null,
+    val recordingSeconds: Double? = null,
+    val durationMethod: String? = null,
+    val durationSource: String? = null,
+    val durationFallbackReason: String? = null,
 )
 
 data class ClipReply(
@@ -98,4 +102,5 @@ data class OnboardingStatus(
     val nextBand: String? = null,
     val pointsToNext: Int? = null,
     val analytics: OnboardingVoiceFacts? = null,
+    val phase: String = "initial",
 )

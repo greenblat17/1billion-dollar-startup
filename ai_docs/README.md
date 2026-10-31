@@ -15,6 +15,7 @@ these files, not only in chat.
 Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
+Speech-only Telegram timers and DEV acceptance plan: `plans/2026-10-24-telegram-speech-time-timers.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
 Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
 Plan for complete STT, LLM and delayed TTS cost accounting: `plans/2026-10-15-complete-voice-unit-cost.md`.
@@ -35,6 +36,7 @@ Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard
 Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
 Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
+New 30-second Telegram onboarding and optional two-minute continuation: `plans/2026-10-31-telegram-onboarding-simplification.md` (implemented locally; DEV Telegram acceptance pending).
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
 Decision-focused reminder dashboard and conversion definitions: `integrations/2026-10-20-reminder-effectiveness-dashboard.md`.
 Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.

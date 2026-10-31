@@ -145,7 +145,7 @@ def duration_seconds(payload: dict[str, Any]) -> float:
         value = float(raw)
     except (TypeError, ValueError):
         return 0.0
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         return 0.0
     return value
 

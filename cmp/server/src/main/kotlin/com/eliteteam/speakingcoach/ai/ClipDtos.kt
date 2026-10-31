@@ -652,6 +652,10 @@ data class OnboardingVoiceAnalyticsResponse(
     val voiceIndex: Int = 0,
     val telegramDurationSec: Double = 0.0,
     val recognizedDurationSec: Double = 0.0,
+    val recordingDurationSec: Double? = null,
+    val durationMethod: String? = null,
+    val durationSource: String? = null,
+    val durationFallbackReason: String? = null,
     val recognized: Boolean = false,
     val failureReason: String? = null,
     val milestones: List<Int> = emptyList(),
@@ -679,6 +683,7 @@ data class OnboardingStateResponse(
     val react: Boolean = false,
     val review: OnboardingReview? = null,
     val analytics: OnboardingVoiceAnalyticsResponse? = null,
+    val phase: String = "initial",
 )
 
 @Serializable
@@ -688,6 +693,10 @@ data class CallClipResponse(
     val goalSeconds: Double = 0.0,
     val goalJustCrossed: Boolean = false,
     val recognizedSeconds: Double? = null,
+    val recordingSeconds: Double? = null,
+    val durationMethod: String? = null,
+    val durationSource: String? = null,
+    val durationFallbackReason: String? = null,
 )
 
 @Serializable
