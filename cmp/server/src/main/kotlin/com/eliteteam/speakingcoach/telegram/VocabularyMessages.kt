@@ -48,7 +48,8 @@ internal fun vocabularyListKeyboard(state: VocabularyResponse, page: Int): Inlin
         }
         row { dataButton("Add word", "vocab:add") }
         if (state.selected.isNotEmpty()) row {
-            dataButton("🎙 Start lesson · ${state.selected.size}", "vocab:start")
+            dataButton("🎙 Start lesson · ${state.selected.size}", "vocab:start",
+                style = KeyboardButtonStyle.Success)
         }
     }
 }

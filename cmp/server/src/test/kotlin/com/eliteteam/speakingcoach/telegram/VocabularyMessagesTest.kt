@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.VocabularyCard
 import com.eliteteam.speakingcoach.ai.VocabularyLesson
 import com.eliteteam.speakingcoach.ai.VocabularyResponse
 import dev.inmo.tgbotapi.types.buttons.InlineKeyboardButtons.CallbackDataInlineKeyboardButton
+import dev.inmo.tgbotapi.types.buttons.KeyboardButtonStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -22,7 +23,8 @@ class VocabularyMessagesTest {
         assertTrue(firstPage.any { it.callbackData == "vocab:unchoose:id2:0" })
         assertTrue(firstPage.any { it.callbackData == "vocab:choose:id1:0" })
         assertTrue(firstPage.any { it.callbackData == "vocab:list:1" })
-        assertTrue(firstPage.any { it.callbackData == "vocab:start" })
+        assertEquals(KeyboardButtonStyle.Success,
+            firstPage.single { it.callbackData == "vocab:start" }.style)
     }
 
     @Test
