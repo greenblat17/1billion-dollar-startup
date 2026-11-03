@@ -1,14 +1,14 @@
 # Telegram onboarding: first value in 30 seconds
 
-Status: implemented locally; real DEV Telegram acceptance is pending. This document supersedes the user journey in [the original Telegram onboarding plan](2026-09-28-telegram-onboarding.md) where the two differ. Existing assessment, correction, personalization, and ordinary-call contracts remain the starting point.
+Status: integrated with `feature/telegram-kora` locally; real DEV Telegram acceptance is pending. This document supersedes the conversation-length choices in [the original Telegram onboarding plan](2026-09-28-telegram-onboarding.md). The Kora branch remains the source of truth for assessment, corrections, personalization, daily goal, reminder, and ordinary calls.
 
 ## Goal and scope
 
-Give a new Telegram user a first English assessment after 30 seconds of recognized voice recordings. Let them choose whether to see it then or continue the **same** conversation for up to two minutes. Let them start ordinary practice immediately after seeing the result. This flow applies to first-time `/start` users and to a deliberate `/onboarding` restart. Existing users are not automatically forced through it.
+Give a new Telegram user a first English assessment after 30 seconds of speech. Let them choose whether to see it then or continue the **same** conversation for up to two minutes of speech. After the result, keep the Kora branch's daily-goal choice and reminder offer before ordinary practice. This flow applies to first-time `/start` users and to a deliberate `/onboarding` restart. Existing users are not automatically forced through it.
 
 ## User flow
 
-The approved [user-flow screenshot](../design/screens/telegram-onboarding-30s-user-flow.png) shows both checkpoint choices converging on results, followed by optional detailed feedback and **Start practicing**.
+The approved [user-flow screenshot](../design/screens/telegram-onboarding-30s-user-flow.png) shows both checkpoint choices converging on results. Its direct practice handoff is superseded by the later decision to retain the daily-goal and reminder stages from Kora.
 
 ```text
 /start → Welcome → Let's chat → voice conversation
@@ -25,7 +25,7 @@ The approved [user-flow screenshot](../design/screens/telegram-onboarding-30s-us
                               ↓                                  ↓
                       Start practicing ←──────────────────────────┘
                               ↓
-                    Start call / Practice a situation
+                    Daily goal → Reminder offer → Start call / Practice a situation
 ```
 
 ## 1. Welcome
@@ -80,20 +80,20 @@ The `levelText` explanation on the card is one plain English sentence of at most
 Under the level card show two actions:
 
 - **📊 View detailed feedback** opens the existing Grammar → Vocabulary → Fluency sequence.
-- **🎙 Start practicing** opens the ordinary Speaky menu directly.
+- **🎙 Start practicing** opens the daily-goal choice. After a goal is chosen or explicitly skipped, offer the reminder and show the ordinary Speaky menu.
 
-On the Fluency card, **🎙 Start practicing** replaces the current transition into daily-goal selection. Keep verified examples and the existing unknown/insufficient-evidence states in the detailed cards. The result and feedback are available again on a valid repeated user tap; duplicate delivery of the same Telegram callback must not produce duplicate messages.
+On the Fluency card, **🎙 Start practicing** also opens daily-goal selection. Keep verified examples and the existing unknown/insufficient-evidence states in the detailed cards. The result and feedback are available again on a valid repeated user tap; duplicate delivery of the same Telegram callback must not produce duplicate messages.
 
 ## 5. Practice handoff
 
-**Start practicing** shows the existing reply keyboard with **🎙 Start call** and **🎭 Practice a situation**. It does not start a call by itself. Both options must work after a completed onboarding attempt even when no daily goal was chosen or the estimate has no numeric score. Preserve the collected conversation and personal facts for later replies. The score may be refined by subsequent full calls under the existing review rules.
+**Start practicing** asks for a daily goal using the existing 5/10/15-minute choices and **No goal for now**. A choice or explicit skip saves the goal decision, then offers the existing reminder choice and shows the reply keyboard with **🎙 Start call** and **🎭 Practice a situation**. An early result with no numeric score can still reach practice after the goal choice. Preserve the collected conversation and personal facts for later replies. The score may be refined by subsequent full calls under the existing review rules.
 
-Daily-goal choice (`5/10/15 min`) and reminder setup are removed from the required onboarding path. Do not show either prompt after the level card or detailed feedback, and do not silently save a zero-minute goal. Existing voluntary `/remind` and previously saved goals/reminders remain usable. A later, contextual offer after ordinary product use is a separate follow-up decision; this change does not define its trigger or copy.
+Keep the daily-goal choice and reminder offer in the onboarding path. Do not silently save a zero-minute goal; the learner must choose **No goal for now** to skip. The reminder can be set or declined as in Kora. Existing saved goals, reminders, and voluntary `/remind` remain usable.
 
 ## State, integration, and analytics requirements
 
 - Extend the AI-service onboarding state machine with a persistent checkpoint and continuation state. A technical retry reuses the accepted transcript and duration; it must not count a recording twice. Persist the chosen path and cached result so restarts and repeat callbacks cannot fork the flow.
-- Telegram/Ktor renders the new copy and buttons, serializes actions per chat, rejects stale attempt IDs, and keeps the existing voice queue limit. Update both `callGate()` and the separate `canStartCall()` check: `completed` onboarding opens ordinary practice without requiring a non-null score or daily-minutes choice. Do not weaken the gate for `waiting`, `active`, or pending review.
+- Telegram/Ktor renders the new copy and buttons, serializes actions per chat, rejects stale attempt IDs, and keeps the existing voice queue limit. Both `callGate()` and `canStartCall()` require an explicit daily-goal decision after completed onboarding. A missing numeric score must not block a preliminary result from reaching this goal stage. Do not weaken the gate for `waiting`, `active`, or pending review.
 - Reuse the existing assessment and review pipeline for both exit points. Do not require missing work, leisure, or English-goal facts to close. An assessment/review failure offers a retry that uses saved answers and does not ask the learner to repeat speech.
 - Update onboarding journey analytics to distinguish `30s_checkpoint_reached`, `results_at_checkpoint`, `continued_to_2min`, `results_early_after_continue`, `results_at_2min`, `feedback_opened`, and `practice_menu_opened`. Record the actual accepted duration at finalization. Update incomplete-onboarding follow-up eligibility and buttons for the new checkpoint and continuation states; never send a prompt that would restart or misroute an active attempt.
 
@@ -104,7 +104,7 @@ Daily-goal choice (`5/10/15 min`) and reminder setup are removed from the requir
 3. The first crossing of 30 seconds shows one text checkpoint, with no spoken next question. A single recording crossing 120 seconds goes directly to results.
 4. **Keep talking** immediately produces one contextual voice question. Progress keeps its accumulated value and changes its target to 2:00; **See results** stays accessible on the latest voice.
 5. Either stop action and automatic two-minute completion show one cached level card without a goodbye voice. A 30-second result is marked preliminary; insufficient evidence remains an honest no-clear-level result.
-6. The level card opens detailed feedback or practice. The last feedback card opens practice. The menu offers **Start call** and **Practice a situation**; both are usable without a goal or numeric assessment.
+6. The level card opens detailed feedback or the daily-goal stage. The last feedback card also opens the goal stage. After choosing or skipping a goal, the reminder is offered and the menu shows **Start call** and **Practice a situation**. A missing numeric assessment does not block this path.
 7. Silence, failed STT, retries, repeated callbacks, concurrent voice arrivals, stale buttons, and `/start` or `/onboarding` interruption do not duplicate time, results, or conversations.
-8. No daily-goal or reminder prompt appears in the onboarding path. Existing users, saved choices, ordinary calls, and voluntary `/remind` retain their intended behavior.
+8. The daily-goal and reminder stages retain the Kora branch's choices. Existing users, saved choices, ordinary calls, and voluntary `/remind` retain their intended behavior.
 9. Verify the complete flow in a real DEV Telegram chat before claiming live acceptance. Local tests alone do not verify button rendering, voice delivery, or conversation quality.

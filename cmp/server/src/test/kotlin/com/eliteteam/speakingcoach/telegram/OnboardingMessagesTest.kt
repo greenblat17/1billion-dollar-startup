@@ -17,24 +17,60 @@ import kotlin.test.assertTrue
 
 class OnboardingMessagesTest {
     @Test
-    fun vocabularyAlternativeIsClearlyOptionalAndNeverStruckThrough() {
+    fun vocabularyUpgradeAppearsOnTheScoreSlideWithFullPhrase() {
         val suggestion = VocabularySuggestion(
-            original = "I use the same words every single time",
-            alternative = "I tend to fall back on the same words",
-            explanation = "Fall back on describes relying on familiar words out of habit.",
+            original = "big", alternative = "substantial", category = "word_upgrade",
+            explanation = "Используй substantial для заметного роста затрат.",
+            context = "a big increase in costs", editedContext = "a substantial increase in costs",
         )
-        val vocabulary = OnboardingSkill(score = 70, suggestions = listOf(suggestion))
-        val slide = vocabularySlide(OnboardingReview(vocabulary = vocabulary))
-        assertTrue(slide.plain().contains("Another way to say it\n\nI use the same words every single time\n→ I tend to fall back on the same words"))
-        assertTrue(slide.plain().contains("💡 Fall back on describes relying on familiar words out of habit."))
+        val vocabulary = OnboardingSkill(score = 70, text = "You use familiar words accurately.", suggestions = listOf(suggestion))
+        val review = OnboardingReview(vocabulary = vocabulary)
+        val slide = vocabularySlide(review)
+        assertTrue(slide.plain().contains("70 / 100"))
+        assertTrue(slide.plain().contains("Words and expressions to try\n\nYou said: a big increase in costs\nTry: a substantial increase in costs"))
+        assertTrue(slide.plain().contains("💡 Используй substantial для заметного роста затрат."))
         assertTrue(slide.none { it is StrikethroughTextSource })
-        assertTrue(!slide.plain().contains("What I noticed"))
 
         val corrected = vocabularySlide(OnboardingReview(vocabulary = vocabulary.copy(
             examples = listOf(OnboardingExample("I did a decision", "I made a decision", "Use make a decision.")),
         )))
-        assertTrue(corrected.plain().contains("What I noticed"))
-        assertTrue(!corrected.plain().contains("Another way to say it"))
+        assertTrue(!corrected.plain().contains("What I noticed"))
+        assertTrue(corrected.plain().contains("Words and expressions to try"))
+        assertEquals(0, corrected.count { it is StrikethroughTextSource })
+    }
+
+    @Test
+    fun wordAndExpressionUpgradesShareOneBoundedVocabularySlide() {
+        val words = (1..5).map { index -> VocabularySuggestion(
+            original = "big$index", alternative = "substantial$index", category = "word_upgrade",
+        ) }
+        val expressions = (1..5).map { index -> VocabularySuggestion(
+            original = "said no $index", alternative = "turned down $index", category = "expression_upgrade",
+        ) }
+        val review = OnboardingReview(vocabulary = OnboardingSkill(suggestions = words + expressions))
+        val slide = vocabularySlide(review).plain()
+        assertTrue(slide.contains("substantial5"))
+        assertTrue(slide.contains("turned down 5"))
+        assertTrue(slide.length <= 3900)
+    }
+
+    @Test
+    fun longVocabularySuggestionsKeepTheScoreAndFitOneTelegramMessage() {
+        val suggestions = (1..10).map { index -> VocabularySuggestion(
+            original = "big", alternative = "substantial",
+            context = "This was a big increase in costs $index. " + "Context ".repeat(30),
+            editedContext = "This was a substantial increase in costs $index. " + "Context ".repeat(30),
+            explanation = "Используй substantial для заметного роста затрат.",
+        ) }
+        val review = OnboardingReview(vocabulary = OnboardingSkill(
+            score = 70, text = "You use familiar words accurately.", suggestions = suggestions,
+        ))
+        val slide = vocabularySlide(review).plain()
+        assertTrue(slide.contains("70 / 100"))
+        assertTrue(slide.contains("You use familiar words accurately."))
+        assertTrue(slide.contains("This was a substantial increase in costs 1."))
+        assertTrue(!slide.contains("This was a substantial increase in costs 10."))
+        assertTrue(slide.length <= 3900)
     }
 
     @Test

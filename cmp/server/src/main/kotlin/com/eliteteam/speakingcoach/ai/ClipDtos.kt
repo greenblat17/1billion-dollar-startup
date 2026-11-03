@@ -612,6 +612,9 @@ data class VocabularySuggestion(
     val original: String = "",
     val alternative: String = "",
     val explanation: String = "",
+    val category: String = "word_upgrade",
+    val context: String = "",
+    val editedContext: String = "",
 )
 
 @Serializable
@@ -717,6 +720,7 @@ data class StartCallRequest(
 @Serializable
 data class OpenCallResponse(
     val callId: String = "",
+    val character: String? = null,
     val alreadyActive: Boolean = false,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
@@ -731,6 +735,7 @@ data class OpenCallResponse(
 data class CallStatusResponse(
     val active: Boolean = false,
     val callId: String? = null,
+    val character: String? = null,
     val startedUnix: Double? = null,
     val goalSeconds: Double? = null,
 )
@@ -738,6 +743,7 @@ data class CallStatusResponse(
 @Serializable
 data class StartCallResponse(
     val callId: String,
+    val character: String? = null,
     val status: String,
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
@@ -784,7 +790,8 @@ data class CallFeedbackRequest(
 )
 
 @Serializable
-data class CallFeedbackResponse(val status: String = "ignored", val reason: String? = null)
+data class CallFeedbackResponse(val status: String = "ignored", val reason: String? = null,
+                                val character: String = "speaky")
 
 @Serializable
 data class CallFeedbackEntry(
@@ -792,6 +799,8 @@ data class CallFeedbackEntry(
     val username: String = "",
     val choice: String = "",
     val message: String? = null,
+    val character: String = "speaky",
+    val callId: String = "",
 )
 
 @Serializable
@@ -804,6 +813,8 @@ data class CallFeedbackList(
 data class CallReviewResponse(
     val callId: String = "",
     val retry: Boolean = false,
+    val reviewKind: String = "full",
+    val presentationVersion: Int = 1,
     val levelText: String = "",
     val recap: String = "",
     val cefr: String? = null,
@@ -837,3 +848,14 @@ data class ProgressProfileResponse(
     val dailyMinutes: Int? = null,
     val currentStreak: Int = 0,
 )
+
+@Serializable
+data class CharacterResponse(
+    val character: String,
+    val koraAvailable: Boolean = false, // Keep for compatibility with an older AI server.
+    val blocked: String? = null,
+    val koraHAvailable: Boolean = false,
+)
+
+@Serializable
+data class CharacterRequest(val sessionId: String, val character: String)

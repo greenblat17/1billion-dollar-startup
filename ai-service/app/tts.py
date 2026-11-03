@@ -25,6 +25,7 @@ TTS_INSTRUCTIONS = (
 class TtsAudio:
     data: bytes
     content_type: str
+    spoken_text: str | None = None
 
 
 class TextToSpeech(Protocol):

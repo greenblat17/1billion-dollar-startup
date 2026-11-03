@@ -2811,6 +2811,104 @@
           "values": false
         }
       }
+    },
+    {
+      "id": 54,
+      "title": "Проверка исправлений в финальном ассесменте",
+      "type": "row",
+      "gridPos": {
+        "x": 0,
+        "y": 206,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 55,
+      "title": "Проверки исправлений за 24 часа",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 207,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Одна попытка на финальный ассесмент с сохранёнными кандидатами. Включает успешные проверки, тайм-ауты, ошибки и отмены. Скользящее окно 24 часа.",
+      "targets": [
+        {
+          "expr": "sum by (flow, outcome) (increase(speaking_review_verification_total[24h]))",
+          "legendFormat": "{{flow}} · {{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 56,
+      "title": "Тайм-ауты проверки исправлений · доля за 24 часа",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 215,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Проверки с хотя бы одним тайм-аутом / все начатые проверки по каждому сценарию. Часть исправлений могла пройти проверку. Если попыток за 24 часа нет, значение отсутствует.",
+      "targets": [
+        {
+          "expr": "(100 * sum by (flow) (increase(speaking_review_verification_total{outcome=\"timeout\"}[24h])) / sum by (flow) (increase(speaking_review_verification_total[24h]))) and on(flow) (sum by (flow) (increase(speaking_review_verification_total[24h])) > 0)",
+          "legendFormat": "{{flow}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 57,
+      "title": "Полностью успешная проверка исправлений · p50 и p95 за 24 часа",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 223,
+        "w": 24,
+        "h": 8
+      },
+      "description": "Время успешных проверок в секундах. Тайм-ауты исключены из квантилей и показаны отдельно. Скользящее окно 24 часа.",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (flow, le) (increase(speaking_review_verification_duration_seconds_bucket{outcome=\"success\"}[24h])))",
+          "legendFormat": "{{flow}} · p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (flow, le) (increase(speaking_review_verification_duration_seconds_bucket{outcome=\"success\"}[24h])))",
+          "legendFormat": "{{flow}} · p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      }
     }
   ],
   "version": 1

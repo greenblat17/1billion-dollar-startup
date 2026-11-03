@@ -1,0 +1,129 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: Speaky PROD Telegram
+    receivers:
+      - uid: speaky_prod_telegram
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: $TELEGRAM_ALERT_BOT_TOKEN
+          chatid: "$TELEGRAM_ALERT_CHAT_ID"
+
+groups:
+  - orgId: 1
+    name: Speaky PROD
+    folder: Operations
+    interval: 1m
+    rules:
+      - uid: speaky_prod_health
+        title: Speaky service unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: speaky-prometheus
+            model:
+              datasource: {type: prometheus, uid: speaky-prometheus}
+              editorMode: code
+              expr: 'probe_success{job=~"blackbox-(ktor|ai)"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A < 1'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: 'Health check failed for {{ $labels.job }}'
+        labels: {severity: critical, environment: prod}
+        notification_settings:
+          receiver: Speaky PROD Telegram
+          group_by: ['alertname', 'grafana_folder']
+          repeat_interval: 4h
+
+      - uid: speaky_prod_scrape
+        title: Speaky metrics unavailable
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: speaky-prometheus
+            model:
+              datasource: {type: prometheus, uid: speaky-prometheus}
+              editorMode: code
+              expr: 'up{job=~"speaking-(v2|telegram)"}'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A < 1'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: 'Metrics scrape failed for {{ $labels.job }}'
+        labels: {severity: warning, environment: prod}
+        notification_settings:
+          receiver: Speaky PROD Telegram
+          group_by: ['alertname', 'grafana_folder']
+          repeat_interval: 4h
+
+      - uid: speaky_prod_voice_errors
+        title: Speaky voice errors increased
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: speaky-prometheus
+            model:
+              datasource: {type: prometheus, uid: speaky-prometheus}
+              editorMode: code
+              expr: 'sum(increase(telegram_voice_requests_total{client="telegram",outcome=~"failed|queue_full"}[5m])) or vector(0)'
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            relativeTimeRange: {from: 0, to: 0}
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: '$A >= 3'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: B
+              type: math
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: 'At least three failed or queue-full voice requests in five minutes'
+        labels: {severity: warning, environment: prod}
+        notification_settings:
+          receiver: Speaky PROD Telegram
+          group_by: ['alertname', 'grafana_folder']
+          repeat_interval: 4h

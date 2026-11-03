@@ -45,6 +45,18 @@ class CoachingFeedbackTest {
     }
 
     @Test
+    fun showsLiveVocabularyAlternativeWithoutMarkingTheOriginalWrong() {
+        val alternative = Correction(
+            "I had to use what I had", "I had to make do with what I had",
+            CorrectionKind.ALTERNATIVE, "Make do with — полезное выражение для ограниченных ресурсов.",
+        )
+        val sources = coachingEntities(alternative.wrong, listOf(alternative))
+        assertEquals(true, sources.joinToString("") { it.source }.startsWith("Ещё один способ сказать:\n"))
+        assertEquals(emptyList(), sources.filterIsInstance<StrikethroughTextSource>())
+        assertEquals(listOf(alternative.better), sources.filterIsInstance<BoldTextSource>().map { it.source })
+    }
+
+    @Test
     fun explanationFollowsOnlyItsOwnCorrection() {
         val explanation = "Agree — глагол, поэтому am здесь не нужен."
         val onboarding = onboardingCorrection(Correction(
@@ -62,7 +74,7 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(1, dialogue.joinToString("") { it.source }.split("💡").size - 1)
-        assertEquals(true, dialogue.joinToString("") { it.source }.contains("$explanation\n\nРанее ты сказал:"))
+        assertEquals(true, dialogue.joinToString("") { it.source }.endsWith("💡 $explanation"))
     }
 
     @Test
@@ -114,13 +126,13 @@ class CoachingFeedbackTest {
     }
 
     @Test
-    fun splicesTwoNonOverlappingCorrections() {
+    fun showsOneCorrectionFromMultipleCandidates() {
         val sources = coachingEntities(
             "I go to shop and I was tired",
             parseCorrections(listOf("I go|||I went", "I was|||I got")),
         )
         assertEquals(
-            "Ранее ты сказал:\nI go went\n\nРанее ты сказал:\nI was got",
+            "Ранее ты сказал:\nI go went",
             sources.joinToString("") { it.source },
         )
     }
@@ -188,7 +200,7 @@ class CoachingFeedbackTest {
     }
 
     @Test
-    fun keepsThreeCorrectionsByPriority() {
+    fun showsOnlyHighestPriorityCorrection() {
         val sources = coachingEntities(
             "a b c d",
             listOf(
@@ -199,9 +211,21 @@ class CoachingFeedbackTest {
             ),
         )
         assertEquals(
-            "Ранее ты сказал:\na A\n\nРанее ты сказал:\nc C\n\nРанее ты сказал:\nd D",
+            "Ранее ты сказал:\nd D",
             sources.joinToString("") { it.source },
         )
+    }
+
+    @Test
+    fun skipsUnmatchedCorrectionBeforeChoosingOneToShow() {
+        val sources = coachingEntities(
+            "I made a photo yesterday",
+            listOf(
+                Correction("I did a decision", "I made a decision", CorrectionKind.GRAMMAR),
+                Correction("made a photo", "took a photo", CorrectionKind.WORD),
+            ),
+        )
+        assertEquals("Ранее ты сказал:\nmade took a photo", sources.joinToString("") { it.source })
     }
 
     @Test

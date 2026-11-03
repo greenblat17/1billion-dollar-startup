@@ -13,6 +13,7 @@ from app.metrics_v2 import MemoryMetricsV2, client_for, current_session
 from app.main import create_app
 from app.onboarding_model import OnboardingModel
 from app.dialogue import MemoryDialogueStore
+from app.characters import Characters, CharacterStore
 from app.pipeline import ClipPipeline
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
 from tests.conftest import test_settings as make_settings
@@ -65,6 +66,7 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert first.status_code == 200
         body = first.json()
         assert body["status"] == "ready"
+        assert body["character"] == "speaky"
         assert body["question"] == "Hi, Alex! How are you? What made you smile today?"
         assert body["audioBase64"]
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
@@ -73,6 +75,7 @@ def test_start_call_internal_contract_and_delivery() -> None:
         status = client.post("/internal/calls/status", json=payload).json()
         assert status["active"] is True
         assert status["callId"] == body["callId"]
+        assert status["character"] == "speaky"
         assert status["startedUnix"] == body["startedUnix"]
 
 
@@ -102,12 +105,29 @@ def test_call_status_does_not_open_a_call() -> None:
         assert client.post("/internal/calls/status", json=payload).json()["active"] is False
         first = client.post("/internal/calls/open", json=payload).json()
         assert first["alreadyActive"] is False
+        assert first["character"] == "speaky"
         status = client.post("/internal/calls/status", json=payload).json()
         assert status["active"] is False
         assert status["callId"] == first["callId"]
+        assert status["character"] == "speaky"
         assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
         assert client.post("/internal/calls/end", json=payload).status_code == 200
         assert client.post("/internal/calls/status", json=payload).json()["active"] is False
+
+
+def test_direct_voice_open_reports_selected_kora_character() -> None:
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400))
+    pipeline.characters = Characters(CharacterStore(), model_h=object(), speech_h=object(),
+                                     enabled=True, allowlist="1")
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        selected = client.post("/internal/character", json={**payload, "character": "kora_h"})
+        assert selected.status_code == 200
+        opened = client.post("/internal/calls/open", json=payload)
+        assert opened.status_code == 200
+        assert opened.json()["character"] == "kora_h"
+        assert client.post("/internal/calls/status", json=payload).json()["character"] == "kora_h"
 
 
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
@@ -173,6 +193,8 @@ def test_prometheus_scrape_accepts_bearer_token() -> None:
         response = client.get("/internal/metrics/prometheus")
         assert response.status_code == 200
         assert "speaking_provider_calls_total" in response.text
+        assert "speaking_review_verification_total" in response.text
+        assert "speaking_review_verification_duration_seconds_bucket" in response.text
         assert "speaking_voice_model_cost_micro_total" in response.text
         assert "speaking_voice_model_calls_total" in response.text
 

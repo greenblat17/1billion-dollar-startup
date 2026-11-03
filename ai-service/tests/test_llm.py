@@ -21,15 +21,67 @@ from tests.conftest import FakeStt, FakeTts
 def decision(context="I am agree with you.", error="am agree", replacement="agree", kind="grammar", **overrides):
     return {
         "context": context, "error": error, "replacement": replacement, "kind": kind,
+        "vocabularyCategory": "naturalness_error" if kind == "natural" else None,
         "reason": "Agree is a verb and does not take am.", "confidence": "high",
-        "definitely_wrong": True, "is_spoken_language_artifact": False,
-        "is_asr_uncertain": False, "worth_showing": True, "understandable_alone": True,
-        **overrides,
+        "definitely_wrong": True, "already_correct": False, "meaning_preserved": True,
+        "is_spoken_language_artifact": False, "is_asr_uncertain": False,
+        "worth_showing": True, "understandable_alone": True, **overrides,
     }
 
 
 def parse(notes, transcript="I am agree with you."):
     return parse_corrections(json.dumps({"notes": notes}), transcript)
+
+
+def test_live_notes_keep_independent_syntax_and_lexical_errors_in_grammar():
+    transcript = "I am agree with you. I did a decision yesterday."
+    grammar = decision("I am agree with you.", "am agree", "agree")
+    natural = decision("I did a decision yesterday.", "did a decision", "made a decision", "grammar",
+                       reason="Здесь используют другую форму.")
+    assert parse([natural, grammar], transcript) == [
+        Correction("I am agree with you.", "I agree with you."),
+        Correction("I did a decision yesterday.", "I made a decision yesterday.", "grammar",
+                   "Здесь используют другую форму."),
+    ]
+
+
+def test_live_lexical_error_requires_wrong_original_and_preserved_meaning():
+    transcript = "I did a decision yesterday."
+    note = decision(transcript, "did a decision", "made a decision", "grammar", reason="Здесь говорят make a decision.")
+    assert len(parse([note], transcript)) == 1
+    for field, value in (("meaning_preserved", False), ("already_correct", True),
+                         ("definitely_wrong", False), ("vocabularyCategory", "word_upgrade")):
+        assert parse([{**note, field: value}], transcript) == []
+    assert parse([{**note, "kind": "alternative", "vocabularyCategory": "word_upgrade"}], transcript) == []
+
+
+def test_live_grammar_accepts_wrong_single_word_but_rejects_long_rewrite():
+    transcript = "I borrowed him my book."
+    note = decision(transcript, "borrowed", "lent", "grammar", reason="Здесь нужен lent.")
+    assert parse([note], transcript)[0].better == "I lent him my book."
+    assert parse([{**note, "error": "I borrowed him my book", "replacement": "I gave him my book to use"}], transcript) == []
+
+
+def test_live_grammar_accepts_function_word_repair():
+    transcript = "I need to speak with different people on the English."
+    note = decision(transcript, "on the English", "in English", "grammar", reason="Здесь нужен in English.")
+    assert parse([note], transcript)[0].better == "I need to speak with different people in English."
+
+
+def test_local_edit_does_not_copy_words_left_outside_its_span():
+    transcript = "She explained me the problem yesterday."
+    unsafe = decision(transcript, "explained me", "explained the problem to me")
+    assert parse([unsafe], transcript) == []
+    safe = decision(transcript, "explained me the problem", "explained the problem to me")
+    assert parse([safe], transcript) == [
+        Correction(transcript, "She explained the problem to me yesterday."),
+    ]
+
+
+def test_take_a_decision_is_not_a_vocabulary_error():
+    transcript = "I took a decision to cancel the trip."
+    note = decision(transcript, "took a decision", "made a decision", "word")
+    assert parse([note], transcript) == []
 
 
 def test_parse_reply_reads_reply():
@@ -207,7 +259,7 @@ def test_uncertain_or_invalid_candidate_is_omitted(field, value):
     assert parse([decision(**{field: value})]) == []
 
 
-@pytest.mark.parametrize("field", list(decision()))
+@pytest.mark.parametrize("field", [key for key in decision() if key not in {"already_correct", "meaning_preserved"}])
 def test_every_decision_field_is_required(field):
     note = decision()
     del note[field]
@@ -274,14 +326,15 @@ def test_spoken_artifact_blocks_only_an_overlapping_edit():
     )]
 
 
-def test_limit_and_priority_apply_after_filtering():
-    notes = [decision(context=f"I fragment {i}", error=f"fragment {i}", replacement=f"fixed {i}", kind=kind)
-             for i, kind in enumerate(["natural", "word", "natural", "grammar"])]
-    notes.insert(0, decision(worth_showing=False))
-    corrections = parse(notes, "I fragment 0 and I fragment 1 and I fragment 2 and I fragment 3")
-    assert [(item.wrong, item.kind) for item in corrections] == [
-        ("I fragment 3", "grammar"), ("I fragment 1", "word"), ("I fragment 0", "natural"),
-    ]
+def test_three_grammar_candidates_do_not_drop_phrase_suggestion():
+    notes = [decision(context=f"I fragment {i}", error=f"fragment {i}", replacement=f"fixed {i}")
+             for i in range(3)]
+    notes.append(decision(context="I made a photo", error="made a photo", replacement="took a photo",
+                          kind="grammar",
+                          definitely_wrong=True, already_correct=False, meaning_preserved=True,
+                          reason="Здесь естественно took a photo."))
+    corrections = parse(notes, "I fragment 0 and I fragment 1 and I fragment 2 and I made a photo")
+    assert [item.kind for item in corrections] == ["grammar", "grammar", "grammar", "grammar"]
 
 
 @pytest.mark.asyncio
