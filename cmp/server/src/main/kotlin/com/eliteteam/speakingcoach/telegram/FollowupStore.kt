@@ -468,4 +468,6 @@ internal fun journeyStage(rows: ResultSet): String? {
 
 /** Practice invitations have one shared budget after the goal is chosen. */
 internal fun followupStage(rows: ResultSet): String? =
-    if (rows.getTimestamp("goal_selected_at") != null) "practice" else journeyStage(rows)
+    if ((rows.getString("version") == "v3" && rows.getTimestamp("practice_setup_at") != null) ||
+        rows.getTimestamp("goal_selected_at") != null)
+        "practice" else journeyStage(rows)

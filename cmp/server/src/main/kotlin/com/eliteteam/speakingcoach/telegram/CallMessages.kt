@@ -37,6 +37,7 @@ internal fun isStartCallButton(text: String): Boolean = text == START_CALL_BUTTO
 internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persistent = true) {
     row { simpleButton(START_CALL_BUTTON, style = KeyboardButtonStyle.Success) }
     row { simpleButton(PRACTICE_SITUATION_BUTTON) }
+    row { simpleButton(VOCABULARY_BUTTON) }
 }
 
 internal fun scenarioKeyboard(): InlineKeyboardMarkup = inlineKeyboard {
@@ -58,6 +59,7 @@ internal fun CallReviewResponse.isNewFullReview(): Boolean = presentationVersion
 
 internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
     "waiting", "active", "pending" -> "onboarding"
+    "completed" -> if (dailyMinutes == null) "need-goal" else "open"
     else -> when {
         (legacyUser || onboardingStatus == "exempt") && overallScore == null -> "legacy"
         overallScore == null -> "need-onboarding"

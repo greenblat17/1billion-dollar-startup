@@ -8,6 +8,9 @@ Working documentation next to the code. A coding agent in a new session should s
 
 Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). CMP WebRTC: `architecture/2026-09-20-webrtc-client.md`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
 
+Vocabulary Builder decisions after the product interview: [`product/2026-10-24-vocabulary-builder.md`](product/2026-10-24-vocabulary-builder.md).
+New Vocabulary Builder lesson order and mandatory cards: [`product/2026-10-31-vocabulary-builder-lesson.md`](product/2026-10-31-vocabulary-builder-lesson.md); [implementation plan](plans/2026-10-31-vocabulary-builder-new-lesson.md). This supersedes the earlier lesson order and optional-game decision for new lessons.
+
 Agents: start here, then open the linked docs for the current task. Do not skip this tree
 when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
 these files, not only in chat.
@@ -16,6 +19,7 @@ Monitoring and onboarding analytics integration: `integrations/2026-10-04-combin
 PROD Telegram alerts: `integrations/2026-10-30-prod-telegram-alerts.md`.
 Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
 Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
+Speech-only Telegram timers and DEV acceptance plan: `plans/2026-10-24-telegram-speech-time-timers.md`.
 Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
 Final correction-check latency and timeout metrics: `integrations/2026-10-02-monitoring.md`.
 Independent final correction search: `plans/2026-10-20-final-correction-discovery-evaluation.md`; synthetic probe: `researches/2026-10-20-independent-correction-discovery-probe.md`; real-conversation evaluations: `researches/2026-10-20-real-final-discovery-evaluation.md` and `researches/2026-10-20-real-call-vocabulary-audio-evaluation.md`.
@@ -48,6 +52,7 @@ Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-cal
 Kora H pilot analytics and metric definitions: `plans/2026-10-23-kora-launch-analytics.md`.
 Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
+New 30-second Telegram onboarding and optional two-minute continuation: `plans/2026-10-31-telegram-onboarding-simplification.md` (implemented locally; DEV Telegram acceptance pending).
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
 Decision-focused reminder dashboard and conversion definitions: `integrations/2026-10-20-reminder-effectiveness-dashboard.md`.
 Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.

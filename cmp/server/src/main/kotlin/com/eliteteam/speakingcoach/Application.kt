@@ -42,6 +42,7 @@ import com.eliteteam.speakingcoach.telegram.SoftNudgeRunner
 import com.eliteteam.speakingcoach.telegram.softNudgeText
 import com.eliteteam.speakingcoach.telegram.softNudgeKeyboard
 import com.eliteteam.speakingcoach.telegram.launchSoftNudges
+import com.eliteteam.speakingcoach.telegram.startCallKeyboard
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
@@ -252,7 +253,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             store = store,
             state = { candidate ->
                 val current = ai.onboardingState(SessionId(candidate.sessionId), "followup:check:${candidate.runId}")
-                current.runId to current.status
+                current.runId to (if (current.status == "active") current.phase else current.status)
             },
             reminderTime = { sessionId -> ai.reminderTime(SessionId(sessionId)) },
             send = { claim ->
@@ -407,6 +408,19 @@ private suspend fun startWebhookServer(config: AppConfig) {
         log.error("Failed to register bot commands", error)
     }
     webhookScope.launchDailyReminder(reminderRunner)
+    webhookScope.launch {
+        while (true) {
+            try {
+                for (target in ai.vocabularyDue()) {
+                    val chatId = target.sessionId.removePrefix("tg-").toLongOrNull() ?: continue
+                    behaviourContext.sendMessage(ChatId(RawChatId(chatId)), target.text,
+                        replyMarkup = if (target.kind == "ended") startCallKeyboard() else null)
+                }
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) { log.warn("Vocabulary lesson reminder failed", error) }
+            delay(30_000)
+        }
+    }
     if (followupRunner != null) webhookScope.launchFollowups(followupRunner)
     if (softNudgeRunner != null) webhookScope.launchSoftNudges(softNudgeRunner)
     if (reminderButtons != null) webhookScope.launch {

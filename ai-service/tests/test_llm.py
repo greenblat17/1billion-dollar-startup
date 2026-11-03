@@ -552,6 +552,26 @@ async def test_review_schema_requires_capable_openrouter_provider():
     assert completions.arguments["extra_body"] == {"provider": {"require_parameters": True}}
 
 
+@pytest.mark.asyncio
+async def test_explicit_json_mode_requires_capable_openrouter_provider():
+    class Completions:
+        arguments = None
+
+        async def create(self, **kwargs):
+            self.arguments = kwargs
+            return SimpleNamespace(
+                choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"ok":true}'))],
+                usage=None,
+            )
+
+    completions = Completions()
+    client = SimpleNamespace(base_url="https://openrouter.ai/api/v1", chat=SimpleNamespace(completions=completions))
+    await OpenAiChatModel(client, "default").complete_json(
+        "system", "data", response_format={"type": "json_object"})
+    assert completions.arguments["response_format"] == {"type": "json_object"}
+    assert completions.arguments["extra_body"] == {"provider": {"require_parameters": True}}
+
+
 def test_parse_review_orders_grammar_then_vocabulary() -> None:
     raw = json.dumps(
         {

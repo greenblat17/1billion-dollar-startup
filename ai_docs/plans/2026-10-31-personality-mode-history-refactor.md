@@ -26,8 +26,10 @@ Telegram turn
 
 The modes are onboarding, free conversation, and situation practice. A situation
 may assign a fictional role such as interviewer or manager. That role takes
-priority over personality style. Onboarding keeps its profile questions, 120
-seconds of recognized speech, score schema, retry rules, and result flow.
+priority over personality style. Onboarding keeps its profile questions,
+score schema, and retry rules. Its current flow offers results after 30 seconds
+of recognized speech or continuation up to 120 seconds, as specified in
+[the onboarding plan](2026-10-31-telegram-onboarding-simplification.md).
 Personality can change the wording of a spoken response within those rules.
 Review, correction, streak, goal, reminder, and feedback mechanics belong to
 the mode or shared session, not the personality.
@@ -206,7 +208,7 @@ deploy to DEV or PROD.
 ### C. Personalities in every mode and mode-based feedback
 
 1. Add a Kora H onboarding reply adapter that respects the same assessment
-   schema, required ask, 120-second threshold, and delivery retry behavior.
+   schema, required ask, 30-second checkpoint, 120-second limit, and delivery retry behavior.
    Keep fixed text fixed where appropriate; synthesize every spoken line with
    the active personality. Lock the personality to the onboarding attempt.
 2. Add Kora H situation opening and turn adapters. The situation role and
@@ -244,8 +246,11 @@ all three modes. An onboarding attempt pins it at the first spoken question;
 the character API blocks changes while that attempt is active or pending.
 The existing assessment still chooses profile facts, CEFR, and the required
 ask. Kora H writes the spoken next question from those facts and the attempt
-history, then uses Kora H speech. A separate Kora H closing callback keeps the
-existing review and 120-second completion path. A situation pins the call's
+history, then uses Kora H speech. At the 30-second checkpoint, both
+personalities receive the same text choice with no voice reply. Keep talking
+sends one contextual question in the pinned personality's voice. See results
+or automatic completion at 120 seconds uses the existing review and shows the
+result without a final voice reply. A situation pins the call's
 personality, gives Kora H its fictional role and only that call's turns, and
 keeps the existing situation review and learner-memory exclusion. Fixed spoken
 lines use the pinned personality's speech. Stored Kora H selection fails

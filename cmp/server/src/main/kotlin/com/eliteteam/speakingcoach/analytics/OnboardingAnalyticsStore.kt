@@ -48,7 +48,7 @@ internal enum class AttemptMark(val column: String) {
     BYE("bye_at"),
 }
 
-internal const val ONBOARDING_ANALYTICS_VERSION = "v2"
+internal const val ONBOARDING_ANALYTICS_VERSION = "v3"
 
 internal fun safeOnboardingUsername(value: String?): String? =
     value?.removePrefix("@")?.takeIf { it.length in 1..32 && it.all { char -> char.isLetterOrDigit() || char == '_' } }
@@ -67,6 +67,10 @@ data class OnboardingVoiceFacts(
     val voiceIndex: Int = 0,
     val telegramDurationSec: Double = 0.0,
     val recognizedDurationSec: Double = 0.0,
+    val recordingDurationSec: Double? = null,
+    val durationMethod: String? = null,
+    val durationSource: String? = null,
+    val durationFallbackReason: String? = null,
     val recognized: Boolean = false,
     val failureReason: String? = null,
     val milestones: List<Int> = emptyList(),
@@ -702,8 +706,9 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                         attempt_id, request_id, session_id, voice_index,
                         telegram_duration_sec, recognized_duration_sec, recognized,
                         failure_reason, processing_ms, created_at, outcome,
-                        speech_before_sec, speech_after_sec, received_at, failure_stage, failure_code
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        speech_before_sec, speech_after_sec, received_at, failure_stage, failure_code,
+                        recording_duration_sec, duration_method, duration_source, duration_fallback_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT (attempt_id, request_id) DO NOTHING
                     """.trimIndent(),
                     ).use { statement ->
@@ -723,6 +728,11 @@ internal class PostgresOnboardingAnalytics(databaseUrl: String) : OnboardingAnal
                     statement.setTimestamp(14, Timestamp.from(receivedAt))
                     statement.setString(15, safeFailureStage(facts.failureStage))
                     statement.setString(16, safeFailureCode(facts.failureCode))
+                    statement.setObject(17, facts.recordingDurationSec)
+                    statement.setString(18, facts.durationMethod?.takeIf { it in setOf("vad", "recording") })
+                    statement.setString(19, facts.durationSource?.takeIf {
+                        it in setOf("vad", "recording_fallback", "recording_legacy", "none") })
+                    statement.setString(20, facts.durationFallbackReason?.take(40))
                         statement.executeUpdate()
                     }
                     applyOutcome(connection, attemptId, facts, at, firstVoice = facts.recognized)

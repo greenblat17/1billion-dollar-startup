@@ -106,6 +106,17 @@ class Personalization:
             logger.exception("Unable to prepare personal context")
             return CONVERSATION_POLICY
 
+    async def learning_context(self, session):
+        """Return durable learner facts without rules meant for ordinary calls."""
+        try:
+            async with self.lock(session):
+                memory = await self._load(session)
+                return {"person": memory.get("person") or {},
+                        "proficiency": memory.get("proficiency") or {}}
+        except Exception:
+            logger.exception("Unable to prepare learner context")
+            return {}
+
     async def _update_person(self, person, transcripts):
         update = getattr(self.model, "update_person", None)
         if update is None:
