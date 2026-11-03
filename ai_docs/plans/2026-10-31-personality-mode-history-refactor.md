@@ -1,6 +1,6 @@
 # Telegram personality, mode, and history refactor
 
-Status: Phases A–C implemented locally; DEV acceptance pending. Phase D pending.
+Status: Phases A–C implemented locally; DEV acceptance pending. Kora H default implemented locally; Phase D pending.
 Decision date: 2026-10-31.
 
 This plan supersedes the *future architecture* implied by the optional-character
@@ -267,6 +267,21 @@ separately; old rows without a proven mode remain unlabelled. Local Python
 and Kotlin tests cover routing, onboarding assessment independence, situation
 context, pinning, feedback state, and dashboard output. DEV audio, dialogue
 quality, latency, and cost acceptance remain open. No deployment occurred.
+
+### Interim default: Kora H in every Telegram mode
+
+The effective selection for a Telegram session with no saved choice is Kora H
+in onboarding, free conversation, and situations. This selects both Kora H's
+reply style and speech. An explicit saved Speaky choice remains effective in
+every mode, and the `/voice` selector remains available. Existing saved choices
+are not rewritten. The retired `kora` value still resolves to Speaky.
+Non-Telegram sessions retain Speaky as their default.
+
+The AI service requires Kora H access and providers for a session whose
+effective selection is Kora H. If they are unavailable, routing fails
+explicitly instead of silently synthesizing with Speaky. Before a user-facing
+release, enable all-user access and verify the providers, then complete the
+Phase C DEV voice matrix. This local code change does not deploy to DEV or PROD.
 
 ### D. Mandatory Kora H
 

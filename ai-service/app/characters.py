@@ -49,14 +49,21 @@ class CharacterReply:
 
 
 class CharacterStore:
-    def __init__(self, redis: Redis | None = None) -> None:
+    def __init__(self, redis: Redis | None = None, *, telegram_default: str = "speaky") -> None:
+        if telegram_default not in {"speaky", "kora_h"}:
+            raise ValueError("unknown default character")
         self.redis = redis
+        self.telegram_default = telegram_default
         self.memory: dict[str, str] = {}
 
     async def get(self, session_id: str) -> str:
         value = await self.redis.get(f"character:{session_id}") if self.redis else self.memory.get(session_id)
         # Older Kora selections are retired. They cannot enter the Kora H history.
-        return value if value == "kora_h" else "speaky"
+        if value in {"speaky", "kora_h"}:
+            return value
+        if value is None and session_id.startswith("tg-"):
+            return self.telegram_default
+        return "speaky"
 
     async def set(self, session_id: str, character: str) -> None:
         if character not in {"speaky", "kora_h"}:

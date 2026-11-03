@@ -26,6 +26,22 @@ async def test_mode_and_personality_use_shared_free_history_for_telegram():
 
 
 @pytest.mark.asyncio
+async def test_kora_h_default_applies_to_all_telegram_modes_and_speaky_choice_remains():
+    store = CharacterStore(telegram_default="kora_h")
+    characters = Characters(store, FakeLlm(), FakeTts(), enabled=True, allowlist="*")
+    routing = ConversationRouting(characters)
+
+    for mode in ConversationMode:
+        assert (await routing.resolve("tg-1", mode)).personality == Personality.KORA_H
+    assert await store.get("tg-1") == "kora_h"
+    assert await store.get("app-1") == "speaky"
+
+    await store.set("tg-1", "speaky")
+    for mode in ConversationMode:
+        assert (await routing.resolve("tg-1", mode)).personality == Personality.SPEAKY
+
+
+@pytest.mark.asyncio
 async def test_situation_context_uses_call_turns_without_writing_free_history():
     dialogue = MemoryDialogueStore(40, 86400)
     history = ConversationHistory(dialogue)

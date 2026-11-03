@@ -51,6 +51,19 @@ async def test_character_persists_without_affecting_other_users():
 
 
 @pytest.mark.asyncio
+async def test_telegram_default_preserves_explicit_selections_and_retired_kora():
+    redis = FakeAsyncRedis(decode_responses=True)
+    store = CharacterStore(redis, telegram_default="kora_h")
+    assert await store.get("tg-1") == "kora_h"
+    await store.set("tg-1", "speaky")
+    assert await CharacterStore(redis, telegram_default="kora_h").get("tg-1") == "speaky"
+    await redis.set("character:tg-2", "kora")
+    assert await store.get("tg-2") == "speaky"
+    assert await store.get("app-1") == "speaky"
+    await redis.aclose()
+
+
+@pytest.mark.asyncio
 async def test_retired_kora_selection_uses_speaky_without_kora_h_history():
     redis = FakeAsyncRedis(decode_responses=True)
     await redis.set('character:tg-1', 'kora')
@@ -110,6 +123,20 @@ def test_pipeline_builds_gemini_for_kora_h_without_hume():
     assert pipeline.characters.h_available
     with_hume = _build_pipeline(replace(settings, hume_api_key="test", hume_config_id="test"))
     assert with_hume.characters.h_available
+
+
+@pytest.mark.asyncio
+async def test_production_pipeline_defaults_telegram_to_kora_h():
+    settings = replace(
+        settings_fixture(), openai_api_key="test", groq_api_key="test",
+        openai_base_url="https://openrouter.ai/api/v1",
+        kora_h_enabled=True, kora_h_allowlist="*",
+    )
+    pipeline = _build_pipeline(settings)
+    assert await pipeline.characters.store.get("tg-1") == "kora_h"
+    assert (await pipeline.routing.resolve("tg-1", ConversationMode.ONBOARDING)).personality.value == "kora_h"
+    assert (await pipeline.routing.resolve("tg-1", ConversationMode.FREE)).personality.value == "kora_h"
+    assert (await pipeline.routing.resolve("tg-1", ConversationMode.SITUATION)).personality.value == "kora_h"
 
 
 @pytest.mark.asyncio

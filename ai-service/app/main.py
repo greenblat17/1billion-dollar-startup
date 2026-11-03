@@ -973,6 +973,7 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
     model._v2 = v2
     characters = Characters(CharacterStore(
         Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        telegram_default="kora_h",
     ), enabled=settings.kora_h_enabled, allowlist=settings.kora_h_allowlist)
     if "openrouter.ai" in settings.openai_base_url:
         characters.speech_h = GeminiKoraSpeech(
