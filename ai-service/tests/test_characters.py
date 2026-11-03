@@ -11,6 +11,7 @@ from app.call_start import CallStarter, KORA_H_OPENING_REQUEST
 from app.audit_artifacts import bind_writer, reset_writer
 from app.calls import CallStore
 from app.characters import Characters, CharacterStore, KoraHModel
+from app.conversation import ConversationMode
 from app.dialogue import MemoryDialogueStore
 from app.gemini_speech import GeminiKoraSpeech
 from app.hume_speech import HumeSpeech
@@ -112,7 +113,7 @@ def test_pipeline_builds_gemini_for_kora_h_without_hume():
 
 
 @pytest.mark.asyncio
-async def test_kora_h_has_separate_history_and_gemini_delivery():
+async def test_kora_h_uses_shared_history_and_gemini_delivery():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
     characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
@@ -136,6 +137,37 @@ async def test_kora_h_has_separate_history_and_gemini_delivery():
     await pipeline.calls.open('tg-1', {'kind': 'custom', 'description': 'A cafe'})
     await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
     assert len(model_h.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_kora_h_situation_keeps_scene_role_and_call_local_context(monkeypatch):
+    model_h = KoraHModel(None, 'test')
+    prompts = []
+
+    async def complete(messages, *args, **kwargs):
+        prompts.append(messages)
+        return json.dumps({'reply': 'Thanks for coming. What experience do you have?'})
+
+    monkeypatch.setattr(model_h, '_complete', complete)
+    dialogue = MemoryDialogueStore(40, 86400)
+    await dialogue.record_turn('tg-1', 'My private free topic', 'Free answer')
+    characters = Characters(CharacterStore(), model_h, KoraSpeech(), enabled=True, allowlist='1')
+    await characters.store.set('tg-1', 'kora_h')
+    calls = CallStore()
+    starter = CallStarter(calls, Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
+    opening = await starter.start('tg-1', scenario={'kind': 'job', 'description': 'Interview me for a job'})
+    assert opening['character'] == 'kora_h'
+    assert 'employer\'s interviewer' in prompts[0][0]['content']
+    assert 'Interview me for a job' in prompts[0][1]['content']
+    assert all('My private free topic' not in message['content'] for message in prompts[0])
+    await starter.delivered(opening['callId'])
+    pipeline = ClipPipeline(FakeStt(['I led a team.']), FakeLlm(), FakeTts(), dialogue,
+                            calls=calls, characters=characters)
+    pipeline.personalization = Personalization()
+    await pipeline.run('tg-1', b'x', 'audio/ogg', 'voice.ogg')
+    assert any('I led a team.' == message['content'] for message in prompts[-1])
+    assert all('My private free topic' not in message['content'] for message in prompts[-1])
+    assert len(await dialogue.history('tg-1')) == 2
 
 
 @pytest.mark.asyncio
@@ -251,7 +283,7 @@ async def test_kora_h_cached_opening_also_uses_plain_delivery():
 
 
 @pytest.mark.asyncio
-async def test_kora_h_opening_uses_only_recent_learner_context():
+async def test_kora_h_opening_uses_recent_context_from_both_personalities():
     dialogue = MemoryDialogueStore(40, 86400)
     model_h, voice = FakeLlm(), KoraSpeech()
     characters = Characters(CharacterStore(), model_h, voice, enabled=True, allowlist='1')
@@ -259,11 +291,14 @@ async def test_kora_h_opening_uses_only_recent_learner_context():
     await dialogue.record_turn('tg-1:kora_h', "Let's start a practice conversation.", 'Hello!')
     for index in range(5):
         await dialogue.record_turn('tg-1:kora_h', f'Learner topic {index}', f'Reply {index}')
-    await dialogue.record_turn('tg-1', 'Unrelated Speaky topic', 'Speaky reply')
+    await dialogue.record_turn('tg-1', 'Speaky topic', 'Speaky reply')
     starter = CallStarter(CallStore(), Model(), Personalization(), dialogue, SessionSpeech(FakeTts()), characters)
     await starter.start('tg-1')
     seen = model_h.calls[0][0]
-    assert seen == [item for index in range(1, 5) for item in (f'Learner topic {index}', f'Reply {index}')]
+    assert seen == [
+        *[item for index in range(2, 5) for item in (f'Learner topic {index}', f'Reply {index}')],
+        'Speaky topic', 'Speaky reply',
+    ]
     assert model_h.profile_notes == ['Use verified memory only.']
     assert model_h.modes == ['opening']
 
@@ -340,12 +375,18 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.post(path, json=payload)).json()['character'] == 'kora_h'
         assert (await client.get(path + '/tg-1')).json()['koraHAvailable'] is True
         assert (await client.get(path + '/tg-1')).json()['koraAvailable'] is False
+        await app.state.onboarding.store.save('tg-1', {'runId': 'a' * 32, 'status': 'active', 'turns': []})
+        blocked = await client.post(path, json={**payload, 'character': 'speaky'})
+        assert blocked.json()['blocked'] == 'active_conversation'
+        await app.state.onboarding.store.save('tg-1', {'runId': 'a' * 32, 'status': 'completed', 'turns': []})
         assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
         denied = await client.post(path, json={**payload, 'sessionId': 'tg-2'})
         assert denied.json()['blocked'] == 'unavailable'
         assert denied.json()['koraHAvailable'] is False
         await chars.store.set('tg-2', 'kora_h')
-        assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
+        assert (await client.get(path + '/tg-2')).json()['character'] == 'kora_h'
+        with pytest.raises(RuntimeError, match='temporarily unavailable'):
+            await app.state.pipeline.routing.resolve('tg-2', ConversationMode.ONBOARDING)
         assert await chars.variant('tg-2') is None
         await app.state.pipeline.calls.open('tg-1')  # Failed/undelivered next opening.
         switched = await client.post(path, json={**payload, 'character': 'speaky'})

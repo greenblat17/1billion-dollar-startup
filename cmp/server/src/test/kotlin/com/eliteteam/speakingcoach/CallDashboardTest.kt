@@ -51,7 +51,7 @@ class CallDashboardTest {
         )))
         val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
             feedback = feedback)
-        assertTrue(page.contains("Отзывы о разговорах (1)"))
+        assertTrue(page.contains("Отзывы (1)"))
         assertTrue(page.contains("@alex&lt;script&gt;"))
         assertTrue(page.contains("😐 Так себе"))
         assertTrue(page.contains("Improve &lt;audio&gt; &amp; pacing"))
@@ -66,7 +66,8 @@ class CallDashboardTest {
         ))
         val page = callDashboardPage(CallEventsSnapshot(emptyList(), false, 0), CallDashboardFilter(),
             feedback = feedback)
-        assertTrue(page.contains("Отзывы о разговорах (2)"))
+        assertTrue(page.contains("Отзывы (2)"))
+        assertTrue(page.contains("<th>Режим</th>"))
         assertTrue(page.contains("<td>Kora H</td>"))
         assertTrue(page.contains("<td>Speaky</td>"))
     }

@@ -3,12 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 
 from app.calls import CallStore
 from app.dialogue import DialogueStore
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.speech import SessionSpeech
 from app.characters import Characters, CharacterStore
+from app.conversation import (ConversationHistory, ConversationMode, ConversationRoute, ConversationRouting,
+                              HistoryContext, Personality, PersonalityRuntime, SpokenTurn)
+from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 
 KORA_H_OPENING_REQUEST = (
     "Start a new conversation with me. Give me a warm welcome and an easy check-in, "
@@ -19,13 +23,16 @@ KORA_H_OPENING_REQUEST = (
 
 class CallStarter:
     def __init__(self, calls: CallStore, model, personalization, dialogue: DialogueStore, speech: SessionSpeech,
-                 characters: Characters | None = None) -> None:
+                 characters: Characters | None = None, history: ConversationHistory | None = None) -> None:
         self.calls = calls
         self.model = model
         self.personalization = personalization
         self.dialogue = dialogue
         self.speech = speech
         self.characters = characters or Characters(CharacterStore())
+        self.routing = ConversationRouting(self.characters)
+        self.history = history or ConversationHistory(dialogue)
+        self.personality = PersonalityRuntime(model, speech, self.characters)
         self._locks: dict[str, asyncio.Lock] = {}
 
     def lock(self, session_id: str) -> asyncio.Lock:
@@ -49,11 +56,13 @@ class CallStarter:
             assert call is not None
             if call["turns"] or call.get("openingDelivered"):
                 return {**summary, "status": "active"}
-            variant = await self.characters.variant(session_id, scenario=call.get("scenario"))
-            await self.calls.set_character(summary["callId"], variant or "speaky")
-            kora = variant is not None
-            history_id = self.characters.history_id(session_id, variant) if variant else session_id
-            history = await self.dialogue.history(history_id)
+            mode = ConversationMode.SITUATION if call.get("scenario") is not None else ConversationMode.FREE
+            route = await self.routing.resolve(session_id, mode)
+            await self.calls.set_character(summary["callId"], route.personality.value)
+            kora = route.personality == Personality.KORA_H
+            history_context = (self.history.situation(self.history.target(session_id, route), call)
+                               if mode == ConversationMode.SITUATION else await self.history.load(session_id, route))
+            history = history_context.messages
             question = call.get("openingDraft") if kora else call.get("openingQuestion")
             tone = None
             if not question:
@@ -70,13 +79,20 @@ class CallStarter:
                 question = None
             if not question:
                 context = await self.personalization.prepare(session_id, continuation=False)
-                opening_request = KORA_H_OPENING_REQUEST if variant == "kora_h" else "Let's start a conversation."
+                opening_request = ("Begin the assigned scene with a natural first line and one relevant question."
+                                   if mode == ConversationMode.SITUATION else
+                                   KORA_H_OPENING_REQUEST if kora else "Let's start a conversation.")
                 # The placeholder from an earlier call is not a learner disclosure.
                 opening_history = ([turn for turn in history
                                     if turn.content != "Let's start a practice conversation."][-8:]
-                                   if variant == "kora_h" else history)
-                turn = await self.characters.reply_turn(opening_history, opening_request, variant=variant,
-                                                        profile_note=context, opening=variant == "kora_h") if kora else None
+                                   if kora else history)
+                opening_context = HistoryContext(history_context.scope_id, opening_history,
+                                                 history_context.mode, history_context.legacy_personality,
+                                                 history_context.shared)
+                role_context = (ROLEPLAY_CONTEXT_PREFIX + json.dumps(call["scenario"], ensure_ascii=False) +
+                                "\nVerified learner context: " + (context or "")) if mode == ConversationMode.SITUATION else context
+                turn = await self.personality.reply(route, opening_context, opening_request,
+                                                    role_context, opening=True) if kora else None
                 question = turn.text if kora else await self.model.start_call_question({
                     "personalContext": context,
                     "firstName": first_name,
@@ -88,24 +104,35 @@ class CallStarter:
                 })
                 tone = turn.tone if kora else None
                 await self.calls.save_opening(summary["callId"], question)
-            if variant == "kora_h":
+            if kora:
                 tone = "plain"
-            audio = await self.characters.synthesize(question, history=history, user="Let's start a conversation.", speed=await self.speech.speed(session_id), variant=variant, tone=tone) if kora else await self.speech.synthesize(session_id, question)
+            audio = await self.personality.synthesize(session_id, route, SpokenTurn(question, tone),
+                                                      history=history_context, user="Let's start a conversation.")
             if kora:
                 question = audio.spoken_text or question
                 await self.calls.save_spoken_opening(summary["callId"], question)
             return {
-                **summary, "character": variant or "speaky", "status": "ready", "question": question,
+                **summary, "character": route.personality.value, "status": "ready", "question": question,
                 "audioBase64": base64.b64encode(audio.data).decode("ascii"),
                 "audioContentType": audio.content_type,
             }
 
     async def delivered(self, call_id: str) -> None:
         opening = await self.calls.mark_opening_delivered(call_id)
+        if opening is None:
+            call = await self.calls.get(call_id)
+            if (call is not None and str(call["sessionId"]).startswith("tg-")
+                    and call.get("openingDelivered") and call.get("openingQuestion")):
+                opening = str(call["sessionId"]), str(call["openingQuestion"])
         if opening is not None:
             session_id, question = opening
             call = await self.calls.get(call_id)
             if call is not None and not call.get("scenario"):
-                variant = await self.characters.variant(session_id)
-                history_id = self.characters.history_id(session_id, variant) if variant else session_id
-                await self.dialogue.record_turn(history_id, "Let's start a practice conversation.", question)
+                free_route = ConversationRoute(ConversationMode.FREE, Personality.SPEAKY)
+                if self.history.uses_shared_route(session_id, free_route) and call.get("character") in {"speaky", "kora_h"}:
+                    route = ConversationRoute(ConversationMode.FREE, Personality(call["character"]))
+                else:
+                    route = await self.routing.resolve(session_id, ConversationMode.FREE)
+                context = self.history.target(session_id, route)
+                await self.history.record(context, "Let's start a practice conversation.", question,
+                                          turn_id=f"opening:{call_id}")

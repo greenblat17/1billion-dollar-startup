@@ -211,7 +211,13 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
             else -> "—"
         }
         val character = if (item.character == "kora_h") "Kora H" else "Speaky"
-        "<tr><td>$username</td><td>$character</td><td>$choice</td>" +
+        val mode = when (item.mode) {
+            "onboarding" -> "Онбординг"
+            "free" -> "Разговор"
+            "situation" -> "Ситуация"
+            else -> "—"
+        }
+        "<tr><td>$username</td><td>$mode</td><td>$character</td><td>$choice</td>" +
             "<td style=\"white-space:pre-wrap;overflow-wrap:anywhere\">${item.message?.let(::escapeHtml) ?: "—"}</td></tr>"
     }.orEmpty()
     val feedbackSection = when {
@@ -222,7 +228,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
             val previous = if (feedbackOffset > 0) "<a href=\"$CALLS_PATH?$base&feedbackOffset=${(feedbackOffset - 25).coerceAtLeast(0)}\">← Предыдущие</a>" else ""
             val nextFeedback = if (feedbackOffset + feedback.items.size < feedback.total)
                 "<a href=\"$CALLS_PATH?$base&feedbackOffset=${feedbackOffset + 25}\">Следующие →</a>" else ""
-            "<table><thead><tr><th>Username</th><th>Собеседник</th><th>Оценка</th><th>Сообщение</th></tr></thead><tbody>$feedbackRows</tbody></table>" +
+            "<table><thead><tr><th>Username</th><th>Режим</th><th>Собеседник</th><th>Оценка</th><th>Сообщение</th></tr></thead><tbody>$feedbackRows</tbody></table>" +
                 "<p>$previous ${if (previous.isNotEmpty() && nextFeedback.isNotEmpty()) " · " else ""}$nextFeedback</p>"
         }
     }
@@ -263,7 +269,7 @@ internal fun callDashboardPage(snapshot: CallEventsSnapshot, filter: CallDashboa
         <h2>Режимы по дням</h2><table><thead><tr><th>Дата начала</th><th>Режим</th><th>Людей</th><th>Звонков</th><th>Голосовых</th><th>Речь</th></tr></thead><tbody>$modeDaily</tbody></table>
         <h2>По дням</h2><table><thead><tr><th>Дата начала</th><th>Звонки</th><th>Закрыто</th><th>Голоса</th><th>Речь</th><th>Аудиоответы</th></tr></thead><tbody>$daily</tbody></table>
         <h2>Звонки (${rows.size})</h2><table><thead><tr><th>Начало</th><th>Chat ID</th><th>Режим</th><th>Собеседник</th><th>Способ</th><th>Исход</th><th>Голоса</th><th>Речь</th><th>Ответы</th><th>Сбой</th></tr></thead><tbody>$table</tbody></table>$next
-        <h2>Отзывы о разговорах (${feedback?.total ?: "—"})</h2>$feedbackSection
+        <h2>Отзывы (${feedback?.total ?: "—"})</h2>$feedbackSection
         </body></html>
     """.trimIndent()
 }
