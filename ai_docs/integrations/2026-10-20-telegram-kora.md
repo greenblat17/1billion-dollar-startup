@@ -475,6 +475,11 @@ revision supporting this value. DEV retains its separate setting. Emptying the
 secret disables Kora on the next deploy. Do not deploy older revisions that
 only accept numeric lists with the wildcard secret.
 
+On 2026-11-03, `DEV_KORA_H_ALLOWLIST` was set to `*` so the Kora H default can
+serve every DEV Telegram chat. AI-only Redeploy DEV run 41703779744 completed
+from `fca9ef9`; CMP was not redeployed. The workflow succeeded, but a live
+Telegram onboarding voice exchange remains to be verified.
+
 The existing onboarding/daily-goal and active-call switching rules remain.
 Onboarding and roleplay keep their existing route. This rollout sends no
 announcements and makes no changes to stored character selections.
