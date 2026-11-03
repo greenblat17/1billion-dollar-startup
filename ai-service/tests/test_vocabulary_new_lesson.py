@@ -1,0 +1,552 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from app.tts import TtsAudio
+from app.vocabulary_builder import VocabularyBuilder
+
+
+class Speech:
+    async def speed(self, session_id):
+        return 1.0
+
+    async def synthesize(self, session_id, text):
+        return TtsAudio(text.encode(), "audio/ogg")
+
+
+class NoStt:
+    async def transcribe(self, *args, **kwargs):
+        raise AssertionError("text answers must not use STT")
+
+
+class TutorModel:
+    def __init__(self):
+        self.operations = []
+
+    async def complete_json(self, system, payload, **kwargs):
+        data = json.loads(payload)
+        operation = kwargs["operation"]
+        self.operations.append(operation)
+        if operation == "vocabulary_card":
+            word = data["input"]
+            meaning = {"small talk": "a short friendly chat about everyday things",
+                       "test": "to check whether something works",
+                       "figure out": "to understand something after thinking"}.get(word, "to handle a situation")
+            return json.dumps({"word": word, "meaning": meaning,
+                               "translation": "значение", "example": f"I can {word} today."})
+        if operation == "vocabulary_tutor":
+            word = data["target"]["word"]
+            phase = data["phase"]
+            action = data["action"]
+            if action == "hint":
+                return json.dumps({"feedback": "Think about the situation.", "question": "",
+                                   "category": "", "matchedPhrase": "", "reason": ""})
+            transcript = data["transcript"]
+            category = ("" if action in ("opening", "question") else
+                        "conversation" if "what should i answer" in transcript.lower() else
+                        "understood" if phase == "Understand" else
+                        "used" if word in transcript else "natural_without_target")
+            next_phase = (phase if action in ("opening", "question") or category not in ("understood", "used")
+                          else data.get("nextPhase", phase))
+            next_word = (data.get("nextTarget") if category in ("understood", "used")
+                         and data.get("nextTarget") is not None else data["target"])
+            if next_phase == "Understand":
+                question = f"{next_word['word']} means {next_word['meaning']}. Is that familiar?"
+            elif next_phase == "Use":
+                question = ({"small talk": "What could you do to make the first minute less awkward?",
+                             "test": "What would you do to check that the feature works?",
+                             "figure out": "What would you do to understand why the app broke?"}
+                            .get(next_word["word"], "What would you do in that situation?"))
+            else:
+                question = ""
+            return json.dumps({"feedback": "That makes sense." if action != "opening" else "Let's begin.",
+                               "question": question, "category": category,
+                               "matchedPhrase": word if category == "used" else "",
+                               "reason": "The response is relevant."})
+        if operation == "vocabulary_card_prompt":
+            word = data["target"]["word"]
+            prompt = (f"What does {word} mean?" if data["direction"] == "word_to_meaning" else
+                      f"Which expression means {data['target']['meaning']}?")
+            return json.dumps({"prompt": prompt})
+        if operation == "vocabulary_card_grade":
+            transcript = data["transcript"].lower()
+            word = data["target"]["word"].lower()
+            direction = data["direction"]
+            give_up = "don't know" in transcript
+            correct = (word in transcript if direction == "meaning_to_word" else
+                       "understand" in transcript or "check" in transcript or "friendly chat" in transcript) and not give_up
+            return json.dumps({"correct": correct, "uncertain": transcript == "unclear", "giveUp": give_up,
+                               "feedback": "That's right." if correct else "Think about today's situation.",
+                               "reason": "The response matches." if correct else "The response does not match."})
+        if operation == "vocabulary_hint":
+            return json.dumps({"hint": f"Clue number {data['hintNumber']}: think of the earlier example."})
+        raise AssertionError(operation)
+
+
+async def start_lesson(builder, session_id, words):
+    for word in words:
+        await builder.propose(session_id, word)
+        card = await builder.confirm(session_id)
+        await builder.select(session_id, card["id"], True)
+    return (await builder.start(session_id))["lesson"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_tutor_category_schema_follows_current_phase_and_action():
+    class InspectingModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.categories = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                data = json.loads(payload)
+                category = kwargs["response_format"]["json_schema"]["schema"]["properties"]["category"]
+                self.categories.append((data["phase"], data["action"], category["enum"]))
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = InspectingModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "phase-schema", ["figure out"])
+    await builder.hint("phase-schema", lesson_id)
+    await builder.text("phase-schema", lesson_id, 1, "I need to find the cause.")
+    await builder.hint("phase-schema", lesson_id)
+    await builder.text("phase-schema", lesson_id, 2, "I can figure out why it failed.")
+
+    assert model.categories == [
+        ("Understand", "question", [""]),
+        ("Understand", "hint", [""]),
+        ("Understand", "answer", ["understood", "confused", "conversation"]),
+        ("Use", "question", [""]),
+        ("Use", "hint", [""]),
+        ("Use", "answer", ["used", "natural_without_target", "misuse", "conversation"]),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_understand_assessment_cannot_supply_the_use_question():
+    class MisleadingAssessment(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = json.loads(await super().complete_json(system, payload, **kwargs))
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["action"] == "answer":
+                result["question"] = "Have you ever made small talk before a meeting?"
+            elif (kwargs["operation"] == "vocabulary_tutor" and data["action"] == "question"
+                  and data["phase"] == "Use"):
+                result["question"] = "What do you usually do with colleagues before a meeting?"
+            return json.dumps(result)
+
+    builder = VocabularyBuilder(None, MisleadingAssessment(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "question-phase", ["small talk"])
+    turn = await builder.text("question-phase", lesson_id, 1, "We chatted about the weather.")
+
+    assert turn["lesson"]["phase"] == "Use"
+    assert turn["lesson"]["prompt"] == "What do you usually do with colleagues before a meeting?"
+
+
+@pytest.mark.asyncio
+async def test_tutor_uses_remembered_context_without_exposing_it_in_lesson_result():
+    class Personalization:
+        async def learning_context(self, session_id):
+            assert session_id == "personalized"
+            return {"person": {"work": "building an app"},
+                    "proficiency": {"overall_cefr": "B1"}}
+
+    class InspectingModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.tutor_requests = []
+
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                self.tutor_requests.append((system, json.loads(payload)))
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = InspectingModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech(),
+                                personalization=Personalization())
+    lesson_id = await start_lesson(builder, "personalized", ["figure out"])
+    await builder.text("personalized", lesson_id, 1, "Yes, I have had problems with my app.")
+
+    assert len(model.tutor_requests) == 3
+    for system, request in model.tutor_requests:
+        assert request["learnerContext"] == {
+            "person": {"work": "building an app"},
+            "proficiency": {"overall_cefr": "B1"},
+        }
+        assert "Never invent a past event" in system
+    assert "learnerContext" not in (await builder.list("personalized"))["lesson"]
+    assert "learnerContext" not in await builder.review("personalized", lesson_id)
+
+
+@pytest.mark.asyncio
+async def test_tutor_starts_without_personal_memory():
+    class EmptyPersonalization:
+        async def learning_context(self, session_id):
+            return {}
+
+    class InspectingModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_tutor":
+                assert "learnerContext" not in json.loads(payload)
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, InspectingModel(), NoStt(), Speech(),
+                                personalization=EmptyPersonalization())
+    await start_lesson(builder, "no-memory", ["figure out"])
+
+
+@pytest.mark.asyncio
+async def test_retry_reuses_text_answer_after_speech_failure_without_double_progress():
+    class FlakySpeech(Speech):
+        fail = False
+
+        async def synthesize(self, session_id, text):
+            if self.fail:
+                self.fail = False
+                raise RuntimeError("temporary TTS failure")
+            return await super().synthesize(session_id, text)
+
+    speech = FlakySpeech()
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), speech)
+    lesson_id = await start_lesson(builder, "retry-text", ["figure out"])
+    await builder.save_retry_input("retry-text", lesson_id, 7, text="Yes")
+    speech.fail = True
+    with pytest.raises(RuntimeError, match="temporary TTS failure"):
+        await builder.text("retry-text", lesson_id, 7, "Yes")
+    assert (await builder.list("retry-text"))["lesson"]["index"] == 0
+
+    response = await builder.retry("retry-text", lesson_id, 7)
+    assert response["lesson"]["index"] == 1
+    assert (await builder.retry("retry-text", lesson_id, 7))["turnId"] == response["turnId"]
+    assert len([event for event in (await builder.review("retry-text", lesson_id))["events"]
+                if event["type"] == "answer"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_reuses_saved_voice_bytes_after_transcription_failure():
+    class FlakyStt:
+        calls = 0
+
+        async def transcribe(self, audio, *args, **kwargs):
+            assert audio == b"original voice"
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("temporary STT failure")
+            from types import SimpleNamespace
+            return SimpleNamespace(no_speech=False, text="Yes")
+
+    builder = VocabularyBuilder(None, TutorModel(), FlakyStt(), Speech())
+    lesson_id = await start_lesson(builder, "retry-voice", ["figure out"])
+    await builder.save_retry_input("retry-voice", lesson_id, 8, audio=b"original voice")
+    with pytest.raises(RuntimeError, match="temporary STT failure"):
+        await builder.voice("retry-voice", lesson_id, 8, b"original voice")
+
+    response = await builder.retry("retry-voice", lesson_id, 8)
+    assert response["lesson"]["index"] == 1
+    assert builder.stt.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_new_lesson_uses_one_tutor_response_for_opening():
+    class LongOpeningModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.openings = 0
+
+        async def complete_json(self, system, payload, **kwargs):
+            if (kwargs["operation"] == "vocabulary_tutor" and
+                    json.loads(payload).get("isLessonOpening")):
+                self.openings += 1
+                if self.openings == 1:
+                    return json.dumps({"feedback": "word " * 60, "question": "Is that familiar?",
+                                       "category": "", "matchedPhrase": "", "reason": ""})
+            return await super().complete_json(system, payload, **kwargs)
+
+    model = LongOpeningModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    await builder.propose("short-opening", "figure out")
+    card = await builder.confirm("short-opening")
+    await builder.select("short-opening", card["id"], True)
+
+    opening = await builder.start("short-opening")
+    assert model.openings == 1
+    assert opening["text"].endswith("Is that familiar?")
+
+
+@pytest.mark.asyncio
+async def test_one_word_moves_directly_from_understand_to_use_and_automatic_card():
+    model = TutorModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "one", ["figure out"])
+    first = await builder.text("one", lesson_id, 1, "Yes, that happened to me.")
+    assert (first["lesson"]["phase"], first["lesson"]["index"]) == ("Use", 1)
+    assert first["text"].count("Now let's make your own sentence with 'figure out'.") == 1
+    assert "figure out" not in first["lesson"]["prompt"]
+    assert first["text"].count("figure out") == 1
+    assert "vocabulary_use_check" not in model.operations
+    second = await builder.text("one", lesson_id, 2, "I would figure out the problem carefully.")
+    assert (second["lesson"]["status"], second["lesson"]["index"]) == ("cards", 2)
+    assert "quick word game" in second["text"]
+    assert "What does figure out mean?" in second["text"]
+    assert await builder.text("one", lesson_id, 2, "duplicate") == second
+    finished = await builder.text("one", lesson_id, 3, "It means understanding something.")
+    assert finished["lesson"]["status"] == "finished"
+    assert finished["lesson"]["index"] == 3
+    assert finished["summary"] == ("🎉 Nice work — lesson complete!\n\n"
+                                   "You used this word in a sentence of your own. "
+                                   "It'll be here for another round whenever you're ready.")
+    assert "figure out:" not in finished["text"]
+    trace = await builder.review("one", lesson_id)
+    assert [event["phase"] for event in trace["events"] if event["type"] == "answer"] == [
+        "Understand", "Use", "Word game"]
+    assert [(event["fromIndex"], event["toIndex"]) for event in trace["events"]
+            if event["type"] == "transition"] == [(0, 1), (1, 2), (2, 3)]
+
+
+@pytest.mark.asyncio
+async def test_two_words_run_understand_then_use_for_each_before_cards():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "two", ["small talk", "test"])
+    phases = []
+    prompts = []
+    spoken = []
+    for number, answer in enumerate(("Yes", "I would make small talk about the event.",
+                                     "Yes", "I would test the feature.",
+                                     "small talk", "It means understanding."), 1):
+        turn = await builder.text("two", lesson_id, number, answer)
+        phases.append((turn["lesson"]["phase"], turn["lesson"]["index"]))
+        prompts.append(turn["lesson"]["prompt"])
+        spoken.append(turn["text"])
+    assert phases == [("Use", 1), ("Understand", 2), ("Use", 3),
+                      ("Word game", 4), ("Word game", 5), ("Word game", 6)]
+    assert turn["lesson"]["status"] == "finished"
+    assert turn["summary"] == ("🎉 Nice work — lesson complete!\n\n"
+                               "You used both words in your own sentences. "
+                               "They'll be here for another round whenever you're ready.")
+    assert "first minute" in prompts[0]
+    assert "test means" in prompts[1]
+    assert "feature works" in prompts[2]
+    assert sum(text.count("Now let's make your own sentence with '")
+               for text in spoken) == 2
+    assert "Now let's make your own sentence with 'small talk'." in spoken[0]
+    assert "Now let's make your own sentence with 'test'." in spoken[2]
+    trace = await builder.review("two", lesson_id)
+    first_id, second_id = (word["id"] for word in trace["words"])
+    assert [(event["phase"], event["wordId"]) for event in trace["events"]
+            if event["type"] == "answer"] == [
+                ("Understand", first_id), ("Use", first_id),
+                ("Understand", second_id), ("Use", second_id),
+                ("Word game", first_id), ("Word game", second_id)]
+
+
+@pytest.mark.asyncio
+async def test_active_format_four_lesson_keeps_grouped_order_and_card_delivery_id():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "format-four", ["small talk", "test"])
+    builder.memory["format-four"]["lesson"]["format"] = 4
+    first = await builder.text("format-four", lesson_id, 1, "Yes")
+    assert (first["lesson"]["format"], first["lesson"]["phase"]) == (4, "Understand")
+    second = await builder.text("format-four", lesson_id, 2, "Yes")
+    assert (second["lesson"]["format"], second["lesson"]["phase"]) == (4, "Use")
+    await builder.text("format-four", lesson_id, 3, "I would make small talk about the event.")
+    fourth = await builder.text("format-four", lesson_id, 4, "I would test the feature.")
+    assert (fourth["lesson"]["format"], fourth["lesson"]["phase"]) == (4, "Word game")
+    assert fourth.get("turnId")
+    await builder.text("format-four", lesson_id, 5, "small talk")
+    finished = await builder.text("format-four", lesson_id, 6, "I understand the meaning.")
+    assert (finished["lesson"]["format"], finished["lesson"]["status"]) == (4, "finished")
+
+
+@pytest.mark.asyncio
+async def test_card_has_unlimited_wrong_answers_and_second_give_up_reveals():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "card", ["test"])
+    await builder.text("card", lesson_id, 1, "Yes")
+    await builder.text("card", lesson_id, 2, "I would test the problem.")
+    for number in range(3, 7):
+        wrong = await builder.text("card", lesson_id, number, "A different idea")
+        assert wrong["lesson"]["status"] == "cards"
+        assert wrong["lesson"]["index"] == 2
+    first = await builder.text("card", lesson_id, 7, "I don't know")
+    assert first["lesson"]["status"] == "cards"
+    assert "Clue number" in first["text"]
+    second = await builder.text("card", lesson_id, 8, "I don't know")
+    assert second["lesson"]["status"] == "finished"
+    assert second["summary"].endswith("One card was tricky; you can give it another go next time.")
+    assert second["lesson"]["index"] == 3
+
+
+@pytest.mark.asyncio
+async def test_card_accepts_core_meaning_with_minor_connotation_correction():
+    class CloseMeaningModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            if kwargs["operation"] == "vocabulary_card_grade":
+                data = json.loads(payload)
+                assert data["direction"] == "word_to_meaning"
+                assert data["transcript"] == "It's a useless conversation between people to pass the time."
+                return json.dumps({"correct": True, "uncertain": False, "giveUp": False,
+                                   "feedback": "Yes, it's light conversation. I wouldn't call it useless; it helps people feel comfortable.",
+                                   "reason": "The learner described light social conversation but misjudged its purpose."})
+            return await super().complete_json(system, payload, **kwargs)
+
+    builder = VocabularyBuilder(None, CloseMeaningModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "close-card", ["small talk"])
+    await builder.text("close-card", lesson_id, 1, "Yes")
+    await builder.text("close-card", lesson_id, 2, "I would make small talk about the weekend.")
+    turn = await builder.text("close-card", lesson_id, 3,
+                              "It's a useless conversation between people to pass the time.")
+    assert turn["lesson"]["status"] == "finished"
+    assert "I wouldn't call it useless" in turn["text"]
+    assert "What does small talk mean?" not in turn["text"]
+    trace = await builder.review("close-card", lesson_id)
+    answer = [event for event in trace["events"] if event["type"] == "answer"][-1]
+    assert answer["category"] == "correct"
+    assert "misjudged its purpose" in answer["reason"]
+
+
+@pytest.mark.asyncio
+async def test_use_question_with_ordinary_word_from_expression_is_delivered_once():
+    class TalkingQuestionModel(TutorModel):
+        def __init__(self):
+            super().__init__()
+            self.answer_calls = 0
+
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            data = json.loads(payload)
+            if (kwargs["operation"] == "vocabulary_tutor" and data["action"] == "question"
+                    and data["phase"] == "Use"):
+                self.answer_calls += 1
+                candidate = json.loads(result)
+                candidate["question"] = "How could you ease the wait by talking to someone?"
+                return json.dumps(candidate)
+            return result
+
+    model = TalkingQuestionModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "check", ["small talk"])
+    turn = await builder.text("check", lesson_id, 1, "Yeah")
+    assert turn["lesson"]["phase"] == "Use"
+    assert turn["lesson"]["prompt"] == "How could you ease the wait by talking to someone?"
+    assert model.answer_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_isolated_target_does_not_count_as_own_phrase():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "isolated", ["test"])
+    await builder.text("isolated", lesson_id, 1, "Yes")
+    with pytest.raises(ValueError, match="unsupported vocabulary match"):
+        await builder.text("isolated", lesson_id, 2, "test")
+    assert (await builder.list("isolated"))["lesson"]["index"] == 1
+
+
+@pytest.mark.asyncio
+async def test_full_answer_can_be_the_supporting_phrase():
+    class WholeAnswerMatchModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
+                turn = json.loads(result)
+                turn["matchedPhrase"] = data["transcript"]
+                return json.dumps(turn)
+            return result
+
+    builder = VocabularyBuilder(None, WholeAnswerMatchModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "diagnostic", ["small talk"])
+    await builder.text("diagnostic", lesson_id, 1, "Yes")
+    answer = await builder.text("diagnostic", lesson_id, 2,
+                                "We made small talk before the meeting.")
+    assert answer["lesson"]["status"] == "cards"
+
+
+@pytest.mark.asyncio
+async def test_rejected_use_assessment_logs_the_exact_failed_check_without_transcript(caplog):
+    class WrongMatchModel(TutorModel):
+        async def complete_json(self, system, payload, **kwargs):
+            result = await super().complete_json(system, payload, **kwargs)
+            data = json.loads(payload)
+            if kwargs["operation"] == "vocabulary_tutor" and data["phase"] == "Use":
+                turn = json.loads(result)
+                turn["matchedPhrase"] = "not in the learner's answer"
+                return json.dumps(turn)
+            return result
+
+    builder = VocabularyBuilder(None, WrongMatchModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "diagnostic-reject", ["small talk"])
+    await builder.text("diagnostic-reject", lesson_id, 1, "Yes")
+    with caplog.at_level("WARNING", logger="app.vocabulary_builder"):
+        with pytest.raises(ValueError, match="unsupported vocabulary match"):
+            await builder.text("diagnostic-reject", lesson_id, 2,
+                               "We made small talk before the meeting.")
+    assert "matched_in_answer=False" in caplog.text
+    assert "matched_has_target=False" in caplog.text
+    assert "We made small talk before the meeting." not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_learner_agreement_reaches_use_without_a_second_model_check():
+    model = TutorModel()
+    builder = VocabularyBuilder(None, model, NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "question-check-context", ["figure out"])
+    response = await builder.text("question-check-context", lesson_id, 1, "yeah sure")
+    assert (response["lesson"]["phase"], response["lesson"]["index"]) == ("Use", 1)
+    assert "vocabulary_use_check" not in model.operations
+
+
+@pytest.mark.asyncio
+async def test_clarification_and_natural_answer_without_target_stay_on_use():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "clarify", ["small talk"])
+    await builder.text("clarify", lesson_id, 1, "Yes")
+    unclear = await builder.text("clarify", lesson_id, 2, "What should I answer?")
+    assert (unclear["lesson"]["phase"], unclear["lesson"]["index"]) == ("Use", 1)
+    natural = await builder.text("clarify", lesson_id, 3, "They could ask about the weekend.")
+    assert (natural["lesson"]["phase"], natural["lesson"]["index"]) == ("Use", 1)
+    used = await builder.text("clarify", lesson_id, 4,
+                              "They could make small talk about the weekend, although he go early.")
+    assert (used["lesson"]["status"], used["lesson"]["index"]) == ("cards", 2)
+
+
+@pytest.mark.asyncio
+async def test_five_words_complete_each_understand_use_pair_before_cards():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    words = ["small talk", "test", "figure out", "postpone", "reflect"]
+    lesson_id = await start_lesson(builder, "five", words)
+    assert all("reviewDueAt" not in item for item in builder.memory["five"]["items"])
+    for word_number, word in enumerate(words):
+        understood = await builder.text("five", lesson_id, 2 * word_number + 1, "Yes")
+        assert (understood["lesson"]["index"], understood["lesson"]["phase"]) == (
+            2 * word_number + 1, "Use")
+        used = await builder.text("five", lesson_id, 2 * word_number + 2, f"I would try to {word} it.")
+        assert used["lesson"]["index"] == 2 * word_number + 2
+        assert used["lesson"]["phase"] == ("Word game" if word_number == 4 else "Understand")
+    assert used["lesson"]["status"] == "cards"
+    assert all("reviewDueAt" not in item for item in builder.memory["five"]["items"])
+    for number, word in enumerate(words, 11):
+        answer = word if (number - 11) % 2 == 0 else "I understand the meaning."
+        turn = await builder.text("five", lesson_id, number, answer)
+        assert turn["lesson"]["index"] == number
+    assert turn["lesson"]["status"] == "finished"
+    assert all(item.get("reviewDueAt") for item in builder.memory["five"]["items"])
+
+
+@pytest.mark.asyncio
+async def test_card_has_no_button_hint_unclear_answer_does_not_advance_and_end_is_partial():
+    builder = VocabularyBuilder(None, TutorModel(), NoStt(), Speech())
+    lesson_id = await start_lesson(builder, "partial", ["test"])
+    await builder.text("partial", lesson_id, 1, "Yes")
+    await builder.text("partial", lesson_id, 2, "I would test the feature.")
+    with pytest.raises(ValueError, match="only available during Understand and Use"):
+        await builder.hint("partial", lesson_id)
+    unclear = await builder.text("partial", lesson_id, 3, "unclear")
+    assert unclear["status"] == "repeat"
+    assert unclear["lesson"]["index"] == 2
+    partial = await builder.end("partial", lesson_id)
+    assert partial["status"] == "finished"
+    assert partial["summary"] == "Lesson ended. We can pick up these words another time."
+    assert "reviewDueAt" not in builder.memory["partial"]["items"][0]

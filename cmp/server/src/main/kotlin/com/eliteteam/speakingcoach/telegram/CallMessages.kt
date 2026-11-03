@@ -37,6 +37,7 @@ internal fun isStartCallButton(text: String): Boolean = text == START_CALL_BUTTO
 internal fun startCallKeyboard() = replyKeyboard(resizeKeyboard = true, persistent = true) {
     row { simpleButton(START_CALL_BUTTON, style = KeyboardButtonStyle.Success) }
     row { simpleButton(PRACTICE_SITUATION_BUTTON) }
+    row { simpleButton(VOCABULARY_BUTTON) }
 }
 
 internal fun scenarioKeyboard(): InlineKeyboardMarkup = inlineKeyboard {

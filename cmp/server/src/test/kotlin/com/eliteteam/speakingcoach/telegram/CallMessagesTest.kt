@@ -161,7 +161,7 @@ class CallMessagesTest {
     @Test
     fun startCallButtonUsesPersistentReplyKeyboardAndExactText() {
         val keyboard = startCallKeyboard()
-        assertEquals(listOf(START_CALL_BUTTON, PRACTICE_SITUATION_BUTTON),
+        assertEquals(listOf(START_CALL_BUTTON, PRACTICE_SITUATION_BUTTON, VOCABULARY_BUTTON),
             keyboard.keyboard.map { it.single().text })
         assertEquals(KeyboardButtonStyle.Success, keyboard.keyboard.first().single().style)
         assertEquals(true, keyboard.persistent)

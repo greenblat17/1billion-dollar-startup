@@ -130,6 +130,92 @@ def test_direct_voice_open_reports_selected_kora_character() -> None:
         assert client.post("/internal/calls/status", json=payload).json()["character"] == "kora_h"
 
 
+def test_vocabulary_uses_kora_h_even_without_call_character_selection() -> None:
+    class LessonModel:
+        async def complete_json(self, system, data, **kwargs):
+            return "{}"
+
+    class LessonSpeech:
+        async def synthesize(self, text, *, speed, delivery):
+            return None
+
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400))
+    model, speech = LessonModel(), LessonSpeech()
+    pipeline.characters = Characters(CharacterStore(), model_h=model, speech_h=speech,
+                                     enabled=False, allowlist="")
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    assert app.state.vocabulary.llm is model
+    assert app.state.vocabulary.kora_speech is speech
+
+
+def test_vocabulary_review_requires_internal_token_and_returns_trace() -> None:
+    app, _, _, _ = build_app()
+    app.state.vocabulary.traces["vocabulary:review:tg-1:lesson1"] = {
+        "lessonId": "lesson1", "words": [{"id": "word1", "meaning": "a light conversation"}],
+        "events": [{"type": "answer", "transcript": "I don't enjoy small talk.",
+                    "reason": "The phrase fits a casual conversation."}]}
+    payload = {"sessionId": "tg-1", "action": "review", "lessonId": "lesson1"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["events"][0]["transcript"] == "I don't enjoy small talk."
+        assert client.post("/internal/vocabulary", json={**payload, "lessonId": "unknown"}).status_code == 409
+
+
+def test_vocabulary_text_answer_uses_internal_action(monkeypatch) -> None:
+    app, _, _, _ = build_app()
+    received = []
+
+    async def answer(session_id, lesson_id, message_id, text):
+        received.append((session_id, lesson_id, message_id, text))
+        return {"status": "ok", "text": "Next question"}
+
+    monkeypatch.setattr(app.state.vocabulary, "text", answer)
+    async def save_retry(*args, **kwargs):
+        received.append(("saved", args[0], args[1], args[2], kwargs["text"]))
+
+    async def clear_retry(*args):
+        received.append(("cleared", *args))
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
+    monkeypatch.setattr(app.state.vocabulary, "clear_retry_input", clear_retry)
+    payload = {"sessionId": "tg-1", "action": "answer", "lessonId": "lesson1",
+               "messageId": 42, "text": "My own phrase"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["text"] == "Next question"
+        assert client.post("/internal/vocabulary", json={**payload, "text": " "}).status_code == 400
+    assert received == [("saved", "tg-1", "lesson1", 42, "My own phrase"),
+                        ("tg-1", "lesson1", 42, "My own phrase"),
+                        ("cleared", "tg-1", "lesson1", 42)]
+
+
+def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatch) -> None:
+    app, _, _, _ = build_app()
+
+    async def reject(*args):
+        raise ValueError("invalid vocabulary grade")
+
+    monkeypatch.setattr(app.state.vocabulary, "voice", reject)
+    async def save_retry(*args, **kwargs):
+        assert kwargs["audio"] == b"private-audio"
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary/voice", data={
+            "sessionId": "tg-1", "lessonId": "lesson1", "messageId": "42"},
+            files={"file": ("voice.ogg", b"private-audio", "audio/ogg")})
+    assert response.status_code == 409
+    assert "lesson_id=lesson1 message_id=42" in caplog.text
+    assert "reason=invalid vocabulary grade" in caplog.text
+    assert "private-audio" not in caplog.text
+
+
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
     app, _, _, _ = build_app()
     with _client(app) as client:

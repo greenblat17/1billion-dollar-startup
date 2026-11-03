@@ -33,6 +33,44 @@ import kotlin.time.Duration.Companion.milliseconds
 class HttpClipClientTest {
 
     @Test
+    fun vocabularyVoiceRetriesTransientFailureWithTheSameMessageId() = runTest {
+        var requests = 0
+        val engine = MockEngine { request ->
+            assertEquals("/internal/vocabulary/voice", request.url.encodedPath)
+            requests++
+            if (requests == 1) respond("temporary failure", status = HttpStatusCode.ServiceUnavailable)
+            else respond("""{"text":"Try again","turnId":"turn-42","lesson":{"id":"lesson-1","status":"active"}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        try {
+            val response = HttpClipClient("http://ai.local", http)
+                .vocabularyVoice(SessionId("tg-7"), "lesson-1", 42, byteArrayOf(1, 2))
+            assertEquals(2, requests)
+            assertEquals("turn-42", response.turnId)
+        } finally { http.close() }
+    }
+
+    @Test
+    fun vocabularyDeliveryAcknowledgementIncludesTurnAndTelegramMessageIds() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("/internal/vocabulary", request.url.encodedPath)
+            val body = (request.body as TextContent).text
+            assertContains(body, "\"action\":\"delivery\"")
+            assertContains(body, "\"turnId\":\"turn-42\"")
+            assertContains(body, "\"messageId\":99")
+            respond("""{"status":"delivered","deliveredMessageId":99}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        try {
+            val response = HttpClipClient("http://ai.local", http).vocabulary(
+                SessionId("tg-7"), "delivery", lessonId = "lesson-1", messageId = 99, turnId = "turn-42")
+            assertEquals(99, response.deliveredMessageId)
+        } finally { http.close() }
+    }
+
+    @Test
     fun voiceUploadExtensionFollowsTheAudioContentType() {
         assertEquals("ogg", voiceExtension("audio/ogg"))
         assertEquals("mp3", voiceExtension("audio/mpeg"))

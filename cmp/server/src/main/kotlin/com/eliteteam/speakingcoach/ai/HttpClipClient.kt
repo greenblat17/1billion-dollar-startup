@@ -20,6 +20,7 @@ import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.forms.formData
 import io.ktor.client.request.forms.submitFormWithBinaryData
@@ -41,6 +42,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 import java.util.Base64
+import java.io.IOException
 
 internal const val AI_INTERNAL_TOKEN_HEADER = "X-Internal-Token"
 internal const val AI_LOAD_TEST_HEADER = "X-Speaky-Load-Test"
@@ -54,6 +56,60 @@ class HttpClipClient(
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
     private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
+
+    suspend fun vocabulary(sessionId: SessionId, action: String, itemId: String? = null,
+                           selected: Boolean? = null,
+                           lessonId: String? = null, text: String? = null,
+                           messageId: Long? = null, turnId: String? = null): VocabularyResponse {
+        val response = http.post("$root/internal/vocabulary") {
+            applyInternalToken()
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
+            contentType(ContentType.Application.Json)
+            setBody(VocabularyActionRequest(sessionId.value, action, itemId, selected, lessonId, text, messageId, turnId))
+        }
+        check(response.status.isSuccess()) { "ai-service vocabulary $action returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun vocabularyVoice(sessionId: SessionId, lessonId: String, messageId: Long,
+                                audio: ByteArray): VocabularyResponse {
+        suspend fun submit() = http.submitFormWithBinaryData(
+            "$root/internal/vocabulary/voice",
+            formData = formData {
+                append("sessionId", sessionId.value)
+                append("lessonId", lessonId)
+                append("messageId", messageId.toString())
+                append("file", audio, Headers.build {
+                    append(HttpHeaders.ContentType, "audio/ogg")
+                    append(HttpHeaders.ContentDisposition, "filename=voice.ogg")
+                })
+            },
+        ) {
+            applyInternalToken()
+            timeout { requestTimeoutMillis = 90_000; socketTimeoutMillis = 90_000 }
+        }
+        val first = try {
+            submit()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: IOException) {
+            null
+        } catch (error: HttpRequestTimeoutException) {
+            null
+        }
+        val response = if (first == null || first.status.value >= 500) {
+            delay(250)
+            submit()
+        } else first
+        check(response.status.isSuccess()) { "ai-service vocabulary voice returned ${response.status}" }
+        return response.body()
+    }
+
+    suspend fun vocabularyDue(): List<VocabularyDueTarget> {
+        val response = http.post("$root/internal/vocabulary/due") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service vocabulary due returned ${response.status}" }
+        return response.body<VocabularyDueResponse>().targets
+    }
 
     internal suspend fun voiceCostEvents(): VoiceCostEvents {
         val response = http.get("$root/internal/voice-cost/events?limit=100") { applyInternalToken() }
