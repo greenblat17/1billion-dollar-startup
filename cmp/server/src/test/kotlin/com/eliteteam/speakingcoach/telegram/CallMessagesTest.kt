@@ -146,12 +146,13 @@ class CallMessagesTest {
     }
 
     @Test
-    fun callOpensOnlyAfterANumericLevelAndAChosenGoal() {
+    fun completedOnboardingRequiresGoalChoiceButNotAConfidentScore() {
         assertEquals("onboarding", callGate("active", 52, 10))
         assertEquals("legacy", callGate("exempt", null, null))
-        assertEquals("legacy", callGate("completed", null, null, legacyUser = true))
-        assertEquals("need-onboarding", callGate("completed", null, null))
+        assertEquals("need-goal", callGate("completed", null, null, legacyUser = true))
+        assertEquals("need-goal", callGate("completed", null, null))
         assertEquals("need-goal", callGate("completed", 52, null))
+        assertEquals("open", callGate("completed", null, 0))
         assertEquals("open", callGate("completed", 52, 10))
         assertEquals("open", callGate("completed", 52, 0))
         assertEquals("open", callGate("exempt", 52, 5))

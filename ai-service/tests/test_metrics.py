@@ -96,6 +96,7 @@ def test_duration_seconds_uses_positive_payload_value() -> None:
     assert duration_seconds({"duration": 1.25}) == 1.25
     assert duration_seconds({"duration": "nope"}) == 0
     assert duration_seconds({"duration": -2}) == 0
+    assert duration_seconds({"duration": float("nan")}) == 0
 
 
 def test_read_usage_reads_object_or_dict() -> None:

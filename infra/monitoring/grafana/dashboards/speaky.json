@@ -2692,7 +2692,7 @@
         "w": 24,
         "h": 7
       },
-      "description": "Закрытые практические звонки с распознанной речью и полными фактами. Не длительность открытого звонка. Московские календарные даты глобального диапазона. Первый день может быть неполным; сырая история до начала сбора не восстановлена.",
+      "description": "Закрытые практические звонки с полными фактами. Старые звонки считают длительность записи с паузами; новые дни считают речевые интервалы VAD. Возврат к старому расчёту показан отдельно. Московские даты начала; история до начала сбора не восстановлена.",
       "fieldConfig": {
         "defaults": {
           "unit": "short",
@@ -2709,7 +2709,7 @@
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT SUM(speech_seconds) / NULLIF(SUM(calls), 0) / 60 AS \"Минут речи / разговор\",\nSUM(calls) AS \"Звонков\", SUM(excluded) AS \"Исключено\", SUM(incomplete) AS \"Неполных\",\n(SELECT MIN(day) FROM habit_call_daily) AS \"История с\"\nFROM habit_call_daily\nWHERE day BETWEEN (to_timestamp($__unixEpochFrom()) AT TIME ZONE 'Europe/Moscow')::date\nAND (to_timestamp($__unixEpochTo()) AT TIME ZONE 'Europe/Moscow')::date"
+          "rawSql": "SELECT SUM(speech_seconds) / NULLIF(SUM(calls), 0) / 60 AS \"Минут речи / разговор\",\nSUM(calls) AS \"Звонков\", SUM(legacy_calls) AS \"Старый метод\", SUM(vad_calls) AS \"Новый метод\",\nSUM(mixed_calls) AS \"Смешанных\", SUM(fallback_turns) AS \"Fallback ходов\",\nSUM(excluded) AS \"Исключено\", SUM(incomplete) AS \"Неполных\",\n(SELECT MIN(day) FROM habit_call_daily) AS \"История с\"\nFROM habit_call_daily\nWHERE day BETWEEN (to_timestamp($__unixEpochFrom()) AT TIME ZONE 'Europe/Moscow')::date\nAND (to_timestamp($__unixEpochTo()) AT TIME ZONE 'Europe/Moscow')::date"
         }
       ]
     },

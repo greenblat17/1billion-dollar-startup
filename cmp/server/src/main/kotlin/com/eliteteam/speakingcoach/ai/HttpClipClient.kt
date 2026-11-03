@@ -496,14 +496,15 @@ class HttpClipClient(
                         onboarding = status.onboarding?.let {
                             OnboardingStatus(
                                 it.runId, it.status, it.seconds, it.cefr, it.review,
-                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(),
+                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(), it.phase,
                             )
                         },
                         transcript = status.transcript,
                         streak = status.streak,
                         call = status.call?.let {
                             CallProgress(it.callId, it.todaySeconds, it.goalSeconds, it.goalJustCrossed,
-                                it.recognizedSeconds)
+                                it.recognizedSeconds, it.recordingSeconds, it.durationMethod,
+                                it.durationSource, it.durationFallbackReason)
                         },
                         jobId = jobId,
                         timingsMs = status.timingsMs,
@@ -656,6 +657,10 @@ private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = O
     voiceIndex = voiceIndex,
     telegramDurationSec = telegramDurationSec,
     recognizedDurationSec = recognizedDurationSec,
+    recordingDurationSec = recordingDurationSec,
+    durationMethod = durationMethod,
+    durationSource = durationSource,
+    durationFallbackReason = durationFallbackReason,
     recognized = recognized,
     failureReason = failureReason,
     milestones = milestones,
