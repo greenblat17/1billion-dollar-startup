@@ -14,7 +14,7 @@ on:
       announcement:
         description: Vocabulary Builder announcement (no deployment)
         type: choice
-        options: [none, preview, send]
+        options: [none, preview, send, status]
         default: none
 
 permissions:
@@ -123,7 +123,7 @@ jobs:
 
   vocabulary-announcement:
     name: Vocabulary Builder announcement
-    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' }}
+    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' || inputs.announcement == 'status' }}
     runs-on: ubuntu-latest
     environment: deploy-prod
     concurrency:
@@ -139,6 +139,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Find users with completed onboarding
+        if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' }}
         run: |
           set -euo pipefail
           install -m 600 /dev/null "$RUNNER_TEMP/ai_key"
@@ -149,8 +150,8 @@ jobs:
           count=$(wc -l < "$RUNNER_TEMP/audience.txt")
           echo "Eligible users: $count"
           test "$count" -gt 0
-      - name: Send announcement
-        if: ${{ inputs.announcement == 'send' }}
+      - name: Prepare sender
+        if: ${{ inputs.announcement == 'send' || inputs.announcement == 'status' }}
         run: |
           set -euo pipefail
           install -m 600 /dev/null "$RUNNER_TEMP/cmp_key"
@@ -158,8 +159,21 @@ jobs:
           scp -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             infra/campaigns/vocabulary_builder_send.py \
             "$CMP_USER@$CMP_HOST:/tmp/vocabulary_builder_send.py"
+      - name: Send announcement
+        if: ${{ inputs.announcement == 'send' }}
+        run: |
+          set -euo pipefail
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py' \
             < "$RUNNER_TEMP/audience.txt"
+      - name: Inspect delivery
+        if: ${{ inputs.announcement == 'status' }}
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py --status'
+      - name: Remove sender
+        if: ${{ always() && (inputs.announcement == 'send' || inputs.announcement == 'status') }}
+        run: |
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'rm -f /tmp/vocabulary_builder_send.py'

@@ -27,6 +27,15 @@ MESSAGE = (
     "А ещё мы обновили голос Speaky. Теперь она говорит живее, больше вовлечена "
     "в диалог и даже может с тобой поспорить 💙"
 )
+REPLY_MARKUP = {
+    "keyboard": [
+        [{"text": "🎙 Start call"}],
+        [{"text": "🎭 Practice a situation"}],
+        [{"text": "📚 Vocabulary Builder"}],
+    ],
+    "resize_keyboard": True,
+    "is_persistent": True,
+}
 
 
 def bot_token() -> str:
@@ -44,6 +53,7 @@ def send(token: str, chat_id: int) -> str:
         "text": MESSAGE,
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
+        "reply_markup": json.dumps(REPLY_MARKUP, ensure_ascii=False),
     }).encode()
     request = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage", data=body,
@@ -70,6 +80,18 @@ def send(token: str, chat_id: int) -> str:
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--status"]:
+        if not DB_PATH.exists():
+            print(json.dumps({"claimed": 0}))
+            return
+        with sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True) as database:
+            statuses = dict(database.execute(
+                "SELECT status, COUNT(*) FROM delivery GROUP BY status",
+            ))
+        print(json.dumps({"claimed": sum(statuses.values()), **statuses}))
+        return
+    if sys.argv[1:]:
+        raise RuntimeError("unknown option")
     recipients = sorted({int(line.strip()) for line in sys.stdin if line.strip()})
     if not recipients or any(recipient <= 0 for recipient in recipients):
         raise RuntimeError("Audience is empty or invalid")
