@@ -7,6 +7,8 @@ import java.sql.DriverManager
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.UUID
+import javax.sql.rowset.RowSetMetaDataImpl
+import javax.sql.rowset.RowSetProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,6 +17,29 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FollowupStoreTest {
+    @Test
+    fun completedV3AttemptUsesTheActualOnboardingVersionColumn() {
+        val rows = RowSetProvider.newFactory().createCachedRowSet()
+        rows.setMetaData(RowSetMetaDataImpl().apply {
+            columnCount = 3
+            setColumnName(1, "onboarding_version")
+            setColumnType(1, java.sql.Types.VARCHAR)
+            setColumnName(2, "practice_setup_at")
+            setColumnType(2, java.sql.Types.TIMESTAMP)
+            setColumnName(3, "goal_selected_at")
+            setColumnType(3, java.sql.Types.TIMESTAMP)
+            setNullable(3, java.sql.ResultSetMetaData.columnNullable)
+        })
+        rows.moveToInsertRow()
+        rows.updateString("onboarding_version", "v3")
+        rows.updateTimestamp("practice_setup_at", Timestamp.from(Instant.parse("2026-11-04T12:00:00Z")))
+        rows.insertRow()
+        rows.moveToCurrentRow()
+        rows.beforeFirst()
+        assertTrue(rows.next())
+        assertEquals("practice", followupStage(rows))
+    }
+
     @Test
     fun practiceUsesFourteenDistinctDaysThenFinalEvenAfterFirstCall() = runTest {
         withDatabase { url ->
