@@ -30,7 +30,7 @@ MESSAGE = (
 KEYBOARD_MESSAGE = "Кнопки для разговора и Vocabulary Builder — ниже 👇"
 REPLY_MARKUP = {
     "keyboard": [
-        [{"text": "🎙 Start call"}],
+        [{"text": "🎙 Start call", "style": "success"}],
         [{"text": "🎭 Practice a situation"}],
         [{"text": "📚 Vocabulary Builder"}],
     ],
