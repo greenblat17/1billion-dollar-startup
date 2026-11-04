@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
+import com.eliteteam.speakingcoach.analytics.VocabularyAnalytics
 import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.OnboardingFilter
 import com.eliteteam.speakingcoach.analytics.JourneyMode
@@ -55,6 +56,7 @@ internal const val STREAKS_PATH = "/admin/metrics/streaks"
 internal const val ERRORS_PATH = "/admin/metrics/errors"
 internal const val ONBOARDING_ANALYTICS_PATH = "/admin/metrics/onboarding"
 internal const val ONBOARDING_AGENT_PATH = "$ONBOARDING_ANALYTICS_PATH/agent.json"
+internal const val VOCABULARY_ANALYTICS_PATH = "/admin/metrics/vocabulary"
 internal const val NOTICE_STARTED = "started"
 internal const val NOTICE_BUSY = "busy"
 internal const val NOTICE_TEST_SENT = "test-sent"
@@ -87,6 +89,7 @@ internal class MetricsDashboard(
     val openRouterRatesFile: Path? = null,
     val voiceCost: VoiceCostStore? = null,
     val softNudges: com.eliteteam.speakingcoach.telegram.SoftNudgeStore? = null,
+    val vocabularyAnalytics: VocabularyAnalytics? = null,
 )
 
 @OptIn(ExperimentalKtorApi::class)
@@ -268,6 +271,40 @@ internal fun Route.installMetricsDashboard(dashboard: MetricsDashboard) {
         } catch (error: CancellationException) { throw error }
           catch (error: Throwable) { log.warn("Call dashboard unavailable", error); metricsUnavailableHtml() }
         call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get(VOCABULARY_ANALYTICS_PATH) {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val days = call.request.queryParameters["days"]?.toIntOrNull()?.takeIf { it in setOf(1, 7, 30) } ?: 7
+        val format = call.request.queryParameters["format"]?.toIntOrNull()?.takeIf { it in setOf(3, 4, 5) }
+        val offset = call.request.queryParameters["offset"]?.toIntOrNull()?.coerceIn(0, 10_000) ?: 0
+        val html = try {
+            val source = dashboard.vocabularyAnalytics
+            if (source == null) metricsUnavailableHtml() else vocabularyDashboardPage(
+                source.since(Instant.now().minusSeconds(365L * 86_400)), days, format, offset,
+                source.writeFailures.get(), source.memoryOnly, source.sourceHealthy,
+                source.lastSyncAt, source.backlogAt)
+        } catch (error: CancellationException) { throw error }
+          catch (error: Throwable) { log.warn("Vocabulary dashboard unavailable", error); metricsUnavailableHtml() }
+        call.respondText(html, ContentType.Text.Html)
+    }.hide()
+    get("$VOCABULARY_ANALYTICS_PATH/{lessonId}") {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        if (!call.hasMetricsSession(dashboard.password)) {
+            call.respondText(metricsLoginHtml(), ContentType.Text.Html)
+            return@get
+        }
+        val id = call.parameters["lessonId"].orEmpty()
+        if (!Regex("[a-f0-9]{12}").matches(id)) {
+            call.respond(HttpStatusCode.NotFound)
+            return@get
+        }
+        val facts = dashboard.vocabularyAnalytics?.byLesson(id).orEmpty()
+        if (facts.isEmpty()) call.respond(HttpStatusCode.NotFound)
+        else call.respondText(vocabularyLessonPage(id, facts), ContentType.Text.Html)
     }.hide()
     get("$CALLS_PATH/{callId}") {
         call.response.header(HttpHeaders.CacheControl, "no-store")
@@ -757,6 +794,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         if (root == METRICS_PATH) add(METRICS_DETAILS_PATH to "Подробная сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
+        if (root == METRICS_PATH) add(VOCABULARY_ANALYTICS_PATH to "Vocabulary Builder")
         if (root == METRICS_PATH) add("$CALLS_PATH#kora" to "Kora H")
         if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")
         add("$root/reminders" to "Напоминания")
