@@ -27,6 +27,7 @@ MESSAGE = (
     "А ещё мы обновили голос Speaky. Теперь она говорит живее, больше вовлечена "
     "в диалог и даже может с тобой поспорить 💙"
 )
+KEYBOARD_MESSAGE = "Кнопки для разговора и Vocabulary Builder — ниже 👇"
 REPLY_MARKUP = {
     "keyboard": [
         [{"text": "🎙 Start call"}],
@@ -47,10 +48,10 @@ def bot_token() -> str:
     raise RuntimeError("TELEGRAM_BOT_TOKEN is unavailable")
 
 
-def send(token: str, chat_id: int) -> str:
+def send(token: str, chat_id: int, text: str = MESSAGE) -> str:
     body = urllib.parse.urlencode({
         "chat_id": chat_id,
-        "text": MESSAGE,
+        "text": text,
         "parse_mode": "HTML",
         "disable_web_page_preview": "true",
         "reply_markup": json.dumps(REPLY_MARKUP, ensure_ascii=False),
@@ -88,7 +89,44 @@ def main() -> None:
             statuses = dict(database.execute(
                 "SELECT status, COUNT(*) FROM delivery GROUP BY status",
             ))
-        print(json.dumps({"claimed": sum(statuses.values()), **statuses}))
+            keyboard_statuses = {}
+            if database.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                                "AND name='keyboard_delivery'").fetchone():
+                keyboard_statuses = dict(database.execute(
+                    "SELECT status, COUNT(*) FROM keyboard_delivery GROUP BY status",
+                ))
+        print(json.dumps({"announcement": {"claimed": sum(statuses.values()), **statuses},
+                          "keyboard": keyboard_statuses}))
+        return
+    if sys.argv[1:] == ["--restore-keyboard"]:
+        token = bot_token()
+        with sqlite3.connect(DB_PATH) as database:
+            database.execute("CREATE TABLE IF NOT EXISTS keyboard_delivery ("
+                             "chat_id INTEGER PRIMARY KEY, status TEXT NOT NULL, at_utc TEXT NOT NULL)")
+            database.commit()
+            recipients = [row[0] for row in database.execute(
+                "SELECT chat_id FROM delivery WHERE status = 'sent' ORDER BY chat_id",
+            )]
+            counts = Counter()
+            for recipient in recipients:
+                now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                claimed = database.execute(
+                    "INSERT OR IGNORE INTO keyboard_delivery VALUES (?, 'pending', ?)",
+                    (recipient, now),
+                ).rowcount
+                database.commit()
+                if not claimed:
+                    counts["already_claimed"] += 1
+                    continue
+                status = send(token, recipient, KEYBOARD_MESSAGE)
+                database.execute(
+                    "UPDATE keyboard_delivery SET status = ?, at_utc = ? WHERE chat_id = ?",
+                    (status, datetime.datetime.now(datetime.timezone.utc).isoformat(), recipient),
+                )
+                database.commit()
+                counts[status] += 1
+                time.sleep(0.15)
+        print(json.dumps({"eligible": len(recipients), **counts}, ensure_ascii=False))
         return
     if sys.argv[1:]:
         raise RuntimeError("unknown option")

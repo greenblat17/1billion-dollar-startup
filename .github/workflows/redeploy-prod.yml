@@ -14,7 +14,7 @@ on:
       announcement:
         description: Vocabulary Builder announcement (no deployment)
         type: choice
-        options: [none, preview, send, status]
+        options: [none, preview, send, status, restore_keyboard]
         default: none
 
 permissions:
@@ -123,7 +123,7 @@ jobs:
 
   vocabulary-announcement:
     name: Vocabulary Builder announcement
-    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' || inputs.announcement == 'status' }}
+    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' || inputs.announcement == 'status' || inputs.announcement == 'restore_keyboard' }}
     runs-on: ubuntu-latest
     environment: deploy-prod
     concurrency:
@@ -151,7 +151,7 @@ jobs:
           echo "Eligible users: $count"
           test "$count" -gt 0
       - name: Prepare sender
-        if: ${{ inputs.announcement == 'send' || inputs.announcement == 'status' }}
+        if: ${{ inputs.announcement == 'send' || inputs.announcement == 'status' || inputs.announcement == 'restore_keyboard' }}
         run: |
           set -euo pipefail
           install -m 600 /dev/null "$RUNNER_TEMP/cmp_key"
@@ -172,8 +172,14 @@ jobs:
           set -euo pipefail
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py --status'
+      - name: Restore reply keyboard
+        if: ${{ inputs.announcement == 'restore_keyboard' }}
+        run: |
+          set -euo pipefail
+          ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py --restore-keyboard'
       - name: Remove sender
-        if: ${{ always() && (inputs.announcement == 'send' || inputs.announcement == 'status') }}
+        if: ${{ always() && (inputs.announcement == 'send' || inputs.announcement == 'status' || inputs.announcement == 'restore_keyboard') }}
         run: |
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'rm -f /tmp/vocabulary_builder_send.py'
