@@ -30,6 +30,26 @@ VOICE_COST_DB_USER=$(env_get POSTGRES_USER)
 SPEAKY_ENV=$(env_get SPEAKY_ENV)
 SPEAKY_ENV=${SPEAKY_ENV:-unknown}
 
+ALERT_ENV="$MON/alerts.env"
+CREDIT_ENV="$MON/openrouter.env"
+ALERT_PROVISIONING="$MON/grafana/provisioning/alerting"
+ALERTS_ENABLED=false
+if [ -s "$ALERT_ENV" ]; then
+  ALERTS_ENABLED=true
+  mkdir -p "$ALERT_PROVISIONING"
+  alert_chat_id=$(sed -n 's/^TELEGRAM_ALERT_CHAT_ID=//p' "$ALERT_ENV" | tail -n 1)
+  if [[ ! "$alert_chat_id" =~ ^-?[0-9]+$ ]]; then
+    echo "TELEGRAM_ALERT_CHAT_ID must be a numeric Telegram chat ID" >&2
+    exit 1
+  fi
+  # Grafana substitutes env vars before parsing YAML, so a numeric value
+  # becomes a number even when the placeholder is quoted in the template.
+  awk -v chat_id="$alert_chat_id" '{ gsub(/\$TELEGRAM_ALERT_CHAT_ID/, chat_id); print }' \
+    "$MON/alerts/speaky.yml" > "$ALERT_PROVISIONING/speaky.yml"
+else
+  rm -f "$ALERT_PROVISIONING/speaky.yml"
+fi
+
 SERVER_PORT=${SERVER_PORT:-443}
 MONITORING_PORT=${MONITORING_PORT:-8081}
 AI_URL=${AI_URL:-http://127.0.0.1:8090}
@@ -140,7 +160,9 @@ VOLUMES="
 volumes:
   speaking-coach-prometheus:
   speaking-coach-loki:
-  speaking-coach-alloy:"
+  speaking-coach-alloy:
+  speaking-coach-daily-report:
+  speaking-coach-openrouter-credit:"
 
 cat > "$MON/compose.yml" <<EOF
 x-logging: &bounded_logging
@@ -266,6 +288,7 @@ EOF
       GF_SERVER_ROOT_URL: ${GRAFANA_ROOT}
       VOICE_COST_DB_PASSWORD: \${VOICE_COST_DB_PASSWORD}
       VOICE_COST_DB_NAME: \${VOICE_COST_DB_NAME}
+$(if [ "$ALERTS_ENABLED" = true ]; then printf '    env_file:\n      - ./alerts.env\n'; fi)
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/etc/grafana/dashboards:ro
@@ -287,10 +310,58 @@ volumes:
   speaking-coach-prometheus:
   speaking-coach-grafana:
   speaking-coach-loki:
-  speaking-coach-alloy:"
+  speaking-coach-alloy:
+  speaking-coach-daily-report:
+  speaking-coach-openrouter-credit:"
+fi
+
+if [ "$ALERTS_ENABLED" = true ]; then
+  if [ ! -s "$CREDIT_ENV" ]; then
+    echo "Daily report requires OpenRouter management key configuration" >&2
+    exit 1
+  fi
+  cat >> "$MON/compose.yml" <<EOF
+  daily-report:
+    logging: *bounded_logging
+    build: ./reporter
+    image: speaking-coach-daily-report:local
+    container_name: speaking-coach-daily-report
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - ./alerts.env
+      - ./openrouter.env
+    environment:
+      AI_SERVICE_BASE_URL: ${AI_URL}
+      AI_INTERNAL_TOKEN_FILE: /run/secrets/ai_token
+    volumes:
+      - ./ai_token:/run/secrets/ai_token:ro
+      - speaking-coach-daily-report:/state
+EOF
+fi
+
+if [ -s "$CREDIT_ENV" ]; then
+  if [ "$ALERTS_ENABLED" != true ]; then
+    echo "OpenRouter credit monitor requires Telegram alert configuration" >&2
+    exit 1
+  fi
+  cat >> "$MON/compose.yml" <<EOF
+  openrouter-credit:
+    logging: *bounded_logging
+    image: speaking-coach-daily-report:local
+    container_name: speaking-coach-openrouter-credit
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "/app/credit_monitor.py"]
+    env_file:
+      - ./alerts.env
+      - ./openrouter.env
+    volumes:
+      - speaking-coach-openrouter-credit:/state
+EOF
 fi
 
 printf '%s\n' "$VOLUMES" >> "$MON/compose.yml"
 
 cd "$MON"
-docker compose -p speaking-coach-monitoring -f compose.yml up -d
+docker compose -p speaking-coach-monitoring -f compose.yml up -d --build

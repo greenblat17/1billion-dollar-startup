@@ -90,3 +90,7 @@ class JobStore:
         for job_id in expired:
             self._jobs.pop(job_id, None)
         self._next_purge_at = now + min(max(self._ttl_seconds, 1), 60)
+
+    def pending(self, session_id: str) -> bool:
+        self.purge()
+        return any(job.session_id == session_id and job.status == "pending" for job in self._jobs.values())

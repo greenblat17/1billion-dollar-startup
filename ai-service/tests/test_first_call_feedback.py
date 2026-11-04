@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import pytest
+import httpx
+import time
 from fakeredis import FakeAsyncRedis
 
-from app.first_call_feedback import FirstCallFeedback, offer_eligibility
+from app.first_call_feedback import FirstCallFeedback, ModeFeedback, offer_eligibility
+from tests.conftest import build_app
 
 
 @pytest.mark.asyncio
@@ -48,17 +51,19 @@ async def test_dashboard_lists_rated_feedback_with_username_and_optional_message
     assert listed["total"] == 2
     assert listed["items"][0]["message"] is None
     assert listed["items"][1] == {
-        "sessionId": "tg-1", "username": "alex", "choice": "liked", "message": "Great pace",
+        "sessionId": "tg-1", "username": "alex", "character": "speaky", "callId": "a" * 32,
+        "choice": "liked", "message": "Great pace",
     }
     assert len((await feedback.list_rated(0, 1))["items"]) == 1
     await feedback.aclose()
 
 
-def test_offer_needs_completed_onboarding_review_and_real_conversation():
+def test_offer_needs_review_and_real_conversation():
     call = {"sessionId": "tg-1", "turns": [{"transcript": "hello"}], "review": {"score": 52}}
     completed = {"status": "completed"}
     assert offer_eligibility(call, completed, "tg-1") is None
-    assert offer_eligibility(call, {"status": "exempt"}, "tg-1") == "onboarding_incomplete"
+    assert offer_eligibility(call, {"status": "exempt"}, "tg-1") is None
+    assert offer_eligibility({**call, "character": "kora_h"}, {"status": "exempt"}, "tg-1") is None
     assert offer_eligibility({**call, "turns": []}, completed, "tg-1") == "no_user_turn"
     assert offer_eligibility({**call, "review": None}, completed, "tg-1") == "review_unavailable"
     assert offer_eligibility(call, completed, "tg-2") == "session_mismatch"
@@ -71,3 +76,127 @@ async def test_existing_user_receives_one_survey_on_next_eligible_call():
     assert offer_eligibility(existing_call, {"status": "completed"}, "tg-1") is None
     assert (await feedback.offer("tg-1", "b" * 32))["status"] == "offered"
     assert (await feedback.offer("tg-1", "c" * 32))["reason"] == "already_offered"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis", [None, FakeAsyncRedis(decode_responses=True)])
+async def test_kora_feedback_is_per_call_and_text_goes_to_latest_rated_call(redis):
+    feedback = FirstCallFeedback(redis)
+    first, second = "b" * 32, "c" * 32
+    assert (await feedback.offer("tg-1", first, "@alex", character="kora_h")) == {
+        "status": "offered", "character": "kora_h",
+    }
+    assert (await feedback.offer("tg-1", first, character="kora_h"))["reason"] == "already_offered"
+    assert (await feedback.rate("tg-2", first, "liked"))["status"] == "ignored"
+    assert (await feedback.rate("tg-1", first, "neutral"))["status"] == "rated"
+    assert (await feedback.offer("tg-1", second, "@alex", character="kora_h"))["status"] == "offered"
+    assert (await feedback.rate("tg-1", second, "liked"))["status"] == "rated"
+    assert (await feedback.answer("tg-1", text="This felt warmer"))["status"] == "saved"
+    assert (await feedback.answer("tg-1", call_id=first))["status"] == "saved"
+    assert (await feedback.offer("tg-1", "d" * 32))["status"] == "offered"
+    listed = await feedback.list_rated()
+    assert listed["total"] == 2
+    assert {item["callId"] for item in listed["items"]} == {first, second}
+    assert {item["character"] for item in listed["items"]} == {"kora_h"}
+    assert next(item for item in listed["items"] if item["callId"] == second)["message"] == "This felt warmer"
+    await feedback.aclose()
+
+
+@pytest.mark.asyncio
+async def test_feedback_api_uses_character_saved_on_each_closed_call():
+    app, *_ = build_app()
+    calls = app.state.pipeline.calls
+
+    async def reviewed_call(character):
+        opened = await calls.open("tg-1")
+        call_id = opened["callId"]
+        await calls.set_character(call_id, character)
+        await calls.append_turn("tg-1", "Hello", "Hi!", [], 1.0, [])
+        await calls.seal("tg-1")
+        await calls.save_review(call_id, {"score": 50})
+        return call_id
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                headers={"X-Internal-Token": "test-internal-token"}) as client:
+        for character, expected in (("kora_h", "offered"), ("kora_h", "offered"),
+                                    ("speaky", "offered"), ("speaky", "offered")):
+            if character == "speaky":
+                await app.state.onboarding.store.save("tg-1", {"status": "completed"})
+            call_id = await reviewed_call(character)
+            response = (await client.post("/internal/calls/feedback", json={
+                "sessionId": "tg-1", "action": "offer", "callId": call_id,
+            })).json()
+            assert response["status"] == expected
+            if expected == "offered":
+                assert response["character"] == character
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis", [None, FakeAsyncRedis(decode_responses=True)])
+async def test_mode_feedback_reoffers_until_first_rating_in_each_mode(redis):
+    legacy = FirstCallFeedback(redis)
+    feedback = ModeFeedback(legacy)
+    ids = [format(index, "032x") for index in range(1, 6)]
+    assert (await feedback.offer("tg-1", ids[0], "free"))["status"] == "offered"
+    assert (await feedback.confirm("tg-1", ids[0]))["status"] == "saved"
+    assert (await feedback.offer("tg-1", ids[1], "free"))["status"] == "offered"
+    assert (await feedback.rate("tg-1", ids[1], "liked"))["status"] == "rated"
+    assert (await feedback.offer("tg-1", ids[2], "free"))["reason"] == "already_rated"
+    assert (await feedback.offer("tg-1", ids[2], "situation"))["status"] == "offered"
+    assert (await feedback.release("tg-1", ids[2]))["status"] == "saved"
+    assert (await feedback.offer("tg-1", ids[2], "situation"))["status"] == "offered"
+    assert (await feedback.offer("tg-1", ids[3], "onboarding"))["status"] == "offered"
+    assert (await feedback.rate("tg-1", ids[3], "neutral"))["status"] == "rated"
+    assert (await feedback.offer("tg-1", ids[4], "onboarding"))["reason"] == "already_rated"
+    assert (await feedback.answer("tg-1", text="Good pace"))["status"] == "saved"
+    assert (await feedback.list_rated())["total"] == 2
+    await legacy.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("redis", [None, FakeAsyncRedis(decode_responses=True)])
+async def test_historical_rating_only_blocks_mode_when_linked_call_proves_it(redis):
+    legacy = FirstCallFeedback(redis)
+    feedback = ModeFeedback(legacy)
+    old_id, next_id = "a" * 32, "b" * 32
+    await legacy.offer("tg-1", old_id, character="kora_h")
+    await legacy.rate("tg-1", old_id, "liked")
+
+    async def get_call(call_id):
+        return {"sessionId": "tg-1", "scenario": {"kind": "job"},
+                "startedUnix": time.time()} if call_id == old_id else None
+
+    async def recent_ids(session_id):
+        return [old_id] if session_id == "tg-1" else []
+
+    await feedback.migrate_legacy("tg-1", get_call, recent_ids)
+    assert (await feedback.offer("tg-1", next_id, "situation"))["reason"] == "already_rated"
+    assert (await feedback.offer("tg-1", next_id, "free"))["status"] == "offered"
+    await legacy.aclose()
+
+
+@pytest.mark.asyncio
+async def test_onboarding_feedback_api_uses_attempt_and_stops_after_rating():
+    app, *_ = build_app()
+    store = app.state.onboarding.store
+    first, second = "1" * 32, "2" * 32
+
+    async def completed(run_id):
+        await store.save("tg-1", {"runId": run_id, "status": "completed", "character": "kora_h",
+                                  "cefr": "A2", "position": "mid", "review": {"levelText": "A2"},
+                                  "turns": [{"receivedAt": time.time(), "transcript": "Hello"}]})
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test",
+                                headers={"X-Internal-Token": "test-internal-token"}) as client:
+        await completed(first)
+        async def post(action, run_id, **kwargs):
+            return (await client.post("/internal/calls/feedback", json={
+                "sessionId": "tg-1", "action": action, "callId": run_id, **kwargs,
+            })).json()
+
+        offered = await post("offer", first)
+        assert offered == {"status": "offered", "character": "kora_h", "mode": "onboarding"}
+        assert (await post("confirm", first))["status"] == "saved"
+        assert (await post("rate", first, choice="liked"))["status"] == "rated"
+        await completed(second)
+        assert (await post("offer", second))["reason"] == "already_rated"

@@ -1,5 +1,7 @@
 # Telegram voice onboarding
 
+For the approved replacement journey, see [the 30-second onboarding specification](2026-10-31-telegram-onboarding-simplification.md). This document describes the earlier two-minute-first flow and its implementation.
+
 Status: implemented on `feature/telegram-onboarding`; automated verification below. Live DEV acceptance is still required before production deployment.
 
 Card copy in this historical plan was updated by [short correction explanations](2026-10-01-telegram-correction-explanations.md): current live cards omit the type heading and may show one short Russian explanation under the inline edit.
@@ -15,6 +17,11 @@ Only new Telegram users automatically enter onboarding. Resolve eligibility befo
 5. The next voice is ordinary conversation. Old `Продолжить разговор →` buttons still work; new attempts do not send that button.
 
 ## Timing and boundaries
+
+После локальной реализации [плана времени речи](2026-10-24-telegram-speech-time-timers.md)
+новые попытки считают речевые интервалы VAD; начатые ранее попытки сохраняют старый метод.
+При сбое VAD отдельный ход использует длительность записи. При пустом STT прогресс не растёт.
+Приёмка DEV ещё не проведена. Следующие пункты описывают исторический метод.
 
 - Count whole recordings with recognized speech, including pauses, using STT duration with Telegram duration as fallback. This is not measured speaking time.
 - Before the time threshold, ask about missing profile fields: work, free time, and why English. "I don't work" or "no hobbies" fills the field; filling all fields is not required to finish.

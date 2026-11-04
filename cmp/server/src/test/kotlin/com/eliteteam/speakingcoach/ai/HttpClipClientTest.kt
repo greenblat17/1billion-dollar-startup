@@ -7,9 +7,12 @@ import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import com.eliteteam.speakingcoach.speaking.SessionId
+import com.sun.net.httpserver.HttpServer
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -18,13 +21,54 @@ import io.ktor.http.headersOf
 import io.ktor.http.content.TextContent
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import java.net.InetSocketAddress
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.milliseconds
 
 class HttpClipClientTest {
+
+    @Test
+    fun vocabularyVoiceRetriesTransientFailureWithTheSameMessageId() = runTest {
+        var requests = 0
+        val engine = MockEngine { request ->
+            assertEquals("/internal/vocabulary/voice", request.url.encodedPath)
+            requests++
+            if (requests == 1) respond("temporary failure", status = HttpStatusCode.ServiceUnavailable)
+            else respond("""{"text":"Try again","turnId":"turn-42","lesson":{"id":"lesson-1","status":"active"}}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        try {
+            val response = HttpClipClient("http://ai.local", http)
+                .vocabularyVoice(SessionId("tg-7"), "lesson-1", 42, byteArrayOf(1, 2))
+            assertEquals(2, requests)
+            assertEquals("turn-42", response.turnId)
+        } finally { http.close() }
+    }
+
+    @Test
+    fun vocabularyDeliveryAcknowledgementIncludesTurnAndTelegramMessageIds() = runTest {
+        val engine = MockEngine { request ->
+            assertEquals("/internal/vocabulary", request.url.encodedPath)
+            val body = (request.body as TextContent).text
+            assertContains(body, "\"action\":\"delivery\"")
+            assertContains(body, "\"turnId\":\"turn-42\"")
+            assertContains(body, "\"messageId\":99")
+            respond("""{"status":"delivered","deliveredMessageId":99}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json"))
+        }
+        val http = client(engine)
+        try {
+            val response = HttpClipClient("http://ai.local", http).vocabulary(
+                SessionId("tg-7"), "delivery", lessonId = "lesson-1", messageId = 99, turnId = "turn-42")
+            assertEquals(99, response.deliveredMessageId)
+        } finally { http.close() }
+    }
 
     @Test
     fun voiceUploadExtensionFollowsTheAudioContentType() {
@@ -80,6 +124,61 @@ class HttpClipClientTest {
         ai.markCallStarterDelivered(opening.callId)
         assertEquals(listOf("/internal/calls/start", "/internal/calls/starter-delivered"), paths)
         http.close()
+    }
+
+    @Test
+    fun callOpeningCanOutlastTheDefaultSocketTimeout() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/internal/calls/start") { exchange ->
+            exchange.requestBody.use { it.readBytes() }
+            Thread.sleep(250)
+            val response = """{"callId":"c1","status":"ready","question":"Hello?","audioBase64":"T2dnUw==","audioContentType":"audio/ogg"}"""
+                .toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val http = HttpClient(OkHttp) {
+            install(HttpTimeout)
+            engine { config { readTimeout(100, TimeUnit.MILLISECONDS) } }
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        try {
+            val opening = HttpClipClient("http://127.0.0.1:${server.address.port}", http)
+                .startCall(SessionId("tg-7"), "Alex")
+            assertEquals("ready", opening.status)
+        } finally {
+            http.close()
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun callReviewCanOutlastTheDefaultSocketTimeout() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/internal/calls/review") { exchange ->
+            exchange.requestBody.use { it.readBytes() }
+            Thread.sleep(250)
+            val response = """{"callId":"c1","retry":false,"levelText":"A2"}""".toByteArray()
+            exchange.responseHeaders.add("Content-Type", "application/json")
+            exchange.sendResponseHeaders(200, response.size.toLong())
+            exchange.responseBody.use { it.write(response) }
+        }
+        server.start()
+        val http = HttpClient(OkHttp) {
+            install(HttpTimeout)
+            engine { config { readTimeout(100, TimeUnit.MILLISECONDS) } }
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        try {
+            val review = HttpClipClient("http://127.0.0.1:${server.address.port}", http).reviewCall("c1")
+            assertEquals("c1", review.callId)
+            assertEquals(false, review.retry)
+        } finally {
+            http.close()
+            server.stop(0)
+        }
     }
 
     @Test
@@ -500,6 +599,7 @@ class HttpClipClientTest {
     }
 
     private fun client(engine: MockEngine) = HttpClient(engine) {
+        install(HttpTimeout)
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 }

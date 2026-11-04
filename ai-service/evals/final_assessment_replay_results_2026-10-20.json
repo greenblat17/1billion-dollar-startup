@@ -1,0 +1,448 @@
+{
+  "models": {
+    "notes": "openai/gpt-5.6-luna",
+    "review": "google/gemini-3.5-flash-lite"
+  },
+  "turns": [
+    {
+      "question": "What changed at work last week?",
+      "transcript": "I work as a designer at a small company. Last week I did a decision to change our website because customers couldn't find the prices.",
+      "expectedSpans": [
+        "did a decision"
+      ],
+      "outcome": "shown",
+      "attempts": 1,
+      "corrections": [
+        {
+          "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+          "better": "Last week I made a decision to change our website because customers couldn't find the prices.",
+          "kind": "word",
+          "explanation": "По-английски говорят make a decision, а не do a decision."
+        }
+      ],
+      "elapsedSeconds": 2.59
+    },
+    {
+      "question": "How did you prepare the design?",
+      "transcript": "We took a photo of the old page. Then I made a photo of the new design, and my manager gave me an advice about the colors.",
+      "expectedSpans": [
+        "made a photo",
+        "an advice"
+      ],
+      "outcome": "shown",
+      "attempts": 1,
+      "corrections": [
+        {
+          "wrong": "Then I made a photo of the new design, and my manager gave me an advice about the colors.",
+          "better": "Then I made a photo of the new design, and my manager gave me some advice about the colors.",
+          "kind": "grammar",
+          "explanation": "Advice — неисчисляемое слово: говорим some advice, без артикля an."
+        }
+      ],
+      "elapsedSeconds": 2.35
+    },
+    {
+      "question": "Who showed it to the team?",
+      "transcript": "I borrowed my laptop to a colleague so she could show the design at a meeting.",
+      "expectedSpans": [
+        "borrowed my laptop to"
+      ],
+      "outcome": "empty",
+      "attempts": 1,
+      "corrections": [],
+      "elapsedSeconds": 1.24
+    },
+    {
+      "question": "What did she think?",
+      "transcript": "She was very interesting in the idea, but she said the menu is not clear enough. I suggested her to move the button.",
+      "expectedSpans": [
+        "interesting in",
+        "suggested her to"
+      ],
+      "outcome": "shown",
+      "attempts": 1,
+      "corrections": [
+        {
+          "wrong": "I suggested her to move the button.",
+          "better": "I suggested that she move the button.",
+          "kind": "grammar",
+          "explanation": "После suggest не говорят suggested someone to do; используйте that she move."
+        },
+        {
+          "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+          "better": "She was very interested in the idea, but she said the menu is not clear enough.",
+          "kind": "word",
+          "explanation": "Здесь нужен человек, который заинтересован: interested, а не interesting — «вызывающий интерес»."
+        }
+      ],
+      "elapsedSeconds": 2.46
+    },
+    {
+      "question": "What happened on Friday?",
+      "transcript": "On Friday I lost the train to work, so I arrived late. I explained the problem to my team and they understood.",
+      "expectedSpans": [
+        "lost the train"
+      ],
+      "outcome": "shown",
+      "attempts": 1,
+      "corrections": [
+        {
+          "wrong": "On Friday I lost the train to work, so I arrived late.",
+          "better": "On Friday I missed the train to work, so I arrived late.",
+          "kind": "word",
+          "explanation": "С поездом обычно говорят missed the train, а lost the train означает «потерял поезд»."
+        }
+      ],
+      "elapsedSeconds": 1.69
+    },
+    {
+      "question": "How did the launch go?",
+      "transcript": "I have been working on this project for six months. The launch went smoothly, and our first customers found what they needed.",
+      "expectedSpans": [],
+      "outcome": "empty",
+      "attempts": 1,
+      "corrections": [],
+      "elapsedSeconds": 1.22
+    },
+    {
+      "question": "Would you change anything?",
+      "transcript": "I, I, uh, think the the new page is easier to use. We did a mistake with the first version, but we fixed it.",
+      "expectedSpans": [
+        "did a mistake"
+      ],
+      "outcome": "shown",
+      "attempts": 1,
+      "corrections": [
+        {
+          "wrong": "We did a mistake with the first version, but we fixed it.",
+          "better": "We made a mistake with the first version, but we fixed it.",
+          "kind": "word",
+          "explanation": "Здесь говорят made a mistake, а не did a mistake: это устойчивое сочетание."
+        }
+      ],
+      "elapsedSeconds": 1.61
+    },
+    {
+      "question": "What comes next?",
+      "transcript": "If we get more feedback next month, we will improve the page again. I hope this helps customers choose the right plan.",
+      "expectedSpans": [],
+      "outcome": "empty",
+      "attempts": 1,
+      "corrections": [],
+      "elapsedSeconds": 1.1
+    }
+  ],
+  "candidates": [
+    {
+      "id": "0:0",
+      "transcript": "I work as a designer at a small company. Last week I did a decision to change our website because customers couldn't find the prices.",
+      "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+      "better": "Last week I made a decision to change our website because customers couldn't find the prices.",
+      "kind": "word",
+      "turn": 0,
+      "order": 0,
+      "key": "last week i did a decision to change our website because customers couldn't find the prices."
+    },
+    {
+      "id": "1:0",
+      "transcript": "We took a photo of the old page. Then I made a photo of the new design, and my manager gave me an advice about the colors.",
+      "wrong": "Then I made a photo of the new design, and my manager gave me an advice about the colors.",
+      "better": "Then I made a photo of the new design, and my manager gave me some advice about the colors.",
+      "kind": "grammar",
+      "turn": 1,
+      "order": 0,
+      "key": "then i made a photo of the new design, and my manager gave me an advice about the colors."
+    },
+    {
+      "id": "3:0",
+      "transcript": "She was very interesting in the idea, but she said the menu is not clear enough. I suggested her to move the button.",
+      "wrong": "I suggested her to move the button.",
+      "better": "I suggested that she move the button.",
+      "kind": "grammar",
+      "turn": 3,
+      "order": 0,
+      "key": "i suggested her to move the button."
+    },
+    {
+      "id": "3:1",
+      "transcript": "She was very interesting in the idea, but she said the menu is not clear enough. I suggested her to move the button.",
+      "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+      "better": "She was very interested in the idea, but she said the menu is not clear enough.",
+      "kind": "word",
+      "turn": 3,
+      "order": 1,
+      "key": "she was very interesting in the idea, but she said the menu is not clear enough."
+    },
+    {
+      "id": "4:0",
+      "transcript": "On Friday I lost the train to work, so I arrived late. I explained the problem to my team and they understood.",
+      "wrong": "On Friday I lost the train to work, so I arrived late.",
+      "better": "On Friday I missed the train to work, so I arrived late.",
+      "kind": "word",
+      "turn": 4,
+      "order": 0,
+      "key": "on friday i lost the train to work, so i arrived late."
+    },
+    {
+      "id": "6:0",
+      "transcript": "I, I, uh, think the the new page is easier to use. We did a mistake with the first version, but we fixed it.",
+      "wrong": "We did a mistake with the first version, but we fixed it.",
+      "better": "We made a mistake with the first version, but we fixed it.",
+      "kind": "word",
+      "turn": 6,
+      "order": 0,
+      "key": "we did a mistake with the first version, but we fixed it."
+    }
+  ],
+  "placement": {
+    "profile": {
+      "work": "designer",
+      "leisure": null,
+      "goal": "improve English at work"
+    },
+    "cefr": "B1",
+    "position": "high",
+    "question": "It sounds like the new page was a real success, especially because customers can now find the right plan more easily. You also handled the feedback well and made useful changes with your team. When you are not working on designs, what do you enjoy doing in your free time?"
+  },
+  "onboarding": {
+    "verification": [
+      {
+        "candidateIds": [
+          "0:0",
+          "1:0",
+          "3:0",
+          "3:1",
+          "4:0",
+          "6:0"
+        ],
+        "acceptedIds": [
+          "0:0",
+          "3:0",
+          "3:1",
+          "4:0",
+          "6:0"
+        ]
+      }
+    ],
+    "requestExamples": [
+      {
+        "grammarExamples": [
+          {
+            "wrong": "I suggested her to move the button.",
+            "better": "I suggested that she move the button."
+          }
+        ],
+        "vocabularyExamples": [
+          {
+            "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+            "better": "Last week I made a decision to change our website because customers couldn't find the prices."
+          },
+          {
+            "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+            "better": "She was very interested in the idea, but she said the menu is not clear enough."
+          },
+          {
+            "wrong": "On Friday I lost the train to work, so I arrived late.",
+            "better": "On Friday I missed the train to work, so I arrived late."
+          },
+          {
+            "wrong": "We did a mistake with the first version, but we fixed it.",
+            "better": "We made a mistake with the first version, but we fixed it."
+          }
+        ]
+      }
+    ],
+    "review": {
+      "levelText": "You demonstrate a strong ability to communicate in English at a B1 level. You connect ideas well, as seen when you explain the changes made to the website and the feedback received. However, there are some grammatical inaccuracies, such as \"I suggested her to move the button,\" which should be \"I suggested that she move the button.\"",
+      "shade": "0",
+      "grammar": {
+        "score": 57,
+        "text": "You show good control of grammar, using a range of structures effectively. Some phrases, like 'I suggested her to move the button,' need correction for accuracy.",
+        "band": "B1",
+        "position": "high",
+        "shade": "0",
+        "notes": "The grammar is mostly accurate with some minor errors present.",
+        "flags": [
+          "complex_clause"
+        ],
+        "confidence": 0.24,
+        "examples": [
+          {
+            "wrong": "I suggested her to move the button.",
+            "better": "I suggested that she move the button.",
+            "explanation": "The phrase should use 'that' to introduce the suggestion correctly."
+          }
+        ]
+      },
+      "vocabulary": {
+        "score": 57,
+        "text": "Your vocabulary is appropriate for the context, with some minor inaccuracies. Phrases like 'did a decision' should be replaced with 'made a decision' for naturalness.",
+        "band": "B1",
+        "position": "high",
+        "shade": "0",
+        "notes": "Vocabulary use is generally strong, with a few corrections needed.",
+        "flags": [
+          "natural_collocation",
+          "precise_choice"
+        ],
+        "confidence": 0.33,
+        "examples": [
+          {
+            "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+            "better": "Last week I made a decision to change our website because customers couldn't find the prices.",
+            "explanation": "'Made a decision' is the correct phrase for deciding something, while 'did a decision' is not idiomatic."
+          },
+          {
+            "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+            "better": "She was very interested in the idea, but she said the menu is not clear enough.",
+            "explanation": "'Interested' is the correct form to describe someone's feelings, while 'interesting' describes something that captures attention."
+          },
+          {
+            "wrong": "On Friday I lost the train to work, so I arrived late.",
+            "better": "On Friday I missed the train to work, so I arrived late.",
+            "explanation": "'Missed the train' is the correct expression for not catching a train, while 'lost the train' is not standard in this context."
+          },
+          {
+            "wrong": "We did a mistake with the first version, but we fixed it.",
+            "better": "We made a mistake with the first version, but we fixed it.",
+            "explanation": "'Made a mistake' is the correct phrase for an error, while 'did a mistake' is not idiomatic."
+          }
+        ],
+        "suggestions": []
+      },
+      "fluency": {
+        "score": 57,
+        "text": "You speak at a steady pace with clear ideas. There are no significant hesitations or disruptions in your speech.",
+        "band": "B1",
+        "position": "high",
+        "shade": "0",
+        "notes": "Fluency is consistent and clear, with good flow.",
+        "flags": [
+          "completed_turns",
+          "linked_ideas"
+        ],
+        "confidence": 0.38,
+        "paceWpm": 97,
+        "longPauses": null,
+        "fillers": null,
+        "longestStretchSec": null
+      }
+    }
+  },
+  "baseline": {
+    "runId": "synthetic",
+    "cefr": "B1",
+    "position": "high",
+    "shade": "0",
+    "overallScore": 57,
+    "nextBand": "B2",
+    "pointsToNext": 4,
+    "grammar": 57,
+    "vocabulary": 57,
+    "fluency": 57
+  },
+  "call": {
+    "verification": [
+      {
+        "candidateIds": [
+          "0:0",
+          "1:0",
+          "3:0",
+          "3:1",
+          "4:0",
+          "6:0"
+        ],
+        "acceptedIds": [
+          "0:0",
+          "3:0",
+          "3:1",
+          "4:0",
+          "6:0"
+        ]
+      }
+    ],
+    "requestExamples": [
+      {
+        "grammarExamples": [
+          {
+            "wrong": "I suggested her to move the button.",
+            "better": "I suggested that she move the button."
+          }
+        ],
+        "vocabularyExamples": [
+          {
+            "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+            "better": "Last week I made a decision to change our website because customers couldn't find the prices."
+          },
+          {
+            "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+            "better": "She was very interested in the idea, but she said the menu is not clear enough."
+          },
+          {
+            "wrong": "On Friday I lost the train to work, so I arrived late.",
+            "better": "On Friday I missed the train to work, so I arrived late."
+          },
+          {
+            "wrong": "We did a mistake with the first version, but we fixed it.",
+            "better": "We made a mistake with the first version, but we fixed it."
+          }
+        ]
+      }
+    ],
+    "review": {
+      "levelText": "Your conversation shows a good grasp of basic sentence structures, but there are some noticeable errors in vocabulary and grammar. For example, you said, \"I suggested her to move the button,\" which should be \"I suggested that she move the button.\"",
+      "recap": "I enjoyed talking with you about your work as a designer and the changes you made to your website. It was interesting to hear how you handled feedback and the project launch.",
+      "cefr": "B1",
+      "overallScore": 56,
+      "previousScore": 57,
+      "nextBand": "B2",
+      "pointsToNext": 5,
+      "grammar": {
+        "score": 56,
+        "text": "You demonstrate a solid understanding of basic grammar, but there are some errors in complex structures. For instance, the incorrect use of \"I suggested her to move the button\" shows a need for improvement in indirect speech.",
+        "examples": [
+          {
+            "wrong": "I suggested her to move the button.",
+            "better": "I suggested that she move the button.",
+            "explanation": "The phrase \"I suggested her to move the button\" is incorrect because it should use the structure \"I suggested that she move the button.\" This structure is necessary for indirect suggestions."
+          }
+        ]
+      },
+      "vocabulary": {
+        "score": 56,
+        "text": "Your vocabulary is generally appropriate for the context, but there are several incorrect word choices. Phrases like \"I did a decision\" and \"She was very interesting in the idea\" indicate areas for vocabulary enhancement.",
+        "examples": [
+          {
+            "wrong": "Last week I did a decision to change our website because customers couldn't find the prices.",
+            "better": "Last week I made a decision to change our website because customers couldn't find the prices.",
+            "explanation": "The phrase \"I did a decision\" is incorrect; it should be \"I made a decision\" because 'make' is the correct verb for decisions."
+          },
+          {
+            "wrong": "She was very interesting in the idea, but she said the menu is not clear enough.",
+            "better": "She was very interested in the idea, but she said the menu is not clear enough.",
+            "explanation": "The phrase \"She was very interesting in the idea\" should be \"She was very interested in the idea\" because 'interested' describes her feelings, not 'interesting.'"
+          },
+          {
+            "wrong": "On Friday I lost the train to work, so I arrived late.",
+            "better": "On Friday I missed the train to work, so I arrived late.",
+            "explanation": "The phrase \"I lost the train\" should be \"I missed the train\" because 'miss' is the correct verb for not catching transportation."
+          },
+          {
+            "wrong": "We did a mistake with the first version, but we fixed it.",
+            "better": "We made a mistake with the first version, but we fixed it.",
+            "explanation": "The phrase \"We did a mistake\" should be \"We made a mistake\" because 'make' is the correct verb used with 'mistake.'"
+          }
+        ],
+        "suggestions": []
+      },
+      "fluency": {
+        "score": 56,
+        "text": "Your speaking pace is steady at 97 words per minute, which is good for clarity. However, there are some hesitations, such as \"I, I, uh,\" that disrupt the flow slightly.",
+        "paceWpm": 97,
+        "longPauses": null,
+        "fillers": null,
+        "longestStretchSec": null
+      }
+    }
+  }
+}

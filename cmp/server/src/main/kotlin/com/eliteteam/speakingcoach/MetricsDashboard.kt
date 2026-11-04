@@ -757,6 +757,7 @@ internal fun adminTabs(active: String, root: String = "/admin/metrics"): String 
         if (root == METRICS_PATH) add(METRICS_DETAILS_PATH to "Подробная сводка")
         if (root == METRICS_PATH) add(ONBOARDING_ANALYTICS_PATH to "Онбординг")
         if (root == METRICS_PATH) add(CALLS_PATH to "Звонки")
+        if (root == METRICS_PATH) add("$CALLS_PATH#kora" to "Kora H")
         if (root == METRICS_PATH) add("$MONITORING_PATH/history" to "История")
         add("$root/reminders" to "Напоминания")
         if (root == METRICS_PATH) add(SOFT_NUDGES_PATH to "Мягкие напоминания")

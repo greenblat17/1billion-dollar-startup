@@ -166,11 +166,25 @@ internal data class DecisionMetrics(
     val retryRecovered: Int = 0,
     val textHint: Int = 0,
     val preBeginVoiceHint: Int = 0,
+    val checkpointReached: Int = 0,
+    val resultAtCheckpoint: Int = 0,
+    val continuedToTwoMinutes: Int = 0,
+    val earlyResultAfterContinue: Int = 0,
+    val resultAtTwoMinutes: Int = 0,
+    val feedbackOpened: Int = 0,
+    val practiceMenuOpened: Int = 0,
 )
 
 internal data class DecisionCount(val id: String, val label: String, val count: Int, val denominator: Int)
 
 internal fun decisionCounts(d: DecisionMetrics, primaryAttempts: Int): List<DecisionCount> = listOf(
+    DecisionCount("checkpoint_reached", "Показан выбор после 30 сек", d.checkpointReached, d.attempts),
+    DecisionCount("result_at_checkpoint", "Результат после 30 сек", d.resultAtCheckpoint, d.checkpointReached),
+    DecisionCount("continued_to_2min", "Продолжили разговор", d.continuedToTwoMinutes, d.checkpointReached),
+    DecisionCount("early_result_after_continue", "Завершили до 2 мин", d.earlyResultAfterContinue, d.continuedToTwoMinutes),
+    DecisionCount("result_at_2min", "Результат на 2 мин", d.resultAtTwoMinutes, d.continuedToTwoMinutes),
+    DecisionCount("feedback_opened", "Открыли подробный разбор", d.feedbackOpened, d.resultDelivered),
+    DecisionCount("practice_menu_opened", "Открыли меню практики", d.practiceMenuOpened, d.resultDelivered),
     DecisionCount("result_built", "Результат собран", d.resultBuilt, d.attempts),
     DecisionCount("result_delivered", "Результат доставлен", d.resultDelivered, d.resultBuilt),
     DecisionCount("scored", "Есть балл", d.scored, d.resultDelivered),
@@ -386,7 +400,7 @@ private fun decisionMetrics(attempts: List<OnboardingAttemptRow>, events: List<O
     return DecisionMetrics(
         attempts = attempts.size,
         resultBuilt = attempts.count { it.completedAt != null },
-        goalShown = attempts.count { it.practiceSetupAt != null },
+        goalShown = attempts.count { it.version != "v3" && it.practiceSetupAt != null },
         goalSelected = attempts.count { it.goalSelectedAt != null },
         resultDelivered = attempts.count { it.resultDeliveredAt != null },
         scored = attempts.count { it.resultDeliveredAt != null && it.scoreAvailable == true },
@@ -404,6 +418,13 @@ private fun decisionMetrics(attempts: List<OnboardingAttemptRow>, events: List<O
         retryRecovered = types["retry_recovered"] ?: 0,
         textHint = types["text_hint"] ?: 0,
         preBeginVoiceHint = types["pre_begin_voice_hint"] ?: 0,
+        checkpointReached = types["30s_checkpoint_reached"] ?: 0,
+        resultAtCheckpoint = types["results_at_checkpoint"] ?: 0,
+        continuedToTwoMinutes = types["continued_to_2min"] ?: 0,
+        earlyResultAfterContinue = types["results_early_after_continue"] ?: 0,
+        resultAtTwoMinutes = types["results_at_2min"] ?: 0,
+        feedbackOpened = types["feedback_opened"] ?: 0,
+        practiceMenuOpened = types["practice_menu_opened"] ?: 0,
     )
 }
 

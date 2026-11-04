@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.speaking.Correction
+import com.eliteteam.speakingcoach.speaking.CorrectionKind
 import dev.inmo.tgbotapi.types.message.textsources.TextSourcesList
 import dev.inmo.tgbotapi.utils.bold
 import dev.inmo.tgbotapi.utils.blockquote
@@ -10,7 +11,6 @@ import dev.inmo.tgbotapi.utils.regular
 import dev.inmo.tgbotapi.utils.regularln
 import dev.inmo.tgbotapi.utils.strikethrough
 
-private const val MAX_CORRECTIONS = 3
 private val englishPhrase = Regex("""(?<![\p{L}\p{N}])[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*(?: +[A-Za-z][A-Za-z0-9]*(?:[-'’][A-Za-z0-9]+)*)*(?![\p{L}\p{N}])""")
 
 private data class CorrectionSpan(
@@ -27,6 +27,14 @@ internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
 
 internal fun onboardingCorrection(correction: Correction): TextSourcesList {
     return buildEntities {
+        if (correction.kind == CorrectionKind.ALTERNATIVE) {
+            regularln("Ещё один способ сказать:")
+            regular(correction.wrong)
+            regular(" → ")
+            bold(correction.better)
+            addAll(explanationLine(correction))
+            return@buildEntities
+        }
         regularln("Ранее ты сказал:")
         addAll(inlineCorrection(correction))
         addAll(explanationLine(correction))
@@ -35,13 +43,12 @@ internal fun onboardingCorrection(correction: Correction): TextSourcesList {
 
 internal fun coachingEntities(transcript: String, corrections: List<Correction>): TextSourcesList {
     val text = transcript.trim()
-    val spans = correctionSpans(text, corrections.sortedBy { it.priority }.take(MAX_CORRECTIONS))
-    if (spans.isNotEmpty()) {
+    val best = correctionSpans(text, corrections).minWithOrNull(
+        compareBy<CorrectionSpan> { it.correction.priority }.thenBy { it.start }.thenByDescending { it.end - it.start },
+    )
+    if (best != null) {
         return buildEntities {
-            spans.distinctBy { it.correction }.forEachIndexed { index, span ->
-                if (index > 0) regular("\n\n")
-                addAll(onboardingCorrection(span.correction))
-            }
+            addAll(onboardingCorrection(best.correction))
         }
     }
     return buildEntities {

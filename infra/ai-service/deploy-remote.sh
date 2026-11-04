@@ -16,7 +16,20 @@ cd "$APP"
 BUILD=$(mktemp -d)
 cp "$APP/Dockerfile" "$APP/requirements.txt" "$BUILD/"
 cp -R "$APP/app" "$BUILD/app"
-docker build -t ai-service:local "$BUILD"
+if ! docker build -t ai-service:next "$BUILD" 2>&1 | tee "$BUILD/build.log"; then
+  if ! grep -q '429 Too Many Requests' "$BUILD/build.log"; then
+    echo "AI image build failed for a reason other than Docker Hub rate limiting" >&2
+    exit 1
+  fi
+  if ! docker image inspect ai-service:local >/dev/null 2>&1 ||
+     ! docker run --rm --entrypoint cat ai-service:local /app/requirements.txt | cmp -s - "$BUILD/requirements.txt"; then
+    echo "Cannot reuse the previous AI image: image missing or dependencies changed" >&2
+    exit 1
+  fi
+  printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\n' > "$BUILD/Dockerfile.cached"
+  docker build -f "$BUILD/Dockerfile.cached" -t ai-service:next "$BUILD"
+fi
+docker image tag ai-service:next ai-service:local
 rm -rf "$BUILD"
 docker network create "$NETWORK" >/dev/null 2>&1 || true
 docker rm -f ai-service >/dev/null 2>&1 || true

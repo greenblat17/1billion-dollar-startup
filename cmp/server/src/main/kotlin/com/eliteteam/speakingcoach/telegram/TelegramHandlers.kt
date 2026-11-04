@@ -8,6 +8,7 @@ import com.eliteteam.speakingcoach.ai.ClipUploadFailure
 import com.eliteteam.speakingcoach.ai.ClipPollingTimeout
 import com.eliteteam.speakingcoach.ai.OnboardingReview
 import com.eliteteam.speakingcoach.ai.voiceExtension
+import com.eliteteam.speakingcoach.ai.VocabularyResponse
 import com.eliteteam.speakingcoach.analytics.AttemptMark
 import com.eliteteam.speakingcoach.analytics.OnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
@@ -29,6 +30,7 @@ import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.bot.exceptions.BotException
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
+import dev.inmo.tgbotapi.extensions.api.deleteMessage
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
@@ -40,8 +42,15 @@ import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
@@ -75,6 +84,7 @@ import kotlin.time.TimeSource
 internal const val TELEGRAM_WEBHOOK_SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
 private const val CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
 private const val TELEGRAM_DOWNLOAD_LIMIT_BYTES = 20L * 1024 * 1024
+private val wordsCommand = Regex("^/words(?:@[A-Za-z0-9_]+)?\\s*$", RegexOption.IGNORE_CASE)
 
 internal class VoiceFileTooLargeException(cause: Throwable? = null) : Exception("Telegram voice file is too large", cause)
 
@@ -110,7 +120,8 @@ private fun localFailureReason(error: Throwable): String = when {
 
 private fun onboardingActionStage(action: String): String = when (action) {
     "begin" -> "first_question"
-    "level", "see", "results", "vocab", "fluency", "finish", "profile", "bye" -> "result_card"
+    "level", "see", "see_results", "results", "vocab", "fluency", "finish", "practice", "profile", "bye" -> "result_card"
+    "keep_talking" -> "conversation"
     "skip", "m5", "m10", "m15" -> "goal"
     "remind", "later" -> "reminder"
     "retry" -> "result_delivery"
@@ -141,8 +152,10 @@ private fun userAction(text: String): String = when {
     isProfileCommand(text) -> "profile"
     isStreakCommand(text) -> "streak"
     isRemindCommand(text) -> "remind"
+    isVoiceCommand(text) -> "voice"
     isSpeedCommand(text) -> "speed"
     isStartCallButton(text) -> "start-call"
+    text == VOCABULARY_BUTTON || wordsCommand.matches(text) -> "vocabulary"
     text == PRACTICE_SITUATION_BUTTON -> "practice-situation"
     text.startsWith("/") -> "command"
     else -> "text"
@@ -150,7 +163,9 @@ private fun userAction(text: String): String = when {
 
 private fun callbackAction(data: String): String = when {
     parseCallFeedbackCallback(data) != null -> "callback:call-feedback"
+    data == VOICE_MENU_CALLBACK -> "callback:voice-menu"
     data == LEGACY_ONBOARDING_CALLBACK -> "callback:legacy-onboarding"
+    parseVoiceCallback(data) != null -> "callback:voice"
     parseSpeedCallback(data) != null -> "callback:speed"
     data == REMINDER_STOP_CALLBACK -> "callback:reminder-stop"
     data == ONBOARDING_PROGRESS_CALLBACK -> "callback:onboarding-progress"
@@ -173,6 +188,8 @@ internal fun isProfileCommand(text: String): Boolean = isCommand(text, "/profile
 internal fun isStreakCommand(text: String): Boolean = isCommand(text, "/streak")
 
 internal fun isRemindCommand(text: String): Boolean = isCommand(text, "/remind")
+
+internal fun isVoiceCommand(text: String): Boolean = isCommand(text, "/voice")
 
 internal fun isSpeedCommand(text: String): Boolean = isCommand(text, "/speed")
 
@@ -237,6 +254,81 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     val spokenLines = ConcurrentHashMap<String, String>()
     val scenarioMenus = ConcurrentHashMap<String, MessageId>()
     val customScenarioPrompts = ConcurrentHashMap<String, MessageId>()
+    val vocabularyAddPrompts = ConcurrentHashMap.newKeySet<String>()
+
+    suspend fun showStatus(chat: Chat, action: BotAction) {
+        try {
+            sendBotAction(chat, action)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to show Telegram action {} for {}", action.actionName, chat.id, error)
+        }
+    }
+
+    suspend fun acknowledgeVocabularyTurn(message: ChatMessage, result: VocabularyResponse, sentMessageId: Long) {
+        val turnId = result.turnId ?: return
+        val lessonId = result.lesson?.id ?: return
+        try {
+            ai.vocabulary(telegramSessionId(message.chat.id), "delivery", lessonId = lessonId,
+                messageId = sentMessageId, turnId = turnId)
+        } catch (error: CancellationException) { throw error
+        } catch (error: Throwable) { log.warn("Vocabulary delivery acknowledgement failed for lesson {}", lessonId, error) }
+    }
+
+    suspend fun sendVocabularyTurn(message: ChatMessage, result: VocabularyResponse) {
+        if (result.deliveredMessageId != null) return
+        val audio = result.audio
+        val lesson = result.lesson
+        if (audio != null && lesson != null) {
+            showStatus(message.chat, RecordVoiceAction)
+            val bytes = Base64.getDecoder().decode(audio)
+            val voice = sendVoice(message.chat.id,
+                bytes.asMultipartFile("lesson.${voiceExtension(result.audioContentType)}"),
+                replyMarkup = vocabularyLessonKeyboard(lesson))
+            acknowledgeVocabularyTurn(message, result, voice.messageId.long)
+            spokenLines[spokenKey(message.chat.id, voice.messageId)] = result.text
+            try {
+                ai.vocabulary(telegramSessionId(message.chat.id), "subtitle-save",
+                    text = result.text, messageId = voice.messageId.long)
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) { log.warn("Vocabulary subtitle storage failed", error) }
+        } else if (result.text.isNotBlank()) {
+            val sent = reply(message, result.text, allowSendingWithoutReply = true,
+                replyMarkup = lesson?.let { vocabularyLessonKeyboard(it, spoken = false) })
+            acknowledgeVocabularyTurn(message, result, sent.messageId.long)
+        }
+        if (result.summary != null) {
+            sendMessage(message.chat.id, result.summary, replyMarkup = startCallKeyboard())
+        }
+    }
+    suspend fun sendVocabularyVoiceTurn(message: ChatMessage, produce: suspend () -> VocabularyResponse) {
+        withRecordVoiceAction(message.chat) {
+            sendVocabularyTurn(message, produce())
+        }
+    }
+    suspend fun showVocabularyList(message: ChatMessage, page: Int = 0, edit: Boolean = false) {
+        val state = ai.vocabulary(telegramSessionId(message.chat.id), "list")
+        val current = state.lesson?.takeIf { it.status in setOf("active", "offer", "cards") }
+        if (current != null) {
+            if (edit) try {
+                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) { log.warn("Could not close vocabulary menu", error) }
+            sendVocabularyVoiceTurn(message) {
+                ai.vocabulary(telegramSessionId(message.chat.id), "resume", lessonId = current.id)
+            }
+            return
+        }
+        val text = vocabularyListText(state, page)
+        val keyboard = vocabularyListKeyboard(state, page)
+        if (edit) try {
+            editMessageText(message.chat.id, message.messageId, text, replyMarkup = keyboard)
+        } catch (error: CancellationException) { throw error
+        } catch (error: Throwable) {
+            reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
+        } else reply(message, text, allowSendingWithoutReply = true, replyMarkup = keyboard)
+    }
     suspend fun clearScenarioMenu(chat: Chat) {
         val menuId = scenarioMenus.remove(chat.id.toString()) ?: return
         try {
@@ -265,6 +357,11 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     fun callEvent(event: CallEvent) { callEvents?.record(event) }
     fun callChat(message: ChatMessage): Long? = telegramChatNumber(message.chat.id)
+    fun callCharacter(chatId: Long, callId: String, character: String?, at: Instant) {
+        if (character in setOf("speaky", "kora_h"))
+            callEvent(CallEvent("call:$callId:character", "call_character", chatId, at,
+                callId = callId, state = character))
+    }
     fun callClosed(message: ChatMessage, callId: String?, at: Instant?, reason: String) {
         val chatId = callChat(message) ?: return
         if (callId.isNullOrBlank()) return
@@ -296,15 +393,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             correctionLlmMs = timingsMs["notes"], ttsMs = timingsMs["tts"],
             finalizeMs = timingsMs["finalize"]))
     }
-    suspend fun showStatus(chat: Chat, action: BotAction) {
-        try {
-            sendBotAction(chat, action)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            log.warn("Failed to show Telegram action {} for {}", action.actionName, chat.id, error)
-        }
-    }
     suspend fun optionalCard(message: ChatMessage, label: String, send: suspend () -> Unit) {
         noteOptionalCardMetric(telegramSessionId(message.chat.id), "attempted")
         try {
@@ -331,8 +419,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun canStartCall(chat: Chat): Boolean = try {
         val sessionId = telegramSessionId(chat.id)
+        val state = ai.onboardingState(sessionId, "call-gate:${System.nanoTime()}")
         val profile = ai.progressProfile(sessionId)
-        profile.assessment?.overallScore != null && profile.dailyMinutes != null && !ai.callStatus(sessionId).active
+        state.status == "completed" && profile.dailyMinutes != null && !ai.callStatus(sessionId).active
     } catch (error: CancellationException) {
         throw error
     } catch (error: Throwable) {
@@ -396,6 +485,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             allowSendingWithoutReply = true,
         )
     }
+    suspend fun sendVoiceSelector(message: ChatMessage) {
+        val character = ai.character(telegramSessionId(message.chat.id))
+        reply(message, voiceMessage(character), allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+    }
     suspend fun sendSpeed(message: ChatMessage) {
         log.info("Reading speech speed")
         val speed = ai.speechSpeed(telegramSessionId(message.chat.id))
@@ -431,6 +524,33 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         log.warn("Failed to read reminder time for {}", message.chat.id, error)
         false
     }
+    suspend fun showModeFeedback(message: ChatMessage, instanceId: String) {
+        val session = telegramSessionId(message.chat.id)
+        try {
+            val offered = ai.callFeedback(session, "offer", callId = instanceId,
+                username = telegramProfile(message.chat).username.orEmpty())
+            if (offered.status != "offered") {
+                log.info("Feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
+                return
+            }
+            try {
+                reply(message, if (offered.mode == "onboarding") ONBOARDING_FEEDBACK_PROMPT else MODE_FEEDBACK_PROMPT,
+                    allowSendingWithoutReply = true, replyMarkup = firstCallFeedbackKeyboard(instanceId))
+            } catch (error: Throwable) {
+                try { ai.callFeedback(session, "release", callId = instanceId) }
+                catch (releaseError: Throwable) { log.warn("Failed to release feedback offer", releaseError) }
+                throw error
+            }
+            ai.callFeedback(session, "confirm", callId = instanceId)
+            if (offered.mode != "onboarding") callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "call:$instanceId:feedback-offered", "feedback_offered", chatId,
+                callId = instanceId, state = offered.character)) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.warn("Failed to show feedback for {}", message.chat.id, error)
+        }
+    }
     suspend fun deliver(message: ChatMessage, result: ClipReply, firstQuestion: Boolean = false,
                         onCorrection: (Boolean) -> Unit = {},
                         onMainDelivered: (Long, String) -> Unit = { _, _ -> }): Boolean {
@@ -441,9 +561,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val finished = onboarding?.takeIf { it.status == "completed" && it.review != null }
         val practice = result.call?.takeIf { onboarding == null }
         val progress = when {
-            finished != null -> onboardingKeyboard("level", finished.runId)
+            finished != null -> null
             onboarding?.status == "pending" -> null
-            onboarding != null -> onboardingProgressKeyboard(onboarding.seconds)
+            onboarding?.phase == "checkpoint" -> null
+            onboarding != null -> onboardingProgressKeyboard(onboarding.seconds, onboarding.phase, onboarding.runId)
             else -> null
         }
         if (onboarding != null || practice != null) clearProgress(message.chat)
@@ -474,6 +595,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             optionalCard(message, "coaching") {
                 reply(message, coachingEntities(result.transcript, result.corrections), allowSendingWithoutReply = true)
             }
+        }
+        if (finished != null) {
+            val card = levelSlide(finished.cefr, finished.review!!.levelText, finished.overallScore,
+                finished.nextBand, finished.pointsToNext, preliminary = finished.seconds < 120.0)
+            val sent = reply(message, card, allowSendingWithoutReply = true,
+                replyMarkup = onboardingResultKeyboard(finished.runId))
+            onMainDelivered(sent.messageId.long, "result_card")
+            analytics.safely { mark(finished.runId, AttemptMark.RESULTS, Instant.now()) }
+            return true
         }
         val beforeVoiceMs = deliveryStarted.elapsedNow().inWholeMilliseconds
         val audio = result.audio
@@ -514,6 +644,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 result.text,
                 allowSendingWithoutReply = true,
                 replyMarkup = when {
+                    onboarding?.phase == "checkpoint" -> onboardingCheckpointKeyboard(onboarding.runId)
                     progress != null && action != null -> progress + action
                     else -> progress ?: action
                 },
@@ -531,6 +662,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     }
     suspend fun greet(message: ChatMessage, text: String, force: Boolean = false, trigger: String = "start",
                       receivedAt: Instant = Instant.now()) {
+        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
+            reply(message, "Your vocabulary lesson is active. Continue with the last lesson message or tap End lesson.")
+            return
+        }
         customScenarioPrompts.remove(message.chat.id.toString())
         clearScenarioMenu(message.chat)
         val sessionId = telegramSessionId(message.chat.id)
@@ -589,7 +724,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
         } else {
             log.info("Starting session")
-            val greeting = ai.startSession(sessionId)
+            val greeting = withRecordVoiceAction(message.chat) { ai.startSession(sessionId) }
             log.info("Reading progress")
             val profile = ai.progressProfile(sessionId)
             val eligible = callGate(state.status, profile.assessment?.overallScore, profile.dailyMinutes, state.legacyUser) == "open"
@@ -607,12 +742,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             )
             log.info("Sending greeting voice")
             auditGenerated(message, greeting.text, "greeting")
+            showStatus(message.chat, RecordVoiceAction)
             sendVoice(message.chat.id, greeting.audio.bytes.asMultipartFile(greeting.audio.fileName))
         }
     }
     suspend fun startCall(message: ChatMessage, receivedAt: Instant, scenarioKind: String? = null,
                           scenarioDescription: String? = null,
                           reminderOpeningQuestion: String? = null) {
+        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
+            reply(message, "Your vocabulary lesson is active. Finish it before starting a call.")
+            return
+        }
         val retryHint = if (scenarioKind == null) "🎙 Start call" else PRACTICE_SITUATION_BUTTON
         val sessionId = telegramSessionId(message.chat.id)
         val chatId = callChat(message)
@@ -677,8 +817,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         sendMessage(message.chat.id, START_CALL_CONNECTING, replyMarkup = ReplyKeyboardRemove())
         showStatus(message.chat, RecordVoiceAction)
         val opening = try {
-            ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName,
-                scenarioKind, scenarioDescription, reminderOpeningQuestion)
+            withRecordVoiceAction(message.chat) {
+                ai.startCall(sessionId, (message.chat as? PrivateChat)?.firstName,
+                    scenarioKind, scenarioDescription, reminderOpeningQuestion)
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -690,6 +832,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opened.callId, messageId = message.messageId.long,
                 seconds = opened.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            if (chatId != null && opened?.callId != null)
+                callCharacter(chatId, opened.callId, opened.character, receivedAt)
             if (chatId != null && opened?.callId != null && opened.startedUnix != null)
                 callEvent(CallEvent("call:${opened.callId}:actual-open", "call_actual_open",
                     chatId, Instant.ofEpochMilli((opened.startedUnix * 1000).toLong()),
@@ -707,6 +851,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 username = telegramProfile(message.chat).username.orEmpty(),
                 callId = opening.callId, messageId = message.messageId.long,
                 seconds = opening.goalSeconds, state = "button", scenarioKind = scenarioKind ?: "free"))
+            callCharacter(chatId, opening.callId, opening.character, receivedAt)
             opening.startedUnix?.let { unix -> callEvent(CallEvent(
                 "call:${opening.callId}:actual-open", "call_actual_open", chatId,
                 Instant.ofEpochMilli((unix * 1000).toLong()), callId = opening.callId)) }
@@ -726,6 +871,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         val audio = Base64.getDecoder().decode(requireNotNull(opening.audioBase64))
         clearProgress(message.chat)
         val voice = try {
+            showStatus(message.chat, RecordVoiceAction)
             sendVoice(message.chat.id, audio.asMultipartFile("call-opening.${voiceExtension(requireNotNull(opening.audioContentType))}"),
                 replyMarkup = callKeyboard(opening.todaySeconds, opening.goalSeconds, spoken = true,
                     callId = opening.callId))
@@ -809,6 +955,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             username = telegramProfile(message.chat).username.orEmpty(),
                             callId = opened.callId, messageId = message.messageId.long,
                             seconds = opened.goalSeconds, state = "voice", scenarioKind = "free"))
+                        callCharacter(chatId, opened.callId, opened.character, receivedAt)
                         opened.startedUnix?.let { unix -> callEvent(CallEvent(
                             "call:${opened.callId}:actual-open", "call_actual_open", chatId,
                             Instant.ofEpochMilli((unix * 1000).toLong()), callId = opened.callId)) }
@@ -992,6 +1139,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         "voice_processed", analyticsChatId, callId = callId,
                         messageId = message.messageId.long,
                         seconds = result.reply.call?.recognizedSeconds,
+                        state = result.reply.call?.durationSource?.let { source ->
+                            if (source == "recording_fallback")
+                                "$source:${result.reply.call.durationFallbackReason ?: "unknown"}" else source
+                        },
                         amount = result.reply.corrections.size))
                 }
                 if (result.reply.call != null &&
@@ -1085,6 +1236,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 if (state.status == "active" && facts != null) {
                     analytics.safely { recordVoice(state.runId, sessionId.value, requestId, facts,
                         processingMillis(started), now, receivedAt) }
+                    if (result.reply.onboarding?.phase == "checkpoint") analytics.safely {
+                        event(state.runId, "$requestId:checkpoint", "30s_checkpoint_reached", now)
+                    }
+                    if (state.phase == "checkpoint" && result.reply.onboarding?.phase == "extended") analytics.safely {
+                        event(state.runId, "$requestId:implicit-continue", "continued_to_2min", now)
+                    }
+                    if (facts.completedNow && (result.reply.onboarding?.seconds ?: 0.0) >= 120.0) analytics.safely {
+                        event(state.runId, "$requestId:2min", "results_at_2min", now)
+                    }
                     if (facts.completedNow) analytics.safely { mark(state.runId, AttemptMark.RESULT_DELIVERED, now) }
                     if (facts.assessmentFailed) analytics.safely {
                         event(state.runId, "$requestId:failed", "result_build_failed", now, "result_build", "internal")
@@ -1124,6 +1284,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         throw error
                     } catch (error: Throwable) {
                         log.warn("Failed to react to the last onboarding voice for {}", sessionId.value, error)
+                    }
+                    if (delivered && result.reply.onboarding.review != null) {
+                        showModeFeedback(message, result.reply.onboarding.runId)
                     }
                 }
             }
@@ -1295,11 +1458,15 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 message, when {
                     error is VoiceFileTooLargeException -> VOICE_TOO_LARGE_TEXT
                     state?.retryAvailable == true -> "Something went wrong. Tap the button to retry with your saved answer."
+                    state?.status == "completed" && state.review != null -> "Your result is ready. Tap below to see it."
                     else -> ERROR_TEXT
                 },
                 allowSendingWithoutReply = true,
-                replyMarkup = state?.takeIf { it.retryAvailable }
-                    ?.let { onboardingKeyboard("retry", it.runId) },
+                replyMarkup = when {
+                    state?.retryAvailable == true -> onboardingKeyboard("retry", state.runId)
+                    state?.status == "completed" && state.review != null -> onboardingKeyboard("level", state.runId)
+                    else -> null
+                },
             )
         } finally {
             if (isVoice) {
@@ -1320,7 +1487,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         if (chatId != null) callEvent(CallEvent("call:$callId:review-request", "review_requested",
             chatId, callId = callId))
         val review = try {
-            ai.reviewCall(callId)
+            coroutineScope {
+                val typing = if (asNewMessage) launch {
+                    while (isActive) {
+                        showStatus(message.chat, TypingAction)
+                        delay(4_000)
+                    }
+                } else null
+                try {
+                    ai.reviewCall(callId)
+                } finally {
+                    typing?.cancelAndJoin()
+                }
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1328,31 +1507,41 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             null
         }
         val retry = review == null || review.retry
-        if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-generated",
-            "review_generated", chatId, callId = callId))
+        val insufficient = !retry && review.reviewKind == "insufficient"
+        val generatedEvent = if (insufficient) "review_insufficient" else "review_generated"
+        val deliveredEvent = if (insufficient) "review_insufficient_delivered" else "review_delivered"
+        if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$generatedEvent",
+            generatedEvent, chatId, callId = callId))
         if (retry && chatId != null) callEvent(CallEvent("call:$callId:review-failed",
             "review_failed", chatId, callId = callId))
-        val card = if (retry) buildEntities { regular(CALL_RETRY_TEXT) } else {
-            levelSlide(review.cefr, review.levelText, review.overallScore, review.nextBand, review.pointsToNext)
-        }
-        val markup = if (retry) callRetryKeyboard(callId) else callSlideKeyboard("grammar", callId)
+        val start = if (retry) null else callReviewStart(review)
+        val card = start?.first ?: buildEntities { regular(CALL_RETRY_TEXT) }
+        val markup = if (retry) callRetryKeyboard(callId)
+            else start?.second?.let { callSlideKeyboard(it, callId) } ?: noInlineKeyboard
         if (asNewMessage) {
             try {
-                sendMessage(message.chat.id, card, replyMarkup = markup)
+                if (insufficient) {
+                    reply(message, card, allowSendingWithoutReply = true,
+                        replyMarkup = startCallKeyboard())
+                } else {
+                    reply(message, CALL_REVIEW_DONE_TEXT, allowSendingWithoutReply = true,
+                        replyMarkup = startCallKeyboard())
+                    sendMessage(message.chat.id, card, replyMarkup = markup)
+                }
             } catch (error: CancellationException) { throw error }
               catch (error: Throwable) {
                   if (chatId != null) callEvent(CallEvent("call:$callId:review-delivery-failed",
                       "review_delivery_failed", chatId, callId = callId))
                   throw error
               }
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
             return
         }
         try {
             editMessageText(message.chat.id, message.messageId, card, replyMarkup = markup)
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -1365,8 +1554,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                       "review_delivery_failed", chatId, callId = callId))
                   throw sendError
               }
-            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:review-delivered",
-                "review_delivered", chatId, callId = callId))
+            if (!retry && chatId != null) callEvent(CallEvent("call:$callId:$deliveredEvent",
+                deliveredEvent, chatId, callId = callId))
         }
     }
     suspend fun showCallSlide(message: ChatMessage, callback: CallCallback) {
@@ -1376,12 +1565,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callback.callId))
             return
         }
-        val wrapped = review.asOnboardingReview()
-        val slide = when (callback.action) {
-            "grammar" -> grammarSlide(wrapped) to "vocab"
-            "vocab" -> vocabularySlide(wrapped) to "fluency"
-            else -> fluencySlide(wrapped) to "progress"
-        }
+        if (review.reviewKind == "insufficient") return
+        val slide = callReviewSlide(review, callback.action)
         val markup = callSlideKeyboard(slide.second, callback.callId)
         try {
             editMessageText(message.chat.id, message.messageId, slide.first, replyMarkup = markup)
@@ -1399,7 +1584,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             reply(message, CALL_RETRY_TEXT, allowSendingWithoutReply = true, replyMarkup = callRetryKeyboard(callId))
             return
         }
-        val progress = callProgressMessage(review, offerReminder = reminderMissing(message))
+        if (review.reviewKind == "insufficient") return
+        val progress = if (review.isNewFullReview()) {
+            callFinalLevelMessage(review, offerReminder = reminderMissing(message))
+        } else {
+            callProgressMessage(review, offerReminder = reminderMissing(message))
+        }
         try {
             editMessageText(message.chat.id, message.messageId, progress, replyMarkup = noInlineKeyboard)
         } catch (error: CancellationException) {
@@ -1408,21 +1598,9 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             log.warn("Failed to edit call progress for {}", message.chat.id, error)
             reply(message, progress, allowSendingWithoutReply = true)
         }
-        try {
-            val offered = ai.callFeedback(telegramSessionId(message.chat.id), "offer", callId = callId,
-                username = telegramProfile(message.chat).username.orEmpty())
-            if (offered.status == "offered") {
-                reply(message, FIRST_CALL_FEEDBACK_PROMPT, allowSendingWithoutReply = true,
-                    replyMarkup = firstCallFeedbackKeyboard(callId))
-            } else {
-                log.info("First-call feedback not offered for {}: {}", message.chat.id, offered.reason ?: offered.status)
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            log.warn("Failed to show first-call feedback for {}", message.chat.id, error)
-        }
+        showModeFeedback(message, callId)
     }
+
     suspend fun endPracticeCall(message: ChatMessage, callbackId: String, pressedAt: Instant,
                                 expectedCallId: String) {
         log.info("Ending call")
@@ -1438,8 +1616,6 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             showStartCallKeyboard(message.chat)
             return
         }
-        reply(message, CALL_REVIEW_WAIT_TEXT, allowSendingWithoutReply = true,
-            replyMarkup = startCallKeyboard())
         ended.lastVoiceMessageId?.let { lastVoiceId ->
             try {
                 setMessageReaction(message.chat.id, MessageId(lastVoiceId), "❤")
@@ -1491,6 +1667,170 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 }
             }
         }
+        if (query.data.startsWith("vocab:")) {
+            val message = callbackMessage ?: return@withRequestLog
+            try {
+                actions.run(message.chat.id.toString(), "vocab:${query.id}") {
+                    val sessionId = telegramSessionId(message.chat.id)
+                    val parts = query.data.split(':')
+                    val action = parts.getOrNull(1).orEmpty()
+                    val itemId = parts.getOrNull(2).orEmpty()
+                    val page = parts.getOrNull(3)?.toIntOrNull() ?: 0
+                    if (action == "progress") {
+                        val current = ai.vocabulary(sessionId, "list").lesson
+                        reply(message, if ((current?.format ?: 3) >= 4)
+                            "White means not started, yellow means you understand the word, and green means you used it in your own phrase."
+                            else "Green circles show words practised in this round. The count restarts in the next round.",
+                            allowSendingWithoutReply = true)
+                        return@run
+                    }
+                    if (action == "subtitle") {
+                        val spoken = spokenLines[spokenKey(message.chat.id, message.messageId)]
+                            ?: ai.vocabulary(sessionId, "subtitle", messageId = message.messageId.long).text
+                        if (spoken.isBlank()) reply(message, "Subtitles are unavailable for this message.",
+                            allowSendingWithoutReply = true)
+                        else reply(message, spokenQuote(spoken), allowSendingWithoutReply = true)
+                        return@run
+                    }
+                    val currentLesson = ai.vocabulary(sessionId, "list").lesson
+                    if (action == "start" && currentLesson?.status in setOf("active", "offer", "cards")) {
+                        showVocabularyList(message)
+                        return@run
+                    }
+                    if (((currentLesson?.status == "active" && currentLesson.round == "Recall") ||
+                        currentLesson?.status == "cards") &&
+                        action !in setOf("hint", "end", "progress", "subtitle", "retry")) {
+                        showVocabularyList(message)
+                        return@run
+                    }
+                    if (currentLesson?.status in setOf("active", "offer", "cards") &&
+                        action in setOf("add", "choose", "unchoose", "delask", "delete", "confirm", "start")) {
+                        showVocabularyList(message)
+                        return@run
+                    }
+                    when (action) {
+                        "retry" -> {
+                            val sourceMessageId = parts.getOrNull(3)?.toLongOrNull()
+                            if (sourceMessageId == null || sourceMessageId <= 0 || currentLesson?.id != itemId) {
+                                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                                reply(message, "This retry is no longer available.", allowSendingWithoutReply = true)
+                            } else try {
+                                sendVocabularyVoiceTurn(message) {
+                                    ai.vocabulary(sessionId, "retry", lessonId = itemId,
+                                        messageId = sourceMessageId)
+                                }
+                                editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            } catch (error: CancellationException) { throw error
+                            } catch (error: Throwable) {
+                                log.warn("Vocabulary retry failed for chat={} lesson={} message={}",
+                                    message.chat.id, itemId, sourceMessageId, error)
+                                reply(message, "Still couldn't finish that response. Try Retry again in a moment.",
+                                    allowSendingWithoutReply = true)
+                            }
+                        }
+                        "list" -> showVocabularyList(message, parts.getOrNull(2)?.toIntOrNull() ?: 0, edit = true)
+                        "add" -> {
+                            vocabularyAddPrompts.add(message.chat.id.toString())
+                            reply(message, "Send one English word or short expression to add.",
+                                allowSendingWithoutReply = true)
+                        }
+                        "choose", "unchoose" -> {
+                            val state = ai.vocabulary(sessionId, "list")
+                            if (action == "choose" && itemId !in state.selected && state.selected.size >= 5) {
+                                reply(message, "Choose up to five words. Remove one before selecting another.",
+                                    allowSendingWithoutReply = true)
+                            } else {
+                                ai.vocabulary(sessionId, "select", itemId = itemId, selected = action == "choose")
+                                showVocabularyList(message, page, edit = true)
+                            }
+                        }
+                        "card", "delask" -> {
+                            val state = ai.vocabulary(sessionId, "list")
+                            val card = state.items.find { it.id == itemId }
+                            if (card == null) showVocabularyList(message, page, edit = true)
+                            else if (action == "card") editMessageText(message.chat.id, message.messageId,
+                                vocabularyCardText(card), replyMarkup = vocabularyCardKeyboard(card, page, card.id in state.selected))
+                            else editMessageText(message.chat.id, message.messageId,
+                                "Delete ${card.word} from your vocabulary?", replyMarkup = vocabularyDeleteKeyboard(card, page))
+                        }
+                        "delete" -> {
+                            ai.vocabulary(sessionId, "delete", itemId = itemId)
+                            showVocabularyList(message, page, edit = true)
+                        }
+                        "confirm" -> {
+                            ai.vocabulary(sessionId, "confirm")
+                            showVocabularyList(message, 0, edit = false)
+                        }
+                        "cancel" -> {
+                            ai.vocabulary(sessionId, "cancel")
+                            showVocabularyList(message, 0, edit = false)
+                        }
+                        "start" -> {
+                            if (ai.callStatus(sessionId).active) {
+                                reply(message, "End your current call before starting a vocabulary lesson.",
+                                    allowSendingWithoutReply = true)
+                            } else {
+                                sendMessage(message.chat.id, START_CALL_CONNECTING,
+                                    replyMarkup = ReplyKeyboardRemove())
+                                showStatus(message.chat, RecordVoiceAction)
+                                vocabularyAddPrompts.remove(message.chat.id.toString())
+                                sendVocabularyVoiceTurn(message) {
+                                    ai.vocabulary(sessionId, "start").also {
+                                        editMessageReplyMarkup(message.chat.id, message.messageId,
+                                            replyMarkup = noInlineKeyboard)
+                                    }
+                                }
+                            }
+                        }
+                        "hint" -> {
+                            val current = ai.vocabulary(sessionId, "list").lesson
+                            if (current?.id != itemId || current.index != page) {
+                                reply(message, "That hint button belongs to an earlier exercise.",
+                                    allowSendingWithoutReply = true)
+                            } else if (current.status != "active" || current.phase !in setOf("Understand", "Use")) {
+                                reply(message, "Hints are available during Understand and Use.",
+                                    allowSendingWithoutReply = true)
+                            } else if (current.hints >= 1) {
+                                reply(message, "You've already used the hint for this question.",
+                                    allowSendingWithoutReply = true)
+                            } else {
+                                val hint = ai.vocabulary(sessionId, "hint", lessonId = itemId)
+                                if (hint.deliveredMessageId == null) {
+                                    val sent = reply(message, "💡 ${hint.text}", allowSendingWithoutReply = true)
+                                    acknowledgeVocabularyTurn(message, hint, sent.messageId.long)
+                                }
+                            }
+                        }
+                        "play" -> {
+                            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            sendVocabularyVoiceTurn(message) {
+                                ai.vocabulary(sessionId, "play", lessonId = itemId)
+                            }
+                        }
+                        "skip" -> {
+                            val result = ai.vocabulary(sessionId, "skip", lessonId = itemId)
+                            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            result.summary?.let { sendMessage(message.chat.id, it, replyMarkup = startCallKeyboard()) }
+                        }
+                        "end" -> {
+                            val result = ai.vocabulary(sessionId, "end", lessonId = itemId)
+                            editMessageReplyMarkup(message.chat.id, message.messageId, replyMarkup = noInlineKeyboard)
+                            if (result.summary != null) sendMessage(message.chat.id, result.summary,
+                                replyMarkup = startCallKeyboard())
+                            else reply(message, "That lesson has already ended.", allowSendingWithoutReply = true,
+                                replyMarkup = startCallKeyboard())
+                        }
+                        else -> showVocabularyList(message, 0)
+                    }
+                }
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) {
+                log.warn("Vocabulary action failed for {}", message.chat.id, error)
+                reply(message, "That action is no longer available. Open Vocabulary Builder to see the current state.",
+                    allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         if (callbackMessage != null && reminderButtons != null) {
             val chatId = telegramChatNumber(callbackMessage.chat.id)
             if (chatId != null && reminderButtons.isStale(chatId, callbackMessage.messageId.long)) {
@@ -1514,7 +1854,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val current = store.currentJourney(sessionId.value)
                     val state = ai.onboardingState(sessionId, "followup:resume:${query.id}")
                     val action = current?.takeIf { it.first == state.runId }
-                        ?.second?.let { followupAction(it, state.status) }
+                        ?.second?.let { followupAction(it, if (state.status == "active") state.phase else state.status) }
                     when (action) {
                         "resume" -> {
                             val voiceId = store.lastBotVoice(state.runId)
@@ -1536,7 +1876,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 }
                             } else {
                                 val copied = copyMessage(message.chat.id, MessageId(voiceId), message.chat.id,
-                                    replyMarkup = onboardingProgressKeyboard(state.seconds))
+                                    replyMarkup = onboardingProgressKeyboard(state.seconds, state.phase, state.runId))
                                 store.recordBotVoice(state.runId, copied.long, Instant.now())
                             }
                         }
@@ -1640,6 +1980,63 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
             }
             return@withRequestLog
         }
+        if (query.data == VOICE_MENU_CALLBACK) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-menu:${query.id}", "voice_menu_clicked", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = "received")) }
+            try {
+                actions.run(message.chat.id.toString(), "voice-menu:${query.id}") {
+                    sendVoiceSelector(message)
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Voice menu failed for {}", message.chat.id, error)
+                reply(message, "Please send /voice to choose a partner.", allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
+        if (query.data == "voice:kora") {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            reply(message, "Kora is no longer available. Use /voice to choose Speaky or Kora H.",
+                allowSendingWithoutReply = true)
+            return@withRequestLog
+        }
+        val selectedCharacter = parseVoiceCallback(query.data)
+        if (selectedCharacter != null) {
+            val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
+            callChat(message)?.let { chatId -> callEvent(CallEvent(
+                "voice-choice:${query.id}", "voice_character_tapped", chatId, callbackReceivedAt,
+                botMessageId = message.messageId.long, state = selectedCharacter)) }
+            try {
+                actions.run(message.chat.id.toString(), "voice:${query.id}") {
+                    val character = ai.setCharacter(telegramSessionId(message.chat.id), selectedCharacter)
+                    val notice = voiceSelectionNotice(character)
+                    if (notice != null) {
+                        reply(message, notice, allowSendingWithoutReply = true)
+                    } else {
+                        val text = voiceMessage(character)
+                        val shownText = ((message as? ContentMessage<*>)?.content as? TextContent)?.text
+                        if (shownText != text.joinToString("") { it.source }) {
+                            try {
+                                editMessageText(message.chat.id, message.messageId, text, replyMarkup = voiceKeyboard(character))
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (_: Throwable) {
+                                reply(message, text, allowSendingWithoutReply = true, replyMarkup = voiceKeyboard(character))
+                            }
+                        }
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.error("Character selection failed for {}", message.chat.id, error)
+                reply(message, ERROR_TEXT, allowSendingWithoutReply = true)
+            }
+            return@withRequestLog
+        }
         val selectedSpeed = parseSpeedCallback(query.data)
         if (selectedSpeed != null) {
             log.info("Updating speech speed")
@@ -1694,6 +2091,10 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     val result = ai.callFeedback(telegramSessionId(message.chat.id), feedbackCallback.action,
                         callId = feedbackCallback.callId, choice = feedbackCallback.choice)
                     if (result.status == "rated") {
+                        callChat(message)?.let { chatId -> callEvent(CallEvent(
+                            "call:${feedbackCallback.callId}:feedback-rated", "feedback_rated", chatId,
+                            callbackReceivedAt, callId = feedbackCallback.callId,
+                            state = feedbackCallback.choice)) }
                         val question = if (feedbackCallback.choice == "liked")
                             FIRST_CALL_FEEDBACK_LIKED_QUESTION else FIRST_CALL_FEEDBACK_IMPROVE_QUESTION
                         try {
@@ -1739,7 +2140,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             replyMarkup = startCallKeyboard())
                         "end" -> endPracticeCall(message, query.id.toString(), callbackReceivedAt,
                             callCallback.callId)
-                        "progress" -> showCallProgress(message, callCallback.callId)
+                        "progress", "level" -> showCallProgress(message, callCallback.callId)
                         "grammar", "vocab", "fluency" -> showCallSlide(message, callCallback)
                         else -> showCallLevel(message, callCallback.callId)
                     }
@@ -1792,7 +2193,28 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         log.info("Handling onboarding callback {}", callback.action)
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
         val requestId = onboardingCallbackRequestId(callback.action, callback.runId, query.id.toString())
+        var loadingMessageId: MessageId? = null
+        suspend fun dismissResultsLoading() {
+            val id = loadingMessageId ?: return
+            loadingMessageId = null
+            try {
+                deleteMessage(message.chat.id, id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Could not remove onboarding results loading message for {}", message.chat.id, error)
+            }
+        }
         try {
+            if (callback.action == "see_results") {
+                try {
+                    loadingMessageId = sendMessage(message.chat.id, ONBOARDING_RESULTS_LOADING).messageId
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Could not show onboarding results loading message for {}", message.chat.id, error)
+                }
+            }
             actions.run(message.chat.id.toString(), requestId) {
                 analytics.safely { event(callback.runId, "callback:${query.id}:attempt", "action_attempt", Instant.now(),
                     onboardingActionStage(callback.action)) }
@@ -1812,15 +2234,19 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                     state.overallScore,
                                     state.nextBand,
                                     state.pointsToNext,
+                                    preliminary = state.seconds < 120.0,
                                 ),
                                 allowSendingWithoutReply = true,
-                                replyMarkup = onboardingKeyboard("results", callback.runId),
+                                replyMarkup = onboardingResultKeyboard(callback.runId),
                             )
                             analytics.safely { mark(callback.runId, AttemptMark.RESULTS, Instant.now()) }
                         }
                     }
                     "results", "vocab", "fluency" -> {
                         if (showReviewSlide(ai, log, message, callback)) {
+                            if (callback.action == "results") analytics.safely {
+                                event(callback.runId, "feedback:${query.id}", "feedback_opened", Instant.now())
+                            }
                             val step = when (callback.action) {
                                 "results" -> AttemptMark.GRAMMAR
                                 "vocab" -> AttemptMark.VOCABULARY
@@ -1829,20 +2255,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             analytics.safely { mark(callback.runId, step, Instant.now()) }
                         }
                     }
-                    "finish" -> {
+                    "finish", "practice" -> {
                         val state = ai.onboardingState(
                             telegramSessionId(message.chat.id),
-                            "finish:${query.id}",
+                            "practice:${query.id}",
                         )
-                        val ask = if (state.runId == callback.runId) {
-                            practiceAsk(state.cefr, state.overallScore, state.nextBand, state.pointsToNext)
-                        } else {
-                            practiceAsk(null, null, null)
-                        }
-                        val markup = practiceMinutesKeyboard(callback.runId)
-                        editMessageText(message.chat.id, message.messageId, ask, replyMarkup = markup)
-                        if (state.runId == callback.runId) analytics.safely {
-                            mark(callback.runId, AttemptMark.PRACTICE, Instant.now())
+                        if (state.runId == callback.runId && state.status == "completed") {
+                            val ask = practiceAsk(state.cefr, state.overallScore, state.nextBand, state.pointsToNext)
+                            editMessageText(message.chat.id, message.messageId, ask,
+                                replyMarkup = practiceMinutesKeyboard(callback.runId))
+                            analytics.safely { mark(callback.runId, AttemptMark.PRACTICE, Instant.now()) }
                         }
                     }
                     "skip" -> {
@@ -1852,6 +2274,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         sendMessage(message.chat.id, REMINDER_QUESTION, replyMarkup = reminderAskKeyboard(callback.runId))
                         analytics.safely { markGoal(callback.runId, 0, Instant.now()) }
                         analytics.safely { mark(callback.runId, AttemptMark.REMINDER_OFFERED, Instant.now()) }
+                        analytics.safely { event(callback.runId, "practice-menu:${query.id}", "practice_menu_opened", Instant.now()) }
                     }
                     "m5", "m10", "m15" -> {
                         val minutes = when (callback.action) {
@@ -1874,6 +2297,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         sendMessage(message.chat.id, REMINDER_QUESTION, replyMarkup = reminderAskKeyboard(callback.runId))
                         analytics.safely { markGoal(callback.runId, minutes, Instant.now()) }
                         analytics.safely { mark(callback.runId, AttemptMark.REMINDER_OFFERED, Instant.now()) }
+                        analytics.safely { event(callback.runId, "practice-menu:${query.id}", "practice_menu_opened", Instant.now()) }
                     }
                     "remind" -> {
                         ai.scheduleReminder(
@@ -1925,7 +2349,23 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                         if (callback.action == "begin" && result.onboarding?.status == "active") {
                             analytics.safely { mark(callback.runId, AttemptMark.BEGIN_PRESSED, Instant.now()) }
                         }
-                        deliver(message, result, firstQuestion = callback.action == "begin")
+                        val delivered = deliver(message, result, firstQuestion = callback.action == "begin")
+                        dismissResultsLoading()
+                        if (callback.action == "retry" && result.onboarding?.phase == "checkpoint" &&
+                            result.onboarding.status == "active") analytics.safely {
+                            event(callback.runId, "retry:${query.id}:checkpoint", "30s_checkpoint_reached", Instant.now())
+                        }
+                        if (callback.action == "keep_talking" && result.onboarding?.phase == "extended") analytics.safely {
+                            event(callback.runId, "continue:${query.id}", "continued_to_2min", Instant.now())
+                        }
+                        if (callback.action in setOf("see_results", "retry") && result.onboarding?.status == "completed") analytics.safely {
+                            event(callback.runId, "result:${query.id}",
+                                when {
+                                    result.onboarding.seconds >= 120.0 -> "results_at_2min"
+                                    result.onboarding.phase == "checkpoint" -> "results_at_checkpoint"
+                                    else -> "results_early_after_continue"
+                                }, Instant.now())
+                        }
                         if (callback.action == "begin" && result.onboarding?.status == "active" &&
                             (result.audio != null || result.text.isNotBlank())) {
                             analytics.safely { mark(callback.runId, AttemptMark.FIRST_QUESTION_DELIVERED, Instant.now()) }
@@ -1952,6 +2392,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                                 scoreAvailable = result.onboarding.overallScore != null,
                             ).withReview(result.onboarding.review)
                             analytics.safely { recordOutcome(callback.runId, details, Instant.now()) }
+                            if (delivered) showModeFeedback(message, callback.runId)
                         }
                         if (callback.action == "begin" && result.onboarding?.status == "active") {
                             analytics.safely { mark(callback.runId, AttemptMark.LETS_CHAT, Instant.now()) }
@@ -1975,15 +2416,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 sendMessage(
                     message.chat.id,
                     voiceMessagesForbiddenText(),
-                    replyMarkup = onboardingKeyboard(callback.action, callback.runId),
+                    replyMarkup = onboardingKeyboard(if (callback.action == "keep_talking") "retry" else callback.action, callback.runId),
                 )
             } else {
                 sendMessage(
                     message.chat.id,
                     "Something went wrong. Please try again.",
-                    replyMarkup = onboardingKeyboard(callback.action, callback.runId),
+                    replyMarkup = onboardingKeyboard(if (callback.action == "keep_talking") "retry" else callback.action, callback.runId),
                 )
             }
+        } finally {
+            withContext(NonCancellable) { dismissResultsLoading() }
         }
         }
     }
@@ -2006,8 +2449,14 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
     onCommand("remind", requireOnlyCommandInMessage = false) { message ->
         if (isRemindCommand(message.content.text)) handle(message) { sendRemind(message) }
     }
+    onCommand("voice", requireOnlyCommandInMessage = false) { message ->
+        if (isVoiceCommand(message.content.text)) handle(message) { sendVoiceSelector(message) }
+    }
     onCommand("speed", requireOnlyCommandInMessage = false) { message ->
         if (isSpeedCommand(message.content.text)) handle(message) { sendSpeed(message) }
+    }
+    onCommand("words", requireOnlyCommandInMessage = false) { message ->
+        if (wordsCommand.matches(message.content.text)) handle(message) { showVocabularyList(message) }
     }
     onContentMessage { message ->
         val receivedAt = telegramChatNumber(message.chat.id)?.let { audit?.receiptTime(it, message.messageId.long) }
@@ -2021,19 +2470,82 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 is VoiceContent -> {
                     customScenarioPrompts.remove(message.chat.id.toString())
                     clearScenarioMenu(message.chat)
-                    voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
+                    val lesson = ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson
+                    if (lesson?.status == "active" || lesson?.status == "cards") {
+                        if (exceedsTelegramDownloadLimit(content.media.fileSize?.bytes)) {
+                            reply(message, "This recording is too large. Please send a shorter one; your attempt is safe.")
+                        } else try {
+                            sendVocabularyVoiceTurn(message) {
+                                val bytes = downloadFile(content.media)
+                                ai.vocabularyVoice(telegramSessionId(message.chat.id), lesson.id,
+                                    message.messageId.long, bytes)
+                            }
+                        } catch (error: CancellationException) { throw error
+                        } catch (error: Throwable) {
+                            log.warn("Vocabulary voice failed for {}", message.chat.id, error)
+                            reply(message, VOCABULARY_RETRY_TEXT,
+                                replyMarkup = vocabularyRetryKeyboard(lesson.id, message.messageId.long))
+                        }
+                    } else if (lesson?.status == "offer") {
+                        reply(message, "Tap Play or Skip under the last lesson message.")
+                    } else voice(message, content, receivedAt, receivedNs, chatQueueNs.get(), terminalOutcome)
                 }
-                is TextContent -> when {
+                is TextContent -> {
+                    val vocabularyMenu = content.text == VOCABULARY_BUTTON || wordsCommand.matches(content.text)
+                    val lesson = if (vocabularyMenu) null
+                        else ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson
+                    when {
+                    vocabularyMenu -> {
+                        vocabularyAddPrompts.remove(message.chat.id.toString())
+                        showVocabularyList(message)
+                    }
+                    lesson?.status in setOf("active", "offer", "cards") -> {
+                        val currentLesson = checkNotNull(lesson)
+                        if ((currentLesson.status != "active" &&
+                             !(currentLesson.status == "cards" && currentLesson.format >= 4)) ||
+                            content.text.startsWith("/")) {
+                            reply(message, "Continue with the last lesson message, or tap End lesson.")
+                        } else try {
+                            sendVocabularyVoiceTurn(message) {
+                                ai.vocabulary(telegramSessionId(message.chat.id), "answer",
+                                    lessonId = currentLesson.id, text = content.text, messageId = message.messageId.long)
+                            }
+                        } catch (error: CancellationException) { throw error
+                        } catch (error: Throwable) {
+                            log.warn("Vocabulary text failed for {}", message.chat.id, error)
+                            reply(message, VOCABULARY_RETRY_TEXT,
+                                replyMarkup = vocabularyRetryKeyboard(currentLesson.id, message.messageId.long))
+                        }
+                    }
+                    vocabularyAddPrompts.remove(message.chat.id.toString()) && !content.text.startsWith("/") -> {
+                        try {
+                            val proposed = ai.vocabulary(telegramSessionId(message.chat.id), "propose", text = content.text)
+                            val card = proposed.card
+                            if (card == null) reply(message, "I couldn't prepare that word. Try another expression.")
+                            else reply(message, vocabularyCardText(card), allowSendingWithoutReply = true,
+                                replyMarkup = vocabularyDraftKeyboard())
+                        } catch (error: CancellationException) { throw error
+                        } catch (error: Throwable) {
+                            log.warn("Vocabulary word proposal failed", error)
+                            vocabularyAddPrompts.add(message.chat.id.toString())
+                            reply(message, "I couldn't identify that word. Please send one English word or short expression.")
+                        }
+                    }
                     isStartCommand(content.text) -> greet(message, content.text, receivedAt = receivedAt)
                     isOnboardingCommand(content.text) -> greet(message, content.text, force = true, trigger = "onboarding_command")
                     isStreakCommand(content.text) -> sendStreak(message)
                     isProfileCommand(content.text) -> sendProfile(message)
                     isRemindCommand(content.text) -> sendRemind(message)
+                    isVoiceCommand(content.text) -> sendVoiceSelector(message)
                     isSpeedCommand(content.text) -> sendSpeed(message)
                     isStartCallButton(content.text) -> {
-                        customScenarioPrompts.remove(message.chat.id.toString())
-                        clearScenarioMenu(message.chat)
-                        startCall(message, receivedAt)
+                        if (ai.vocabulary(telegramSessionId(message.chat.id), "list").lesson?.status in setOf("active", "offer", "cards")) {
+                            reply(message, "Your vocabulary lesson is active. Finish it before starting a call.")
+                        } else {
+                            customScenarioPrompts.remove(message.chat.id.toString())
+                            clearScenarioMenu(message.chat)
+                            startCall(message, receivedAt)
+                        }
                     }
                     content.text == PRACTICE_SITUATION_BUTTON -> {
                         val key = message.chat.id.toString()
@@ -2145,6 +2657,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             }
                         }
                     }
+                }
                 }
                 else -> log.info("Ignoring message")
             }

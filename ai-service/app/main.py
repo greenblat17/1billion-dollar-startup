@@ -17,8 +17,12 @@ from redis.asyncio import Redis
 from app.call_review import CallReviews
 from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
 from app.call_start import CallStarter
+from app.characters import Characters, CharacterStore, KoraHModel
+from app.gemini_speech import GeminiKoraSpeech
 from app.calls import CallStore, moscow_day
-from app.first_call_feedback import FirstCallFeedback, offer_eligibility
+from app.first_call_feedback import FirstCallFeedback, ModeFeedback, offer_eligibility
+from app.conversation import ConversationMode, ConversationRouting
+from app.speech_time import SpeechTimeMeter, SpeechTimeRollout
 from app.config import Settings
 from app.dialogue import DialogueStore, build_dialogue_store
 from app.jobs import ClipJob, JobStore
@@ -32,7 +36,8 @@ from app.habit_analytics import HabitAnalytics
 from app.metrics import MetricsStore, build_metrics_store
 from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
 from app.operational_metrics import (
-    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, STAGE_METRICS, VOICE_MODEL_METRICS,
+    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, REVIEW_VERIFICATION_METRICS, VOCABULARY_ENRICHMENT_METRICS,
+    STAGE_METRICS, VOICE_MODEL_METRICS,
     VoiceModelUsage, bind_voice_usage, reset_voice_usage,
 )
 from app.onboarding import OnboardingService, OnboardingSttError, OnboardingStore
@@ -48,6 +53,7 @@ from app.speech import SPEED_CHOICES, SessionSpeech, SpeechSpeedStore
 from app.stt import GroqSpeechToText
 from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
 from app.voice_cost import VoiceCostLedger, bind_voice_cost, reset_voice_cost
+from app.vocabulary_builder import VocabularyBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -81,11 +87,17 @@ def create_app(
     configure_user_id_hash_key(settings.ai_internal_token)
     jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
     clip_pipeline = pipeline or _build_pipeline(settings)
+    rollout = SpeechTimeRollout(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+    ) if clip_pipeline.speech_meter is not None and call_store is None else None
     onboarding = OnboardingService(
         onboarding_store or OnboardingStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
         clip_pipeline, onboarding_model or OnboardingModel(
             clip_pipeline.llm, settings.onboarding_review_model or settings.llm_model,
             settings.onboarding_review_fallback_model,
+            settings.correction_verification_model,
+            settings.person_memory_model,
+            settings.vocabulary_verification_model,
         ),
     )
     memory_jobs = MemoryJobRunner(MemoryJobStore(onboarding.store._redis), onboarding.personalization)
@@ -93,12 +105,29 @@ def create_app(
     calls = call_store or CallStore(
         redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
         goal_of=onboarding.store.get_goal,
+        rollout=rollout,
     )
     first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    mode_feedback = ModeFeedback(first_call_feedback)
     clip_pipeline.calls = calls
     reviews = CallReviews(calls, onboarding.store, onboarding.model, clip_pipeline.streaks)
+    kora_model = clip_pipeline.characters.model_h
+    kora_speech = clip_pipeline.characters.speech_h
+    kora_lesson_ready = callable(getattr(kora_model, "complete_json", None)) and callable(
+        getattr(kora_speech, "synthesize", None))
+    vocabulary = VocabularyBuilder(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        kora_model if kora_lesson_ready else clip_pipeline.llm,
+        clip_pipeline.stt, clip_pipeline.speech,
+        kora_speech=kora_speech if kora_lesson_ready else None,
+        context_window_tokens=(settings.vocabulary_context_window_tokens or
+                               (1_000_000 if kora_lesson_ready and settings.kora_model == "anthropic/claude-sonnet-4.6"
+                                else 8192)),
+        personalization=onboarding.personalization,
+    )
     sessions = clip_pipeline.dialogue
-    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions, clip_pipeline.speech)
+    call_starter = CallStarter(calls, onboarding.model, onboarding.personalization, sessions,
+                              clip_pipeline.speech, clip_pipeline.characters, clip_pipeline.history)
     streaks = clip_pipeline.streaks
     habits = HabitAnalytics(clip_pipeline.metrics)
     reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
@@ -114,6 +143,8 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        if rollout is not None:
+            await rollout.activation_day()
         await streaks.backfill()
         memory_task = asyncio.create_task(memory_jobs.run())
         habit_task = asyncio.create_task(habits.run())
@@ -147,10 +178,15 @@ def create_app(
             await asyncio.gather(intro_warmup, retention_task, *( [cost_task] if cost_task else [] ),
                                  return_exceptions=True)
         await onboarding.store.aclose()
+        if rollout is not None:
+            await rollout.aclose()
+        if clip_pipeline.speech_meter is not None:
+            clip_pipeline.speech_meter.close()
         if owns_calls:
             await calls.aclose()
         await sessions.aclose()
         await clip_pipeline.speech.speeds.aclose()
+        await clip_pipeline.characters.store.aclose()
         await clip_pipeline.metrics.aclose()
         if campaign_redis is not None:
             await campaign_redis.aclose()
@@ -158,6 +194,7 @@ def create_app(
         if voice_cost is not None:
             await voice_cost.aclose()
         await first_call_feedback.aclose()
+        await vocabulary.close()
         close_tts = getattr(clip_pipeline.tts, "aclose", None)
         if close_tts is not None:
             await close_tts()
@@ -172,6 +209,7 @@ def create_app(
     app.state.jobs = jobs
     app.state.pipeline = clip_pipeline
     app.state.onboarding = onboarding
+    app.state.vocabulary = vocabulary
     app.state.memory_jobs = memory_jobs
 
     @app.middleware("http")
@@ -237,7 +275,8 @@ def create_app(
             memory_pending, memory_oldest = -1, -1.0
         return Response(
             content=body + habits.prometheus() + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
-            + VOICE_MODEL_METRICS.prometheus() + LLM_GENERATION_METRICS.prometheus()
+            + REVIEW_VERIFICATION_METRICS.prometheus() + VOCABULARY_ENRICHMENT_METRICS.prometheus() + VOICE_MODEL_METRICS.prometheus()
+            + LLM_GENERATION_METRICS.prometheus()
             + memory_jobs.metrics.prometheus(memory_pending, memory_oldest),
             media_type="text/plain; version=0.0.4",
         )
@@ -326,6 +365,42 @@ def create_app(
     @app.get("/internal/profile/{session_id}")
     async def progress_profile(session_id: str) -> dict:
         return await onboarding.progress_profile(session_id)
+
+    async def character_status(session_id: str, blocked: str | None = None) -> dict:
+        allowed = clip_pipeline.characters.allowed(session_id)
+        selected = await clip_pipeline.characters.store.get(session_id)
+        return {"character": selected,
+                "koraAvailable": False,  # Older Telegram servers still require this field.
+                "koraHAvailable": allowed,
+                "blocked": blocked or ("unavailable" if selected == "kora_h" and not allowed else None)}
+
+    @app.get("/internal/character/{session_id}")
+    async def character(session_id: str) -> dict:
+        return await character_status(session_id)
+
+    @app.post("/internal/character")
+    async def set_character(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        selected = payload.get("character")
+        if selected not in ("speaky", "kora_h") or not session_id.startswith("tg-"):
+            raise HTTPException(status_code=400, detail="invalid Telegram character selection")
+        async with call_starter.lock(session_id):
+            if selected == "kora_h" and not clip_pipeline.characters.allowed(session_id):
+                return await character_status(session_id, "unavailable")
+            if await clip_pipeline.characters.store.get(session_id) == selected:
+                return await character_status(session_id)
+            active = await calls.open_call_today(session_id)
+            attempt = await onboarding.store.get(session_id)
+            if (jobs.pending(session_id) or
+                    (attempt and attempt.get("status") in {"active", "pending"}) or
+                    (active and (active["turns"] or active.get("openingDelivered")))):
+                return await character_status(session_id, "active_conversation")
+            # A failed opening must not trap the user in an unavailable character.
+            if active:
+                await calls.seal(session_id, reason="character_changed_before_opening")
+            await clip_pipeline.characters.store.set(session_id, selected)
+            return await character_status(session_id)
 
     @app.get("/internal/speech-speed/{session_id}")
     async def speech_speed(session_id: str) -> dict[str, float]:
@@ -446,7 +521,13 @@ def create_app(
     @app.post("/internal/calls/open")
     async def calls_open(request: Request) -> dict[str, Any]:
         payload = await _json_object(request)
-        return await calls.open(_call_session_id(payload))
+        session_id = _call_session_id(payload)
+        route = await ConversationRouting(clip_pipeline.characters).resolve(session_id, ConversationMode.FREE)
+        summary = await calls.open(session_id)
+        if not summary["alreadyActive"]:
+            await calls.set_character(summary["callId"], route.personality.value)
+            summary["character"] = route.personality.value
+        return summary
 
     @app.post("/internal/calls/status")
     async def calls_status(request: Request) -> dict[str, Any]:
@@ -458,6 +539,7 @@ def create_app(
             summary = None
         return {"active": await calls.is_open_today(session_id),
                 "callId": summary.get("callId") if summary else None,
+                "character": summary.get("character") if summary else None,
                 "startedUnix": summary.get("startedUnix") if summary else None,
                 "goalSeconds": summary.get("goalSeconds") if summary else None}
 
@@ -528,11 +610,114 @@ def create_app(
         if not call_id:
             raise HTTPException(status_code=400, detail="callId required")
         try:
-            return await reviews.review(call_id)
+            review = await reviews.review(call_id)
+            if not review.get("retry"):
+                call = await calls.get(call_id)
+                if call is not None:
+                    try:
+                        await vocabulary.import_review(str(call["sessionId"]), call_id, review)
+                    except Exception:
+                        logger.exception("vocabulary import failed for call=%s", call_id)
+                        return {"callId": call_id, "retry": True}
+            return review
         except KeyError as error:
             raise HTTPException(status_code=404, detail="unknown call") from error
         except ValueError as error:
             raise HTTPException(status_code=409, detail="numeric baseline required") from error
+
+    @app.post("/internal/vocabulary")
+    async def vocabulary_action(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = payload.get("action")
+        try:
+            if action == "list":
+                return await vocabulary.list(session_id)
+            if action == "propose":
+                return {"card": await vocabulary.propose(session_id, str(payload.get("text") or ""))}
+            if action == "confirm":
+                return {"card": await vocabulary.confirm(session_id)}
+            if action == "cancel":
+                await vocabulary.cancel_draft(session_id)
+                return {"ok": True}
+            if action == "subtitle-save":
+                await vocabulary.save_subtitle(session_id, int(payload.get("messageId") or 0),
+                                               str(payload.get("text") or ""))
+                return {"ok": True}
+            if action == "subtitle":
+                return {"text": await vocabulary.subtitle(session_id, int(payload.get("messageId") or 0)) or ""}
+            if action == "review":
+                lesson_id = str(payload.get("lessonId") or "")
+                if not lesson_id:
+                    raise ValueError("lessonId required")
+                review = await vocabulary.review(session_id, lesson_id)
+                if review is None:
+                    raise ValueError("lesson review unavailable")
+                return review
+            if action == "delivery":
+                return await vocabulary.delivery(session_id, str(payload.get("lessonId") or ""),
+                                                 str(payload.get("turnId") or ""),
+                                                 int(payload.get("messageId") or 0))
+            if action == "select":
+                if type(payload.get("selected")) is not bool:
+                    raise HTTPException(status_code=400, detail="selected must be boolean")
+                return await vocabulary.select(session_id, str(payload.get("itemId") or ""), payload["selected"])
+            if action == "delete":
+                return await vocabulary.delete(session_id, str(payload.get("itemId") or ""))
+            if action == "start":
+                return await vocabulary.start(session_id)
+            if action == "resume":
+                return await vocabulary.resume(session_id, str(payload.get("lessonId") or ""))
+            if action == "play":
+                return await vocabulary.play(session_id, str(payload.get("lessonId") or ""))
+            if action == "skip":
+                return await vocabulary.skip(session_id, str(payload.get("lessonId") or ""))
+            if action == "hint":
+                return await vocabulary.hint(session_id, str(payload.get("lessonId") or ""))
+            if action == "answer":
+                message_id = int(payload.get("messageId") or 0)
+                answer = str(payload.get("text") or "")
+                if message_id <= 0 or not answer.strip() or len(answer) > 4000:
+                    raise HTTPException(status_code=400, detail="invalid vocabulary answer")
+                lesson_id = str(payload.get("lessonId") or "")
+                await vocabulary.save_retry_input(session_id, lesson_id, message_id, text=answer)
+                result = await vocabulary.text(session_id, lesson_id, message_id, answer)
+                await vocabulary.clear_retry_input(session_id, lesson_id, message_id)
+                return result
+            if action == "retry":
+                return await vocabulary.retry(session_id, str(payload.get("lessonId") or ""),
+                                              int(payload.get("messageId") or 0))
+            if action == "end":
+                return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
+        except ValueError as error:
+            logger.warning("vocabulary action conflict action=%s lesson_id=%s message_id=%s reason=%s",
+                           action, payload.get("lessonId"), payload.get("messageId"), error)
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail="invalid vocabulary action")
+
+    @app.post("/internal/vocabulary/voice")
+    async def vocabulary_voice(sessionId: str = Form(...), lessonId: str = Form(...),
+                               messageId: int = Form(...), file: UploadFile = File(...)) -> dict[str, Any]:
+        if not sessionId.startswith("tg-") or messageId <= 0:
+            raise HTTPException(status_code=400, detail="invalid vocabulary voice")
+        audio = await file.read()
+        if not audio or len(audio) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="invalid audio size")
+        try:
+            await vocabulary.save_retry_input(sessionId, lessonId, messageId, audio=audio)
+            result = await vocabulary.voice(sessionId, lessonId, messageId, audio)
+            await vocabulary.clear_retry_input(sessionId, lessonId, messageId)
+            return result
+        except ValueError as error:
+            logger.warning(
+                "vocabulary voice rejected lesson_id=%s message_id=%s error_type=%s reason=%s",
+                lessonId, messageId, type(error).__name__, str(error),
+            )
+            raise HTTPException(status_code=409, detail=str(error)) from error
+
+    @app.post("/internal/vocabulary/due")
+    async def vocabulary_due() -> dict[str, Any]:
+        return {"targets": await vocabulary.due()}
 
     @app.post("/internal/calls/feedback")
     async def calls_feedback(request: Request) -> dict[str, str]:
@@ -543,28 +728,47 @@ def create_app(
         if action == "offer":
             call = await calls.get(call_id)
             onboarding_state = await onboarding.store.get(session_id)
-            ineligible = offer_eligibility(call, onboarding_state, session_id)
+            if call is not None:
+                ineligible = offer_eligibility(call, onboarding_state, session_id)
+                mode = "situation" if call.get("scenario") else "free"
+                character = call.get("character", "speaky")
+            elif (onboarding_state and onboarding_state.get("runId") == call_id
+                  and onboarding_state.get("status") == "completed" and onboarding_state.get("review")):
+                ineligible = None
+                mode = "onboarding"
+                character = onboarding_state.get("character", "speaky")
+            else:
+                ineligible = "unknown_completed_instance"
             if ineligible is not None:
                 return {"status": "ignored", "reason": ineligible}
-            return await first_call_feedback.offer(session_id, call_id, str(payload.get("username") or ""))
+            await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids)
+            return await mode_feedback.offer(session_id, call_id, mode,
+                                             str(payload.get("username") or ""), character)
         if action == "rate":
             try:
-                return await first_call_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+                result = await mode_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+                if result.pop("_legacy", False) and result["status"] == "rated":
+                    await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids, force=True)
+                return result
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error)) from error
+        if action == "confirm":
+            return await mode_feedback.confirm(session_id, call_id)
+        if action == "release":
+            return await mode_feedback.release(session_id, call_id)
         if action == "answer":
             value = payload.get("text")
             if not isinstance(value, str):
                 raise HTTPException(status_code=400, detail="text required")
-            return await first_call_feedback.answer(session_id, text=value)
+            return await mode_feedback.answer(session_id, text=value)
         if action == "skip":
-            return await first_call_feedback.answer(session_id, call_id=call_id)
+            return await mode_feedback.answer(session_id, instance_id=call_id)
         raise HTTPException(status_code=400, detail="invalid feedback action")
 
     @app.get("/internal/calls/feedback")
     async def calls_feedback_list(offset: int = Query(0, ge=0, le=10_000),
                                   limit: int = Query(25, ge=1, le=50)) -> dict[str, Any]:
-        return await first_call_feedback.list_rated(offset, limit)
+        return await mode_feedback.list_rated(offset, limit)
 
     @app.post("/internal/onboarding/goal")
     async def onboarding_goal(request: Request) -> dict:
@@ -581,7 +785,7 @@ def create_app(
         session_id, request_id = _onboarding_identity(payload)
         run_id = str(payload.get("runId") or "")
         action = str(payload.get("action") or "")
-        if not run_id or action not in {"begin", "retry", "continue"}:
+        if not run_id or action not in {"begin", "retry", "continue", "keep_talking", "see_results"}:
             raise HTTPException(status_code=400, detail="invalid action")
         await sessions.create(session_id)
         job = jobs.create(session_id)
@@ -767,6 +971,16 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         tts._v2 = v2
     model = OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics, notes_model=settings.notes_model)
     model._v2 = v2
+    characters = Characters(CharacterStore(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        telegram_default="kora_h",
+    ), enabled=settings.kora_h_enabled, allowlist=settings.kora_h_allowlist)
+    if "openrouter.ai" in settings.openai_base_url:
+        characters.speech_h = GeminiKoraSpeech(
+            openai_client, settings.ffmpeg_bin, settings.kora_tts_model, settings.kora_tts_voice,
+        )
+        characters.model_h = KoraHModel(openai_client, settings.kora_model, metrics=metrics)
+        characters.model_h._v2 = v2
     speech = SessionSpeech(
         tts,
         SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
@@ -783,6 +997,8 @@ def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -
         dialogue=dialogue or build_dialogue_store(settings),
         metrics=metrics,
         v2=v2,
+        speech_meter=SpeechTimeMeter(settings.ffmpeg_bin) if settings.speech_time_enabled else None,
+        characters=characters,
     )
 
 
@@ -893,7 +1109,10 @@ async def _run_job(
     try:
         result = await asyncio.wait_for(
             onboarding.turn(job.session_id, run_id, request_id or "", audio, content_type, filename, duration)
-            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename, on_stage=set_stage),
+            if onboarding is not None and run_id else pipeline.run(job.session_id, audio, content_type, filename,
+                                                                    on_stage=set_stage,
+                                                                    attempt_id=job.attempt_id,
+                                                                    turn_id=job.attempt_id or job.job_id),
             timeout=timeout_seconds,
         )
         if result.transcript and job.transcript is None:

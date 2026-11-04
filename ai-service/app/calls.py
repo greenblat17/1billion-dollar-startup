@@ -5,7 +5,7 @@ import asyncio
 import json
 import time
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -14,6 +14,7 @@ from redis.asyncio import Redis
 from app.audit_artifacts import recorded_at
 
 from app.metrics import METRICS_TIMEZONE
+from app.speech_time import SpeechTimeRollout
 
 _TZ = ZoneInfo(METRICS_TIMEZONE)
 RAW_CONTENT_SECONDS = 7 * 24 * 60 * 60
@@ -26,10 +27,12 @@ def moscow_day(moment: float | None = None) -> str:
 
 
 class CallStore:
-    def __init__(self, redis: Redis | None = None, goal_of: GoalLookup | None = None, clock: Callable[[], float] | None = None) -> None:
+    def __init__(self, redis: Redis | None = None, goal_of: GoalLookup | None = None,
+                 clock: Callable[[], float] | None = None, rollout: SpeechTimeRollout | None = None) -> None:
         self._redis = redis
         self._goal_of = goal_of
         self._clock = clock or time.time
+        self._rollout = rollout
         self._calls: dict[str, dict] = {}
         self._open: dict[str, str] = {}
         self._days: dict[str, dict] = {}
@@ -51,6 +54,13 @@ class CallStore:
             already_active = bool(call and (call["turns"] or call.get("openingDelivered")))
             if call is None:
                 call = _new_call(session_id, day, self._clock())
+                day_state = await self._day(session_id, day)
+                method = day_state.get("durationMethod")
+                if method is None:
+                    method = await self._rollout.method_for_day(day) if self._rollout else "recording"
+                    day_state["durationMethod"] = method
+                    await self._write_day(session_id, day, day_state)
+                call["durationMethod"] = method
                 call["scenario"] = None if scenario is _SCENARIO_UNSET else scenario
                 await self._write_call(call)
                 await self._set_open(session_id, call["id"])
@@ -58,6 +68,7 @@ class CallStore:
             elif scenario is not _SCENARIO_UNSET and not already_active and scenario != call.get("scenario"):
                 call["scenario"] = scenario
                 call["openingQuestion"] = None
+                call["openingDraft"] = None
                 await self._write_call(call)
             return {
                 **await self._summary(session_id, call, unseen=unseen, crossed=False),
@@ -76,6 +87,27 @@ class CallStore:
                 and (call["turns"] or call.get("openingDelivered"))
             )
 
+    async def open_call_today(self, session_id: str) -> dict[str, Any] | None:
+        session_id = _session_id(session_id)
+        async with self.lock(session_id):
+            call = await self._live(session_id)
+            if call is None or call["day"] != moscow_day(self._clock()):
+                return None
+            return deepcopy(call)
+
+    async def set_character(self, call_id: str, character: str) -> None:
+        if character not in {"speaky", "kora_h"}:
+            raise ValueError("unknown call character")
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current.get("status") != "open" or current.get("openingDelivered"):
+                raise ValueError("call character cannot be changed")
+            current["character"] = character
+            await self._write_call(current)
+
     async def summary(self, session_id: str) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
         async with self.lock(session_id):
@@ -83,6 +115,15 @@ class CallStore:
             if call is None:
                 return None
             return await self._summary(session_id, call, unseen=None, crossed=False)
+
+    async def recent_ids(self, session_id: str) -> list[str]:
+        """Call IDs in the raw-content retention window, including the boundary day."""
+        today = datetime.fromtimestamp(self._clock(), _TZ).date()
+        ids: list[str] = []
+        for offset in range(8):
+            day = (today - timedelta(days=offset)).isoformat()
+            ids.extend(str(call_id) for call_id in (await self._day(session_id, day)).get("ids") or [])
+        return list(dict.fromkeys(ids))
 
     async def append_turn(
         self,
@@ -92,6 +133,8 @@ class CallStore:
         corrections: list[dict[str, str]],
         seconds: float,
         words: list[dict[str, Any]],
+        *, recording_seconds: float | None = None, duration_source: str = "recording_legacy",
+        duration_fallback_reason: str | None = None, attempt_id: str | None = None,
     ) -> dict[str, Any] | None:
         session_id = _session_id(session_id)
         text = transcript.strip()
@@ -101,13 +144,19 @@ class CallStore:
             call = await self._live(session_id)
             if call is None:
                 return None
+            if attempt_id and any(turn.get("attemptId") == attempt_id for turn in call["turns"]):
+                return await self._summary(session_id, call, unseen=None, crossed=False)
             before = await self._today_seconds(session_id, call["day"])
             call["turns"].append({
+                "attemptId": attempt_id,
                 "transcript": text,
                 "reply": reply,
                 "receivedAt": recorded_at(self._clock()),
                 "corrections": [dict(item) for item in corrections if isinstance(item, dict)],
                 "seconds": seconds,
+                "recordingSeconds": recording_seconds if recording_seconds is not None else seconds,
+                "durationSource": duration_source,
+                "durationFallbackReason": duration_fallback_reason,
                 "words": [dict(word) for word in words if isinstance(word, dict)],
             })
             call["seconds"] = round(float(call.get("seconds") or 0) + seconds, 3)
@@ -173,6 +222,7 @@ class CallStore:
             if current is None or current["status"] != "open" or current.get("openingDelivered"):
                 raise ValueError("call opening cannot be replaced")
             current["openingQuestion"] = question
+            current["openingDraft"] = None
             current["openingFromReminder"] = True
             await self._write_call(current)
 
@@ -186,7 +236,22 @@ class CallStore:
                 raise ValueError("call opening cannot be cleared")
             if current.get("openingFromReminder"):
                 current["openingQuestion"] = None
+                current["openingDraft"] = None
                 current["openingFromReminder"] = False
+            await self._write_call(current)
+
+    async def save_spoken_opening(self, call_id: str, question: str) -> None:
+        """Keep the opening that was actually spoken for delivery and later history."""
+        call = await self._read_call(call_id)
+        if call is None:
+            raise KeyError(call_id)
+        async with self.lock(str(call["sessionId"])):
+            current = await self._read_call(call_id)
+            if current is None or current["status"] != "open" or current.get("openingDelivered"):
+                raise ValueError("call opening is no longer pending")
+            if not current.get("openingDraft"):
+                current["openingDraft"] = current.get("openingQuestion")
+            current["openingQuestion"] = question
             await self._write_call(current)
 
     async def mark_opening_delivered(self, call_id: str) -> tuple[str, str] | None:
@@ -269,10 +334,12 @@ class CallStore:
     async def _summary(self, session_id: str, call: dict, unseen: str | None, crossed: bool) -> dict[str, Any]:
         return {
             "callId": call["id"],
+            "character": call.get("character"),
             "startedUnix": call["startedUnix"],
             "todaySeconds": await self._today_seconds(session_id, str(call["day"])),
             "goalSeconds": await self._goal_seconds(session_id),
             "goalJustCrossed": crossed,
+            "durationMethod": call.get("durationMethod", "recording"),
             "unseenCallId": unseen,
         }
 
@@ -371,6 +438,7 @@ def _new_call(session_id: str, day: str, started: float) -> dict:
         "turns": [],
         "openingQuestion": None,
         "scenario": None,
+        "character": "speaky",
         "openingDelivered": False,
         "review": None,
         "reviewOffered": False,
@@ -385,6 +453,7 @@ def _expire_call_content(call: dict, now: float) -> dict:
                      and isinstance(turn.get("receivedAt"), (int, float)) and turn["receivedAt"] > cutoff]
     if float(call.get("startedUnix") or 0) <= cutoff:
         call["openingQuestion"] = None
+        call["openingDraft"] = None
         call["scenario"] = None
     if not call["turns"]:
         call["review"] = None

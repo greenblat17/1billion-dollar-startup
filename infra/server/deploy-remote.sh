@@ -26,7 +26,19 @@ fi
 cd "$APP"
 BUILD=$(mktemp -d)
 cp "$APP/server-all.jar" "$APP/Dockerfile.runtime" "$BUILD/"
-docker build -f Dockerfile.runtime -t speaking-coach:local "$BUILD"
+if ! docker build -f Dockerfile.runtime -t speaking-coach:next "$BUILD" 2>&1 | tee "$BUILD/build.log"; then
+  if ! grep -q '429 Too Many Requests' "$BUILD/build.log"; then
+    echo "CMP image build failed for a reason other than Docker Hub rate limiting" >&2
+    exit 1
+  fi
+  if ! docker image inspect speaking-coach:local >/dev/null 2>&1; then
+    echo "Cannot reuse the previous CMP image: local image missing" >&2
+    exit 1
+  fi
+  printf 'FROM speaking-coach:local\nCOPY server-all.jar /app/server-all.jar\n' > "$BUILD/Dockerfile.cached"
+  docker build -f "$BUILD/Dockerfile.cached" -t speaking-coach:next "$BUILD"
+fi
+docker image tag speaking-coach:next speaking-coach:local
 rm -rf "$BUILD"
 mkdir -p "$APP/logs"
 mkdir -p "$APP/audit-audio"

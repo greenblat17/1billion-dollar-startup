@@ -13,6 +13,7 @@ from app.metrics_v2 import MemoryMetricsV2, client_for, current_session
 from app.main import create_app
 from app.onboarding_model import OnboardingModel
 from app.dialogue import MemoryDialogueStore
+from app.characters import Characters, CharacterStore
 from app.pipeline import ClipPipeline
 from tests.conftest import FakeLlm, FakeRealtime, FakeReviewer, FakeStt, FakeTts, build_app
 from tests.conftest import test_settings as make_settings
@@ -65,6 +66,7 @@ def test_start_call_internal_contract_and_delivery() -> None:
         assert first.status_code == 200
         body = first.json()
         assert body["status"] == "ready"
+        assert body["character"] == "speaky"
         assert body["question"] == "Hi, Alex! How are you? What made you smile today?"
         assert body["audioBase64"]
         assert client.post("/internal/calls/start", json=payload).json()["callId"] == body["callId"]
@@ -73,6 +75,7 @@ def test_start_call_internal_contract_and_delivery() -> None:
         status = client.post("/internal/calls/status", json=payload).json()
         assert status["active"] is True
         assert status["callId"] == body["callId"]
+        assert status["character"] == "speaky"
         assert status["startedUnix"] == body["startedUnix"]
 
 
@@ -102,12 +105,115 @@ def test_call_status_does_not_open_a_call() -> None:
         assert client.post("/internal/calls/status", json=payload).json()["active"] is False
         first = client.post("/internal/calls/open", json=payload).json()
         assert first["alreadyActive"] is False
+        assert first["character"] == "speaky"
         status = client.post("/internal/calls/status", json=payload).json()
         assert status["active"] is False
         assert status["callId"] == first["callId"]
+        assert status["character"] == "speaky"
         assert client.post("/internal/calls/open", json=payload).json()["alreadyActive"] is False
         assert client.post("/internal/calls/end", json=payload).status_code == 200
         assert client.post("/internal/calls/status", json=payload).json()["active"] is False
+
+
+def test_direct_voice_open_reports_selected_kora_character() -> None:
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400))
+    pipeline.characters = Characters(CharacterStore(), model_h=object(), speech_h=object(),
+                                     enabled=True, allowlist="1")
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    with _client(app) as client:
+        payload = {"sessionId": "tg-1"}
+        selected = client.post("/internal/character", json={**payload, "character": "kora_h"})
+        assert selected.status_code == 200
+        opened = client.post("/internal/calls/open", json=payload)
+        assert opened.status_code == 200
+        assert opened.json()["character"] == "kora_h"
+        assert client.post("/internal/calls/status", json=payload).json()["character"] == "kora_h"
+
+
+def test_vocabulary_uses_kora_h_even_without_call_character_selection() -> None:
+    class LessonModel:
+        async def complete_json(self, system, data, **kwargs):
+            return "{}"
+
+    class LessonSpeech:
+        async def synthesize(self, text, *, speed, delivery):
+            return None
+
+    pipeline = ClipPipeline(FakeStt([]), FakeLlm(), FakeTts(), MemoryDialogueStore(40, 86400))
+    model, speech = LessonModel(), LessonSpeech()
+    pipeline.characters = Characters(CharacterStore(), model_h=model, speech_h=speech,
+                                     enabled=False, allowlist="")
+    app = create_app(settings=make_settings(), pipeline=pipeline)
+    assert app.state.vocabulary.llm is model
+    assert app.state.vocabulary.kora_speech is speech
+
+
+def test_vocabulary_review_requires_internal_token_and_returns_trace() -> None:
+    app, _, _, _ = build_app()
+    app.state.vocabulary.traces["vocabulary:review:tg-1:lesson1"] = {
+        "lessonId": "lesson1", "words": [{"id": "word1", "meaning": "a light conversation"}],
+        "events": [{"type": "answer", "transcript": "I don't enjoy small talk.",
+                    "reason": "The phrase fits a casual conversation."}]}
+    payload = {"sessionId": "tg-1", "action": "review", "lessonId": "lesson1"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["events"][0]["transcript"] == "I don't enjoy small talk."
+        assert client.post("/internal/vocabulary", json={**payload, "lessonId": "unknown"}).status_code == 409
+
+
+def test_vocabulary_text_answer_uses_internal_action(monkeypatch) -> None:
+    app, _, _, _ = build_app()
+    received = []
+
+    async def answer(session_id, lesson_id, message_id, text):
+        received.append((session_id, lesson_id, message_id, text))
+        return {"status": "ok", "text": "Next question"}
+
+    monkeypatch.setattr(app.state.vocabulary, "text", answer)
+    async def save_retry(*args, **kwargs):
+        received.append(("saved", args[0], args[1], args[2], kwargs["text"]))
+
+    async def clear_retry(*args):
+        received.append(("cleared", *args))
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
+    monkeypatch.setattr(app.state.vocabulary, "clear_retry_input", clear_retry)
+    payload = {"sessionId": "tg-1", "action": "answer", "lessonId": "lesson1",
+               "messageId": 42, "text": "My own phrase"}
+    with TestClient(app) as client:
+        assert client.post("/internal/vocabulary", json=payload).status_code == 401
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary", json=payload)
+        assert response.status_code == 200
+        assert response.json()["text"] == "Next question"
+        assert client.post("/internal/vocabulary", json={**payload, "text": " "}).status_code == 400
+    assert received == [("saved", "tg-1", "lesson1", 42, "My own phrase"),
+                        ("tg-1", "lesson1", 42, "My own phrase"),
+                        ("cleared", "tg-1", "lesson1", 42)]
+
+
+def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatch) -> None:
+    app, _, _, _ = build_app()
+
+    async def reject(*args):
+        raise ValueError("invalid vocabulary grade")
+
+    monkeypatch.setattr(app.state.vocabulary, "voice", reject)
+    async def save_retry(*args, **kwargs):
+        assert kwargs["audio"] == b"private-audio"
+
+    monkeypatch.setattr(app.state.vocabulary, "save_retry_input", save_retry)
+    with _client(app) as client:
+        response = client.post("/internal/vocabulary/voice", data={
+            "sessionId": "tg-1", "lessonId": "lesson1", "messageId": "42"},
+            files={"file": ("voice.ogg", b"private-audio", "audio/ogg")})
+    assert response.status_code == 409
+    assert "lesson_id=lesson1 message_id=42" in caplog.text
+    assert "reason=invalid vocabulary grade" in caplog.text
+    assert "private-audio" not in caplog.text
 
 
 def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
@@ -173,6 +279,8 @@ def test_prometheus_scrape_accepts_bearer_token() -> None:
         response = client.get("/internal/metrics/prometheus")
         assert response.status_code == 200
         assert "speaking_provider_calls_total" in response.text
+        assert "speaking_review_verification_total" in response.text
+        assert "speaking_review_verification_duration_seconds_bucket" in response.text
         assert "speaking_voice_model_cost_micro_total" in response.text
         assert "speaking_voice_model_calls_total" in response.text
 

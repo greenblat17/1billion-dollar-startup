@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 from typing import Any, Callable
 
-from app.dialogue import ChatMessage, DialogueStore
+from app.characters import Characters, CharacterStore
+from app.conversation import (ConversationHistory, ConversationMode, ConversationRoute, ConversationRouting,
+                              Personality, PersonalityRuntime, SpokenTurn)
+from app.dialogue import DialogueStore
 from app.audit_artifacts import record_artifact
 from app.llm import ChatModel, Correction, CorrectionRun
 from app.load_test import load_test_active
@@ -19,6 +22,7 @@ from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
 from app.speech import SessionSpeech
 from app.streaks import StreakStore, StreakUpdate, build_streak_store
 from app.stt import SpeechToText, SttResult
+from app.speech_time import SpeechTime, SpeechTimeMeter, recording_time
 from app.tts import TextToSpeech, TtsAudio
 
 logger = logging.getLogger(__name__)
@@ -72,6 +76,8 @@ class ClipPipeline:
         speech: SessionSpeech | None = None,
         notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
         v2: MetricsV2 | None = None,
+        speech_meter: SpeechTimeMeter | None = None,
+        characters: Characters | None = None,
     ) -> None:
         if notes_timeout_seconds <= 0:
             raise ValueError("notes timeout must be positive")
@@ -85,7 +91,12 @@ class ClipPipeline:
         self._v2 = v2
         self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
         self.calls = calls
+        self.characters = characters or Characters(CharacterStore())
+        self.routing = ConversationRouting(self.characters)
+        self.history = ConversationHistory(dialogue)
+        self.personality = PersonalityRuntime(llm, self.speech, self.characters)
         self._notes_timeout_seconds = notes_timeout_seconds
+        self.speech_meter = speech_meter
 
     @property
     def stt(self) -> SpeechToText:
@@ -106,6 +117,12 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
+
+    async def synthesize_onboarding(self, session_id: str, text: str, *, speed: float | None = None,
+                                    personality: Personality | None = None) -> TtsAudio:
+        route = (ConversationRoute(ConversationMode.ONBOARDING, personality) if personality is not None
+                 else await self.routing.resolve(session_id, ConversationMode.ONBOARDING))
+        return await self.personality.synthesize(session_id, route, SpokenTurn(text), speed=speed)
 
     async def complete_live_notes(self, transcript: str) -> list[Correction]:
         started = time.perf_counter()
@@ -160,6 +177,8 @@ class ClipPipeline:
         filename: str,
         profile_note: str | None = None,
         on_stage: Callable[[str], None] | None = None,
+        turn_id: str | None = None,
+        attempt_id: str | None = None,
     ) -> PipelineResult:
         started = time.perf_counter()
         platform = None
@@ -170,11 +189,13 @@ class ClipPipeline:
                 logger.warning("could not resolve client platform for provider logs")
         bound = bind_metrics(session_id, platform)
         try:
-            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started, on_stage)
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started,
+                                         on_stage, turn_id or attempt_id, attempt_id)
         finally:
             reset_metrics(bound)
 
-    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started, on_stage):
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started,
+                         on_stage, turn_id, attempt_id):
         timings = _job_timings.get()
         if timings is None:
             timings = {}
@@ -182,10 +203,20 @@ class ClipPipeline:
             if on_stage is not None:
                 on_stage(name)
 
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        method = active_call.get("durationMethod", "recording") if active_call else "recording"
         stt_started = time.perf_counter()
         stage("stt")
         try:
-            stt_result = await self._stt.transcribe(audio, content_type, filename)
+            if self.speech_meter is not None:
+                stt_result, speech_time = await self.speech_meter.transcribe(
+                    self._stt, audio, content_type, filename, method=method,
+                )
+            else:
+                stt_result = await self._stt.transcribe(audio, content_type, filename)
+                speech_time = (SpeechTime(stt_result.duration_seconds, stt_result.duration_seconds,
+                                          "recording_fallback", "disabled") if method == "vad"
+                               else recording_time(stt_result.duration_seconds))
         except Exception:
             if self._v2 is not None:
                 await self._v2.record_error(session_id, "stt", "failed")
@@ -193,14 +224,22 @@ class ClipPipeline:
         finally:
             timings["stt"] = _elapsed_ms(stt_started)
         stt_ms = timings["stt"]
+        timings["vad"] = speech_time.vad_ms
         await record_artifact("transcript", stt_result.text)
         if self._v2 is not None:
             await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
 
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        scenario = active_call.get("scenario") if active_call else None
+        mode = ConversationMode.SITUATION if scenario is not None else ConversationMode.FREE
+        route = (ConversationRoute(mode, Personality(active_call["character"]))
+                 if active_call and active_call.get("character") in {"speaky", "kora_h"}
+                 else await self.routing.resolve(session_id, mode))
+        kora = route.personality == Personality.KORA_H
         if _should_clarify(stt_result):
             tts_started = time.perf_counter()
             stage("tts")
-            reply_audio = await self.speech.synthesize(session_id, CLARIFY_TEXT)
+            reply_audio = await self.personality.synthesize(session_id, route, SpokenTurn(CLARIFY_TEXT), guided=False)
             timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
             finalize_started = time.perf_counter()
             stage("metrics")
@@ -226,7 +265,8 @@ class ClipPipeline:
         context_started = time.perf_counter()
         stage("state")
         history_started = time.perf_counter()
-        history = await self._dialogue.history(session_id)
+        history_context = (self.history.target(session_id, route) if mode == ConversationMode.SITUATION
+                           else await self.history.load(session_id, route))
         timings["contextHistory"] = _elapsed_ms(history_started)
         call_started = time.perf_counter()
         scenario_call = None
@@ -238,9 +278,7 @@ class ClipPipeline:
                     scenario_call = candidate
         timings["contextCall"] = _elapsed_ms(call_started)
         if scenario_call is not None:
-            history = [ChatMessage("assistant", scenario_call["openingQuestion"])] if scenario_call.get("openingQuestion") else []
-            for turn in scenario_call.get("turns", []):
-                history.extend((ChatMessage("user", turn["transcript"]), ChatMessage("assistant", turn["reply"])))
+            history_context = self.history.situation(history_context, scenario_call)
         personalization_started = time.perf_counter()
         if self.personalization is not None:
             profile_note = await self.personalization.prepare(session_id)
@@ -267,17 +305,29 @@ class ClipPipeline:
         tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
         try:
             stage("llm")
-            reply_text = await measured("reply", self._llm.complete_reply(history, stt_result.text, profile_note))
-            await record_artifact("reply", reply_text)
-            tts_task = asyncio.create_task(measured("tts", self.speech.synthesize(session_id, reply_text)))
+            reply = await measured("reply", self.personality.reply(route, history_context, stt_result.text,
+                                                                    profile_note))
+            reply_text = reply.text
+            if kora:
+                await record_artifact("reply_draft", reply_text)
+                await record_artifact("reply", reply_text)
+            else:
+                await record_artifact("reply", reply_text)
+            tts_task = asyncio.create_task(measured("tts", self.personality.synthesize(
+                session_id, route, reply, history=history_context, user=stt_result.text)))
             tasks.append(tts_task)
             dialogue_started = time.perf_counter()
             stage("state")
-            if scenario_call is None and not load_test_active():
-                await self._dialogue.record_turn(session_id, stt_result.text, reply_text)
+            if scenario_call is None and not load_test_active() and not kora and not self.history.is_shared(history_context):
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
             timings["dialogue"] = _elapsed_ms(dialogue_started)
             stage("tts")
             corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
+            if kora:
+                reply_text = reply_audio.spoken_text or reply_text
+                await record_artifact("reply", reply_text)
+            if (kora or self.history.is_shared(history_context)) and not load_test_active():
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
         finally:
             for task in tasks:
                 if not task.done():
@@ -292,7 +342,9 @@ class ClipPipeline:
             await self._v2.record_turn(session_id)
         await self._metrics.record_exchange(session_id)
         streak = None if load_test_active() else await self._record_streak(session_id)
-        call = None if load_test_active() else await self._record_call(session_id, stt_result, reply_text, corrections)
+        call = None if load_test_active() else await self._record_call(
+            session_id, stt_result, speech_time, reply_text, corrections, attempt_id,
+        )
         timings["finalize"] = _elapsed_ms(finalize_started)
         timings["total"] = _elapsed_ms(started)
         logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
@@ -317,7 +369,8 @@ class ClipPipeline:
             await self._v2.record_turn(session_id)
         return await self._record_streak(session_id)
 
-    async def _record_call(self, session_id: str, stt_result: SttResult, reply_text: str, corrections: list[Correction]) -> dict | None:
+    async def _record_call(self, session_id: str, stt_result: SttResult, speech_time: SpeechTime,
+                           reply_text: str, corrections: list[Correction], attempt_id: str | None) -> dict | None:
         if self.calls is None:
             return None
         await self.record_partial("call_turn", "attempted")
@@ -327,11 +380,19 @@ class ClipPipeline:
                 stt_result.text,
                 reply_text,
                 [item.to_json() for item in corrections],
-                stt_result.duration_seconds,
+                speech_time.speech_seconds,
                 stt_result.words,
+                recording_seconds=speech_time.recording_seconds,
+                duration_source=speech_time.source,
+                duration_fallback_reason=speech_time.fallback_reason,
+                attempt_id=attempt_id,
             )
             await self.record_partial("call_turn", "succeeded")
-            return {**result, "recognizedSeconds": stt_result.duration_seconds} if result is not None else None
+            return {**result, "recognizedSeconds": speech_time.speech_seconds,
+                    "recordingSeconds": speech_time.recording_seconds,
+                    "durationSource": speech_time.source,
+                    "durationFallbackReason": speech_time.fallback_reason,
+                    } if result is not None else None
         except Exception as error:
             await self.record_partial("call_turn", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
             logger.exception("call turn failed session=%s", session_id)

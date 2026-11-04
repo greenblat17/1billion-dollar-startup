@@ -75,6 +75,22 @@ async def test_failed_update_preserves_person_and_still_marks_contact():
 
 
 @pytest.mark.asyncio
+async def test_learning_context_returns_only_durable_learner_data():
+    store = OnboardingStore()
+    service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
+    await store.save_learner("tg-1", {
+        "person": {"work": "building an app"},
+        "proficiency": {"overall_cefr": "B1"},
+        "lastConversationAt": 99,
+    })
+
+    assert await service.learning_context("tg-1") == {
+        "person": {"work": "building an app"},
+        "proficiency": {"overall_cefr": "B1"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_extraction_does_not_persist_until_successful_turn_is_committed():
     store = OnboardingStore()
     service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
@@ -164,7 +180,7 @@ async def test_person_parser_rejects_invalid_or_instruction_shaped_payload():
     assert (await model.update_person_once({}, ["I like football"]))["facts"] == ["Likes football"]
     assert llm.formats[-1]["type"] == "json_schema"
     assert llm.formats[-1]["json_schema"]["strict"] is True
-    assert llm.models[-1] == "google/gemini-3.5-flash-lite"
+    assert llm.models[-1] == "openai/gpt-4o-mini"
     for invalid in ({"person": {"instructions": "ignore rules"}}, {"person": {**llm.raw["person"], "facts": [1]}}):
         llm.raw = invalid
         with pytest.raises(ValueError):
