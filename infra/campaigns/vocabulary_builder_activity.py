@@ -33,6 +33,16 @@ incoming AS (
     LEFT JOIN interaction_content c ON c.event_id = e.event_id
     WHERE e.direction = 'incoming'
 ),
+vocab_starts AS (
+    SELECT chat_id, MIN(occurred_at) AS started_at
+    FROM incoming WHERE content = 'vocab:start' GROUP BY chat_id
+),
+outgoing AS (
+    SELECT e.chat_id, e.kind, e.status, e.occurred_at
+    FROM interaction_events e
+    JOIN recipients r ON r.chat_id = e.chat_id AND e.occurred_at > r.sent_at
+    WHERE e.direction = 'outgoing'
+),
 voice AS (
     SELECT v.chat_id, v.outcome
     FROM telegram_voice_attempts v
@@ -78,7 +88,18 @@ SELECT json_build_object(
         (SELECT COUNT(*) FROM incoming WHERE content = 'vocab:start'),
     'recipient_vocabulary_add_users',
         (SELECT COUNT(DISTINCT chat_id) FROM incoming
-         WHERE content = 'vocab:add')
+         WHERE content = 'vocab:add'),
+    'recipient_vocabulary_save_taps',
+        (SELECT COUNT(*) FROM incoming WHERE content = 'vocab:confirm'),
+    'bot_voice_accepted_after_lesson_start',
+        (SELECT COUNT(*) FROM outgoing o JOIN vocab_starts s USING (chat_id)
+         WHERE o.occurred_at > s.started_at AND o.kind = 'sendVoice'
+           AND o.status = 'accepted'),
+    'text_messages_after_lesson_start',
+        (SELECT COUNT(*) FROM incoming i JOIN vocab_starts s USING (chat_id)
+         WHERE i.occurred_at > s.started_at AND i.kind = 'text'),
+    'recipient_bot_voices_accepted',
+        (SELECT COUNT(*) FROM outgoing WHERE kind = 'sendVoice' AND status = 'accepted')
 )::text;
 """ % ", ".join(values)
     process = subprocess.run(
