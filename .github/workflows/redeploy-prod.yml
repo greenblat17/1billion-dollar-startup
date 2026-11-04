@@ -11,6 +11,11 @@ on:
         description: ai-server
         type: boolean
         default: true
+      announcement:
+        description: Vocabulary Builder announcement (no deployment)
+        type: choice
+        options: [none, preview, send]
+        default: none
 
 permissions:
   contents: read
@@ -21,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.announcement == 'none' }}
         run: |
           echo "Enable cmp-server and/or ai-server" >&2
           exit 1
@@ -115,3 +120,46 @@ jobs:
     with:
       destination: prod
     secrets: inherit
+
+  vocabulary-announcement:
+    name: Vocabulary Builder announcement
+    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' }}
+    runs-on: ubuntu-latest
+    environment: deploy-prod
+    concurrency:
+      group: prod-vocabulary-announcement
+      cancel-in-progress: false
+    env:
+      AI_HOST: ${{ secrets.PROD_AI_SERVER_HOST }}
+      AI_USER: ${{ secrets.PROD_AI_SERVER_USER }}
+      AI_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
+      CMP_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.PROD_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Find users with completed onboarding
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null "$RUNNER_TEMP/ai_key"
+          printf '%s\n' "$AI_KEY" > "$RUNNER_TEMP/ai_key"
+          ssh -i "$RUNNER_TEMP/ai_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "$AI_USER@$AI_HOST" 'docker exec -i ai-service python -' \
+            < infra/campaigns/vocabulary_builder_audience.py > "$RUNNER_TEMP/audience.txt"
+          count=$(wc -l < "$RUNNER_TEMP/audience.txt")
+          echo "Eligible users: $count"
+          test "$count" -gt 0
+      - name: Send announcement
+        if: ${{ inputs.announcement == 'send' }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null "$RUNNER_TEMP/cmp_key"
+          printf '%s\n' "$CMP_KEY" > "$RUNNER_TEMP/cmp_key"
+          scp -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            infra/campaigns/vocabulary_builder_send.py \
+            "$CMP_USER@$CMP_HOST:/tmp/vocabulary_builder_send.py"
+          ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py' \
+            < "$RUNNER_TEMP/audience.txt"
+          ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
+            "$CMP_USER@$CMP_HOST" 'rm -f /tmp/vocabulary_builder_send.py'
