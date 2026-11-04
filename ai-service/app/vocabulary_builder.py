@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
+from app.vocabulary_analytics import STREAM, state_facts, trace_facts, error_fact
 
 logger = logging.getLogger(__name__)
 LESSON_FORMAT = 5
@@ -453,6 +454,7 @@ class VocabularyBuilder:
         self.responses: dict[str, dict] = {}
         self.retry_inputs: dict[str, dict] = {}
         self.locks: dict[str, asyncio.Lock] = {}
+        self.analytics: list[tuple[str, dict]] = []
         # UTF-8 bytes are a conservative proxy for prompt tokens across providers.
         self.context_budget = context_window_tokens - 1024
         self.context_tasks: set[asyncio.Task] = set()
@@ -485,6 +487,7 @@ class VocabularyBuilder:
             trace = self.traces.setdefault(key, {"lessonId": lesson["id"], "words": lesson["words"], "events": []})
             event["eventId"] = len(trace["events"]) + 1
             trace["events"].append(event)
+            self._memory_facts(trace_facts(session_id, lesson, [event]))
             return
         for _ in range(8):
             async with self.redis.pipeline() as pipe:
@@ -496,6 +499,7 @@ class VocabularyBuilder:
                     trace["events"].append(event)
                     pipe.multi()
                     pipe.set(key, json.dumps(trace, ensure_ascii=False), ex=REVIEW_SECONDS)
+                    self._stream_facts(pipe, trace_facts(session_id, lesson, [event]))
                     await pipe.execute()
                     return
                 except WatchError:
@@ -508,6 +512,42 @@ class VocabularyBuilder:
             return deepcopy(self.traces.get(key))
         raw = await self.redis.get(key)
         return json.loads(raw) if raw else None
+
+    @staticmethod
+    def _stream_facts(pipe, facts: list[dict]) -> None:
+        for fact in facts:
+            pipe.xadd(STREAM, {"fact": json.dumps(fact, separators=(",", ":"))})
+
+    def _memory_facts(self, facts: list[dict]) -> None:
+        for fact in facts:
+            self.analytics.append((str(len(self.analytics) + 1), fact))
+
+    async def analytics_after(self, cursor: str = "0-0", limit: int = 100) -> dict:
+        if self.redis is None:
+            start = int(cursor.split("-")[0]) if cursor != "0-0" else 0
+            rows = [(f"{index}-0", fact) for index, fact in self.analytics[start:start + limit]]
+        else:
+            rows = [(entry_id, json.loads(fields["fact"])) for entry_id, fields in
+                    await self.redis.xrange(STREAM, min=f"({cursor}", max="+", count=limit)]
+        return {"events": [{"streamId": entry_id, **fact} for entry_id, fact in rows],
+                "cursor": rows[-1][0] if rows else cursor}
+
+    async def analytics_ack(self, cursor: str) -> None:
+        if self.redis is None:
+            return
+        milliseconds, sequence = (int(part) for part in cursor.split("-"))
+        await self.redis.xtrim(STREAM, minid=f"{milliseconds}-{sequence + 1}", approximate=False)
+
+    async def record_analytics_error(self, session_id: str, lesson_id: str, message_id: int,
+                                     stage: str, error: Exception) -> None:
+        fact = error_fact(session_id, lesson_id, message_id, stage, type(error).__name__, self.clock())
+        try:
+            if self.redis is None:
+                self._memory_facts([fact])
+            else:
+                await self.redis.xadd(STREAM, {"fact": json.dumps(fact, separators=(",", ":"))})
+        except Exception:
+            logger.warning("vocabulary analytics error write failed", exc_info=True)
 
     async def _save_summary(self, session_id: str, lesson: dict, digest: str, summary: str) -> None:
         key = _trace_key(session_id, lesson["id"])
@@ -798,8 +838,10 @@ class VocabularyBuilder:
             lock = self.locks.setdefault(session_id, asyncio.Lock())
             async with lock:
                 state = await self._get(session_id)
+                before = deepcopy(state)
                 result = update(state)
                 await self._save(session_id, state)
+                self._memory_facts(state_facts(session_id, before, state, self.clock()))
                 return result
         key = _key(session_id)
         for _ in range(8):
@@ -808,9 +850,11 @@ class VocabularyBuilder:
                     await pipe.watch(key)
                     raw = await pipe.get(key)
                     state = json.loads(raw) if raw else _default()
+                    before = deepcopy(state)
                     result = update(state)
                     pipe.multi()
                     pipe.set(key, json.dumps(state, ensure_ascii=False))
+                    self._stream_facts(pipe, state_facts(session_id, before, state, self.clock()))
                     await pipe.execute()
                     return result
                 except WatchError:
@@ -822,21 +866,27 @@ class VocabularyBuilder:
         state_key = _key(session_id)
         trace_key = _trace_key(session_id, lesson["id"])
 
-        def append(trace: dict) -> None:
+        def append(trace: dict) -> list[dict]:
+            added = []
             for item in events:
                 event = {"at": self.clock(), **item, "eventId": len(trace["events"]) + 1}
                 trace["events"].append(event)
+                added.append(event)
+            return added
 
         if self.redis is None:
             lock = self.locks.setdefault(session_id, asyncio.Lock())
             async with lock:
                 state = await self._get(session_id)
+                before = deepcopy(state)
                 result = update(state)
                 trace = deepcopy(self.traces.get(trace_key) or
                                  {"lessonId": lesson["id"], "words": lesson["words"], "events": []})
-                append(trace)
+                added = append(trace)
                 self.memory[session_id] = deepcopy(state)
                 self.traces[trace_key] = trace
+                self._memory_facts(state_facts(session_id, before, state, self.clock()) +
+                                   trace_facts(session_id, lesson, added))
                 return result
         for _ in range(8):
             async with self.redis.pipeline() as pipe:
@@ -844,13 +894,16 @@ class VocabularyBuilder:
                     await pipe.watch(state_key, trace_key)
                     raw_state, raw_trace = await pipe.get(state_key), await pipe.get(trace_key)
                     state = json.loads(raw_state) if raw_state else _default()
+                    before = deepcopy(state)
                     result = update(state)
                     trace = json.loads(raw_trace) if raw_trace else {
                         "lessonId": lesson["id"], "words": lesson["words"], "events": []}
-                    append(trace)
+                    added = append(trace)
                     pipe.multi()
                     pipe.set(state_key, json.dumps(state, ensure_ascii=False))
                     pipe.set(trace_key, json.dumps(trace, ensure_ascii=False), ex=REVIEW_SECONDS)
+                    self._stream_facts(pipe, state_facts(session_id, before, state, self.clock()) +
+                                       trace_facts(session_id, lesson, added))
                     await pipe.execute()
                     return result
                 except WatchError:
@@ -1858,10 +1911,11 @@ class VocabularyBuilder:
                     summary = _finished_text(lesson)
                     lesson["prompts"] = []
                     lesson["prompt"] = ""
-                    return {"sessionId": session_id, "kind": "ended", "text": summary}
+                    return {"sessionId": session_id, "lessonId": lesson["id"],
+                            "kind": "ended", "text": summary}
                 if idle >= REMINDER_SECONDS and not lesson["reminded"]:
                     lesson["reminded"] = True
-                    return {"sessionId": session_id, "kind": "reminder",
+                    return {"sessionId": session_id, "lessonId": lesson["id"], "kind": "reminder",
                             "text": ("Your word game is ready. Tap Play or Skip under the last lesson message."
                                      if lesson["status"] == "offer" else
                                      "Your vocabulary lesson is still here. Send a voice or text message to continue, or end the lesson.")}

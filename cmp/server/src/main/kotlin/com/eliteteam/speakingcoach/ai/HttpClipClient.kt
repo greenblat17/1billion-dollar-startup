@@ -17,6 +17,7 @@ import com.eliteteam.speakingcoach.speaking.TurnStreak
 import com.eliteteam.speakingcoach.analytics.VoiceCostAcknowledge
 import com.eliteteam.speakingcoach.analytics.VoiceCostEvents
 import com.eliteteam.speakingcoach.analytics.VoiceCostReceipt
+import com.eliteteam.speakingcoach.analytics.VocabularyFactsBatch
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
@@ -56,6 +57,21 @@ class HttpClipClient(
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
     private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
+
+    internal suspend fun vocabularyAnalytics(cursor: String): VocabularyFactsBatch {
+        val response = http.get("$root/internal/vocabulary/analytics?cursor=$cursor") { applyInternalToken() }
+        check(response.status.isSuccess()) { "ai-service vocabulary analytics returned ${response.status}" }
+        return response.body()
+    }
+
+    internal suspend fun vocabularyAnalyticsAck(cursor: String) {
+        val response = http.post("$root/internal/vocabulary/analytics/ack") {
+            applyInternalToken()
+            contentType(ContentType.Application.Json)
+            setBody(mapOf("cursor" to cursor))
+        }
+        check(response.status.isSuccess()) { "ai-service vocabulary analytics ack returned ${response.status}" }
+    }
 
     suspend fun vocabulary(sessionId: SessionId, action: String, itemId: String? = null,
                            selected: Boolean? = null,

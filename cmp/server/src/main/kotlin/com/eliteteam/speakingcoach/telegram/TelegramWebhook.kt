@@ -51,6 +51,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
     userIdHashKey: String = "",
     followups: FollowupStore? = null,
     reminderButtons: ReminderButtonStore? = null,
+    vocabularyAnalytics: com.eliteteam.speakingcoach.analytics.VocabularyAnalytics? = null,
 ): BehaviourContext {
     val bot = speakingCoachTelegramBot(token, audit, operationalMetrics, userIdHashKey)
     return bot.buildBehaviour(
@@ -60,7 +61,7 @@ internal suspend fun buildTelegramWebhookBehaviour(
         },
     ) {
         installSpeakingCoachHandlers(ai, sessionClipQueue, analytics, voiceAttempts, operationalMetrics, audit, callEvents,
-            voiceCost, followups, reminderButtons)
+            voiceCost, followups, reminderButtons, vocabularyAnalytics)
     }
 }
 

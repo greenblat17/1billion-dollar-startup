@@ -58,7 +58,8 @@ data class VocabularyResponse(
 )
 
 @Serializable
-data class VocabularyDueTarget(val sessionId: String, val kind: String, val text: String)
+data class VocabularyDueTarget(val sessionId: String, val kind: String, val text: String,
+                               val lessonId: String = "")
 
 @Serializable
 data class VocabularyDueResponse(val targets: List<VocabularyDueTarget> = emptyList())

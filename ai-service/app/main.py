@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
@@ -692,7 +693,15 @@ def create_app(
         except ValueError as error:
             logger.warning("vocabulary action conflict action=%s lesson_id=%s message_id=%s reason=%s",
                            action, payload.get("lessonId"), payload.get("messageId"), error)
+            await vocabulary.record_analytics_error(session_id, str(payload.get("lessonId") or ""),
+                                                    int(payload["messageId"]) if str(payload.get("messageId") or "").isdigit() else 0,
+                                                    str(action), error)
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            await vocabulary.record_analytics_error(session_id, str(payload.get("lessonId") or ""),
+                                                    int(payload["messageId"]) if str(payload.get("messageId") or "").isdigit() else 0,
+                                                    str(action), error)
+            raise
         raise HTTPException(status_code=400, detail="invalid vocabulary action")
 
     @app.post("/internal/vocabulary/voice")
@@ -713,11 +722,30 @@ def create_app(
                 "vocabulary voice rejected lesson_id=%s message_id=%s error_type=%s reason=%s",
                 lessonId, messageId, type(error).__name__, str(error),
             )
+            await vocabulary.record_analytics_error(sessionId, lessonId, messageId, "voice", error)
             raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            await vocabulary.record_analytics_error(sessionId, lessonId, messageId, "voice", error)
+            raise
 
     @app.post("/internal/vocabulary/due")
     async def vocabulary_due() -> dict[str, Any]:
         return {"targets": await vocabulary.due()}
+
+    @app.get("/internal/vocabulary/analytics")
+    async def vocabulary_analytics(cursor: str = "0-0") -> dict[str, Any]:
+        if not re.fullmatch(r"\d+-\d+", cursor):
+            raise HTTPException(status_code=400, detail="invalid analytics cursor")
+        return await vocabulary.analytics_after(cursor, 100)
+
+    @app.post("/internal/vocabulary/analytics/ack")
+    async def vocabulary_analytics_ack(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        cursor = str(payload.get("cursor") or "")
+        if not re.fullmatch(r"\d+-\d+", cursor):
+            raise HTTPException(status_code=400, detail="invalid analytics cursor")
+        await vocabulary.analytics_ack(cursor)
+        return {"ok": True}
 
     @app.post("/internal/calls/feedback")
     async def calls_feedback(request: Request) -> dict[str, str]:

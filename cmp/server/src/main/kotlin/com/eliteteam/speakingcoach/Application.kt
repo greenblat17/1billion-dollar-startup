@@ -8,6 +8,8 @@ import com.eliteteam.speakingcoach.analytics.VoiceCostStore
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.analytics.CallEventRecorder
 import com.eliteteam.speakingcoach.analytics.createCallEventStore
+import com.eliteteam.speakingcoach.analytics.VocabularyAnalytics
+import com.eliteteam.speakingcoach.analytics.createVocabularyFactStore
 import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.ai.HttpMetricsSource
 import com.eliteteam.speakingcoach.load.installLoadTestRoutes
@@ -54,6 +56,8 @@ import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
 import com.eliteteam.speakingcoach.telegram.registerBotCommands
 import com.eliteteam.speakingcoach.telegram.registerTelegramWebhook
 import com.eliteteam.speakingcoach.telegram.telegramSessionId
+import com.eliteteam.speakingcoach.telegram.reminderChatId
+import com.eliteteam.speakingcoach.analytics.VocabularyFact
 import com.eliteteam.speakingcoach.telegram.legacyCampaignMessage
 import com.eliteteam.speakingcoach.telegram.legacyCampaignKeyboard
 import kotlinx.coroutines.CancellationException
@@ -203,6 +207,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         }
     }
     val callEvents = CallEventRecorder(createCallEventStore(config.databaseUrl), webhookScope)
+    val vocabularyAnalytics = VocabularyAnalytics(createVocabularyFactStore(config.databaseUrl), ai, webhookScope)
     val sessionClipQueue = SessionClipQueue(
         processor = ai,
         scope = webhookScope,
@@ -210,7 +215,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
     val telegramMetrics = TelegramOperationalMetrics()
     val behaviourContext = buildTelegramWebhookBehaviour(
         token, ai, sessionClipQueue, webhookScope, onboardingAnalytics, voiceAttempts, callEvents, voiceCost,
-        telegramMetrics, audit, config.aiInternalToken, followupStore, reminderButtons,
+        telegramMetrics, audit, config.aiInternalToken, followupStore, reminderButtons, vocabularyAnalytics,
     )
     suspend fun clearOldReminderButton(button: ReminderButton) {
         try {
@@ -360,6 +365,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 onboarding = onboardingAnalytics,
                 voiceAttempts = voiceAttempts,
                 callEvents = callEvents,
+                vocabularyAnalytics = vocabularyAnalytics,
                 usage = adminUsage,
                 voiceCost = voiceCost,
                 softNudges = softNudges,
@@ -412,9 +418,15 @@ private suspend fun startWebhookServer(config: AppConfig) {
         while (true) {
             try {
                 for (target in ai.vocabularyDue()) {
-                    val chatId = target.sessionId.removePrefix("tg-").toLongOrNull() ?: continue
-                    behaviourContext.sendMessage(ChatId(RawChatId(chatId)), target.text,
+                    val chatId = reminderChatId(target.sessionId) ?: continue
+                    val sent = behaviourContext.sendMessage(ChatId(RawChatId(chatId)), target.text,
                         replyMarkup = if (target.kind == "ended") startCallKeyboard() else null)
+                    vocabularyAnalytics.record(VocabularyFact(
+                        id = "due-delivered:${target.kind}:${target.lessonId}", sessionId = "tg-$chatId",
+                        at = System.currentTimeMillis() / 1000.0,
+                        kind = if (target.kind == "ended") "summary_delivered" else "reminder_delivered",
+                        lessonId = target.lessonId, botMessageId = sent.messageId.long,
+                    ))
                 }
             } catch (error: CancellationException) { throw error
             } catch (error: Throwable) { log.warn("Vocabulary lesson reminder failed", error) }
@@ -437,6 +449,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
         server.stop()
         withContext(NonCancellable) { withTimeoutOrNull(2_000) { voiceAttempts.close() } }
         withContext(NonCancellable) { withTimeoutOrNull(2_000) { callEvents.close() } }
+        withContext(NonCancellable) { withTimeoutOrNull(2_000) { vocabularyAnalytics.shutdown() } }
         behaviourContext.cancel()
         webhookScope.cancel()
         aiHttp.close()
@@ -468,6 +481,7 @@ internal fun Application.module(
     val voiceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val voiceAttempts = source?.let { VoiceAttemptRecorder(createVoiceAttemptStore(config.databaseUrl), voiceScope) }
     val callEvents = source?.let { CallEventRecorder(createCallEventStore(config.databaseUrl), voiceScope) }
+    val vocabularyAnalytics = source?.let { VocabularyAnalytics(createVocabularyFactStore(config.databaseUrl), null, voiceScope) }
     val adminUsage = if (config.metricsPassword.isNullOrBlank()) null else
         config.databaseUrl?.let(::PostgresAdminUsageStore)
     val softNudges = if (config.metricsPassword.isNullOrBlank()) null else
@@ -475,6 +489,7 @@ internal fun Application.module(
     monitor.subscribe(ApplicationStopped) {
         runBlocking { withTimeoutOrNull(2_000) { voiceAttempts?.close() } }
         runBlocking { withTimeoutOrNull(2_000) { callEvents?.close() } }
+        runBlocking { withTimeoutOrNull(2_000) { vocabularyAnalytics?.shutdown() } }
         voiceScope.cancel()
         adminUsage?.close()
         softNudges?.close()
@@ -489,6 +504,7 @@ internal fun Application.module(
             onboarding = onboardingAnalytics,
             voiceAttempts = voiceAttempts,
             callEvents = callEvents,
+            vocabularyAnalytics = vocabularyAnalytics,
             usage = adminUsage,
             softNudges = softNudges,
         ),
@@ -529,6 +545,7 @@ private fun Application.metricsDashboard(
     onboarding: com.eliteteam.speakingcoach.analytics.OnboardingAnalytics? = null,
     voiceAttempts: VoiceAttemptRecorder? = null,
     callEvents: CallEventRecorder? = null,
+    vocabularyAnalytics: VocabularyAnalytics? = null,
     usage: AdminUsageStore? = null,
     voiceCost: VoiceCostStore? = null,
     softNudges: SoftNudgeStore? = null,
@@ -538,7 +555,7 @@ private fun Application.metricsDashboard(
         return null
     }
     return MetricsDashboard(password, source, secureCookie, reminders, campaign, onboarding, voiceAttempts, callEvents, usage,
-        config.openRouterRatesFile?.let(Path::of), voiceCost, softNudges)
+        config.openRouterRatesFile?.let(Path::of), voiceCost, softNudges, vocabularyAnalytics)
 }
 
 private fun Application.ownedMetricsSource(config: AppConfig): MetricsSource? {
