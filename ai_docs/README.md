@@ -54,6 +54,7 @@ Kora H pilot analytics and metric definitions: `plans/2026-10-23-kora-launch-ana
 Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
 First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
 New 30-second Telegram onboarding and optional two-minute continuation: `plans/2026-10-31-telegram-onboarding-simplification.md` (implemented locally; DEV Telegram acceptance pending).
+Subscription preview after onboarding: `product/2026-11-05-subscription-preview.md` (local UI preview only; no checkout or paid gate).
 Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
 Decision-focused reminder dashboard and conversion definitions: `integrations/2026-10-20-reminder-effectiveness-dashboard.md`.
 Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.

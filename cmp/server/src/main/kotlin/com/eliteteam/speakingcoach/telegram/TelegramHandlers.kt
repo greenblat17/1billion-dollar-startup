@@ -626,6 +626,16 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                 replyMarkup = onboardingResultKeyboard(finished.runId))
             onMainDelivered(sent.messageId.long, "result_card")
             analytics.safely { mark(finished.runId, AttemptMark.RESULTS, Instant.now()) }
+            try {
+                val state = ai.onboardingState(telegramSessionId(message.chat.id), "preview:${finished.runId}")
+                if (state.runId == finished.runId && !state.legacyUser) {
+                    sendMessage(message.chat.id, subscriptionPreviewText(), replyMarkup = subscriptionPreviewKeyboard())
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Could not show subscription preview for {}", message.chat.id, error)
+            }
             return true
         }
         val beforeVoiceMs = deliveryStarted.elapsedNow().inWholeMilliseconds
@@ -1689,6 +1699,17 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                 }
             }
+        }
+        subscriptionPreviewPlan(query.data)?.let { plan ->
+            val message = callbackMessage ?: return@withRequestLog
+            actions.run(message.chat.id.toString(), "subscription-preview:${query.id}") {
+                val selectedText = subscriptionPreviewText(plan)
+                if ((message as? ContentMessage<TextContent>)?.content?.text != selectedText) {
+                    editMessageText(message.chat.id, message.messageId, selectedText,
+                        replyMarkup = subscriptionPreviewKeyboard())
+                }
+            }
+            return@withRequestLog
         }
         if (query.data.startsWith("vocab:")) {
             val message = callbackMessage ?: return@withRequestLog
