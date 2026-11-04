@@ -67,6 +67,8 @@ Inline buttons:
 - **🔥 See results**: finalize the attempt from all accepted answers and show the level card.
 - **🎙 Keep talking · 2 min**: keep the same attempt, transcripts, profile facts, and conversation history; immediately send a contextual follow-up question by voice.
 
+After **See results**, immediately show a temporary chat message: **⏳ I'm preparing your results. This may take a moment.** Keep it visible while the action waits in the per-chat queue and the assessment is generated. Remove it after the level card or a retry/error message is sent. A failed status message must not prevent result generation.
+
 Show the checkpoint once per attempt. Both choices are mutually exclusive and idempotent. A new voice message while the checkpoint is open counts as choosing **Keep talking**: accept it in the same attempt, process it once, and send the next contextual reply or the automatic result if it crosses 120 seconds. An old checkpoint button cannot later finalize a completed attempt. A recording that crosses both 30 and 120 seconds bypasses the checkpoint and goes directly to the automatic result.
 
 After **Keep talking**, show progress against **2:00**, starting from the actual accumulated duration (for example, `🎯 0:38 / 2:00`, not resetting to `0:30`). Keep **Subtitles** beside the progress button and **🔥 See results** on the row below under the latest Speaky voice. The user may stop at any later point before two minutes; that action finalizes the accepted answers so far. At **at least 120 seconds**, finalize automatically after processing the full recording. Do not send an additional voice goodbye. The next bot message is the result card. Remove or invalidate old stop and continue buttons when the attempt ends.

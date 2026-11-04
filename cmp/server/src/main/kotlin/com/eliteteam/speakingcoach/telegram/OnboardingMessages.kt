@@ -58,6 +58,7 @@ internal const val ONBOARDING_PROGRESS_CALLBACK = "ob:progress"
 internal const val SPOKEN_TEXT_CALLBACK = "said"
 internal const val SPOKEN_TEXT_BUTTON = "Subtitles"
 internal const val SEE_RESULTS_BUTTON = "🔥 See results"
+internal const val ONBOARDING_RESULTS_LOADING = "⏳ I'm preparing your results. This may take a moment."
 internal const val ONBOARDING_PROGRESS_HINT =
     "🎙 This tracks the time you speak in your voice messages. Pauses aren't counted."
 

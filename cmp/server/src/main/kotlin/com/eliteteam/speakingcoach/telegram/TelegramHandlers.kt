@@ -30,6 +30,7 @@ import com.eliteteam.speakingcoach.speaking.SessionId
 import dev.inmo.tgbotapi.bot.ktor.telegramBot
 import dev.inmo.tgbotapi.bot.exceptions.BotException
 import dev.inmo.tgbotapi.extensions.api.answers.answerCallbackQuery
+import dev.inmo.tgbotapi.extensions.api.deleteMessage
 import dev.inmo.tgbotapi.extensions.api.edit.reply_markup.editMessageReplyMarkup
 import dev.inmo.tgbotapi.extensions.api.edit.text.editMessageText
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
@@ -41,6 +42,7 @@ import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.extensions.behaviour_builder.triggers_handling.onDataCallbackQuery
 import dev.inmo.tgbotapi.types.queries.callback.AbstractMessageCallbackQuery
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -48,6 +50,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import dev.inmo.tgbotapi.extensions.api.files.downloadFile
 import dev.inmo.tgbotapi.extensions.api.send.media.sendVoice
 import dev.inmo.tgbotapi.extensions.api.send.reply
@@ -2190,7 +2193,28 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
         log.info("Handling onboarding callback {}", callback.action)
         val message = (query as? AbstractMessageCallbackQuery)?.message as? ChatMessage ?: return@withRequestLog
         val requestId = onboardingCallbackRequestId(callback.action, callback.runId, query.id.toString())
+        var loadingMessageId: MessageId? = null
+        suspend fun dismissResultsLoading() {
+            val id = loadingMessageId ?: return
+            loadingMessageId = null
+            try {
+                deleteMessage(message.chat.id, id)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                log.warn("Could not remove onboarding results loading message for {}", message.chat.id, error)
+            }
+        }
         try {
+            if (callback.action == "see_results") {
+                try {
+                    loadingMessageId = sendMessage(message.chat.id, ONBOARDING_RESULTS_LOADING).messageId
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    log.warn("Could not show onboarding results loading message for {}", message.chat.id, error)
+                }
+            }
             actions.run(message.chat.id.toString(), requestId) {
                 analytics.safely { event(callback.runId, "callback:${query.id}:attempt", "action_attempt", Instant.now(),
                     onboardingActionStage(callback.action)) }
@@ -2326,6 +2350,7 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                             analytics.safely { mark(callback.runId, AttemptMark.BEGIN_PRESSED, Instant.now()) }
                         }
                         val delivered = deliver(message, result, firstQuestion = callback.action == "begin")
+                        dismissResultsLoading()
                         if (callback.action == "retry" && result.onboarding?.phase == "checkpoint" &&
                             result.onboarding.status == "active") analytics.safely {
                             event(callback.runId, "retry:${query.id}:checkpoint", "30s_checkpoint_reached", Instant.now())
@@ -2400,6 +2425,8 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     replyMarkup = onboardingKeyboard(if (callback.action == "keep_talking") "retry" else callback.action, callback.runId),
                 )
             }
+        } finally {
+            withContext(NonCancellable) { dismissResultsLoading() }
         }
         }
     }
