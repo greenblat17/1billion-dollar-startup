@@ -14,7 +14,7 @@ on:
       announcement:
         description: Vocabulary Builder announcement (no deployment)
         type: choice
-        options: [none, preview, send, status, restore_keyboard, activity]
+        options: [none, preview, send, status, restore_keyboard, activity, activity_users]
         default: none
 
 permissions:
@@ -123,7 +123,7 @@ jobs:
 
   vocabulary-announcement:
     name: Vocabulary Builder announcement
-    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' || inputs.announcement == 'status' || inputs.announcement == 'restore_keyboard' || inputs.announcement == 'activity' }}
+    if: ${{ inputs.announcement == 'preview' || inputs.announcement == 'send' || inputs.announcement == 'status' || inputs.announcement == 'restore_keyboard' || inputs.announcement == 'activity' || inputs.announcement == 'activity_users' }}
     runs-on: ubuntu-latest
     environment: deploy-prod
     concurrency:
@@ -179,7 +179,7 @@ jobs:
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_send.py --restore-keyboard'
       - name: Read activity after announcement
-        if: ${{ inputs.announcement == 'activity' }}
+        if: ${{ inputs.announcement == 'activity' || inputs.announcement == 'activity_users' }}
         run: |
           set -euo pipefail
           install -m 600 /dev/null "$RUNNER_TEMP/cmp_key"
@@ -187,8 +187,13 @@ jobs:
           scp -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             infra/campaigns/vocabulary_builder_activity.py \
             "$CMP_USER@$CMP_HOST:/tmp/vocabulary_builder_activity.py"
+          if [[ "${{ inputs.announcement }}" == 'activity_users' ]]; then
+            remote_command='python3 /tmp/vocabulary_builder_activity.py --users'
+          else
+            remote_command='python3 /tmp/vocabulary_builder_activity.py'
+          fi
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
-            "$CMP_USER@$CMP_HOST" 'python3 /tmp/vocabulary_builder_activity.py'
+            "$CMP_USER@$CMP_HOST" "$remote_command"
           ssh -i "$RUNNER_TEMP/cmp_key" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes \
             "$CMP_USER@$CMP_HOST" 'rm -f /tmp/vocabulary_builder_activity.py'
       - name: Remove sender

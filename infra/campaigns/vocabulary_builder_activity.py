@@ -4,6 +4,7 @@ import datetime
 import json
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -24,7 +25,29 @@ def main() -> None:
             raise RuntimeError("Invalid delivery record")
         values.append(f"({int(chat_id)}, TIMESTAMPTZ '{parsed.isoformat()}')")
 
-    sql = """
+    if sys.argv[1:] == ["--users"]:
+        sql = """
+WITH recipients(chat_id, sent_at) AS (VALUES %s),
+active AS (
+    SELECT e.chat_id, COUNT(*) AS incoming_events,
+           MAX(e.occurred_at) AS last_activity_utc
+    FROM interaction_events e
+    JOIN recipients r ON r.chat_id = e.chat_id AND e.occurred_at > r.sent_at
+    WHERE e.direction = 'incoming'
+    GROUP BY e.chat_id
+)
+SELECT COALESCE(json_agg(json_build_object(
+    'username', c.username,
+    'display_name', c.display_name,
+    'chat_id', a.chat_id,
+    'incoming_events', a.incoming_events,
+    'last_activity_utc', a.last_activity_utc
+) ORDER BY a.last_activity_utc DESC), '[]'::json)::text
+FROM active a
+LEFT JOIN interaction_chats c ON c.chat_id = a.chat_id;
+""" % ", ".join(values)
+    elif not sys.argv[1:]:
+        sql = """
 WITH recipients(chat_id, sent_at) AS (VALUES %s),
 incoming AS (
     SELECT e.chat_id, e.kind, e.occurred_at, c.content
@@ -102,6 +125,8 @@ SELECT json_build_object(
         (SELECT COUNT(*) FROM outgoing WHERE kind = 'sendVoice' AND status = 'accepted')
 )::text;
 """ % ", ".join(values)
+    else:
+        raise SystemExit("Usage: vocabulary_builder_activity.py [--users]")
     process = subprocess.run(
         ["docker", "exec", "-i", "postgres", "sh", "-c",
          'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tA -v ON_ERROR_STOP=1'],
