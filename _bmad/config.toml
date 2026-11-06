@@ -1,0 +1,6 @@
+[core]
+project_name = "speaking-coach-application"
+output_folder = "{project-root}/_bmad-output"
+
+[modules.founder]
+record_folder = "ai_docs"
