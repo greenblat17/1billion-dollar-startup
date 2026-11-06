@@ -69,6 +69,8 @@ Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-
 Short-call feedback and practice result order: `plans/2026-10-24-short-call-feedback-and-result-order.md`;
 current and historical Telegram review behavior: `integrations/2026-09-30-telegram-calls.md`.
 
+Agent planning layers and which skill governs which area: `architecture/2026-11-06-agent-planning-layers.md`.
+
 ## Structure
 
 - `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.

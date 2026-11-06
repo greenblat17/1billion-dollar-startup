@@ -1,0 +1,69 @@
+# Team layer for bmad-build in this repository. Only the fields we change are listed;
+# everything else is inherited from the shipped defaults. Merge rules: scalars replace,
+# lists append, tables merge key by key, arrays of tables merge by id.
+
+[workflow]
+
+# Loaded at activation and held for the whole run.
+persistent_facts = [
+  "file:{project-root}/AGENTS.md",
+  "file:{project-root}/_bmad/custom/review-standards.md",
+  "file:{project-root}/ai_docs/README.md",
+  "file:{project-root}/ai_docs/summaries/2026-09-18-agent-start-here.md",
+]
+
+# Runs after activation, before planning.
+activation_steps_append = [
+  "Name the project skill that governs the area this change touches, and read its SKILL.md under {project-root}/.agents/skills/ before planning. The plan follows that skill; if the request contradicts it, say so instead of writing code the other way.",
+  "Look in {project-root}/ai_docs/ for a dated document covering the area. If the change contradicts a recorded decision, state the contradiction and propose updating the document rather than silently overwriting it.",
+  "State which route was chosen and why, in one line, before implementing.",
+]
+
+# Planning artifacts stay in {output_folder}; decisions outlive the run and go to ai_docs/.
+on_complete = """
+If this change made a decision that outlives it — behavior, an HTTP or Telegram contract, a data
+shape, a provider or environment choice, a screen — write it to {project-root}/ai_docs/ as a dated
+file under plans/ or integrations/, name the area it governs, and link it from ai_docs/README.md
+when that index lists the area. A change with no decision worth recording leaves ai_docs/ untouched.
+Do not move planning artifacts out of {output_folder}.
+"""
+
+# The implementation subagent has no conversation context, so the rules it must follow are
+# named in its prompt.
+implementation_handoff = """
+Launch a subagent with no prior conversation context, with this prompt:
+
+> Read {plan_file} fully and implement it — the plan is the sole source of truth. Load every file listed in its frontmatter `context:` before you start.
+>
+> Read {project-root}/AGENTS.md, then read the SKILL.md of every project skill the plan names for the area you are editing. Follow the skill. If a plan item contradicts a skill, follow the skill and report the contradiction instead of writing code the other way.
+>
+> Run builds and tests from cmp/, because that is the Gradle root: ./gradlew :server:test for Ktor, ./gradlew :app:shared:jvmTest for shared code. Tests in commonTest use kotlin.test.
+>
+> When done, report what you changed, how you verified it, and anything left incomplete or risky.
+"""
+
+# A lens for what only the project skills can decide. It appends to the shipped quick lens.
+[[workflow.quick_lenses]]
+id = "skill-conformance"
+name = "Skill Conformance"
+when = "the diff touches cmp/ or ai-service/"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read {project-root}/_bmad/custom/review-standards.md completely, then apply its Section A against the unified diff at {diff_file}. Name the governing project skill for every finding. Output a Markdown list of findings only — no severity, priority, or ranking.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+
+# A lens for strict maintainability of the diff, applied on the thorough route.
+[[workflow.thorough_lenses]]
+id = "structural-quality"
+name = "Structural Quality"
+when = "the diff touches cmp/ or ai-service/"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read {project-root}/_bmad/custom/review-standards.md completely, then apply its Section B against the unified diff at {diff_file}. Output a Markdown list of findings only — no severity, priority, or ranking.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""

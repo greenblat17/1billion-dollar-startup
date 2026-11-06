@@ -1,0 +1,52 @@
+# Team layer for bmad-code-review in this repository. Only the fields we change are listed;
+# everything else is inherited from the shipped defaults. Merge rules: scalars replace,
+# lists append, tables merge key by key, arrays of tables merge by id.
+
+[workflow]
+
+persistent_facts = [
+  "file:{project-root}/AGENTS.md",
+  "file:{project-root}/_bmad/custom/review-standards.md",
+  "file:{project-root}/ai_docs/README.md",
+  "file:{project-root}/ai_docs/summaries/2026-09-18-agent-start-here.md",
+]
+
+# Runs after activation, before the first lens.
+activation_steps_append = [
+  "Before reviewing, resolve which project skill governs each area the diff touches, using the map in {project-root}/_bmad/custom/review-standards.md. Report findings against those skills, not against a general style.",
+  "Read the dated document in {project-root}/ai_docs/ for the area. A diff that contradicts a recorded decision is a finding, and the fix is to update the decision, not to rewrite the history.",
+]
+
+on_complete = """
+Separate the two kinds of finding when presenting them: a finding about what the system does goes
+to {project-root}/ai_docs/ as a dated file under plans/ or integrations/ with the capability named;
+a finding about how the code is written is applied or handed off and is not written to ai_docs/.
+Do not present a structural suggestion as a behavior change, and do not report a finding that only
+restates what a project skill already says.
+"""
+
+# Division of labor: the shipped lenses cover intent, acceptance criteria, missing content and
+# verification gaps. These two add what the project skills decide. They append to the shipped sets.
+[[workflow.quick_lenses]]
+id = "skill-conformance"
+name = "Skill Conformance"
+when = "the diff touches cmp/ or ai-service/"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read {project-root}/_bmad/custom/review-standards.md completely, then apply its Section A against the unified diff at {diff_file}. Name the governing project skill for every finding. Output a Markdown list of findings only — no severity, priority, or ranking.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
+
+[[workflow.thorough_lenses]]
+id = "structural-quality"
+name = "Structural Quality"
+when = "the diff touches cmp/ or ai-service/"
+instruction = """
+Launch a context-free subagent with this prompt:
+
+Read {project-root}/_bmad/custom/review-standards.md completely, then apply its Section B against the unified diff at {diff_file}. Output a Markdown list of findings only — no severity, priority, or ranking.
+
+Review by inspection only. Do not modify code, run builds or tests, or invoke quality gates. Do not invoke any skill, and do not spawn subagents of your own — you are the reviewer. Return your findings as text in your final message; do not route them through any findings-reporting tool the host may offer.
+"""
