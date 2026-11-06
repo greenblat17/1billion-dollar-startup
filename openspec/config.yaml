@@ -1,32 +1,54 @@
 schema: spec-driven
 
-# Project context (optional)
-# Add only constraints that should guide OpenSpec artifacts and workflows.
-# Include constraints an agent cannot infer by reading the code.
-# Keep general project documentation and discoverable codebase facts out.
-# Example:
-#   context: |
-#     Designs and tasks must cover Windows, macOS, and Linux
-#     Write all artifacts in Spanish
+context: |
+  The product is the Telegram bot Speaky (spoken English practice with an AI partner). The Compose
+  Multiplatform prototype exists, but a large part of its screens is demonstrative: it is not a second
+  user-facing product.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always state what is out of scope
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  Layers and boundaries that cannot be inferred by reading the code:
+  - Product and architecture decisions live in ai_docs/ as dated files. openspec/specs/ describes the
+    behavior of the system as it is today; ai_docs/ is the history of decisions. When a decision
+    document contradicts a spec, the decision document is primary and the spec is updated through a
+    delta, not by editing it in chat.
+  - Everything an agent writes is in English, including documents in ai_docs/. Files already written in
+    Russian stay as they are. Requirement is worded with SHALL or MUST, scenarios with WHEN and THEN.
+  - The CMP client does not call the clip API of the AI service; the Telegram bot does not use the
+    WebRTC path of the application; there is no public proxy for the clip API on Ktor.
+  - The AI service does not start without AI_INTERNAL_TOKEN; the speech path requires provider keys.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+rules:
+  proposal:
+    - "Name the capability by behavior, not by the work: for example telegram-voice-clip-pipeline, not fix-queue."
+    - "State which file in ai_docs/ the decision comes from, or that the decision is new."
+    - "List the areas touched: cmp/server, cmp/app, cmp/core, ai-service, infra, .github/workflows."
+    - "Write explicitly what is out of scope. Screens of the CMP prototype are not touched unless the task is about the prototype itself."
+  specs:
+    - "A requirement describes observable behavior (a Telegram reply, an HTTP contract, a metric), not the internal implementation."
+    - "Each requirement keeps a failure or timeout scenario when the current contract has one."
+    - "Do not invent thresholds or limits. Concrete values come from the code or from ai_docs/ and are quoted."
+    - "Scenarios are level-4 headings, and each requirement contains SHALL or MUST."
+    - "Each requirement is no longer than 500 characters."
+  design:
+    - "Name the boundary between cmp/server (PostgreSQL) and ai-service (Redis), because the state lives on the two sides of it."
+    - "Name the provider (STT, LLM or TTS) and the environment variables that change."
+    - "For a data schema, use a Flyway migration, not a manual change."
+    - "If the decision contradicts a dated document in ai_docs/, say it explicitly and propose which document to update."
+  tasks:
+    - "Each task is no more than 2 hours and has a checkable verification, not the word 'do it'."
+    - "For each task name the project skill that governs it: cmp-mvvm, cmp-koin, cmp-ktor-client, cmp-strings, cmp-icons, cmp-theme, cmp-kermit, cmp-test, code-structure."
+    - "Write build commands from cmp/, because the Gradle root is cmp/. Tests: ./gradlew :server:test and :app:shared:jvmTest."
+    - "UI verification goes through the compose-hot-reload MCP with recomposition logs, not only a screenshot."
+    - "CI and deploy are a separate block of tasks. Push and PR do not deploy."
+
+  # How apply and archive work with this repository
+operations:
+  apply:
+    guidance:
+      - "Before editing, read ai_docs/README.md and the dated document for the area of the task. The starting file is ai_docs/summaries/2026-09-18-agent-start-here.md. Do not improvise UI or contracts from chat memory."
+      - "New decisions are written into ai_docs/, not only into the chat or tasks.md."
+      - "Do not change screens of the CMP prototype unless the task is about the prototype. The main product is the bot."
+      - "Finish with a test that can be shown: kotlin.test in commonTest, not Kotest and not JUnit 5. For Ktor, ./gradlew :server:test."
+  archive:
+    guidance:
+      - "After archiving, the delta is merged into openspec/specs/, and the dated decision document goes to ai_docs/plans/ or ai_docs/integrations/ with a link to the capability."
+      - "Summarize what changed in behavior, not what was done from the task list."
