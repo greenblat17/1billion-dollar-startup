@@ -257,8 +257,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
         FollowupRunner(
             store = store,
             state = { candidate ->
-                val current = ai.onboardingState(SessionId(candidate.sessionId), "followup:check:${candidate.runId}")
-                current.runId to (if (current.status == "active") current.phase else current.status)
+                // Retired introduction stages can no longer trigger outbound messages.
+                if (candidate.stage == "practice") candidate.runId to "completed" else "" to "retired"
             },
             reminderTime = { sessionId -> ai.reminderTime(SessionId(sessionId)) },
             send = { claim ->
@@ -305,8 +305,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             active = { candidate ->
                 val session = SessionId(candidate.sessionId)
                 if (candidate.kind == "onboarding") {
-                    val state = ai.onboardingState(session, "soft-nudge:check:${candidate.flowId}")
-                    state.runId == candidate.flowId && state.status == "active"
+                    false
                 } else {
                     val state = ai.callStatus(session)
                     state.active && state.callId == candidate.flowId
@@ -317,11 +316,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                     replyMarkup = softNudgeKeyboard(candidate))
             })
     }
-    val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
-        behaviourContext.sendMessage(
-            ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
-        )
-    }
+    val campaignRunner: LegacyCampaignAdmin? = null
     val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),

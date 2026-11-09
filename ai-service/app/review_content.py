@@ -3,15 +3,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+_CONTENT = re.compile(r"[a-z0-9']+")
 PAUSE_SECONDS = 1.0
 EXAMPLE_LIMIT = 5
 FILLERS = frozenset({"um", "uh", "uhm", "umm", "er", "erm", "ah", "ahh", "hmm", "mm", "mhm"})
-CLOSING_OPEN = "I really enjoyed talking with you."
-CLOSING_FALLBACK = "Thanks for sharing that with me."
-CLOSING_MID = "I feel like I know you a little better now."
-CLOSING_TAIL = "And I can already hear your English a little. Let me show you what I noticed."
-CLOSING_SMILE = "😊"
-_CONTENT = re.compile(r"[a-z0-9']+")
 REVIEW_COPY_POLICY = """
 The assessment is diagnostic: do not ask questions or add social praise.
 Use warm, direct English addressed to "you". Do not recap topics in the assessment text.
@@ -40,14 +35,6 @@ a weakness to fill the sentence.
 Fluency text may refer to supplied pace, pauses, and fillers in words, not with a new number.
 Fillers are only detections in ASR output; null or zero never proves their absence.
 """
-_STOP = frozenset({
-    "about", "and", "are", "been", "from", "have", "hope", "into", "just", "like",
-    "more", "really", "some", "sometime", "sounds", "tell", "that", "them", "then",
-    "there", "they", "this", "very", "what", "when", "with", "would", "your",
-    "you", "the", "for", "got", "know", "feel", "little", "better", "now",
-})
-
-
 def select_examples(candidates: list[dict], accepted: set[str], limit: int = EXAMPLE_LIMIT) -> dict[str, list[dict[str, str]]]:
     """Rank only verified candidates; the model cannot supply replacement pairs."""
     notes = [note for note in candidates if note["id"] in accepted]
@@ -84,37 +71,6 @@ def fluency_metrics(turns: list[dict]) -> dict[str, int | None | bool]:
         "longestStretchSec": round(longest),
         "hasWords": True,
     }
-
-
-def grounded_callback(callback: Any, last_transcript: str) -> str | None:
-    """Keep one sentence that responds to the last answer."""
-    if not isinstance(callback, str):
-        return None
-    text = " ".join(callback.split()).strip()
-    if not text or text.lower() == "null":
-        return None
-    if sum(text.count(mark) for mark in ".!?") > 1:
-        return None
-    if len(text) > 220:
-        return None
-    lowered = text.lower()
-    if "let me show you" in lowered or "i really enjoyed talking" in lowered:
-        return None
-    spoken = set(_CONTENT.findall(last_transcript.lower()))
-    content = [token for token in _CONTENT.findall(lowered) if len(token) >= 4 and token not in _STOP]
-    if not content or not any(token in spoken for token in content):
-        return None
-    if text[-1] not in ".!?":
-        text += "."
-    return text
-
-
-def closing_lines(callback: str | None) -> tuple[str, str]:
-    """Subtitle keeps the smile. The spoken line does not, so TTS will not read it."""
-    head = f"{callback or CLOSING_FALLBACK} {CLOSING_OPEN} {CLOSING_MID}"
-    subtitle = f"{head} {CLOSING_SMILE}\n{CLOSING_TAIL}"
-    spoken = f"{head}\n{CLOSING_TAIL}"
-    return subtitle, spoken
 
 
 def correction_candidates(turns: list[dict]) -> list[dict]:

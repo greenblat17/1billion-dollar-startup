@@ -1,5 +1,7 @@
 # Speaking Coach AI Docs
 
+AI-репетитор: [полная продуктовая концепция v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md). SP-01: [план постоянного чата с Сашей, знакомства и управления trial](plans/2026-11-09-sp01-text-onboarding.md). Модель ведёт диалог и использует инструменты записи, переноса и отмены. Mini App и проведение урока — последующие этапы. [Фактическая реализация SP-01 и ограничения проверки](integrations/2026-11-10-sp01-tutor-chat.md).
+
 Working documentation next to the code. A coding agent in a new session should start at:
 
 **`summaries/2026-09-18-agent-start-here.md`**

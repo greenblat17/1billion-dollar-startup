@@ -1,7 +1,7 @@
 package com.eliteteam.speakingcoach.speaking
 
 import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
-import com.eliteteam.speakingcoach.ai.OnboardingReview
+import com.eliteteam.speakingcoach.ai.ConversationReview
 
 fun interface ClipSource {
     suspend fun load(): AudioClip
@@ -35,7 +35,6 @@ data class ClipReply(
     val corrections: List<Correction>,
     val audio: AudioClip?,
     val text: String = "",
-    val onboarding: OnboardingStatus? = null,
     val transcript: String = "",
     val streak: TurnStreak? = null,
     val call: CallProgress? = null,
@@ -92,16 +91,3 @@ sealed interface ClipSubmitResult {
     data class Completed(val reply: ClipReply) : ClipSubmitResult
     data object QueueFull : ClipSubmitResult
 }
-
-data class OnboardingStatus(
-    val runId: String,
-    val status: String,
-    val seconds: Double = 0.0,
-    val cefr: String? = null,
-    val review: OnboardingReview? = null,
-    val overallScore: Int? = null,
-    val nextBand: String? = null,
-    val pointsToNext: Int? = null,
-    val analytics: OnboardingVoiceFacts? = null,
-    val phase: String = "initial",
-)

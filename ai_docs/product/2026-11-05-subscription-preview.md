@@ -1,5 +1,7 @@
 # Telegram subscription preview after onboarding
 
+> В рабочей реализации SP-01 этот onboarding-путь заменён постоянным текстовым чатом. Документ сохранён как история; см. [новый контракт](../integrations/2026-11-10-sp01-tutor-chat.md). Деплой не выполнен.
+
 Status: local UI preview. Checkout and paid access are not implemented or enabled.
 
 After a new user receives the onboarding level card, send a separate subscription preview message. Keep the result card and detailed feedback available. The preview offers three durations at the prices selected for this draft:

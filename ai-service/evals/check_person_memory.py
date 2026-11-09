@@ -10,7 +10,7 @@ from openai import AsyncOpenAI
 
 from app.config import Settings
 from app.llm import OpenAiChatModel
-from app.onboarding_model import OnboardingModel
+from app.learner_model import LearnerModel
 
 
 async def main() -> None:
@@ -20,7 +20,7 @@ async def main() -> None:
     client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url,
                          max_retries=0)
     try:
-        model = OnboardingModel(OpenAiChatModel(client, settings.llm_model))
+        model = LearnerModel(OpenAiChatModel(client, settings.llm_model))
         moved = await asyncio.wait_for(model.update_person_once({}, ["I moved to Kazan last month."]), 20)
         if "kazan" not in json.dumps(moved, ensure_ascii=False).lower():
             raise AssertionError("move to Kazan was not kept")

@@ -1,5 +1,7 @@
 # Telegram onboarding: first value in 30 seconds
 
+> В рабочей реализации SP-01 этот onboarding-путь заменён постоянным текстовым чатом. Документ сохранён как история; см. [новый контракт](../integrations/2026-11-10-sp01-tutor-chat.md). Деплой не выполнен.
+
 Status: integrated with `feature/telegram-kora` locally; real DEV Telegram acceptance is pending. This document supersedes the conversation-length choices in [the original Telegram onboarding plan](2026-09-28-telegram-onboarding.md). The Kora branch remains the source of truth for assessment, corrections, personalization, daily goal, reminder, and ordinary calls.
 
 ## Goal and scope

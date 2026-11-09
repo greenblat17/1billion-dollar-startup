@@ -104,6 +104,12 @@ jobs:
           install -m 600 /dev/null "$KEY"
           printf '%s\n' "$KEY_BODY" > "$KEY"
           SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          if [ "$DESTINATION" = dev ]; then
+            SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
+              -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker inspect --format "previous_image={{.Image}} started={{.State.StartedAt}}" speaking-coach; docker exec speaking-coach sha256sum /app/server-all.jar || true'
+          fi
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/speaking-coach/monitoring
           scp "${SSH_OPTS[@]}" \
             vps-upload/server-all.jar \
@@ -117,3 +123,9 @@ jobs:
             "${USER}@${HOST}:/opt/speaking-coach/monitoring/"
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/speaking-coach/deploy-remote.sh
+          if [ "$DESTINATION" = dev ]; then
+            echo "deployed_source_sha=$GITHUB_SHA"
+            sha256sum vps-upload/server-all.jar
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker exec speaking-coach sha256sum /app/server-all.jar'
+          fi

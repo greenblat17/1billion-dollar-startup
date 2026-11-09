@@ -5,94 +5,24 @@ import json
 import pytest
 
 from app.llm import CompletionTokenLimitError
-from app.onboarding_model import (
+from app.learner_model import (
     ALTERNATIVE_REVIEW_SYSTEM,
-    ASSESSMENT_MAX_TOKENS, ASSESSMENT_RETRY_MAX_TOKENS, CLOSING_CALLBACK_MAX_TOKENS,
-    CLOSING_CALLBACK_SYSTEM, REVIEW_MAX_TOKENS, REVIEW_RESPONSE_FORMAT, REVIEW_RETRY_MAX_TOKENS,
-    REVIEW_SYSTEM, SYSTEM,
-    OnboardingModel, parse_review, validate_review_response,
+    LearnerModel,
 )
-from app.onboarding_review import closing_lines, correction_candidates, fluency_metrics, grounded_callback, select_examples
+from app.review_content import correction_candidates, fluency_metrics, select_examples
 from app.vocabulary_suggestions import discover_vocabulary_suggestions
-from app.onboarding_score import (
+from app.review_score import (
     SCORE_TABLE, apply_skill, band_start, overall_progress, skill_confidence, skill_score,
 )
 from app.stt import speech_words
 
 
-@pytest.mark.asyncio
-async def test_assessment_uses_own_limit_and_preserves_default_reasoning():
-    class Llm:
-        def __init__(self):
-            self.calls = []
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls.append((system, data, kwargs))
-            return json.dumps({
-                "profile": {"work": "teacher", "leisure": None, "goal": None},
-                "cefr": "A2", "position": "mid", "question": "What do you teach?",
-            })
-
-    llm = Llm()
-    state = {"seconds": 8, "profile": {}, "turns": [{"question": "What do you do?", "transcript": "I teach."}]}
-    result = await OnboardingModel(llm).assess(state)
-    assert result["question"] == "What do you teach?"
-    assert len(llm.calls) == 1
-    assert llm.calls[0][2] == {
-        "temperature": 0.0, "max_tokens": ASSESSMENT_MAX_TOKENS,
-        "operation": "onboarding_assessment",
-    }
 
 
-@pytest.mark.asyncio
-async def test_assessment_retries_only_token_limit_with_same_payload():
-    class Llm:
-        def __init__(self):
-            self.calls = []
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls.append((system, data, kwargs))
-            if len(self.calls) == 1:
-                raise CompletionTokenLimitError("llm response reached completion token limit")
-            return '{"profile":{},"cefr":null,"position":null,"question":"Tell me more."}'
-
-    llm = Llm()
-    result = await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
-    assert result["question"] == "Tell me more."
-    assert [call[2]["max_tokens"] for call in llm.calls] == [
-        ASSESSMENT_MAX_TOKENS, ASSESSMENT_RETRY_MAX_TOKENS,
-    ]
-    assert llm.calls[0][:2] == llm.calls[1][:2]
 
 
-@pytest.mark.asyncio
-async def test_assessment_stops_after_two_token_limit_responses():
-    class Llm:
-        calls = 0
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls += 1
-            raise CompletionTokenLimitError("llm response reached completion token limit")
-
-    llm = Llm()
-    with pytest.raises(CompletionTokenLimitError):
-        await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
-    assert llm.calls == 2
 
 
-@pytest.mark.asyncio
-async def test_assessment_does_not_retry_invalid_json():
-    class Llm:
-        calls = 0
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls += 1
-            return '{'
-
-    llm = Llm()
-    with pytest.raises(ValueError):
-        await OnboardingModel(llm).assess({"seconds": 8, "profile": {}, "turns": []})
-    assert llm.calls == 1
 
 
 def test_repeated_mistake_outranks_an_earlier_one_off():
@@ -116,48 +46,6 @@ def test_repeated_mistake_outranks_an_earlier_one_off():
     assert picked["vocabulary"] == []
 
 
-def test_callback_stays_inside_the_closing_frame():
-    empty_subtitle, empty_spoken = closing_lines(None)
-    assert empty_subtitle.startswith(
-        "Thanks for sharing that with me. I really enjoyed talking with you. I feel like I know you a little better now. 😊"
-    )
-    assert "😊" not in empty_spoken
-    assert empty_spoken.endswith("Let me show you what I noticed.")
-
-    callback = grounded_callback(
-        "Building a startup with your friends sounds exciting.",
-        "I am building a startup with two friends.",
-    )
-    subtitle, spoken = closing_lines(callback)
-    assert spoken.index("startup") < spoken.index("enjoyed talking with you") < spoken.index("I feel like I know you")
-    assert spoken.startswith("Building a startup")
-    assert spoken.endswith("Let me show you what I noticed.")
-    assert grounded_callback(
-        "And your startup sounds really interesting.",
-        "I work as a developer. I like movies. I need English for work.",
-    ) is None
-    assert grounded_callback(
-        "Building a startup sounds exciting.",
-        "I need English for work.",
-    ) is None
-    assert grounded_callback(
-        "I can see why English matters for your work.",
-        "I need English for work.",
-    ) == "I can see why English matters for your work."
-    assert "last answer" in CLOSING_CALLBACK_SYSTEM
-    assert "even if it is ordinary" in CLOSING_CALLBACK_SYSTEM
-    assert 'Set "callback" to null.' in REVIEW_SYSTEM
-    assert "exactly two concise diagnostic sentences" in REVIEW_SYSTEM
-    assert "Absence of evidence is not evidence of inability." in REVIEW_SYSTEM
-    assert "Absence of evidence is not evidence of inability." in SYSTEM
-    assert "illustrative, not a checklist" in REVIEW_SYSTEM
-    assert "not thresholds" in REVIEW_SYSTEM
-    assert "0 to 100" not in REVIEW_SYSTEM.split("Do not return a score from 0 to 100.", 1)[1]
-    prompt = " ".join(REVIEW_SYSTEM.split())
-    assert 'Use "0" by default.' in prompt
-    assert "Do not use shade merely to create variation between scores." in prompt
-    assert "same story as that skill's band, position, and shade." in prompt
-    assert '"shade"' not in SYSTEM
 
 
 def test_fluency_uses_word_timings_inside_one_recording():
@@ -237,27 +125,6 @@ def _skill_json(band="B1", position="high", flags=None):
     )
 
 
-def test_parse_review_maps_bands_and_rejects_a_raw_score():
-    raw = (
-        '{"callback":null,"levelText":"You keep going.",'
-        f'"grammar":{_skill_json()},'
-        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis", "invented"])},'
-        f'"fluency":{_skill_json("B2", "low", ["completed_turns", "timings_present"])}}}'
-    )
-    parsed = parse_review(raw)
-    assert parsed["callback"] is None
-    assert parsed["grammar"]["band"] == "B1"
-    assert parsed["grammar"]["position"] == "high"
-    assert parsed["vocabulary"]["flags"] == ["concrete_lexis"]
-    assert parsed["fluency"]["flags"] == ["completed_turns"]
-    assert parsed["shade"] == "0"
-    assert parsed["grammar"]["shade"] == "0"
-    with pytest.raises(ValueError):
-        parse_review(raw.replace('"levelText":"You keep going."', '"levelText":"You keep going.","shade":"high"', 1))
-    with pytest.raises(ValueError):
-        parse_review(raw.replace('"band":"B1"', '"band":62', 1))
-    with pytest.raises(ValueError):
-        parse_review(raw.replace('"position":"high"', '"position":"high","band":null', 1))
 
 
 def test_overall_progress_uses_the_same_table_and_not_an_average():
@@ -338,147 +205,18 @@ def test_confidence_caps_at_two_minutes_and_ignores_bare_duration():
     assert scored["confidence"] < 0.6
 
 
-def test_parse_review_accepts_a_skill_without_flags_or_notes():
-    raw = (
-        '{"callback":null,"levelText":"You keep going.",'
-        '"grammar":{"band":"b1","position":"High","text":"A few patterns."},'
-        f'"vocabulary":{_skill_json(None, None, [])},'
-        f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
-    )
-    parsed = parse_review(raw)
-    assert parsed["grammar"]["band"] == "B1"
-    assert parsed["grammar"]["position"] == "high"
-    assert parsed["grammar"]["flags"] == []
-    assert parsed["grammar"]["notes"] == ""
-    assert parsed["grammar"]["shade"] == "0"
-    assert parsed["vocabulary"]["band"] is None
-    shaded = parse_review(
-        '{"callback":null,"levelText":"You keep going.","shade":"++",'
-        '"grammar":{"band":"B1","position":"mid","shade":"-","text":"A few patterns.","notes":"Mostly steady."},'
-        '"vocabulary":{"band":null,"position":null,"shade":"++","text":"Not enough.","notes":""},'
-        '"fluency":{"band":"B1","position":"high","shade":"-","text":"You keep going.","notes":"Few long pauses."}}'
-    )
-    assert shaded["shade"] == "++"
-    assert shaded["grammar"]["shade"] == "-"
-    assert shaded["vocabulary"]["shade"] == "0"
-    assert shaded["fluency"]["shade"] == "-"
 
 
-@pytest.mark.asyncio
-async def test_closing_callback_uses_transcripts_without_review_data():
-    class Llm:
-        async def complete_json(self, system, data, **kwargs):
-            self.system, self.data, self.options = system, data, kwargs
-            return '{"callback":"I hope your startup goes well."}'
-
-    llm = Llm()
-    callback = await OnboardingModel(llm).closing_callback([
-        "I like movies.", "I am building a startup.",
-    ])
-    assert callback == "I hope your startup goes well."
-    assert json.loads(llm.data) == {"lastTranscript": "I am building a startup."}
-    assert llm.options["max_tokens"] == CLOSING_CALLBACK_MAX_TOKENS
 
 
-@pytest.mark.asyncio
-async def test_compose_review_reserves_room_for_the_skill_json():
-    class Llm:
-        def __init__(self):
-            self.max_tokens = None
-
-        async def complete_json(self, system, data, temperature=0.0, max_tokens=None,
-                                response_format=None, model=None):
-            self.max_tokens = max_tokens
-            self.response_format = response_format
-            return (
-                '{"callback":null,"levelText":"You keep going.","shade":"0",'
-                f'"grammar":{_skill_json()},'
-                f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
-                f'"fluency":{_skill_json("B2", "low", ["completed_turns"])}}}'
-            )
-
-    llm = Llm()
-    parsed = await OnboardingModel(llm, review_model="google/gemini-3.5-flash-lite").compose_review({})
-    assert llm.max_tokens == REVIEW_MAX_TOKENS == 2400
-    assert llm.response_format == REVIEW_RESPONSE_FORMAT
-    assert parsed["grammar"]["position"] == "high"
 
 
-@pytest.mark.asyncio
-async def test_review_uses_local_validation_when_model_lacks_schema_support():
-    class Llm:
-        def __init__(self):
-            self.formats = []
-
-        async def complete_json(self, system, data, **kwargs):
-            self.formats.append(kwargs["response_format"])
-            return '{"grammar":null}'
-
-    llm = Llm()
-    with pytest.raises(RuntimeError, match="after two attempts"):
-        await OnboardingModel(llm, review_model="openai/gpt-5.6-luna").compose_review({})
-    assert llm.formats == [None, None]
 
 
-@pytest.mark.asyncio
-async def test_review_retries_invalid_shape_with_backup_and_larger_limit():
-    valid = (
-        '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
-        f'"grammar":{_skill_json()},'
-        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
-        f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
-    )
-
-    class Llm:
-        def __init__(self):
-            self.calls = []
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls.append(kwargs)
-            return '{"grammar":null}' if len(self.calls) == 1 else valid
-
-    llm = Llm()
-    review = await OnboardingModel(llm, "google/gemini-3.5-flash-lite", "openai/gpt-4o-mini").compose_review({})
-    assert review["grammar"]["band"] == "B1"
-    assert [(call["model"], call["max_tokens"]) for call in llm.calls] == [
-        ("google/gemini-3.5-flash-lite", REVIEW_MAX_TOKENS),
-        ("openai/gpt-4o-mini", REVIEW_RETRY_MAX_TOKENS),
-    ]
-    assert all(call["response_format"] == REVIEW_RESPONSE_FORMAT for call in llm.calls)
 
 
-@pytest.mark.asyncio
-async def test_review_fails_closed_after_two_invalid_shapes():
-    class Llm:
-        calls = 0
-
-        async def complete_json(self, system, data, **kwargs):
-            self.calls += 1
-            return '{"grammar":null}'
-
-    llm = Llm()
-    with pytest.raises(RuntimeError, match="after two attempts"):
-        await OnboardingModel(llm).compose_review({})
-    assert llm.calls == 2
 
 
-def test_review_response_validator_rejects_incomplete_skill():
-    valid = (
-        '{"callback":null,"levelText":"You connect ideas clearly.","shade":"0",'
-        f'"grammar":{_skill_json()},'
-        f'"vocabulary":{_skill_json("B1", "mid", ["concrete_lexis"])},'
-        f'"fluency":{_skill_json("B1", "low", ["completed_turns"])}}}'
-    )
-    validate_review_response(valid)
-    schema = REVIEW_RESPONSE_FORMAT["json_schema"]["schema"]
-    assert set(schema["required"]) == set(schema["properties"])
-    assert "vocabularySuggestions" not in schema["required"]
-    assert "grammarExplanations" not in schema["properties"]
-    assert "vocabularyExplanations" not in schema["properties"]
-    with pytest.raises(ValueError, match="invalid review fields"):
-        validate_review_response(valid.replace('"shade":"0",', '"shade":"0","vocabularySuggestions":[], '))
-    with pytest.raises(ValueError, match="invalid review skill"):
-        validate_review_response(valid.replace(f'"grammar":{_skill_json()}', '"grammar":null'))
 
 
 def test_candidates_require_exact_whole_phrase_and_changed_correction():
@@ -567,7 +305,7 @@ async def test_verifier_accepts_only_existing_ids(selection):
             assert kwargs["model"] == "openai/gpt-4o-mini"
             return json.dumps({"acceptedIds": selection})
 
-    model = OnboardingModel(Llm())
+    model = LearnerModel(Llm())
     if selection is None or selection in (["invented"], [1]):
         with pytest.raises(ValueError):
             await model.verify_corrections(candidates)
@@ -582,7 +320,7 @@ async def test_verifier_model_can_be_configured():
             assert kwargs["model"] == "custom/verifier"
             return '{"acceptedIds":[]}'
 
-    assert await OnboardingModel(Llm(), correction_verification_model="custom/verifier").verify_corrections([
+    assert await LearnerModel(Llm(), correction_verification_model="custom/verifier").verify_corrections([
         {"id": "0:0", "transcript": "I builds tools.", "wrong": "I builds", "better": "I build", "kind": "grammar"},
     ]) == set()
 
@@ -598,7 +336,7 @@ async def test_legacy_lexical_error_uses_grammar_verifier():
     candidate = {"id": "0:0", "transcript": "I did a decision.",
                  "wrong": "I did a decision", "better": "I made a decision", "kind": "grammar",
                  "vocabularyCategory": "naturalness_error"}
-    assert await OnboardingModel(Llm()).verify_corrections([candidate]) == {"0:0"}
+    assert await LearnerModel(Llm()).verify_corrections([candidate]) == {"0:0"}
 
 
 @pytest.mark.asyncio
@@ -611,7 +349,7 @@ async def test_final_upgrade_verifier_is_separate_from_error_verifier():
 
     candidate = {"id": "0:0", "transcript": "We saw a big increase in costs.",
                  "original": "big", "alternative": "substantial", "category": "word_upgrade"}
-    assert await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate]) == {
+    assert await LearnerModel(Llm()).verify_vocabulary_upgrades([candidate]) == {
         "0:0": {"accepted": True, "reason": "Используй substantial для заметного роста затрат.",
                 "sourceCorrect": True, "meaningPreserved": True, "usefulToLearn": True}}
 
@@ -625,7 +363,7 @@ async def test_upgrade_verifier_requires_reason_for_every_decision():
     candidate = {"id": "0:0", "transcript": "We saw a big increase in costs.",
                  "original": "big", "alternative": "substantial", "category": "word_upgrade"}
     with pytest.raises(ValueError, match="invalid vocabulary decision"):
-        await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate])
+        await LearnerModel(Llm()).verify_vocabulary_upgrades([candidate])
 
 
 @pytest.mark.asyncio
@@ -640,6 +378,6 @@ async def test_upgrade_verifier_rejects_error_repair_even_when_replacement_is_us
 
     candidate = {"id": "0:0", "transcript": "The flight had one step.",
                  "original": "step", "alternative": "stop", "category": "word_upgrade"}
-    decision = await OnboardingModel(Llm()).verify_vocabulary_upgrades([candidate])
+    decision = await LearnerModel(Llm()).verify_vocabulary_upgrades([candidate])
     assert decision["0:0"]["accepted"] is False
     assert decision["0:0"]["sourceCorrect"] is False

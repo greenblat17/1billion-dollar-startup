@@ -134,7 +134,7 @@ async def test_production_pipeline_defaults_telegram_to_kora_h():
     )
     pipeline = _build_pipeline(settings)
     assert await pipeline.characters.store.get("tg-1") == "kora_h"
-    assert (await pipeline.routing.resolve("tg-1", ConversationMode.ONBOARDING)).personality.value == "kora_h"
+    assert (await pipeline.routing.resolve("tg-1", ConversationMode.SITUATION)).personality.value == "kora_h"
     assert (await pipeline.routing.resolve("tg-1", ConversationMode.FREE)).personality.value == "kora_h"
     assert (await pipeline.routing.resolve("tg-1", ConversationMode.SITUATION)).personality.value == "kora_h"
 
@@ -402,10 +402,6 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         assert (await client.post(path, json=payload)).json()['character'] == 'kora_h'
         assert (await client.get(path + '/tg-1')).json()['koraHAvailable'] is True
         assert (await client.get(path + '/tg-1')).json()['koraAvailable'] is False
-        await app.state.onboarding.store.save('tg-1', {'runId': 'a' * 32, 'status': 'active', 'turns': []})
-        blocked = await client.post(path, json={**payload, 'character': 'speaky'})
-        assert blocked.json()['blocked'] == 'active_conversation'
-        await app.state.onboarding.store.save('tg-1', {'runId': 'a' * 32, 'status': 'completed', 'turns': []})
         assert (await client.get(path + '/tg-2')).json()['character'] == 'speaky'
         denied = await client.post(path, json={**payload, 'sessionId': 'tg-2'})
         assert denied.json()['blocked'] == 'unavailable'
@@ -413,7 +409,7 @@ async def test_character_api_auth_unavailable_busy_and_active_call():
         await chars.store.set('tg-2', 'kora_h')
         assert (await client.get(path + '/tg-2')).json()['character'] == 'kora_h'
         with pytest.raises(RuntimeError, match='temporarily unavailable'):
-            await app.state.pipeline.routing.resolve('tg-2', ConversationMode.ONBOARDING)
+            await app.state.pipeline.routing.resolve('tg-2', ConversationMode.SITUATION)
         assert await chars.variant('tg-2') is None
         await app.state.pipeline.calls.open('tg-1')  # Failed/undelivered next opening.
         switched = await client.post(path, json={**payload, 'character': 'speaky'})

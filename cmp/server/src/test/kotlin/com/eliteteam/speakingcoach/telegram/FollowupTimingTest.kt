@@ -73,27 +73,12 @@ class FollowupTimingTest {
     }
 
     @Test
-    fun everyFollowupActionHasRelevantButtonWithoutStop() {
-        val actions = mapOf(
-            "begin" to "ob:begin:run", "resume" to "fu:resume:run",
-            "retry" to "ob:retry:run", "level" to "ob:level:run",
-            "results" to "ob:results:run", "practice" to "fu:practice",
-        )
-        actions.forEach { (action, expected) ->
-            val buttons = followupKeyboard(action, "run").keyboard.flatten()
-                .filterIsInstance<CallbackDataInlineKeyboardButton>()
-            assertEquals(listOf(expected), buttons.map { it.callbackData })
+    fun retiredOnboardingActionsHaveNoButtons() {
+        listOf("begin", "resume", "retry", "level", "results", "goal", "checkpoint").forEach { action ->
+            assertEquals(0, followupKeyboard(action, "run").keyboard.flatten().size)
         }
-        assertEquals("🎙 Let's chat", followupKeyboard("resume", "run", "invitation")
-            .keyboard.flatten().single().text)
-        assertEquals("Continue 🎙", followupKeyboard("resume", "run", "speech_60")
-            .keyboard.flatten().single().text)
-        assertEquals(4, followupKeyboard("goal", "run").keyboard.flatten().size)
-        assertEquals(listOf("ob:see_results:run", "ob:keep_talking:run"),
-            followupKeyboard("checkpoint", "run").keyboard.flatten()
-                .filterIsInstance<CallbackDataInlineKeyboardButton>().map { it.callbackData })
-        assertEquals(SEE_RESULTS_BUTTON, followupKeyboard("checkpoint", "run")
-            .keyboard.first().single().text)
+        assertEquals("fu:practice", (followupKeyboard("practice", "run").keyboard.flatten().single()
+            as CallbackDataInlineKeyboardButton).callbackData)
     }
 
     @Test

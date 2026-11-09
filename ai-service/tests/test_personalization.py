@@ -1,10 +1,11 @@
+from tests.learner_fixtures import seed_history
 import json
 
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from app.onboarding import OnboardingStore
-from app.onboarding_model import OnboardingModel, PersonValidationError
+from app.learner_store import LearnerStore
+from app.learner_model import LearnerModel, PersonValidationError
 from app.personalization import Personalization
 
 
@@ -33,7 +34,7 @@ def data(note):
 @pytest.mark.parametrize("persistent", [False, True])
 async def test_person_updates_but_proficiency_stays_fixed_and_return_greeting_is_consumed(persistent):
     redis = FakeAsyncRedis(decode_responses=True) if persistent else None
-    store = OnboardingStore(redis)
+    store = LearnerStore(redis)
     now = 1_800_000_000
     model = Model()
     service = Personalization(store, model, Streaks(), clock=lambda: now)
@@ -54,7 +55,7 @@ async def test_person_updates_but_proficiency_stays_fixed_and_return_greeting_is
     assert after["returningAfterBreak"] is False
     assert after["daysSinceConversation"] == 0
     if redis:
-        reopened = Personalization(OnboardingStore(redis), model, Streaks(), clock=lambda: now)
+        reopened = Personalization(LearnerStore(redis), model, Streaks(), clock=lambda: now)
         assert data(await reopened.prepare("tg-1")) == after
         assert await redis.ttl("learner:tg-1") == -1
         await redis.aclose()
@@ -62,7 +63,7 @@ async def test_person_updates_but_proficiency_stays_fixed_and_return_greeting_is
 
 @pytest.mark.asyncio
 async def test_failed_update_preserves_person_and_still_marks_contact():
-    store = OnboardingStore()
+    store = LearnerStore()
     model = Model()
     model.fail = True
     service = Personalization(store, model, Streaks(), clock=lambda: 123)
@@ -76,7 +77,7 @@ async def test_failed_update_preserves_person_and_still_marks_contact():
 
 @pytest.mark.asyncio
 async def test_learning_context_returns_only_durable_learner_data():
-    store = OnboardingStore()
+    store = LearnerStore()
     service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
     await store.save_learner("tg-1", {
         "person": {"work": "building an app"},
@@ -92,7 +93,7 @@ async def test_learning_context_returns_only_durable_learner_data():
 
 @pytest.mark.asyncio
 async def test_extraction_does_not_persist_until_successful_turn_is_committed():
-    store = OnboardingStore()
+    store = LearnerStore()
     service = Personalization(store, Model(), Streaks(), clock=lambda: 123)
     await store.save_learner("tg-1", {"person": {"work": "developer"}})
     observation = await service.extract_person("tg-1", "I changed jobs.")
@@ -106,7 +107,7 @@ async def test_extraction_does_not_persist_until_successful_turn_is_committed():
 
 @pytest.mark.asyncio
 async def test_observation_uses_newer_profile_if_it_changes_during_extraction():
-    store = OnboardingStore()
+    store = LearnerStore()
     class PreserveModel:
         def __init__(self):
             self.previous = []
@@ -129,11 +130,11 @@ async def test_observation_uses_newer_profile_if_it_changes_during_extraction():
 
 @pytest.mark.asyncio
 async def test_legacy_person_is_enriched_once_without_inventing_last_contact():
-    store = OnboardingStore()
+    store = LearnerStore()
     state = {"runId": "legacy", "status": "completed", "profile": {"work": "startup"},
              "cefr": "B1", "position": "mid", "review": {},
              "turns": [{"transcript": "I watch football alone to concentrate."}]}
-    await store.save("tg-1", state)
+    await seed_history(store, "tg-1", state)
     model = Model()
     service = Personalization(store, model, Streaks())
     first = data(await service.prepare("tg-1"))
@@ -144,14 +145,14 @@ async def test_legacy_person_is_enriched_once_without_inventing_last_contact():
     await service.prepare("tg-1")
     assert len(model.calls) == 1
     # A reset cannot erase the independent conversational profile.
-    await store.save("tg-1", {"status": "waiting"})
+    await seed_history(store, "tg-1", {"status": "waiting"})
     assert data(await service.prepare("tg-1"))["person"] == first["person"]
 
 
 @pytest.mark.asyncio
 async def test_continuation_contact_does_not_update_person_or_streak():
     model = Model()
-    service = Personalization(OnboardingStore(), model, Streaks(), clock=lambda: 123)
+    service = Personalization(LearnerStore(), model, Streaks(), clock=lambda: 123)
     await service.observe("tg-1", "")
     assert model.calls == []
     assert data(await service.prepare("tg-1"))["previousConversationAt"] == 123
@@ -173,7 +174,7 @@ async def test_person_parser_rejects_invalid_or_instruction_shaped_payload():
             return json.dumps(self.raw)
 
     llm = Llm()
-    model = OnboardingModel(llm)
+    model = LearnerModel(llm)
     assert (await model.update_person({}, ["I like football"]))["facts"] == ["Likes football"]
     assert llm.formats[-1] is None
     assert llm.models[-1] is None
@@ -202,7 +203,7 @@ async def test_person_validation_uses_safe_reason_codes(replacement, reason):
             return json.dumps({"person": person})
 
     with pytest.raises(PersonValidationError) as raised:
-        await OnboardingModel(Llm()).update_person({}, ["I moved to Kazan"])
+        await LearnerModel(Llm()).update_person({}, ["I moved to Kazan"])
     assert raised.value.reason == reason
 
 
@@ -213,5 +214,5 @@ async def test_missing_facts_has_its_own_reason():
             return json.dumps({"person": {"name": None, "work": None, "leisure": None, "goal": None}})
 
     with pytest.raises(PersonValidationError) as raised:
-        await OnboardingModel(Llm()).update_person({}, ["I moved to Kazan"])
+        await LearnerModel(Llm()).update_person({}, ["I moved to Kazan"])
     assert raised.value.reason == "facts_missing"

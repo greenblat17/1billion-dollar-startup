@@ -97,6 +97,12 @@ jobs:
           install -m 600 /dev/null "$KEY"
           printf '%s\n' "$KEY_BODY" > "$KEY"
           SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          if [ "$DESTINATION" = dev ]; then
+            SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
+              -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker inspect --format "previous_image={{.Image}} started={{.State.StartedAt}}" ai-service; docker exec ai-service sha256sum /app/app/tutor.py || true'
+          fi
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/ai-service
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             rm -rf /opt/ai-service/app /opt/ai-service/main.py /opt/ai-service/greeting.ogg
@@ -118,3 +124,12 @@ jobs:
             bash /opt/ai-service/deploy-redis.sh
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/ai-service/deploy-remote.sh
+          if [ "$DESTINATION" = dev ]; then
+            echo "deployed_source_sha=$GITHUB_SHA"
+            sha256sum vps-upload/app/tutor.py
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker exec ai-service sha256sum /app/app/tutor.py'
+            (cd vps-upload && find app -type f -name '*.py' -exec sha256sum {} + | sort | sha256sum)
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              "docker exec ai-service sh -c 'find app -type f -name \"*.py\" -exec sha256sum {} + | sort | sha256sum'"
+          fi

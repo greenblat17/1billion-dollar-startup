@@ -1,5 +1,7 @@
 # Telegram voice onboarding
 
+> В рабочей реализации SP-01 этот onboarding-путь заменён постоянным текстовым чатом. Документ сохранён как история; см. [новый контракт](../integrations/2026-11-10-sp01-tutor-chat.md). Деплой не выполнен.
+
 For the approved replacement journey, see [the 30-second onboarding specification](2026-10-31-telegram-onboarding-simplification.md). This document describes the earlier two-minute-first flow and its implementation.
 
 Status: implemented on `feature/telegram-onboarding`; automated verification below. Live DEV acceptance is still required before production deployment.

@@ -253,6 +253,25 @@ class OpenAiChatModel:
             return CorrectionRun(corrections, outcome, attempt)
         raise AssertionError("unreachable correction attempt")
 
+    async def complete_tools(self, messages: list[dict], tools: list[dict]) -> dict:
+        """Native tool messages; no fabricated JSON action envelope or clip job."""
+        response = await logged_provider_call(
+            lambda: self._client.chat.completions.create(
+                model=self._model, messages=messages, tools=tools,
+                tool_choice="auto", temperature=0.7, max_tokens=1800,
+                response_format={"type": "json_schema", "json_schema": {"name": "tutor_reply", "strict": True,
+                    "schema": {"type": "object", "properties": {"reply": {"type": "string"},
+                               "trialOffered": {"type": "boolean"}},
+                               "required": ["reply", "trialOffered"], "additionalProperties": False}}},
+                extra_body={"provider": {"require_parameters": True}} if "openrouter.ai" in str(self._client.base_url) else {},
+            ), kind="llm", provider=provider_from_url(self._client.base_url),
+            model=self._model, purpose="tutor", cost_of=read_provider_cost,
+        )
+        if not response.choices or response.choices[0].finish_reason == "length":
+            raise ValueError("incomplete_tutor_response")
+        return response.choices[0].message.model_dump(exclude_none=True,
+                                                     include={"role", "content", "tool_calls"})
+
     async def complete_json(self, system: str, data: str, temperature: float = 0.0, max_tokens: int | None = None,
                             response_format: dict | None = None, model: str | None = None,
                             operation: str | None = None, retry: bool = True,
