@@ -11,6 +11,10 @@ on:
         description: ai-server
         type: boolean
         default: true
+      verify_only:
+        description: Read-only DEV readiness without redeployment
+        type: boolean
+        default: false
       tutor_smoke:
         description: Two synthetic tutor requests after DEV readiness (stop on first failure)
         type: boolean
@@ -29,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.speech_time_benchmark != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.speech_time_benchmark != true && !inputs.verify_only }}
         run: |
           echo "Enable cmp-server and/or ai-server" >&2
           exit 1
@@ -37,7 +41,7 @@ jobs:
   package-server:
     name: Package cmp-server
     needs: require-target
-    if: ${{ inputs.cmp_server && !inputs.speech_time_benchmark }}
+    if: ${{ inputs.cmp_server && !inputs.speech_time_benchmark && !inputs.verify_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -67,7 +71,7 @@ jobs:
   package-ai:
     name: Package ai-server
     needs: require-target
-    if: ${{ inputs.ai_server && !inputs.speech_time_benchmark }}
+    if: ${{ inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -107,7 +111,7 @@ jobs:
     needs:
       - require-target
       - package-server
-    if: ${{ !cancelled() && inputs.cmp_server && !inputs.speech_time_benchmark && needs.package-server.result == 'success' }}
+    if: ${{ !cancelled() && inputs.cmp_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-server.result == 'success' }}
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
       destination: dev
@@ -118,7 +122,7 @@ jobs:
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && needs.package-ai.result == 'success' }}
+    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-ai.result == 'success' }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
@@ -173,7 +177,7 @@ jobs:
   verify-tutor-dev:
     name: Verify DEV tutor readiness
     needs: [deploy-server, deploy-ai]
-    if: ${{ !cancelled() && needs.deploy-server.result == 'success' && needs.deploy-ai.result == 'success' }}
+    if: ${{ !cancelled() && (inputs.verify_only || (needs.deploy-server.result == 'success' && needs.deploy-ai.result == 'success')) }}
     runs-on: ubuntu-latest
     environment: deploy-dev
     env:

@@ -1,9 +1,11 @@
 """DEV-only read-only readiness and optional bounded synthetic tutor smoke. Never prints credentials."""
 import json
+import re
 import ssl
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta
 import urllib.request
 
 
@@ -23,12 +25,21 @@ def main():
     container = 'speaking-coach' if component == 'cmp' else 'ai-service'
     info = json.loads(subprocess.check_output(['docker', 'inspect', container]))[0]
     env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
-    print(json.dumps({'component': component, 'expected_revision': revision, 'image': info['Image'],
+    print(json.dumps({'component': component, 'verification_ref': revision, 'image': info['Image'],
                       'running': info['State']['Running'], 'restarts': info['RestartCount'], 'oom': info['State']['OOMKilled']}))
     assert info['State']['Running'] and not info['State']['OOMKilled']
-    logs = subprocess.check_output(['docker', 'logs', '--since', info['State']['StartedAt'], container], stderr=subprocess.STDOUT).decode(errors='replace')
+    startup_end = (datetime.fromisoformat(info['State']['StartedAt'].replace('Z', '+00:00')) + timedelta(seconds=60)).isoformat()
+    logs = subprocess.check_output(['docker', 'logs', '--since', info['State']['StartedAt'], '--until', startup_end, container], stderr=subprocess.STDOUT).decode(errors='replace')
     markers = ['Application started', 'Application startup complete', 'FlywayValidateException', 'Traceback', 'ERROR']
     print('startup_log_markers=' + json.dumps({m: logs.count(m) for m in markers}))
+    for line in logs.splitlines():
+        if 'ERROR' not in line:
+            continue
+        for value in env.values():
+            if len(value) >= 8:
+                line = line.replace(value, '[REDACTED]')
+        line = re.sub(r'sk-[A-Za-z0-9_-]+|[0-9]{8,12}:[A-Za-z0-9_-]{30,}', '[REDACTED]', line)
+        print('startup_error_redacted=' + line[:700])
     assert 'FlywayValidateException' not in logs
     if component == 'ai':
         port = info['NetworkSettings']['Ports']['8090/tcp'][0]['HostPort']

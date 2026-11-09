@@ -166,3 +166,28 @@ Redeploy DEV теперь проверяет SSH identity по сохранён�
 Последний успешный Redeploy DEV до этой работы: run 41915810918, оба компонента
 `5032a0aa0768e4ad70c0d593f5ba5080577d0f7a`, ветка `bb/f-pay-thr_c38nqsywqm`.
 Это ревизия для восстановления через Redeploy DEV; volumes Redis/Postgres не сбрасываются.
+
+
+### DEV: фактическая выкатка 2026-11-10
+
+Draft PR: https://github.com/greenblat17/1billion-dollar-startup/pull/52.
+DEV run: https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42706735998.
+Оба deploy jobs и readiness завершились успешно на `c148e31ab3afd67a2ac790794be4ccd0ab97dcc2`.
+Деплой был запущен, пока эта подсессия ожидала CI; повторный deploy не запускался.
+
+Проверенные факты из runtime: оба контейнера running, 0 restarts, OOM=false; AI и CMP health=200,
+CMP→AI health=200, authenticated learner context=200. OPENAI_API_KEY/AI_INTERNAL_TOKEN/REDIS_URL
+на AI присутствуют (значения не раскрывались). DEV bot getMe вернул `vlama_bot`.
+JAR digest на runner и внутри CMP совпал: `94ed4803c13c0bfb06b40e386bc4b14f356193568151c8ed2cb0beca1c37be67`.
+Digest всего дерева app/*.py на runner и внутри AI совпал: `08235f6eaf76f6470df10ef6c750ab11ebbe0a504b9d701a1cfd0d64a59dba40`.
+Предыдущие image IDs записаны в deploy log до замены контейнеров. Redis/Postgres не сбрасывались.
+
+В startup markers AI ошибок нет; CMP показал один ERROR при успешном Application started и health.
+Его причина требует отдельной проверки. Smoke модели в этом workflow не запускался, Telegram acceptance открыта.
+Пользователь может проверять `/start` → «Хочу урок прямо сейчас» → вопрос по английскому → перенос → отмена
+в https://t.me/vlama_bot. Кнопка урока должна быть неактивной; после отмены диалог продолжается.
+
+CI приложения прошёл, кроме macOS packaging: GitHub отверг runner `macos-14-arm64-us-default`
+до запуска кода. Исправление использует `macos-15`, уже работающий для iOS в этом же CI.
+В Redeploy DEV добавлен `verify_only` для проверки без пересборки/рестарта. В этом режиме verification_ref
+обозначает ревизию проверяющего скрипта, а не заявленную ревизию работающего приложения.
