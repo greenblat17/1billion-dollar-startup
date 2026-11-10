@@ -2,52 +2,56 @@
 
 Situation practice extends the same call lifecycle. Its menu, scenario state, fictional
 memory boundary, and MVP scope are recorded in
-[Telegram practice situations](../plans/2026-10-09-telegram-practice-situations.md).
+[технический контракт](voice-runtime.md).
 
-After onboarding, a voice is a practice call with a start and an end. Onboarding stays Session 0. The rolling dialogue and learner memory continue across calls.
+Это сохранённая функция голосовой практики, не trial нового репетитора и не Mini App.
+Профиль `learner:` и rolling voice history сохраняются между calls; с `tutor:v1` они не связаны.
 
 ## When a call opens
 
-Ktor asks ai-service for the onboarding state, then `GET /internal/profile/{sessionId}`.
+Явный `Start call` или выбор ситуации вызывает `POST /internal/calls/start`.
+Ktor проверяет активный Vocabulary Builder и существующий call; старого onboarding/score/goal gate нет.
+Обычное голосовое сообщение **не открывает** call: без активного call оно игнорируется.
+Внутренний `/internal/calls/open` остаётся API, но не делает голос входом в onboarding.
+`/start` и `/onboarding` переходят к Саше, сохраняют память и не завершают call.
+Напоминание само по себе не открывает call и не запускает clock.
 
-- `waiting`, `active`, and `pending` stay on the onboarding path. No call is opened.
-- No numeric `overallScore` sends a new user into `/onboarding`. An existing user exempt from automatic onboarding keeps the ordinary voice conversation, even if a later onboarding attempt finished without a numeric score: the voice is answered with available dialogue and learner context, without opening a call or inventing a baseline.
-- A score without `practice-goal:{sessionId}` shows the same 5 / 10 / 15 / no-goal choice as the end of onboarding. There is no 10-minute placeholder. An explicit no-goal choice is stored as zero minutes and permits the call to open.
-- Otherwise `POST /internal/calls/open` get-or-creates the open call, and the clip runs.
-
-A daily reminder is still only an invitation. It does not open a call or start the clock. `/start` does not seal a call. `/onboarding` seals an open call and removes the keyboard.
-
-For an existing exempt user without a score, the first successfully answered ordinary voice is followed by the existing Sasha onboarding announcement and its `🎙 Пройти onboarding` button. This in-chat copy adds: `Если пока не хочешь проходить onboarding — просто продолжай отправлять голосовые. Speaky будет отвечать на них, как раньше 💙`. A durable claim allows this follow-up only once, independently of the admin announcement: someone who received the broadcast may receive the follow-up once too. Later voices remain ordinary until onboarding is chosen. The legacy-user flag survives an explicit onboarding reset, so an inconclusive assessment still allows ordinary voice replies without a numeric baseline. Sending the invitation does not reset the onboarding attempt. A failed Telegram send releases the claim for a later voice. An old/stale `🎙 Start call` button shows the invitation instead of silently starting a call without a level.
-
-After the daily goal is selected or skipped, Telegram sends a persistent lower reply keyboard with `🎙 Start call` on the visible daily-goal commitment that remains in the chat, styled green where the Telegram client supports button styles. The button appears before the reminder choice. Returning eligible users receive it again on `/start` when no call is open today. The button sends its label as a text message, which Ktor handles before reminder-time input. It uses the same onboarding/level/goal gate as an incoming voice. An eligible tap calls `POST /internal/calls/start`: ai-service get-or-creates the call, generates one short spoken question with one LLM call and synthesizes it at the saved voice speed. Relevant personal memory and recent dialogue may guide the question; the model must not invent details. A short message with `ReplyKeyboardRemove` hides the lower button, then Telegram sends the voice with the existing clock, Subtitles, and End call inline keyboard and confirms successful send through `POST /internal/calls/starter-delivered`. The question and delivery flag live in `call:{id}`. A repeat tap during an active call prompts the user to reply by voice and removes any stale lower button. A direct voice still opens a call through `/internal/calls/open`; its `alreadyActive` flag lets Ktor hide the lower button after the first processed reply, including a call that was already active when the new bot version deployed. `End call` restores it with a short message before the review. `/internal/calls/status` lets `/start` check for an open call without creating one. The starter adds no goal seconds. A new call after End or the next Moscow day may receive a new starter.
+Старт сохраняет вопрос и delivery flag в `call:{id}`; подтверждение доставки идёт через
+`POST /internal/calls/starter-delivered`. Повторное нажатие при активном call не создаёт второй звонок.
+Стартовый вопрос не добавляет goal seconds. `End call` возвращает прежнюю call-клавиатуру и запускает review.
 
 ## During the call
 
-On an eligible `🎙 Start call` tap, Ktor first checks whether a call is already active, then shows `Speaky is joining the chat… 💙` with `ReplyKeyboardRemove` while ai-service prepares the starter voice. A generation failure restores the button with a retry message. At End, the review-wait message carries the persistent `🎙 Start call` reply keyboard and remains in the chat. For onboarding goal selection, the daily-goal commitment carries the same keyboard. The bot does not delete messages that set or remove the lower keyboard.
+On an eligible `🎙 Start call` tap, Ktor first checks whether a call is already active, then shows `Speaky is joining the chat… 💙` with `ReplyKeyboardRemove` while ai-service prepares the starter voice. A generation failure restores the button with a retry message. At End, the review-wait message carries the persistent `🎙 Start call` reply keyboard and remains in the chat. The bot does not delete messages that set or remove the lower keyboard.
 
 When a Telegram response will contain voice, Ktor shows the recording-voice action during voice preparation and again immediately before upload. This includes the greeting and the `Start call` opening, as well as Vocabulary Builder turns.
 
-The starter voice now opens with `Hi, <Telegram first name>! How are you?` when the name is usable, or `Hi! How are you?` otherwise, followed by a short question. The name is supplied by Ktor in the internal start request; the LLM does not invent it. The model prefers an unfinished topic from an actual prior user turn and varies natural phrasing such as `Last time you told me about ...` or `We talked about ...`. It may claim a previous discussion only when that turn supports it; otherwise it uses durable personal context without that claim, or an everyday topic. When a direct voice starts the call, the `Your turn—send a voice message.` text carrying `ReplyKeyboardRemove` remains in the chat so the keyboard removal is retained. The uploaded voice filename follows `audioContentType` (`.ogg` or `.mp3`). Telegram draws the waveform, so its shape and the effect of deleting the removal message require a live DEV check.
+The starter voice now opens with `Hi, <Telegram first name>! How are you?` when the name is usable, or `Hi! How are you?` otherwise, followed by a short question. The name is supplied by Ktor in the internal start request; the LLM does not invent it. The model prefers an unfinished topic from an actual prior user turn and varies natural phrasing such as `Last time you told me about ...` or `We talked about ...`. It may claim a previous discussion only when that turn supports it; otherwise it uses durable personal context without that claim, or an everyday topic. In the retained call voice path, the `Your turn—send a voice message.` text carrying `ReplyKeyboardRemove` remains in the chat so the keyboard removal is retained. The uploaded voice filename follows `audioContentType` (`.ogg` or `.mp3`). Telegram draws the waveform, so its shape and the effect of deleting the removal message require a live DEV check.
 
 The latest Speaky voice carries one inline keyboard: today's recognized speech against the daily goal (`8:24 / 10:00`), `Subtitles`, and `End call` on the next row, styled red where the Telegram client supports button styles. Without a goal, it shows elapsed time only (`8:24 today`). The keyboard moves off the previous voice. Crossing a chosen goal does not end the call. The clock shows overtime, such as `12:40 / 10:00`, and one text says the day's minutes are done; no-goal calls do not send this nudge.
 
-A recognized turn stores transcript, reply, corrections, Whisper seconds, and word timings on `call:{id}`. Silence and the clarify line add no seconds. One live correction uses the onboarding card, not the `You said` quote.
+A recognized turn stores transcript, reply, corrections, Whisper seconds, and word timings on `call:{id}`. Silence and the clarify line add no seconds. One live correction uses the shared correction card.
 
-For a call opened with `🎙 Start call`, Speaky puts 👍 on the user's first processed voice reply. It saves the first and latest accepted Telegram voice message IDs in `call:{id}`, so a Ktor restart does not lose the target. A direct voice that starts a call does not get the opening 👍. When `End call` seals a call, Speaky puts ❤ on that call's latest accepted user voice. If the call has only one user voice, ❤ replaces its earlier 👍. Reaction failures are logged and do not block the voice reply or review.
+For a call opened with `🎙 Start call`, Speaky puts 👍 on the user's first processed voice reply. It saves the first and latest accepted Telegram voice message IDs in `call:{id}`, so a Ktor restart does not lose the target. When `End call` seals a call, Speaky puts ❤ on that call's latest accepted user voice. If the call has only one user voice, ❤ replaces its earlier 👍. Reaction failures are logged and do not block the voice reply or review.
 
-The same Moscow day keeps the call open across pauses. `End call` waits until the voice already in the chat queue finishes, then seals. A voice that arrives after that tap opens the next call. Minutes for the day are the sum. `End call` is handled on `TelegramChatActions`, so it does not need a second lock.
+The same Moscow day keeps the call open across pauses. `End call` waits until the voice already in the chat queue finishes, then seals. After End call, a voice alone does not open another call; the user must explicitly start it. Minutes for the day are the sum. `End call` is handled on `TelegramChatActions`, so it does not need a second lock.
 
-At the next Moscow day, `open` seals the previous call. It does not push the review at night. The next voice is a new call, and one button offers yesterday's review. That button is offered once.
+At the next Moscow day, `open` seals the previous call. It does not push the review at night. The internal open operation can create a new call and offer yesterday's review; Telegram still requires an explicit start when no call is active. That button is offered once.
 
 ## Review
 
 `POST /internal/calls/end` returns the sealed id. Telegram shows a typing indicator while `POST /internal/calls/review` checks the call. An insufficient result sends one formatted `🎙 Let’s talk a bit more` message with the persistent Start call keyboard. A full review sends `Thanks for the chat 💙` with that keyboard, followed by the first inline result card. A failed review sends a retry card after the thank-you message; Retry edits that card after success. A failed review is not cached; Retry calls the same route.
 
-The model returns a diagnostic level note, grammar/vocabulary/fluency explanations, a one-or-two-sentence recap of what you discussed, and a move from -2 to 2 for the overall level and for each skill. The diagnostic text and explanations for verified corrections follow the same rules as onboarding: concrete evidence from this conversation, two concise diagnostic sentences for each skill, no invented mistakes, and one local explanation per selected grammar or vocabulary example. Both reviews select up to five verified examples per skill. A correction without a confident explanation is hidden. The recap is separate from the diagnostic assessment. Call reviews use the configured onboarding review model and fallback, the corresponding strict JSON schema when supported, local response validation, and one retry for an invalid response. Code applies each move to the stored snapshot, allowing points to accumulate across calls. Every individual call still changes each existing numeric score by at most two points. If a stored skill score is null, the same review makes that skill's first independent band/position/shade placement from the current call when evidence is sufficient; it never copies the overall score as the skill score. Later calls step from that new skill score by at most two points. Call scores can take the previously unused numbers between onboarding score anchors; each number belongs to the nearest anchor, with an exact midpoint assigned to the lower anchor. This lets repeated calls move between low/mid/high and eventually between CEFR bands. The scale stops at the existing A1/C1 endpoints, 10 and 96, because C2 is not defined. The onboarding score anchors and initial assessment rules are unchanged. Examples still come from this call, after the same verification used by onboarding. Fluency measurements reuse `fluency_metrics`.
+The model returns diagnostic text and a move from -2 to 2 for each existing score.
+A null skill score receives its first independent placement from sufficient current-call evidence.
+Existing score anchors remain for compatibility; the scale ends at A1/C1 (10–96).
+Grammar examples are separately verified, with up to five retained examples and optional saved explanations.
+Vocabulary upgrades are separate learning suggestions, not evidence of mistakes or a lower score.
+[Correction contract](2026-09-30-spoken-corrections.md) and
+[Vocabulary workflow](2026-10-21-vocabulary-assessment-workflow.md) describe the validation.
+Review model and fallback retain the ONBOARDING_REVIEW_MODEL names for compatibility.
 
-The cards show the updated level, then Grammar, Vocabulary, and Fluency. Continue edits the Fluency card into the final progress and recap card, preserving the same message. The line after Fluency is today's time (`🎯 0:51 / 5:00 today`), a blank line, then `recap`: one or two sentences about what you just discussed, with no score and no CEFR band. Then `🔥 2 day streak`. The final card has no inline `Profile` or `Finish for today` buttons; `/profile` remains available as a command. The persistent lower `🎙 Start call` keyboard is already restored by the review-wait message. When no reminder time is saved, the last line is `Want me to remind you tomorrow? Tap /remind`.
-
-The stepped snapshot is written back to `assessment:{sessionId}` and, when learner memory already exists, onto its proficiency scores and derived skill bands/positions. A later save of the same onboarding attempt does not overwrite that snapshot. A new completed onboarding attempt does. Ordinary turns still do not change proficiency.
+The stepped snapshot is written back to `assessment:{sessionId}` and, when learner memory already exists, onto its proficiency scores and derived skill bands/positions. A later save of the same onboarding attempt does not overwrite that snapshot. SP-01 no longer creates completed voice-onboarding attempts. Ordinary turns still do not change proficiency.
 
 Deploy ai-service before Ktor. Live Telegram acceptance is separate from the unit tests.
 
@@ -65,11 +69,11 @@ shows the level, score, next-band progress, streak, and reminder offer when
 needed. It omits the diagnostic paragraph, accuracy note, and daily time.
 The character-feedback survey follows that card. The model no longer writes a
 conversation recap for new reviews. Cached reviews without a presentation
-version retain the level-first carousel and recap/progress card described above.
+version retain the old level-first carousel, followed by Grammar, Vocabulary, Fluency and a recap/progress card.
 The review response distinguishes `reviewKind=full|insufficient` and
 `presentationVersion=2`; Ktor defaults missing fields to the old format.
 The agreed behavior and verification boundary are in
-[the implementation plan](../plans/2026-10-24-short-call-feedback-and-result-order.md).
+[технический контракт](voice-runtime.md).
 
 ## DEV call-review timeout, 2026-10-23
 

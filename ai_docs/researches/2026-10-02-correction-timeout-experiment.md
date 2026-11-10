@@ -1,5 +1,7 @@
 # Live correction latency experiment (2026-10-02)
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 The observed DEV voice turn after switching to Grok TTS took 18.829 s in the AI pipeline: STT 0.728 s, reply 2.725 s, TTS 4.948 s, and live corrections 18.078 s. These stages overlap. Corrections failed, but the previous log recorded only `RuntimeError`, so the underlying provider failure cannot be reconstructed from that turn.
 
 We ran the 100 synthetic transcripts in `ai-service/evals/spoken_corrections.json` through `openai/gpt-5.6-luna` on OpenRouter. Each transcript was sent once with the current SDK retry setting and once with SDK retries disabled, with three concurrent requests. The correction prompt and parsing path were the same. A 25-second outer cap censored pathological waits; none reached it. Raw per-case results, without API keys, are in the thread artifact `notes-latency-2026-10-02/results.json`.

@@ -5,41 +5,28 @@
 **Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md)  
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
-## Зачем CMP в этом продукте
+## Роль CMP
 
-Speaking Coach учит **говорить** по-английски: разговор — не чат и не Duolingo, а диагностика (grammar / vocabulary / pronunciation / fluency). Цикл из плана:
-
-```text
-разговор → анализ → 2–3 слабых места → работа над ними → адаптированный следующий разговор
-```
-
-Неделя 1 плана — Telegram как клиент, наш код — `:server` (голос → clip HTTP → `ai-service` STT→LLM→TTS → голосовой ответ). Native UI в тот срез не входил.
-
-CMP — это **неделя 2**: тот же backend и тот же clip/session контракт, но пользовательский интерфейс — мобильное приложение (Android и iOS). Макеты экранов: `ai_docs/design/2026-09-17-mobile-ui.md` (Welcome / Home / Call / разбор). Экран разговора как Zoom: пользователь говорит, AI отвечает голосом, приложение снова слушает — без кнопки «отправить» на каждую реплику. Desktop в продукте не цель; JVM-окно нужно, чтобы собирать и смотреть тот же shared UI.
-
-Не дублировать Telegram-бота в Compose. Не делать ядром экраны упражнений (неделя 4, по желанию после разбора).
+Это существующий Android/iOS/Desktop-прототип, а не новый Mini App уроков из v0.5.
+Его Auth/Call/Review подключены к app API; часть Home/Profile остаётся демонстрационной.
+Целевой продукт — [отношения с Сашей](../product.md), а текущий выпуск — Telegram SP-01.
+Макеты Releva ниже относятся только к прототипу и не переопределяют согласованный Immersive Dark для будущего урока.
 
 ## Где это в репо
 
 Git root — корень speaking-coach. **Gradle root — `cmp/`**. Каталог: `cmp/gradle/libs.versions.toml` (CMP 1.12, Kotlin 2.4.20).
 
 ```text
-Telegram / CMP-приложение
-        │  clip + session HTTP
-     :server          Ktor (бот уже есть; приложение к нему же)
-        │
-    ai-service        Python STT → LLM → TTS
+CMP → Ktor app API → FastAPI realtime/review
+CMP ↔ OpenAI Realtime (WebRTC audio)
+Telegram text → Ktor TutorClient → FastAPI TutorRuntime
 
-androidApp / iosApp / desktopApp     тонкие хосты окна
-              │
-         :app:shared                 единственный Compose UI (commonMain)
-              │
-            :core                    Kotlin без Compose
+androidApp / iosApp / desktopApp → :app:shared → :core
 ```
 
 Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — `https://$DEV_CMP_SERVER_HOST` (`PROD_CMP_SERVER_HOST` на `main`). Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Desktop `hotRun`: Kermit дублируется в CHR `get_logs` (`ChrKermitLogWriter`). Не `project(":server")`.
 
-Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экран Истории отложен (макет `09-history.png` не удалять). Pronunciation / Fluency / Speed of speech — только PNG 06–08, в карусели нет. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`, Call rtc/WebRTC, Review poll. Карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md). WebRTC — [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md).
+Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экраны Истории, Pronunciation / Fluency / Speed of speech не реализованы. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`, Call rtc/WebRTC, Review poll. Карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md). WebRTC — [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md).
 
 ## Модули клиента
 
@@ -61,7 +48,7 @@ Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base UR
 
 Ресурсы: `cmp/app/shared/src/commonMain/composeResources/` (`drawable/`, `values/strings.xml`). Шрифты — туда же (`font/`), не `androidApp/res`. На android-таргете shared: `androidResources { enable = true }`.
 
-## Как смотрим UI до недели 2
+## Как смотрим UI прототипа
 
 Продуктовый layout — телефон. Desktop `hotRun` показывает то же `App()` в **412×915**. Это превью мобильного разговора, не десктоп-продукт.
 

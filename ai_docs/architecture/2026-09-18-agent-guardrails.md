@@ -36,4 +36,4 @@ Production notes are `wrong|||better` pairs. Do not invent random note strings o
 
 ## Research doc vs code
 
-Do not implement against `ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md` as if it were current (polling bot, empty Python service).
+Do not implement against `architecture.md` as if it were current (polling bot, empty Python service).

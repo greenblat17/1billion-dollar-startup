@@ -1,6 +1,6 @@
 # Vocabulary Builder analytics
 
-Status: implemented locally on 2026-11-04. Not deployed or checked with real DEV Telegram lessons. See the [plan](../plans/2026-11-04-vocabulary-builder-analytics-dashboard.md).
+Status: implemented locally on 2026-11-04. Not deployed or checked with real DEV Telegram lessons. See the контракт ниже.
 
 ## Access and data path
 

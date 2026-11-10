@@ -1,5 +1,7 @@
 # Two-suggestion Vocabulary: real-dialogue replay
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-21. Status: isolated read-only evaluation of local, undeployed code.
 No Telegram message, Redis record, or saved assessment was changed.
 

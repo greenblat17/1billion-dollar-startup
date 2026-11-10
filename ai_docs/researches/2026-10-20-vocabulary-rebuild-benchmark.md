@@ -1,5 +1,7 @@
 # Vocabulary rebuild: first paired benchmark
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Status: isolated evaluation; **the proposed workflow failed this benchmark and must not be enabled**. No Telegram, Redis, review, or user-facing production state was changed. Candidate worksheets are private thread artifacts, not repository data.
 
 ## Sample and annotation

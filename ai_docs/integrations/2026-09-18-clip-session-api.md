@@ -26,7 +26,7 @@ Fields: `sessionId` (form), `audio` (file). 404 unknown session, 400 empty audio
 
 ## Speech speed (internal, token required)
 
-`GET /internal/speech-speed/{sessionId}` returns `{ "speed": 0.9 }` when no chat override exists. `POST /internal/speech-speed` accepts `{ "sessionId": "tg-123", "speed": 0.8 }` and returns the selected speed. Only `0.8`, `0.9`, and `1.0` are accepted. The override is stored without TTL in Redis as `speech-speed:{sessionId}` (in memory without Redis). It controls future synthesis by direct Deepgram for this session; OpenRouter ignores it. Cached greeting and onboarding intro audio are separated by speed. Deploy AI before Ktor so `/speed` can call these endpoints.
+`GET /internal/speech-speed/{sessionId}` returns `{ "speed": 0.9 }` when no chat override exists. `POST /internal/speech-speed` accepts `{ "sessionId": "tg-123", "speed": 0.8 }` and returns the selected speed. Only `0.8`, `0.9`, and `1.0` are accepted. The override is stored without TTL in Redis as `speech-speed:{sessionId}` (in memory without Redis). It controls future synthesis by direct Deepgram for this session; OpenRouter ignores it. Cached greeting audio are separated by speed. Deploy AI before Ktor so `/speed` can call these endpoints.
 
 ## `GET /v1/clips/{jobId}` → 200 or 404
 
@@ -74,20 +74,14 @@ Kotlin: `SessionId` inline value. Telegram: `"tg-$chatId"` (`telegramSessionId`)
 ## Redis dialogue
 
 - Env: `REDIS_URL` (compose/VPS `redis://redis:6379/0`). Unset → `MemoryDialogueStore`.
-- `DIALOGUE_TTL_SECONDS` default **2592000**.
+- `DIALOGUE_TTL_SECONDS` default **2592000**, но фактическое хранение сырых реплик и TTL ограничены семью днями в `dialogue.py`.
 - `DIALOGUE_MAX_MESSAGES` default **40** (trimmed from the front).
 - JSON value: `{ "messages": [ { "role", "content" } ] }` — **assistant content is spoken reply only**, not notes.
 
-Stored history is what the next LLM call sees (plus system prompt). `/start` creates/refreshes the session; it does not wipe Redis history if the key already exists.
+Stored history is what the next LLM call sees (plus system prompt). `POST /v1/sessions` creates/refreshes the voice session; it does not wipe Redis history if the key already exists.
 
-## Optional onboarding contract (2026-09-28)
+## Граница SP-01
 
-All operations below require the existing `X-Internal-Token`. They are internal AI-service endpoints, not public Ktor APIs.
-
-- `POST /internal/onboarding/state`: `{sessionId, requestId, reset?: ""|"start"|"force"}` → `{runId, status, seconds, cefr, resultText, retryAvailable}`. Resolves new/existing eligibility and persists the choice. Call before funnel events. `start` resets incomplete onboarding; `force` also restarts completed/exempt users. Duplicate recent request ids do not reset again.
-- `POST /internal/onboarding/actions`: `{sessionId, requestId, runId, action: "begin"|"retry"|"continue"}` → 202 `{jobId}`. Uses the existing status/audio polling endpoints. Stale run ids and duplicate callbacks produce an ignored result.
-- `POST /v1/clips` accepts optional `onboardingRunId`, `requestId` and `durationSeconds` multipart fields. A run id requires a request id. Without a run id, the existing clip flow is unchanged. Telegram duration is a fallback when STT duration is absent.
-- Onboarding jobs add `result.onboarding` with state and `result.audioAvailable`. Default `audioAvailable` for legacy jobs is true. `replyText` carries the result/error text. `pending` onboarding state means the user can retry result generation; it is distinct from the job's `pending` processing status.
-- On the final voice turn, Speaky prepares a personalized closing voice independently of the assessment and memory branch. The response waits for both branches. If assessment fails, the first result can have `status=pending` **and** audio: Telegram sends the closing voice once, followed by the Retry prompt. Retry reruns only the saved assessment branch; its successful result has `status=completed`, `audioAvailable=false`, and a short text with the results button. A stale Retry on a completed run returns `ignored`. Clients **must not** download audio when `audioAvailable` is false. `onboarding.status == "ignored"` means no Telegram response should be sent. `resultText` is empty on completion; the level stays in `cefr` for the coach and is not a chat message.
-
-Deployment order: AI-service then Ktor. New AI-service does not enroll old clients automatically; enrollment is explicitly resolved by the updated Telegram client.
+`/internal/onboarding/state`, `/internal/onboarding/actions`, `onboardingRunId` и `result.onboarding` удалены.
+Текстовый tutor API не использует clip jobs. `/start` в Telegram вызывает TutorRuntime, не greeting audio.
+Контракт нового чата: [SP-01](2026-11-10-sp01-tutor-chat.md).

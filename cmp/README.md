@@ -1,4 +1,9 @@
-The live Telegram bot is the repository root README. This file is the Compose Multiplatform template.
+# Kotlin modules
+
+[Project documentation](../ai_docs/README.md) describes Sasha's text tutor and the current delivery boundaries.
+`server` hosts Telegram routing, TutorClient and existing voice APIs. `app` is a CMP prototype,
+not the planned lesson Mini App. Its Auth/Call/Review path is partially connected; other data remains mocked.
+Gradle root is this directory. Run the commands below from `cmp/` with `GRADLE_USER_HOME=$HOME/.gradle`.
 
 This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM), Server.
 

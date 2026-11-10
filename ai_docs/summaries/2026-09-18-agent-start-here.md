@@ -1,47 +1,19 @@
-# Agent start here (this branch)
+# Карта проекта
 
-Read this first, then the linked files. Product intent: `ai_docs/product.md`. MVP plan is aspirational; **shipped code is Telegram voice + STT/LLM/TTS**, not a mobile speaking session.
+Единый вход — [ai_docs/README](../README.md). Продукт — [Саша, AI-репетитор](../product.md).
+Текущий основной путь — постоянный русский текстовый чат SP-01; старый voice onboarding удалён.
+[Статус](../status.md) разделяет код, исторический DEV и открытую живую приёмку.
 
-Next work on `feature/back-for-mobile`: CMP Call WebRTC + Review poll against DEV (`OPENAI_REALTIME_API_KEY` in CI). Wider backlog: [`plans/2026-09-19-mobile-mvp-backend.md`](../plans/2026-09-19-mobile-mvp-backend.md). Push/PR does not deploy. DEV is workflow Redeploy DEV (`DEV_*`). Prod is workflow Redeploy PROD (`PROD_*`).
-
-## What to change for which job
-
-| Job | Touch |
+| Задача | Источник |
 | --- | --- |
-| Telegram UX, queue, webhook, session ids | `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/`, `speaking/` |
-| Clip HTTP client / OpenAPI proxy | `cmp/server/.../ai/` |
-| Server env, TLS, webhook vs no-bot | `AppConfig.kt`, `Application.kt` |
-| STT / LLM / TTS / Redis dialogue | `ai-service/app/` |
-| VPS scripts / 8090 allowlist | `infra/` |
-| CI / GitHub secret **names** | `.github/workflows/` |
-| Compose Multiplatform UI | `cmp/app/` — Releva UI; Auth/Home/Profile/Call/Review against Ktor; last-conversation card still mock. |
+| Поведение, память чата, trial tools | `ai-service/app/tutor.py`, `tutor_tools.py`, `tutor_store.py` |
+| Telegram routing и delivery | `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/` |
+| Ktor → AI DTO/HTTP | `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/ai/` |
+| Voice pipeline и отдельная память звонков | `ai-service/app/pipeline.py`, `learner_store.py`, `personalization.py` |
+| API и wiring | `ai-service/app/main.py`, Ktor `Application.kt`, `AppConfig.kt` |
+| CMP-прототип, не Mini App | `cmp/app/` |
+| VPS и CI | `infra/`, `.github/workflows/` |
 
-## Runtime path that actually talks
-
-```text
-Telegram voice
-  → Ktor POST /telegram/webhook (TLS, secret header)
-  → SessionClipQueue (max 3 in-flight per session)
-  → HttpClipClient → FastAPI ai-service
-       STT Groq → LLM OpenRouter JSON → TTS OpenRouter OGG or direct Deepgram OGG/MP3
-       Redis key session:{id} (or in-memory if REDIS_URL unset)
-  → Telegram text quote (corrections) + sendVoice
-```
-
-Gradle root is **`cmp/`**. Before `./gradlew`, `GRADLE_USER_HOME=$HOME/.gradle`.
-
-## Docs map
-
-- **System diagrams:** [`architecture.md`](../../architecture.md)
-- **Deploy / VPS / CI:** `ai_docs/deploy.md`
-- Architecture notes: `ai_docs/architecture/2026-09-18-system.md`
-- Do not touch: `ai_docs/architecture/2026-09-18-agent-guardrails.md`
-- HTTP contract (Telegram clips): `ai_docs/integrations/2026-09-18-clip-session-api.md`
-- HTTP contract (CMP screens): `ai_docs/integrations/2026-09-18-mobile-api.md`
-- MVP backend («бэк готов»): `ai_docs/plans/mvp-backend-plan.md`
-- Wider mobile backend backlog: `ai_docs/plans/2026-09-19-mobile-mvp-backend.md`
-- Telegram + notes: `ai_docs/integrations/2026-09-18-telegram.md`
-- Run / env / CI: `ai_docs/integrations/2026-09-18-run-and-ci.md`
-- Env catalog (blobs, key roles, what kind of value each key holds): `ai_docs/integrations/2026-10-11-env.md`
-
-`ai_docs/researches/2026-09-14-stt-llm-tts-ai-service.md` is **stale** (mentions polling bot, empty `ai-service/`, old DTO). Prefer current files above.
+[Архитектура](../../architecture.md) · [SP-01 API](../integrations/2026-11-10-sp01-tutor-chat.md) ·
+[Запуск](../integrations/2026-09-18-run-and-ci.md) · [Deploy](../deploy.md).
+Gradle root — `cmp/`. Общего контекста между `tutor:v1` и `learner:` пока нет.

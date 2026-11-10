@@ -1,6 +1,6 @@
 # Clip error dashboard
 
-The later [end-to-end Telegram voice error dashboard](2026-10-05-voice-error-observability.md) adds user-visible delivery outcomes. The AI-job counters described below retain their original definition.
+The later [технический контракт](2026-10-05-voice-error-observability.md) adds user-visible delivery outcomes. The AI-job counters described below retain their original definition.
 
 Both `/admin/metrics/errors` and the local-port `/admin/monitoring/errors` use the same **Ошибки** page. The first uses the existing metrics password cookie; the second follows the monitoring port restriction from PR #31. It shows completed clip jobs only: successful jobs, pipeline timeouts, and other pipeline failures. The daily failure rate is `failed / (successful + failed)`. The day boundary is Europe/Moscow.
 

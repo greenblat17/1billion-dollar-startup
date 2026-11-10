@@ -1,13 +1,13 @@
 # Vocabulary assessment workflow
 
-Status: revised locally on 2026-10-23; not deployed. This supersedes the
-live-alternative workflow described in older integration notes. Product decision:
-[the agreed plan](../plans/2026-10-21-live-naturalness-final-vocabulary-enrichment.md).
+> Workflow сохранённых voice reviews. Применение к новым onboarding attempts прекращено в SP-01; исторические assessment остаются. Это не пять показателей прогресса v0.5.
+
+Контракт сохранённого call review, сверенный с локальными исходниками. Живое качество модели не подтверждается наличием кода.
 
 Review blocker: an earlier real-dialogue probe accepted `step` → `stop` while
 calling `step` erroneous. The revised code requires source correctness,
 meaning preservation, and learning value separately, but model judgment still
-needs real-dialogue and held-out evaluation before merge or deployment.
+needs real-dialogue and held-out evaluation for acceptance.
 
 ## During a learner turn
 
@@ -18,16 +18,15 @@ requires a copied context, one exact local edit, high confidence, and the
 spoken-language/ASR safeguards. The bot displays at most one correction card
 per turn. Other independent corrections are saved.
 
-## At the end of onboarding and practice calls
+## At the end of practice calls
 
-Both flows collect saved errors, verify them in bounded batches, and select up
+Calls collect saved errors, verify them in bounded batches, and select up
 to five Grammar examples. The examples reuse Russian explanations saved during
 the turn. Optional live alternatives from the previous local workflow are
 ignored. Older saved `word` and `natural` corrections become Grammar candidates
 and must pass the same strict verifier. A failed verification batch does not
 remove successful batches. The review model sees verified examples when
-writing diagnostic text and scores. Onboarding places the first score; calls
-limit each existing score move to two points. If a legacy assessment has a null
+writing diagnostic text and scores. Calls limit each existing score move to two points. If a legacy assessment has a null
 skill score, a call may place that skill for the first time from its own speech.
 
 In parallel with correction verification and review composition, a separate
@@ -87,6 +86,6 @@ backfilled with model reasons; only new reviews create these traces.
 
 Local parser, review-flow, failure-isolation, and Telegram rendering tests
 pass. The prompts and model gate still need a paired quality evaluation on
-real dialogues and a held-out sample before deployment. In particular,
+real dialogues and a held-out sample for acceptance. In particular,
 model-assigned benefit rank and learning value are judgments, not deterministic
 facts, and transcripts alone cannot resolve uncertain audio.

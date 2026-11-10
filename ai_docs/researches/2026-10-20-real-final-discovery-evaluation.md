@@ -1,5 +1,7 @@
 # Independent correction search on retained real conversations
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Read-only evaluation against retained PROD data. No new
 correction search was enabled for users, and no transcripts were committed.
 The reproducible probe is `ai-service/evals/compare_real_final_discovery.py`.

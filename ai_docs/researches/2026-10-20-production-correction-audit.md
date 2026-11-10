@@ -1,5 +1,7 @@
 # Production correction and review audit
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Read-only investigation of the PROD AI service. No user transcript,
 identifier, provider key, or raw response is stored in this repository. Telegram call and
 onboarding states were read within their seven-day raw-content window. Provider probes used

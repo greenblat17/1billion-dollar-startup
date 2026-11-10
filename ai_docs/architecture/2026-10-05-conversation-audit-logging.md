@@ -1,6 +1,6 @@
 # История взаимодействий и логи сервисов
 
-Status: implementation in the repository; deployment and live validation remain separate. This records the discussion on 2026-10-05 and the implementation started on the same date. It extends the existing [monitoring](../integrations/2026-10-02-monitoring.md) and [voice error observability](2026-10-05-voice-error-observability.md).
+Status: implementation in the repository; deployment and live validation remain separate. This records the discussion on 2026-10-05 and the implementation started on the same date. It extends the existing [monitoring](../integrations/2026-10-02-monitoring.md) and [технический контракт](2026-10-05-voice-error-observability.md).
 
 ## Operator experience
 
@@ -32,7 +32,7 @@ Do not block a user reply on dashboard aggregation. If an asynchronous audit wri
 
 ## Implementation boundary
 
-The user authorized local implementation after the [implementation plan](../plans/2026-10-05-interaction-history-and-service-logs.md). Deployment remains a separate action. The first implementation covers the Telegram path; other clients can use the event model when their live flows are instrumented.
+The user authorized local implementation after the контракт ниже. Deployment remains a separate action. The first implementation covers the Telegram path; other clients can use the event model when their live flows are instrumented.
 
 ## Current implementation and release checks
 

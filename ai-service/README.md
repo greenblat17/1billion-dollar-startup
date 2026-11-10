@@ -1,6 +1,13 @@
 # ai-service
 
-Python FastAPI service that turns a Telegram voice clip into a spoken English reply:
+FastAPI owns Sasha's persistent text dialogue, native tools, trial bookings and tutor memory.
+Start with the [project docs](../ai_docs/README.md), [SP-01 contract](../ai_docs/integrations/2026-11-10-sp01-tutor-chat.md)
+and [verification status](../ai_docs/status.md).
+
+`POST /internal/tutor/start|turn|delivery`, `GET /internal/learners/{sessionId}/context`
+and `GET /internal/tutor/analytics` use `X-Internal-Token`.
+`TutorStore` uses `tutor:v1`; existing calls use `LearnerStore` (`learner:`). These are not synchronized.
+Voice onboarding is removed. Existing call/review/vocabulary services retain a separate voice pipeline:
 
 `STT (Groq) → LLM (OpenRouter / OpenAI models) → TTS (OpenRouter or direct Deepgram)`
 

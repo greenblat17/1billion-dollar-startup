@@ -1,5 +1,7 @@
 # Feedback after the first practice conversation
 
+> Сохранённый feedback прежних calls. Упоминания onboarding относятся к старым данным; новый чат не проводит голосовой trial. [Совместимость](legacy-compatibility.md).
+
 After the user continues past Fluency, Telegram edits that card into the final progress/recap card. For the first practice conversation with at least one user turn after onboarding, it then sends a separate message:
 
 > Как тебе этот разговор со Speaky?

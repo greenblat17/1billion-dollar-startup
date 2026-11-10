@@ -1,112 +1,54 @@
-# Speaking Coach AI Docs
+# Документация Speaky
 
-AI-репетитор: [полная продуктовая концепция v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md). SP-01: [план постоянного чата с Сашей, знакомства и управления trial](plans/2026-11-09-sp01-text-onboarding.md). Модель ведёт диалог и использует инструменты записи, переноса и отмены. Mini App и проведение урока — последующие этапы. [Фактическая реализация SP-01 и ограничения проверки](integrations/2026-11-10-sp01-tutor-chat.md).
+Speaky — постоянные отношения с AI-репетитором Сашей с характером Kora H.
+Telegram служит перепиской; приложение в целевой модели обслуживает согласованные уроки и прогресс.
+SP-01 реализует русский текстовый чат и управление trial-записью. Проведение урока пока недоступно.
 
-Working documentation next to the code. A coding agent in a new session should start at:
+## Основной маршрут чтения
 
-**`summaries/2026-09-18-agent-start-here.md`**
+| Вопрос | Документ |
+| --- | --- |
+| Для кого продукт, кто такой Саша, какова целевая модель | [Продукт](product.md) |
+| Как знакомиться, отвечать и управлять trial без анкеты | [Путь и поведение SP-01](plans/2026-11-09-sp01-text-onboarding.md) |
+| Какие компоненты работают и почему устроены так | [Архитектура](../architecture.md), [причины решений](architecture/decisions.md) |
+| Какие API, tools, память и Telegram delivery реализованы | [Контракт SP-01](integrations/2026-11-10-sp01-tutor-chat.md) |
+| Что реализовано, что отложено и что проверено | [Статус и доказательства](status.md) |
+| Как запустить и проверить локально | [Запуск и CI](integrations/2026-09-18-run-and-ci.md) |
+| Как обслуживать окружения и сохранять данные | [Эксплуатация и deploy](deploy.md) |
 
-Глобальная архитектура (диаграммы): [architecture.md](../architecture.md). Деплой на VPS: **`deploy.md`**.
+[Исходная v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md) сохранена без изменений как источник решений.
+Последующие уточнения SP-01 записаны в пути и контракте. Целевая концепция не равна реализованному выпуску.
+`GET /internal/learners/{sessionId}/context` читает новый чат; общего контекста с `learner:` пока нет.
+Живая приёмка нового поведения модели и Telegram UX остаётся открытой.
 
-Then dated architecture + integrations `2026-09-18-*` (clips vs CMP: `integrations/2026-09-18-clip-session-api.md`, `integrations/2026-09-18-mobile-api.md`). CMP WebRTC: `architecture/2026-09-20-webrtc-client.md`. Product intent: `product.md`. Do not treat `researches/2026-09-14-stt-llm-tts-ai-service.md` as current implementation.
+## Сохранённые системы
 
-Vocabulary Builder decisions after the product interview: [`product/2026-10-24-vocabulary-builder.md`](product/2026-10-24-vocabulary-builder.md).
-New Vocabulary Builder lesson order and mandatory cards: [`product/2026-10-31-vocabulary-builder-lesson.md`](product/2026-10-31-vocabulary-builder-lesson.md); [implementation plan](plans/2026-10-31-vocabulary-builder-new-lesson.md). This supersedes the earlier lesson order and optional-game decision for new lessons.
-Vocabulary Builder analytics dashboard: [implementation plan](plans/2026-11-04-vocabulary-builder-analytics-dashboard.md); [local integration and metric definitions](integrations/2026-11-04-vocabulary-builder-analytics.md).
+Это справочники действующих независимых возможностей и исторических данных, а не альтернативные новые продуктовые пути.
 
-Agents: start here, then open the linked docs for the current task. Do not skip this tree
-when changing product behavior, UI, navigation, or backend contracts. Put new decisions in
-these files, not only in chat.
+- Telegram: [routing и сообщения](integrations/2026-09-18-telegram.md), [calls](integrations/2026-09-30-telegram-calls.md),
+  [clip API](integrations/2026-09-18-clip-session-api.md), [profile](integrations/2026-09-29-telegram-profile.md),
+  [память звонков](integrations/2026-09-30-personalized-conversation.md), [коррекции](integrations/2026-09-30-spoken-corrections.md).
+- Vocabulary Builder: [технический контракт](integrations/vocabulary-builder.md), [метрики](integrations/2026-11-04-vocabulary-builder-analytics.md).
+- Voice runtime: [персона, история, провайдеры и review](integrations/voice-runtime.md).
+- Напоминания: [practice, soft nudge и streak](integrations/practice-reminders.md).
+- CMP-прототип: [UI и макеты](design/2026-09-17-mobile-ui.md), [устройство](architecture/2026-09-17-cmp-client.md),
+  [API](integrations/2026-09-18-mobile-api.md), [WebRTC](architecture/2026-09-20-webrtc-client.md).
+  Он не является реализованным Mini App из v0.5.
+- Эксплуатация: [env](integrations/2026-10-11-env.md), [мониторинг](integrations/2026-10-02-monitoring.md),
+  [аудит](architecture/2026-10-05-conversation-audit-logging.md), [ошибки voice](architecture/2026-10-05-voice-error-observability.md),
+  [логи провайдеров](integrations/2026-10-14-provider-call-logs.md), [PROD alerts](integrations/2026-10-30-prod-telegram-alerts.md).
+- Метрики: [обзор](integrations/2026-10-14-admin-overview.md), [calls dashboard](integrations/2026-10-05-telegram-call-dashboard.md),
+  [habit analytics](integrations/2026-10-19-habit-analytics.md), [reminders](integrations/2026-10-20-reminder-effectiveness-dashboard.md),
+  [исторический onboarding](integrations/2026-09-30-onboarding-analytics.md).
+  Старые voice-метрики не измеряют конверсию нового текстового чата.
+- [Совместимость данных](integrations/legacy-compatibility.md): сохранённые данные и границы замены onboarding.
 
-Monitoring and onboarding analytics integration: `integrations/2026-10-04-combined-monitoring-onboarding.md`.
-PROD Telegram alerts: `integrations/2026-10-30-prod-telegram-alerts.md`.
-Main admin metrics dashboard and calculation boundaries: `integrations/2026-10-14-admin-overview.md`.
-Habit analytics (WAU, active days, cohort retention, conversation duration): `integrations/2026-10-19-habit-analytics.md`; plan: `plans/2026-10-19-habit-analytics.md`.
-Speech-only Telegram timers and DEV acceptance plan: `plans/2026-10-24-telegram-speech-time-timers.md`.
-Per-call LLM, STT and TTS logs: `integrations/2026-10-14-provider-call-logs.md`.
-Final correction-check latency and timeout metrics: `integrations/2026-10-02-monitoring.md`.
-Independent final correction search: `plans/2026-10-20-final-correction-discovery-evaluation.md`; synthetic probe: `researches/2026-10-20-independent-correction-discovery-probe.md`; real-conversation evaluations: `researches/2026-10-20-real-final-discovery-evaluation.md` and `researches/2026-10-20-real-call-vocabulary-audio-evaluation.md`.
-Vocabulary alternatives beside correction examples: `plans/2026-10-02-telegram-vocabulary-alternatives.md`; initial synthetic prompt probe: `researches/2026-10-20-vocabulary-mixed-assessment-prompt-probe.md`; larger live-turn evaluation: `researches/2026-10-20-live-vocabulary-larger-sample.md`.
-Real-conversation replay of the Vocabulary level-up prompt: `researches/2026-10-20-real-vocabulary-level-up-replay.md`.
-Full real-conversation replay after explicit Vocabulary categories: `researches/2026-10-20-real-vocabulary-category-full-replay.md`.
-Vocabulary workflow rebuild draft: `plans/2026-10-20-vocabulary-rebuild-draft.md`.
-Agreed live-naturalness and final Vocabulary-enrichment plan: `plans/2026-10-21-live-naturalness-final-vocabulary-enrichment.md`; local workflow contract: `integrations/2026-10-21-vocabulary-assessment-workflow.md`.
-Initial real-dialogue probe of final Vocabulary enrichment: `researches/2026-10-21-final-vocabulary-enrichment-real-probe.md`.
-Paired benchmark of the current and dedicated Vocabulary workflows: `researches/2026-10-20-vocabulary-rebuild-benchmark.md`.
-Real-dialogue replay of the narrower Vocabulary rules: `researches/2026-10-21-narrow-vocabulary-real-replay.md`.
-Real-dialogue replay of the two-suggestion Vocabulary rule: `researches/2026-10-21-two-suggestion-vocabulary-real-replay.md`.
-Confirmed model cost per completed Telegram voice exchange: `integrations/2026-10-14-voice-unit-cost.md`.
-Plan for complete STT, LLM and delayed TTS cost accounting: `plans/2026-10-15-complete-voice-unit-cost.md`.
-Voice error observability: `architecture/2026-10-05-voice-error-observability.md`.
-Onboarding journey dashboard: `integrations/2026-09-30-onboarding-analytics.md` (journey/stage-errors section); implementation scope: `plans/2026-10-05-onboarding-dashboard-journey-and-recent-users.md`.
-Agreed interaction history and service logs: `architecture/2026-10-05-conversation-audit-logging.md`.
-Live monitoring versus the journal, model reply audio, and load-test exclusion: `architecture/2026-10-11-live-monitoring-journal-load-tests.md`.
-Cost of one voice day (onboarding or a 5/10/15 minute call): `architecture/2026-10-11-voice-loop-day-cost.md`.
-Provider ceilings for the configured Groq and OpenRouter models: `architecture/2026-10-11-provider-limits.md`.
-Real DEV voice load test and measured Groq RPM limit: `architecture/2026-10-13-real-voice-load-test.md`.
-Real DEV OGG load test with AssemblyAI and the 10 RPS failure: `architecture/2026-10-13-assemblyai-load-test.md`.
-DEV load test through the CMP queue and AI client: `architecture/2026-10-13-cmp-load-test.md`.
-Env catalog (GitHub blobs and per-host keys, no secret values): `integrations/2026-10-11-env.md`.
-DEV clip load and the VPS sizing note: `architecture/2026-10-11-vps-sizing.md`.
-Telegram MVP acceptance map: `architecture/2026-10-11-telegram-mvp-acceptance.md`.
-Implementation plan for that system: `plans/2026-10-05-interaction-history-and-service-logs.md`.
-Telegram practice-call dashboard plan: `plans/2026-10-05-telegram-call-dashboard.md`.
-Telegram practice-call dashboard contract: `integrations/2026-10-05-telegram-call-dashboard.md`.
-Kora H pilot analytics and metric definitions: `plans/2026-10-23-kora-launch-analytics.md`.
-Free-versus-situation analytics plan: `plans/2026-10-09-telegram-mode-analytics.md`.
-First conversation feedback: `integrations/2026-10-05-first-call-feedback.md`.
-New 30-second Telegram onboarding and optional two-minute continuation: `plans/2026-10-31-telegram-onboarding-simplification.md` (implemented locally; DEV Telegram acceptance pending).
-Subscription preview after onboarding: `product/2026-11-05-subscription-preview.md` (local UI preview only; no checkout or paid gate).
-Reminder dashboard analytics: `integrations/2026-10-05-reminder-dashboard-analytics.md`; implementation plan: `plans/2026-10-05-reminder-dashboard-analytics.md`.
-Decision-focused reminder dashboard and conversion definitions: `integrations/2026-10-20-reminder-effectiveness-dashboard.md`.
-Incomplete onboarding reminders: `plans/2026-10-06-incomplete-onboarding-nudge.md`.
-Incomplete onboarding reminder analytics and dashboard: `plans/2026-10-19-onboarding-nudge-analytics.md`.
-Personalized incomplete-onboarding reminder time: `plans/2026-10-20-personal-onboarding-nudge-time.md` (implemented locally).
-Stage-specific onboarding and practice follow-ups: `plans/2026-10-20-onboarding-stage-followups.md` (implemented locally).
-Ongoing practice reminder rules and copy comparison: `plans/2026-10-20-ongoing-practice-reminders.md` (implemented locally).
-Reminder-topic call opening and one active reminder button: `plans/2026-10-20-reminder-to-call-continuity.md` (implemented locally).
-One-shot soft nudges for interrupted onboarding and calls: `plans/2026-10-20-soft-conversation-nudges.md` (implemented locally).
-English follow-up copy by journey stage: `product/2026-10-20-onboarding-followup-copy.md`.
-Onboarding assessment completion limit: `plans/2026-10-08-onboarding-assessment-token-limit.md`.
-Short-call feedback and practice result order: `plans/2026-10-24-short-call-feedback-and-result-order.md`;
-current and historical Telegram review behavior: `integrations/2026-09-30-telegram-calls.md`.
+## Как читать остальные материалы
 
-## Structure
+`integrations/` содержит контракты подсистем; `architecture/` — технические решения и эксплуатационные измерения.
+`plans/` содержит только текущий SP-01 и краткую границу MVP.
+[Проверки подсистем](researches/subsystem-checks.md) сохраняют фактические результаты удалённых планов.
+`researches/` и `load/results/` сохраняют доказательства экспериментов, включая неуспешные. Это не обещание качества текущего выпуска.
+[Нагрузочный отчёт](<../Нагрузочный тест — не менее 10 RPS, результаты тестирования.md>) относится к голосовому clip pipeline, не SP-01.
 
-- `design/` - UI mockups (PNG) and screen-flow notes for the CMP client.
-- `architecture/` - system design, component boundaries, data flows, and important technical
-  decisions. Hub diagrams: [`../architecture.md`](../architecture.md).
-- `bugs/` - bug reports, investigation notes, root-cause analyses, and documented fixes or
-  workarounds.
-- `integrations/` - setup guides, API contracts, configuration notes, and operational details for
-  external services and platforms.
-- `plans/` - implementation plans for features, refactors, migrations, and other engineering
-  tasks before work begins.
-- `product/` - extra product notes; hub file is `product.md` at this folder root.
-- `researches/` - technical and product research, experiments, alternatives considered, and
-  findings that inform future decisions. Re-check against `src/` before using.
-- `summaries/` - concise context snapshots, discussion summaries, and handoff notes for future
-  sessions.
-- `deploy.md` - VPS / GitHub Actions deploy (not under a dated folder).
-
-## File Naming
-
-Use date-prefixed, task-specific filenames:
-
-```text
-architecture/2026-09-13-audio-processing-pipeline.md
-design/2026-09-17-mobile-ui.md
-bugs/2026-09-13-telegram-audio-upload-failure.md
-integrations/2026-09-13-ai-service-api.md
-plans/mvp-backend-plan.md
-plans/2026-09-19-mobile-mvp-backend.md
-plans/2026-09-13-live-feedback-plan.md
-researches/2026-09-13-speech-to-text-options.md
-summaries/2026-09-13-speaking-session-context.md
-```
-
-Keep each document focused on one topic. When a document describes ongoing work, update its
-status and link related plans, investigations, decisions, or implementation files.
-
-Telegram optional character Kora H and ordinary Kora retirement: [integration guide](integrations/2026-10-20-telegram-kora.md).
-Agreed staged Telegram personality/mode/history refactor and mandatory Kora H end state: [plan](plans/2026-10-31-personality-mode-history-refactor.md).
+Новые решения записываются в соответствующий основной документ. Повторять реализацию и результаты проверок в нескольких планах не нужно.

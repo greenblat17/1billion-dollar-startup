@@ -13,7 +13,7 @@ Telegram /start, /onboarding, свободный текст
   → Telegram reply + карточка только при изменении встречи
 ```
 
-Один conversation ID переживает знакомство, запись, отказ, отмену, повторный `/start` и рестарт.
+С Redis один conversation ID переживает знакомство, запись, отказ, отмену, повторный `/start` и рестарт. In-memory store рестарт не переживает.
 Никакой обязательной анкеты или терминального состояния чата нет. Приветствие генерирует модель.
 Личность выделена из Kora в `kora_personality.py`; исходный free-call prompt собирается с тем же текстом личности.
 Чат использует настроенную модель Kora H, а при отсутствии отдельного Kora model adapter — общий LLM с той же личностью.
@@ -30,8 +30,8 @@ Telegram /start, /onboarding, свободный текст
 - Ответ: `conversationId`, `reply`, `booking`, `bookingText`, `degraded`, `replyMessageId`, `cardMessageId`.
   `booking` отсутствует на обычных ходах; карточка не повторяется автоматически.
 - `POST /internal/tutor/delivery`: подтверждает отправленный reply/card, сохраняет Telegram message ID и версию встречи.
-- `GET /internal/learners/{sessionId}/context`: общий Personal/Learning context, сводка, trial preference и текущая встреча.
-  Контракт доступен будущему lesson runtime; сам lesson runtime не реализован.
+- `GET /internal/learners/{sessionId}/context`: Personal/Learning context нового текстового чата, сводка, trial preference и текущая встреча.
+  Маршрут читает только TutorStore. Calls читают LearnerStore (`learner:`); синхронизации нет. Общий профиль отложен, lesson runtime не реализован.
 - `GET /internal/tutor/analytics?since=...&until=...`: когорта по времени начала знакомства, конверсия,
   активные записи, переносы, отмены, повторные записи, предложения, ошибки и доставленные requests.
   Чтение learner context само по себе не начинает знакомство. Перенос не увеличивает конверсию.
@@ -66,11 +66,11 @@ Redis lock сериализует ход, CAS revision защищает от з�
 
 ## Telegram-карточка
 
-На момент проверки Bot API поддерживает `disabled: {}` у InlineKeyboardButton:
+Код сериализует `disabled: {}` у InlineKeyboardButton; основание исходной реализации:
 [официальный контракт](https://core.telegram.org/bots/api#inlinekeyboardbutton).
 У установленного tgbotapi 36.1.0 этого типа нет. `TutorCardRequest` использует штатный `SimpleRequest`
 с точной сериализацией поля `disabled`; URL, callback_data и web_app отсутствуют.
-Кнопка «Открыть урок» действительно не задаёт действие. Это не кликабельная имитация disabled-кнопки.
+В payload кнопки «Открыть урок» нет действия. Принятие payload и отображение в живом Telegram ещё не проверены.
 
 ID карточки сохраняется в AI store. Перенос и отмена редактируют прежнюю карточку, включая рестарт Ktor.
 Если Telegram запрещает редактирование, отправляется актуальная карточка. При отмене клавиатура пуста.
@@ -82,7 +82,7 @@ ID карточки сохраняется в AI store. Перенос и отм
 
 Удалены voice onboarding service, begin/checkpoint/results, его clip job поля/DTO, warmup/STT/TTS orchestration,
 onboarding mode prompts, callbacks, call gate, автоматическое приглашение и subscription preview.
-Старые state/actions/legacy-invitation endpoints отсутствуют; campaign claim/report больше не доступны.
+Старые onboarding state/actions/legacy-invitation endpoints отсутствуют; campaign claim/report больше не доступны. `GET /internal/campaign/legacy-onboarding` сохранён для исторического отчёта (может актуализировать excluded statuses, но не отправляет сообщения).
 Старые onboarding followups не отправляются; явные reminder-функции независимых возможностей сохранены.
 
 Общие зависимости вынесены в `LearnerStore`, `LearnerModel`, `review_content.py`, `review_score.py`, `ReviewMessages.kt`.
@@ -90,165 +90,24 @@ Calls/reviews/vocabulary/person memory переподключены к ним. �
 миграции, исторические данные и аналитические отчёты не переписаны. Переноса пользователей нет.
 Имена существующих `ONBOARDING_REVIEW_MODEL`/fallback env сохранены для совместимости конфигурации обычных reviews.
 
-## Проверка и точные пробелы
+## Карта кода
 
-Автоматические проверки охватывают lifecycle, дубликаты, конкурентные Redis-совместимые workers, CAS,
-исправление памяти, DST, UTC offsets, API auth/validation, сохранение ответа/карточки, delivery receipts,
-продолжение после отказа/записи, cohort conversion и ограничение контекста.
-Redis-тесты используют fakeredis с Lua, не удалённый production Redis.
+| Ответственность | Источник |
+| --- | --- |
+| Prompt, native tool loop, fallback | [tutor.py](../../ai-service/app/tutor.py) |
+| Схемы, intent, время, операции | [tutor_tools.py](../../ai-service/app/tutor_tools.py) |
+| Redis, CAS, receipts, retention, analytics | [tutor_store.py](../../ai-service/app/tutor_store.py) |
+| Wiring и HTTP routes | [main.py](../../ai-service/app/main.py) |
+| Личность | [kora_personality.py](../../ai-service/app/kora_personality.py) |
+| Профиль существующих звонков | [learner_store.py](../../ai-service/app/learner_store.py) |
+| Ktor DTO и HTTP | [TutorClient.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/ai/TutorClient.kt) |
+| Ответ, typing, карточка и receipts | [TutorTelegramChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTelegramChat.kt) |
+| Приоритет команд и независимых функций | [TelegramHandlers.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TelegramHandlers.kt) |
 
-`evals/tutor_dialogues.py` — воспроизводимый opt-in probe реальной модели на синтетических учениках,
-без Telegram и production store. Проверяет диалоги из плана; результат требует оценки смысла и действий человеком.
-Первоначально credentials отсутствовали. Затем ключ OpenRouter передан через защищённую форму вне репозитория.
-Живой запуск выявил несовместимый `parallel_tool_calls=False`: все endpoints настроенной Claude Sonnet 4.6
-отфильтровывались с HTTP 404 при `require_parameters`. Параметр удалён; последовательное исполнение
-инструментов обеспечивает runtime. Строгие tool schemas и финальный response schema сохранены.
-Источник возможностей: [metadata endpoints](https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4.6/endpoints).
-Локальный SDK MockTransport перехватывает фактический HTTP JSON для обычного URL и OpenRouter:
-`parallel_tool_calls` отсутствует, native tools/strict schemas сохранены, OpenRouter получает `require_parameters=true`.
+Обычный текст попадает к Саше после обработчиков явных команд, активного Vocabulary Builder,
+выбора ситуации и ввода времени `/remind`. Эти существующие функции не стали tools репетитора.
 
-После исправления первые пять ходов получили реальные ответы. Модель объяснила confident/confidence,
-сохранила профессию, страх ошибок и текущий пояс, создала встречу на завтра 19:00 Europe/Berlin,
-продолжила обсуждение страха после записи. Перенос на час позже сохранил ID и увеличил version до 2.
-После переноса провайдер вернул HTTP 402 `in_flight_budget_exhausted` с Retry-After 120;
-технический ответ правильно показал фактически сохранённое время 20:00. Остальные ходы не прошли.
-Это частичное live evidence, не успешная полная диалоговая приёмка.
-В ответах замечено техническое слово «плейсхолдер»; prompt уточнён: объяснять недоступность урока простыми словами.
-Probe теперь прекращается при degraded-ответе с ненулевым exit code вместо ложного успешного завершения.
-Telegram token не настроен. Визуальный disabled markup и Telegram acceptance не проверены.
-Нет деплоя, push или PR. Итоговые команды и количества проверок записаны в плане.
+## Проверка
 
-
-### Разбор последующих прогонов и локальное исправление intent
-
-| Прогон | Что наблюдалось | Что не подтверждено |
-| --- | --- | --- |
-| После удаления несовместимого параметра | 5 обычных ответов; create, update context и reschedule действительно изменили store. Перенос сохранил ID, version=2. | На финальном ответе переноса начались ошибки; диагностический запрос вернул 402 in_flight_budget_exhausted. Остальные 19 из 24 ходов дали degraded, включая перенос. |
-| Повтор с паузой 30 секунд между ходами | 3 обычных ответа; затем create сохранил запись 19:00, ответ был фактическим fallback. | Probe остановлен на четвёртом ходе. Тип этой ошибки не записан старым logger; нельзя уверенно приписать её 402. Следующий диагностический запрос прошёл. |
-| Отдельный сценарий «сейчас → отказ» с паузами | Приветствие и ответ на просьбу «Хочу урок прямо сейчас». Модель спросила «Забронировать всё равно?», встреча НЕ создана. | На отказе получен APIStatusError 402, probe остановлен. Продолжение после отказа не проверено. |
-
-Ни один полный сценарий не завершён. Живые cancel/rebook, неоднозначные переносы, смешанный запрос
-«перенеси + исправь цель + ответь на вопрос», возвращение через /start и разговор после отказа остаются открытыми.
-Живые наблюдения относятся только к синтетическим learners в локальном store, не к Telegram или production Redis.
-
-Причина лишнего подтверждения: prompt одновременно требовал немедленного выполнения и объяснения
-недоступного запуска «до согласия на trial». Модель превратила последнее требование в confirmation gate.
-Локально это противоречие устранено: ясная просьба об уроке сейчас разрешает запись в том же ходе;
-недоступность запуска объясняется вместе с фактическим результатом, а не отдельным запросом согласия.
-Tool description и описание `intent=explicit_request` согласованы с этим правилом.
-Гипотеза, обсуждение возможности или неоднозначное время по-прежнему требуют ответа/уточнения без записи.
-Ключевые слова в коде не используются для маршрутизации. Проверка типа intent и verbatim evidence осталась
-на сервере; семантическую классификацию делает модель. Enum сам по себе не доказывает верность классификации.
-
-Eval содержит отдельные случаи «Хочу урок прямо сейчас» и переход от гипотезы/вопроса к явному поручению.
-Он проверяет реальное наличие now booking либо отсутствие записи, добавляет критерии проверки ответа человеком
-и возвращает ошибку при несоответствии. Локальные тесты подтверждают, что инструмент не требует второго согласия,
-пояса или профиля для now, а неподдерживаемые intent labels отклоняются. Они НЕ подтверждают поведение модели.
-После этого исправления платных вызовов и Telegram-проверок не было, по поручению родителя.
-
-Локальный полный Python suite после исправлений: **521 passed**, одна Starlette/AnyIO deprecation warning.
-Kotlin не менялся в этом продолжении; прежние **277 tests**, fat JAR и detekt остаются результатом предыдущего запуска.
-
-### Подготовка draft PR и DEV
-
-Пользователь разрешил commit/push/draft PR и Redeploy DEV обоих компонентов; PROD и merge не разрешены.
-Pre-deploy review: Ktor DTO соответствуют AI endpoints; KoraHModel наследует native complete_tools;
-в OpenRouter wiring используется KORA_MODEL, а при другом base URL — общий LLM с личностью Kora.
-Ссылок runtime на удалённые onboarding classes/endpoints не найдено. Общие review/call зависимости сохранены.
-
-Redeploy DEV теперь проверяет SSH identity по сохранённым ed25519 host keys (`infra/dev/known_hosts`),
-печатает прежний image ID и сравнимые artifact digests. PROD-путь не менялся.
-После обоих deploy jobs отдельный job проверяет контейнеры, startup markers, health, CMP→AI internal auth,
-готовность Redis/model config без значений секретов и username DEV-бота через getMe (без отправки сообщений).
-Опциональный `tutor_smoke` ограничен двумя синтетическими запросами: now/cancel. На любом degraded-ответе
-он прекращает вызовы без ретраев. Остановка smoke явно отмечается в логе; зелёный readiness job не означает acceptance.
-
-Последний успешный Redeploy DEV до этой работы: run 41915810918, оба компонента
-`5032a0aa0768e4ad70c0d593f5ba5080577d0f7a`, ветка `bb/f-pay-thr_c38nqsywqm`.
-Это ревизия для восстановления через Redeploy DEV; volumes Redis/Postgres не сбрасываются.
-
-
-### DEV: фактическая выкатка 2026-11-10
-
-Draft PR: https://github.com/greenblat17/1billion-dollar-startup/pull/52.
-DEV run: https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42706735998.
-Оба deploy jobs и readiness завершились успешно на `c148e31ab3afd67a2ac790794be4ccd0ab97dcc2`.
-Деплой был запущен, пока эта подсессия ожидала CI; повторный deploy не запускался.
-
-Проверенные факты из runtime: оба контейнера running, 0 restarts, OOM=false; AI и CMP health=200,
-CMP→AI health=200, authenticated learner context=200. OPENAI_API_KEY/AI_INTERNAL_TOKEN/REDIS_URL
-на AI присутствуют (значения не раскрывались). DEV bot getMe вернул `vlama_bot`.
-JAR digest на runner и внутри CMP совпал: `94ed4803c13c0bfb06b40e386bc4b14f356193568151c8ed2cb0beca1c37be67`.
-Digest всего дерева app/*.py на runner и внутри AI совпал: `08235f6eaf76f6470df10ef6c750ab11ebbe0a504b9d701a1cfd0d64a59dba40`.
-Предыдущие image IDs записаны в deploy log до замены контейнеров. Redis/Postgres не сбрасывались.
-
-В startup markers AI ошибок нет; CMP показал один ERROR при успешном Application started и health.
-Его причина требует отдельной проверки. Smoke модели в этом workflow не запускался, Telegram acceptance открыта.
-Пользователь может проверять `/start` → «Хочу урок прямо сейчас» → вопрос по английскому → перенос → отмена
-в https://t.me/vlama_bot. Кнопка урока должна быть неактивной; после отмены диалог продолжается.
-
-CI приложения прошёл, кроме macOS packaging: GitHub отверг runner `macos-14-arm64-us-default`
-до запуска кода. Исправление использует `macos-15`, уже работающий для iOS в этом же CI.
-В Redeploy DEV добавлен `verify_only` для проверки без пересборки/рестарта. В этом режиме verification_ref
-обозначает ревизию проверяющего скрипта, а не заявленную ревизию работающего приложения.
-
-
-## Уточнение знакомства — 2026-11-10
-
-По прямому указанию пользователя текущая доработка ограничена планом знакомства.
-Общий профиль нового чата и существующих звонков отложен; эта правка его не реализует.
-
-В system prompt явно заданы пять тем: цель, конкретный желаемый результат, трудности,
-прошлый опыт и самооценка уровня. Перед инициативным приглашением репетитор должен
-разобраться во всех темах, учитывая уже известное. Порядок вопросов свободный, обычно
-один основной вопрос за сообщение. Неизвестный уровень и нежелание отвечать допустимы.
-Нет срока в 2–4 реплики, обязательного теста или фиксированной анкеты.
-Прямой запрос ученика на trial выполняется сразу, независимо от полноты знакомства.
-
-Соответствие формату оценивается по утверждённой ЦА v0.5: разговорный барьер, примерно
-A2–B2, особенно B1. Это не автоматический отбор по CEFR. Курс с нуля, отдельный курс
-грамматики или экзаменационная программа не обещаются. При инициативном приглашении
-даются оба варианта — сейчас и позже — с честным сообщением о недоступном запуске урока.
-
-В `evals/tutor_dialogues.py` добавлены сценарии постепенного знакомства, всех сведений
-в одной реплике, раннего прямого запроса trial, запроса вне формата и неизвестного уровня.
-Критерии качества диалога проверяются по смыслу человеком; наличие сценариев и локальные
-тесты не подтверждают поведение реальной модели. Платные прогоны не выполнялись.
-
-Локальная проверка этой правки: `pytest tests/test_tutor.py -q` — 23 passed,
-одно предупреждение сторонней библиотеки Starlette/AnyIO. Kotlin и API-контракты не менялись;
-предыдущие Kotlin-проверки остаются применимы. Поведение обновлённого prompt на реальной
-модели и в Telegram пока не проверено.
-
-Readonly DEV run [42815733369](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42815733369)
-уточнил причину startup ERROR DailyReminder: `java.net.ConnectException`, `Connection refused`
-при обращении Ktor к AI на порту 8090. Это отказ TCP-соединения при запуске, не ошибка
-удалённого onboarding API. Оба компонента выкатываются независимо; последующие проверки
-AI health и Ktor→AI дали 200. Сбой прерывает соответствующий раунд DailyReminder.
-Изменения планировщика напоминаний в текущую правку знакомства не включены.
-
-
-### DEV после уточнения знакомства
-
-Runtime обоих компонентов: `21caf098f0d8c22ec5f609a6db2016d48afcb942`.
-PR [#52](https://github.com/greenblat17/1billion-dollar-startup/pull/52),
-10/10 CI checks passed для этой ревизии.
-[Redeploy DEV 42818030607](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42818030607):
-оба deploy jobs и readiness успешны. Предыдущий runtime — `c148e31ab3afd67a2ac790794be4ccd0ab97dcc2`;
-прежние image IDs сохранены в deploy logs для восстановления.
-
-Проверено на запущенных контейнерах: AI и Ktor health 200, Ktor→AI health 200,
-authenticated learner-context 200; оба running, restarts=0, OOM=false.
-В доступном startup-интервале обоих контейнеров ERROR/Traceback/FlywayValidateException=0.
-Конфигурация модели присутствует, модель `anthropic/claude-sonnet-4.6`; платные запросы не выполнялись.
-
-Совпали хеши артефактов раннера и контейнеров:
-- `tutor.py`: `ff3a395f1d194c1f84181d8b1f46fe00e873f99cf0ac294c263923189d74d4e5`;
-- дерево Python app: `494c0e9c0df83d6a6bb8a73d8deed46611edbb4733b503df7ddc33a90179b483`;
-- server JAR: `94ed4803c13c0bfb06b40e386bc4b14f356193568151c8ed2cb0beca1c37be67`.
-
-Ручная приёмка: [@vlama_bot](https://t.me/vlama_bot). Сообщить только общую цель и проверить,
-что репетитор знакомится дальше; затем рассказать результат, трудности, опыт и самооценку
-(«уровень не знаю» допустимо). Проверить отсутствие повторов и уместное приглашение.
-Отдельно проверить раннее «Хочу урок прямо сейчас» без дополнительного подтверждения.
-Существующая память сохраняется: `/start` не создаёт чистого ученика.
+[Состояние и журнал доказательств](../status.md): автоматические тесты, частичные модельные пробы,
+DEV и открытая приёмка. Эти результаты не являются проверкой текущего PROD.

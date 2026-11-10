@@ -1,5 +1,7 @@
 # Real-conversation replay of the Vocabulary level-up prompt
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Status: isolated, read-only provider evaluation. The prompt was not deployed, and the probe did not change Telegram, Redis, or assessment records.
 
 ## Method

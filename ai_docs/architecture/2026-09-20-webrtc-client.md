@@ -1,5 +1,7 @@
 # CMP WebRTC Call
 
+> WebRTC существующего CMP-прототипа; не реализованный урок SP-01. Сведения о DEV относятся к историческому срезу. [Текущее устройство](../../architecture.md).
+
 **Дата:** 2026-09-20  
 **Статус:** клиент Call/Review живой; медиа клиент ↔ OpenAI Realtime. Ключ `OPENAI_REALTIME_API_KEY` на сервере (CI/CD), не в приложении.  
 **Связанные документы:** [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md), [`2026-09-17-cmp-client.md`](2026-09-17-cmp-client.md)

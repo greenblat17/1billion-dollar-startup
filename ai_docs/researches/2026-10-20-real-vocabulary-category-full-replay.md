@@ -1,5 +1,7 @@
 # Full real-conversation replay after Vocabulary categories
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Status: isolated read-only replay; local code and prompts were not deployed. No Telegram message, Redis record, or assessment was changed.
 
 ## Method

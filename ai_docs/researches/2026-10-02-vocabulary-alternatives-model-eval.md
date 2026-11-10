@@ -1,5 +1,7 @@
 # Vocabulary alternatives: synthetic model probes
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-02. Model on DEV: `openai/gpt-5.6-luna`, temperature 0. The prompts came from the local working tree and were sent through the DEV AI host; this was an isolated evaluation, not a deployment or a Telegram run. All utterances in this suite are synthetic. Cases: [`ai-service/evals/vocabulary_alternatives.json`](../../ai-service/evals/vocabulary_alternatives.json).
 
 ## What was tested

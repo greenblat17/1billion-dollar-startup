@@ -1,5 +1,7 @@
 # Synthetic conversation replay: Vocabulary and Grammar
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. The reproducible input and runner are in
 [`replay_final_assessment.py`](../../ai-service/evals/replay_final_assessment.py); the full
 synthetic output is in

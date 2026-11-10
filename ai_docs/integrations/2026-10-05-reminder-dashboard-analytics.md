@@ -1,5 +1,7 @@
 # Аналитика напоминаний в админке
 
+> Исторические onboarding sends остаются в отчётах; новые onboarding followups выключены. Practice/remind работают отдельно. [Граница совместимости](legacy-compatibility.md).
+
 `/admin/metrics/reminders` использует существующий пароль/cookie админки и `Cache-Control: no-store`. Локальная портовая страница `/admin/monitoring/reminders` показывает те же блоки за ограниченным мониторинговым портом. Переключатель 7/30 дней относится к историческим блокам. Текущий срез сохранённого времени не зависит от периода.
 
 - Распределение `00:00–00:59` … `23:00–23:59` читает `GET /internal/reminders/summary`. Знаменатель — все Telegram-пользователи с валидным сохранённым временем по Москве. Показываются все 24 часа, включая нули, число пользователей и процент. Смена времени переносит пользователя между часами; отключение удаляет.
@@ -14,4 +16,4 @@
 
 ## Incomplete onboarding reminders
 
-A separate block on both reminder pages shows incomplete-onboarding send outcomes, mature 24-hour return/voice/result rates, unique 7-day result/practice cohorts, and breakdowns by day, stage, attempt number, inactivity and template version. Definitions and storage boundaries: [`2026-10-19-onboarding-nudge-analytics`](../plans/2026-10-19-onboarding-nudge-analytics.md). Aggregate-only JSON is available at `reminders/onboarding.json?days=7|30` with the same access control. These metrics do not enter daily practice reminder totals.
+A separate block on both reminder pages shows incomplete-onboarding send outcomes, mature 24-hour return/voice/result rates, unique 7-day result/practice cohorts, and breakdowns by day, stage, attempt number, inactivity and template version. Definitions and storage boundaries: [технический контракт](practice-reminders.md). Aggregate-only JSON is available at `reminders/onboarding.json?days=7|30` with the same access control. These metrics do not enter daily practice reminder totals.

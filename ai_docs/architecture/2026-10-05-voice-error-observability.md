@@ -1,6 +1,6 @@
 # Сквозная диагностика голосовых ошибок
 
-Implementation of [the voice error observability plan](../plans/2026-10-05-voice-error-observability.md). This extends the existing [AI clip error dashboard](2026-10-04-clip-error-dashboard.md), without changing the meaning of its historical AI-job counters.
+Implementation of контракт ниже. This extends the existing [AI clip error dashboard](2026-10-04-clip-error-dashboard.md), without changing the meaning of its historical AI-job counters.
 
 ## User-visible result
 

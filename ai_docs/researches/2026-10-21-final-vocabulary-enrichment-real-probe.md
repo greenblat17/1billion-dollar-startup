@@ -1,5 +1,7 @@
 # Final Vocabulary enrichment: initial real-dialogue probe
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-21. Local code is not deployed. Three retained, adult-looking
 dialogues were sampled read-only from production Redis: two practice calls
 (8 and 7 learner turns) and one onboarding (5 turns). Conversations with

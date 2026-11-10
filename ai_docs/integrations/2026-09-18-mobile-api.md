@@ -1,5 +1,7 @@
 # Mobile app HTTP contract
 
+> Контракт существующего CMP-прототипа. Он не реализует Mini App, trial или общий профиль нового репетитора. Упоминания DEV ниже относятся к исходному срезу; [текущий статус](../status.md).
+
 **Дата:** 2026-09-19  
 **Статус:** бэкенд среза на DEV; CMP клиент ходит в Auth/Home/Profile/sessions/Call/Review. Карточка «Последний разговор» — мок.  
 **Клиент сейчас:** Welcome → Auth (почта) → Home с `GET /v1/home`; «Начать» → `POST /v1/sessions` → Call (WebRTC + `POST .../rtc`). Hangup → `POST .../complete` → Review поллит `GET .../review`. `SpeakingCoachClient` живой.  
@@ -309,7 +311,7 @@ Bearer. Только владелец.
 ## Что экраны сознательно не дергают
 
 - Карточка «Последний разговор» на Home (мок ок, живого API нет)
-- History (`09-history.png`)
+- History
 - Pronunciation / Fluency / Speed
 - Упражнения
 - `/v1/clips`, greeting audio

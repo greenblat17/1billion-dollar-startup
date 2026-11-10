@@ -1,5 +1,7 @@
 # Vocabulary discovery on ordinary practice calls
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. This is a read-only PROD evaluation. No discovery model or
 new correction was enabled in the final assessment. Raw transcripts, audio,
 user identifiers, and model outputs were kept in private temporary files for

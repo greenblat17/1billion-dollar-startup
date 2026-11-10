@@ -1,5 +1,7 @@
 # Larger live-turn Vocabulary probe
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Status: isolated provider evaluation; no push or deployment.
 
 ## Method

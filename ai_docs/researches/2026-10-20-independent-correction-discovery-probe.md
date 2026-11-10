@@ -1,5 +1,7 @@
 # Independent full-conversation correction probe
 
+> Историческое исследование: результаты относятся к указанным моделям, данным и дате. Не описание текущего SP-01 и не его живая приёмка. [Статус продукта](../status.md).
+
 Date: 2026-10-20. Synthetic eight-turn conversation only; no user records or secrets.
 The probe ran through the configured PROD OpenRouter connection without changing
 server files, app data, or deployment. This is one prompt and one run per model.
@@ -29,4 +31,4 @@ This tiny synthetic probe establishes feasibility and shows why output validatio
 matters. It does not estimate recall, false-positive rate, latency distribution, or
 cost on real conversations. Do not select a production model from this result.
 The next step is the de-identified, blind real-conversation evaluation in
-`ai_docs/plans/2026-10-20-final-correction-discovery-evaluation.md`.
+`ai_docs/integrations/2026-10-21-vocabulary-assessment-workflow.md`.
