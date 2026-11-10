@@ -68,6 +68,7 @@ class Settings:
     kora_h_enabled: bool = False
     kora_h_allowlist: str = ""
     foundation_backend_url: str | None = None
+    foundation_backend_ca_file: str | None = None
 
     @staticmethod
     def from_env() -> Settings:
@@ -90,6 +91,7 @@ class Settings:
             log_level=_env("LOG_LEVEL", "INFO") or "INFO",
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
             foundation_backend_url=_env("FOUNDATION_BACKEND_URL"),
+            foundation_backend_ca_file=_env("FOUNDATION_BACKEND_CA_FILE"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
             notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
             onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL", "openai/gpt-4o-mini"),

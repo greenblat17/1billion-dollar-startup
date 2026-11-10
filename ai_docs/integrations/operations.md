@@ -480,6 +480,7 @@ Redis и его серверные данные не удалять. Перен�
 - Backend требует `DATABASE_URL`, общий `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`; webhook требует прежние Telegram/TLS настройки.
 - AI требует `FOUNDATION_BACKEND_URL`, тот же `AI_INTERNAL_TOKEN`, `OPENAI_API_KEY`; model/base URL настройки сохраняются.
 - `FOUNDATION_BACKEND_URL` должен быть доступен из AI-контейнера. Loopback мониторинга backend доступен только в его сетевом namespace.
+- Для DEV адрес — `https://72.56.85.251:443`, без API path. При самоподписанном TLS сертификат CMP копируется через проверенный SSH в `/opt/ai-service/foundation-backend-ca.pem` на AI. Deploy монтирует его read-only и задаёт `FOUNDATION_BACKEND_CA_FILE`; Python добавляет его к системным CA только для backend HTTP-клиента. Проверка hostname/TLS остаётся включённой. При смене сертификата обновить этот файл до redeploy.
 - `requirements.txt` не содержит Redis. Только offline export и сохранённый legacy используют `requirements-legacy.txt`.
 - Старый `app.main` не запускать одновременно с новым текстовым путём. Автоматического возврата к Redis при ошибке нет.
 - Старые PG adapters и промежуточные legacy-таблицы не зарегистрированы в новом runtime. Их перенос не является условием запуска.
@@ -503,6 +504,7 @@ python scripts/export_tutor_state.py \
 Он сверяет два чтения, проверяет identity aliases, пишет новый файл с правами 0600 и SHA-256 каждой записи.
 Файл содержит личную переписку: не добавлять в git, логи или CI artifacts.
 При alias/malformed/checksum конфликте остановить переключение; не исправлять источник вслепую.
+Проверенные записи `tutor:v1:synthetic-sp01-dev-<12 hex>` можно исключить повторяемым `--exclude-key` с точным ключом. Это явно согласуемый список synthetic probes; Telegram identity исключить нельзя. Исходник остаётся в Redis.
 
 5. При остановленном новом backend, из `cmp/`, с `DATABASE_URL` целевого PostgreSQL:
 

@@ -13,8 +13,8 @@
 
 ## Проверка и поставка
 
-SP-00 локально завершён. **Серверный cutover, DEV/PROD переключение и живая приёмка не выполнены.**
-Зафиксированы: Python **524** (1 warning), Kotlin **277**, PostgreSQL **19**, HTTP **5**, real Redis import **1** passed.
+SP-00 локально завершён. **DEV-импорт завершён; совместный запуск новой версии AI/backend ещё требуется. PROD и живая приёмка не выполнены.**
+Зафиксированы: Python **525** (1 warning), Kotlin **277**, PostgreSQL **19**, HTTP **5**, real Redis import **1** passed.
 Kotlin/PG без skipped; fatJar и detekt прошли. Чистый AI runtime без Redis и реальные pg_dump/pg_restore проверены.
 Это результаты реализации поверх `60d4085`, а не новые прогоны документационной задачи.
 [Критерии и тестовые доказательства](plans/2026-11-10-sp00-foundation.md#локальные-доказательства-реализации).
@@ -23,3 +23,5 @@ Kotlin/PG без skipped; fatJar и detekt прошли. Чистый AI runtime
 Он не подтверждает поставку SP-00 или состояние PROD. Платные модельные прогоны остановлены после HTTP 402.
 
 [Архитектура](../architecture.md) объясняет устройство; [эксплуатация](integrations/operations.md) — запуск, импорт и восстановление.
+
+DEV cutover: резервные копии Redis и PostgreSQL созданы и проверены; импортирован 1 настоящий Telegram TutorStore, повтор импорта идемпотентен (Student/import/marker: 1/1/1). Четыре прежних synthetic DEV probe исключены явно, исходники сохранены в Redis. HTTPS AI→backend:443 проверен с доверенным сертификатом (health 200; сервисная авторизация проходит, без scope — 403). Старый AI остановлен для сохранения frozen source; до redeploy новый бот недоступен. До согласованного redeploy оба приложения остановлены; PostgreSQL/Redis работают. В deploy добавлено доверие отдельному backend CA, readiness переведён с legacy endpoints на foundation; ключи и приватные данные не включены в git.

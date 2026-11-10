@@ -51,11 +51,17 @@ cat > /etc/logrotate.d/ai-service <<'EOF'
 }
 EOF
 PUBLISH_PORT="$(ai_service_port_from_env "$APP/.env")"
+BACKEND_TLS_ARGS=()
+if [ -s "$APP/foundation-backend-ca.pem" ]; then
+  BACKEND_TLS_ARGS=(-v "$APP/foundation-backend-ca.pem:/app/foundation-backend-ca.pem:ro"
+    -e FOUNDATION_BACKEND_CA_FILE=/app/foundation-backend-ca.pem)
+fi
 docker run -d --name ai-service --restart unless-stopped \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   --network "$NETWORK" \
   -p "${PUBLISH_PORT}:8090" \
   --env-file "$APP/.env" \
+  "${BACKEND_TLS_ARGS[@]}" \
   -e LOG_FILE=/var/log/ai-service/app.log \
   -v "$APP/logs:/var/log/ai-service" \
   ai-service:local

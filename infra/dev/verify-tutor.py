@@ -4,9 +4,9 @@ import re
 import ssl
 import subprocess
 import sys
-import time
 from datetime import datetime, timedelta
 import urllib.request
+import urllib.error
 
 
 def request(url, token=None, payload=None, context=None):
@@ -44,9 +44,28 @@ def main():
     if component == 'ai':
         port = info['NetworkSettings']['Ports']['8090/tcp'][0]['HostPort']
         print('ai_health_status=', request('http://127.0.0.1:' + port + '/health')[0])
-        print('config_ready=' + json.dumps({k: bool(env.get(k)) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'REDIS_URL']}))
+        print('config_ready=' + json.dumps({k: bool(env.get(k)) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'FOUNDATION_BACKEND_URL']}))
         print('model=' + env.get('KORA_MODEL', 'anthropic/claude-sonnet-4.6'))
-        assert all(env.get(k) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'REDIS_URL'])
+        assert all(env.get(k) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'FOUNDATION_BACKEND_URL'])
+        probe = """
+import os, ssl, urllib.request, urllib.error
+ctx = ssl.create_default_context()
+if os.environ.get('FOUNDATION_BACKEND_CA_FILE'):
+    ctx.load_verify_locations(os.environ['FOUNDATION_BACKEND_CA_FILE'])
+root = os.environ['FOUNDATION_BACKEND_URL'].rstrip('/')
+with urllib.request.urlopen(root + '/health', context=ctx, timeout=15) as response:
+    assert response.status == 200
+req = urllib.request.Request(root + '/internal/foundation/v1/snapshot',
+    headers={'X-Internal-Token': os.environ['AI_INTERNAL_TOKEN']})
+try:
+    urllib.request.urlopen(req, context=ctx, timeout=15)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 403
+else:
+    raise AssertionError('backend accepted a request without execution scope')
+print('ai_to_backend_tls_and_service_auth=passed')
+"""
+        subprocess.run(['docker', 'exec', '-i', container, 'python', '-'], input=probe.encode(), check=True)
         return
     tls = ssl.create_default_context(cafile='/opt/speaking-coach/tls.crt')
     tls.check_hostname = False  # Trust the deployed certificate itself for the loopback health probe.
@@ -54,23 +73,19 @@ def main():
     root = env['AI_SERVICE_BASE_URL'].rstrip('/')
     token = env['AI_INTERNAL_TOKEN']
     print('cmp_to_ai_health_status=', request(root + '/health')[0])
-    learner = 'synthetic-sp01-dev-' + revision[:12]
-    print('authenticated_context_status=', request(root + '/internal/learners/' + learner + '/context', token)[0])
+    try:
+        request(root + '/internal/foundation/compute', token, {})
+    except urllib.error.HTTPError as exc:
+        assert exc.code == 422, 'service_auth_or_foundation_route_failed'
+        print('cmp_to_ai_service_auth=passed; missing scope correctly rejected')
+    else:
+        raise AssertionError('AI accepted a request without execution scope')
     bot_token = env.get('TELEGRAM_BOT_TOKEN', env.get('TELEGRAM_TOKEN'))
     if bot_token:
         status, body = request('https://api.telegram.org/bot' + bot_token + '/getMe')
         print('dev_bot_username=', json.loads(body).get('result', {}).get('username'))
     if '--smoke' in sys.argv:
-        for number, text in enumerate(['Хочу урок прямо сейчас.', 'Отмени пробную встречу.']):
-            _, body = request(root + '/internal/tutor/turn', token,
-                              dict(sessionId=learner, requestId='smoke-' + str(number), text=text, receivedAt=time.time()))
-            result = json.loads(body)
-            print('synthetic_smoke=' + json.dumps(result, ensure_ascii=False))
-            if result.get('degraded'):
-                print('SMOKE_BLOCKED: degraded response; no retries or further model requests')
-                return
-            booking = result.get('booking')
-            assert booking and booking['status'] == ('scheduled' if number == 0 else 'cancelled'), 'smoke_booking_contract'
+        raise RuntimeError('Legacy synthetic smoke is unavailable in SP-00; use scoped integration tests')
 
 
 if __name__ == '__main__':

@@ -12,10 +12,14 @@ from redis.asyncio import Redis
 KEY = re.compile(r'tutor:v1:(tg-(?:[1-9][0-9]*|ChatId\(chatId=[1-9][0-9]*\)))\Z')
 
 
-async def snapshot(redis):
+async def snapshot(redis, excluded_keys=()):
     keys = sorted([key async for key in redis.scan_iter(match='tutor:v1:*') if not key.startswith('tutor:v1:lock:')])
     entries = []
     for key in keys:
+        if key in excluded_keys:
+            if not re.fullmatch(r'tutor:v1:synthetic-sp01-dev-[0-9a-f]{12}', key):
+                raise RuntimeError('only reviewed synthetic DEV probes may be excluded')
+            continue
         if not KEY.fullmatch(key):
             raise RuntimeError('unknown tutor namespace; manual review required')
         raw = await redis.get(key)
@@ -36,14 +40,15 @@ async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source-frozen-at', required=True, help='UTC instant after stopping old tutor writers')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--exclude-key', action='append', default=[], help='Exact reviewed synthetic DEV probe key; never a Telegram identity')
     args = parser.parse_args()
     frozen = datetime.fromisoformat(args.source_frozen_at.replace('Z', '+00:00'))
     if frozen.tzinfo is None or frozen > datetime.now(timezone.utc):
         raise RuntimeError('invalid freeze instant')
     redis = Redis.from_url(os.environ['REDIS_URL'], decode_responses=True)
     try:
-        entries = await snapshot(redis)
-        if entries != await snapshot(redis):
+        entries = await snapshot(redis, args.exclude_key)
+        if entries != await snapshot(redis, args.exclude_key):
             raise RuntimeError('source is not frozen')
         manifest = dict(schemaVersion=1, sourceFrozenAt=frozen.isoformat(), entries=entries)
         descriptor = os.open(Path(args.output), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)

@@ -1,6 +1,7 @@
 """Speaky composition root. Legacy app.main is retained but never constructed here."""
 from contextlib import asynccontextmanager
 from secrets import compare_digest
+import ssl
 
 import httpx
 from fastapi import FastAPI, Request
@@ -28,7 +29,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         raise RuntimeError('OPENAI_API_KEY is required')
     configure_process_logging(settings.log_level, settings.log_file)
     configure_user_id_hash_key(settings.ai_internal_token)
-    http = httpx.AsyncClient(timeout=30)
+    backend_tls = ssl.create_default_context()
+    if settings.foundation_backend_ca_file:
+        backend_tls.load_verify_locations(cafile=settings.foundation_backend_ca_file)
+    http = httpx.AsyncClient(timeout=30, verify=backend_tls)
     model_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0)
     backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, http)
     contexts = ContextBuilder(backend)

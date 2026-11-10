@@ -30,3 +30,16 @@ async def test_export_rejects_conflicting_telegram_aliases():
             for identity in ('tg-123', 'tg-ChatId(chatId=123)')}
     with pytest.raises(RuntimeError, match='duplicate identity'):
         await snapshot(FrozenRedis(rows))
+
+
+@pytest.mark.asyncio
+async def test_reviewed_synthetic_probes_can_be_excluded_but_telegram_cannot():
+    probe = 'tutor:v1:synthetic-sp01-dev-21caf098f0d8'
+    real = 'tutor:v1:tg-123'
+    rows = FrozenRedis({probe: '{}', real: json.dumps({'learnerId': 'tg-123'})})
+    with pytest.raises(RuntimeError, match='unknown tutor namespace'):
+        await snapshot(rows)
+    result = await snapshot(rows, [probe])
+    assert [row['sourceKey'] for row in result] == [real]
+    with pytest.raises(RuntimeError, match='only reviewed synthetic'):
+        await snapshot(rows, [probe, real])
