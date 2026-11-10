@@ -20,14 +20,14 @@
 - Уже известное не переспрашивается; неизвестный уровень допустим; для «сейчас» пояс не обязателен.
 - Голос в обычном чате игнорируется; старые calls и Vocabulary Builder имеют отдельные обработчики.
 - «Открыть урок» — заглушка; Mini App, проведение trial, оплата и roadmap ещё не реализованы.
-- `tutor:v1` и `learner:` не связаны; общий профиль чата и звонков явно отложен.
-- Контракт и карта файлов: [SP-01](ai_docs/integrations/2026-11-10-sp01-tutor-chat.md).
+- Состояние общего профиля и хранилищ проверяй в [статусе реализации](ai_docs/status.md) и связанном журнале текущего этапа.
+- Контракт и карта файлов: [SP-01](ai_docs/integrations/tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей).
 
 ## Карта кода
 
 - `cmp/server/` — Ktor, Telegram webhook, TutorClient, app API, PostgreSQL и аналитика.
 - `ai-service/app/tutor.py` — prompt и tool loop; `tutor_tools.py` — операции; `tutor_store.py` — Redis.
-- `ai-service/app/main.py` — API и wiring; `learner_store.py` — отдельный профиль прежних звонков.
+- Shipping roots: `SpeakyApplication.kt` (через `Application.kt`) и `ai-service/app/speaky_main.py`; `app/main.py` сохранён как legacy.
 - `cmp/app/` — CMP-прототип Android/iOS/Desktop, не готовый Mini App; `cmp/core/` — общий Kotlin.
 - `infra/` и `.github/workflows/` — инфраструктура, CI и ручные DEV/PROD workflow.
 

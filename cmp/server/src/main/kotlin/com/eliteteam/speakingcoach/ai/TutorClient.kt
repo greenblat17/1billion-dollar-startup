@@ -27,7 +27,12 @@ data class TutorDelivery(val sessionId: String, val requestId: String, val reply
                          val bookingId: String? = null, val cardMessageId: Long? = null, val version: Int? = null)
 
 class TutorClient(private val root: String, private val http: HttpClient, private val token: String) {
+    internal var foundation: com.eliteteam.speakingcoach.foundation.FoundationChat? = null
+
+    suspend fun beginDelivery(delivery: TutorDelivery): Boolean = foundation?.beginDelivery(delivery) ?: true
+
     suspend fun delivered(delivery: TutorDelivery) {
+        foundation?.let { it.delivered(delivery); return }
         val response = http.post("$root/internal/tutor/delivery") {
             header(AI_INTERNAL_TOKEN_HEADER, token)
             contentType(ContentType.Application.Json)
@@ -37,13 +42,18 @@ class TutorClient(private val root: String, private val http: HttpClient, privat
     }
 
     suspend fun respond(request: TutorRequest, start: Boolean): TutorResponse {
-        val response = http.post("$root/internal/tutor/${if (start) "start" else "turn"}") {
+        val bridge = foundation
+        val scope = bridge?.accept(request, start)
+        val path = if (bridge != null) "/internal/foundation/tutor/turn?start=$start" else "/internal/tutor/${if (start) "start" else "turn"}"
+        val response = http.post("$root$path") {
             header(AI_INTERNAL_TOKEN_HEADER, token)
+            if (scope != null) header("X-Execution-Scope", scope)
             contentType(ContentType.Application.Json)
             timeout { requestTimeoutMillis = 120_000; socketTimeoutMillis = 120_000 }
             setBody(request)
         }
         check(response.status.isSuccess()) { "Tutor request failed: ${response.status}" }
-        return response.body()
+        val answer: TutorResponse = response.body()
+        return bridge?.withDelivery(request, answer) ?: answer
     }
 }

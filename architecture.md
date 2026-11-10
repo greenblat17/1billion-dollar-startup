@@ -1,6 +1,19 @@
 # Архитектура Speaking Coach
 
-Этот документ описывает **компоненты и потоки, реализованные в текущем коде репозитория**. Он не подтверждает версию, работающую на конкретном сервере. Продуктовая цель описана отдельно в [product.md](ai_docs/product.md); инструкции по окружениям и развертыванию — в [deploy.md](ai_docs/deploy.md).
+Этот документ описывает **базовую архитектуру поставки SP-01 и сохранённых подсистем**.
+Локально реализованные и проверенные PostgreSQL foundation и wiring SP-00 описаны в [журнале реализации](ai_docs/plans/2026-11-10-sp00-implementation-status.md). Он не подтверждает версию, работающую на конкретном сервере. Продуктовая цель описана отдельно в [product.md](ai_docs/product.md); инструкции по окружениям и развертыванию — в [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление).
+
+## Точки входа текущего рабочего дерева
+
+SP-00: Kotlin `Application.kt` вызывает `startSpeakyServer` из
+[SpeakyApplication.kt](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt).
+AI Docker CMD запускает [app.speaky_main:create_app](ai-service/app/speaky_main.py).
+Это новые composition roots с PostgreSQL foundation; старые routes/workers не монтируются.
+`app.main` и прежние handlers сохранены как legacy, а не параллельный путь нового чата.
+Import marker TutorStore обязателен перед включением чата. Локальная реализация и широкая проверка SP-00 завершены;
+серверный cutover, DEV/PROD переключение и живая приёмка не выполнены. [Runbook](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
+
+Следующие схемы описывают базовую поставку SP-01, а не новый shipping graph.
 
 ## Общая схема
 
@@ -63,7 +76,7 @@ Telegram text → Ktor TutorClient → FastAPI TutorRuntime ↔ LLM native tools
 сервер проверяет intent evidence, время, владельца, версию и результат операции.
 Память нового чата не синхронизируется с `learner:` существующих звонков.
 Маршрут `/internal/learners/{sessionId}/context` читает только TutorStore.
-[Контракт SP-01](ai_docs/integrations/2026-11-10-sp01-tutor-chat.md) содержит API, retention, CAS и карту исходников.
+[Контракт SP-01](ai_docs/integrations/tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей) содержит API, retention, CAS и карту исходников.
 «Открыть урок» не запускает звонок. Объединение профилей и lesson runtime отложены.
 
 ## Сохранённый путь Telegram: голос в открытом call
@@ -110,9 +123,9 @@ sequenceDiagram
 Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`. Ktor отвечает Telegram после принятия update и обрабатывает его в отдельном scope; дальше Telegram не повторит уже подтверждённое сообщение. Сессия чата имеет id `tg-<chatId>`. `HttpClipClient` опрашивает job с интервалом 1.5 секунды до 90 секунд; очередь ограничена тремя клипами на сессию. Для обычного хода AI-сервис параллельно запускает ответ и исправления; синтез голоса начинается после готовности текста ответа. В историю диалога сохраняется текст ответа, а аудио остаётся в памяти clip job. Исправления имеют отдельный дедлайн **10 секунд** и при неудаче могут быть опущены без потери голосового ответа. Извлечение персональных фактов может идти дополнительной параллельной задачей.
 
 Голосовое знакомство удалено. Calls/reviews сохраняют собственную историю, профиль и правила оценивания.
-Подробности: [Telegram routing](ai_docs/integrations/2026-09-18-telegram.md),
-[calls](ai_docs/integrations/2026-09-30-telegram-calls.md), [коррекции](ai_docs/integrations/2026-09-30-spoken-corrections.md),
-[clip API](ai_docs/integrations/2026-09-18-clip-session-api.md).
+Подробности: [Telegram routing](ai_docs/integrations/tutor-chat.md#telegram-текущая-маршрутизация),
+[calls](ai_docs/integrations/voice-and-reviews.md#telegram-practice-calls), [коррекции](ai_docs/integrations/voice-and-reviews.md#коррекции-речи-в-сохранённых-calls),
+[clip API](ai_docs/integrations/voice-and-reviews.md#clip--session-http-contract).
 
 ## Путь приложения: звонок и разбор
 
@@ -154,7 +167,7 @@ sequenceDiagram
 
 Общий UI расположен в `cmp/app/shared/`: Welcome → Auth → Home → Call → Review, а Profile открывается с Home. Состояние экранов организовано через ViewModel и Navigation 3. Ktor Client посылает только запросы к Ktor; ключ OpenAI Realtime остаётся на AI-сервисе. После SDP-обмена звук и события звонка идут напрямую между клиентом и OpenAI, минуя наши серверы. Клиент передаёт собранные реплики Ktor при завершении; Ktor запускает разбор и сохраняет результат.
 
-В текущем срезе разбор приложения содержит **Grammar и Vocabulary**. Карточка последнего разговора и часть показателей Home/Profile используют локальные или демонстрационные данные; пять целевых измерений из [product.md](ai_docs/product.md) не реализованы этим review. Контракт экранов и API: [mobile API](ai_docs/integrations/2026-09-18-mobile-api.md), архитектура WebRTC-клиента: [WebRTC](ai_docs/architecture/2026-09-20-webrtc-client.md).
+В текущем срезе разбор приложения содержит **Grammar и Vocabulary**. Карточка последнего разговора и часть показателей Home/Profile используют локальные или демонстрационные данные; пять целевых измерений из [product.md](ai_docs/product.md) не реализованы этим review. Контракт экранов и API: [mobile API](ai_docs/integrations/mobile-api.md#mobile-app-http-contract), архитектура WebRTC-клиента: [WebRTC](ai_docs/architecture/2026-09-20-webrtc-client.md).
 
 ## Данные и жизненный цикл
 
@@ -168,7 +181,7 @@ sequenceDiagram
 | Журнал взаимодействий Telegram | PostgreSQL и аудиофайлы на хосте Ktor | Работает при настроенном `DATABASE_URL`; используется для истории и диагностики |
 | Метрики и dashboard | Ktor + AI-сервис, PostgreSQL/Redis | Административные страницы начинаются с `/admin/metrics`; источники метрик разделены между сервисами |
 
-PostgreSQL находится рядом с Ktor и доступен на loopback, Redis — рядом с AI-сервисом и не публикуется наружу. Два хоста могут быть у разных провайдеров. Подробная схема сети, контейнеров и сохранения томов — в [deploy.md](ai_docs/deploy.md).
+PostgreSQL находится рядом с Ktor и доступен на loopback, Redis — рядом с AI-сервисом и не публикуется наружу. Два хоста могут быть у разных провайдеров. Подробная схема сети, контейнеров и сохранения томов — в [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление).
 
 ## Технологии и внешние зависимости
 
@@ -190,7 +203,7 @@ PostgreSQL находится рядом с Ktor и доступен на loopba
 - AI-сервис слушает порт 8090. Скрипт на AI-хосте ограничивает внешний доступ к нему списком разрешённых адресов Ktor. Redis доступен только на AI-хосте; PostgreSQL — только на Ktor-хосте.
 - Push и pull request запускают проверки и сборку, но не развертывание. Поставка DEV/PROD запускается вручную и может обновить Ktor и AI-сервис независимо. Рестарт сервисов не должен удалять тома Redis и PostgreSQL.
 
-В документации указаны только **имена** переменных и секретов. Значения ключей, токенов и содержимое `.env` здесь не хранятся. Детали окружений, CI и действий оператора: [deploy.md](ai_docs/deploy.md) и [run-and-ci](ai_docs/integrations/2026-09-18-run-and-ci.md).
+В документации указаны только **имена** переменных и секретов. Значения ключей, токенов и содержимое `.env` здесь не хранятся. Детали окружений, CI и действий оператора: [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление) и [run-and-ci](ai_docs/integrations/operations.md#run-locally-env-ci).
 
 ## Где менять код
 

@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.foundation.installFoundation
+
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
@@ -106,25 +108,7 @@ import java.util.UUID
 private val tlsStorePassword = "ktor".toCharArray()
 
 suspend fun main() {
-    val config = AppConfig.fromEnv()
-    if (config.usesWebhook) {
-        startWebhookServer(config)
-    } else {
-        embeddedServer(Netty, configure = {
-            connector {
-                host = "0.0.0.0"
-                port = config.serverPort
-            }
-            if (config.monitoringPort > 0) {
-                connector {
-                    host = "127.0.0.1"
-                    port = config.monitoringPort
-                }
-            }
-        }) {
-            module(config)
-        }.start(wait = true)
-    }
+    startSpeakyServer(AppConfig.fromEnv())
 }
 
 @OptIn(ExperimentalKtorApi::class)
@@ -344,6 +328,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
         },
     ) {
         val ktorApp = this
+        val foundation = requireNotNull(installFoundation(config.databaseUrl, config.aiInternalToken)) {
+            "DATABASE_URL is required for the persistent tutor"
+        }
+        ai.tutor.foundation = com.eliteteam.speakingcoach.foundation.FoundationChat(foundation)
+        com.eliteteam.speakingcoach.foundation.FoundationWorker(foundation,
+            com.eliteteam.speakingcoach.foundation.HttpLearningComputer(aiHttp, config.aiServiceBaseUrl, config.aiInternalToken))
+            .launch(webhookScope)
         if (appApi != null) {
             installAppPlugins(appApi)
         }
@@ -383,7 +374,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 }
             }.hide()
             route("/telegram/webhook") {
-                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics)
+                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics, foundation.telegramIntake)
             }.hide()
             if (config.loadTestEnabled) {
                 installLoadTestRoutes(config, ai, sessionClipQueue)

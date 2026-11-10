@@ -4,7 +4,7 @@
 
 **Дата:** 2026-09-20  
 **Статус:** клиент Call/Review живой; медиа клиент ↔ OpenAI Realtime. Ключ `OPENAI_REALTIME_API_KEY` на сервере (CI/CD), не в приложении.  
-**Связанные документы:** [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md), [`2026-09-17-cmp-client.md`](2026-09-17-cmp-client.md)
+**Связанные документы:** [`../integrations/mobile-api.md`](../integrations/mobile-api.md#mobile-app-http-contract), [`2026-09-17-cmp-client.md`](2026-09-17-cmp-client.md)
 
 ## Решение
 

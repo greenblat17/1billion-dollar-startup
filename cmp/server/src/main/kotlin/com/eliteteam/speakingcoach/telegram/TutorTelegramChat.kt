@@ -55,6 +55,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
     private val log = LoggerFactory.getLogger(javaClass)
 
     suspend fun respond(message: ChatMessage, text: String, at: Instant, start: Boolean = false) = coroutineScope {
+        require(message.chat is dev.inmo.tgbotapi.types.chat.PrivateChat) { "Tutor requires a private Telegram chat" }
         val typing = launch {
             while (true) {
                 try { bot.sendBotAction(message.chat.id, TypingAction) }
@@ -64,10 +65,10 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
             }
         }
         try {
-            val sessionId = telegramSessionId(message.chat.id).value
+            val sessionId = "tg-${requireNotNull(telegramChatNumber(message.chat.id))}"
             val requestId = "message:${message.messageId.long}"
             val response = client.respond(TutorRequest(sessionId, requestId, text, message.date.unixMillis / 1000.0), start)
-            if (response.replyMessageId == null) {
+            if (response.replyMessageId == null && client.beginDelivery(TutorDelivery(sessionId, requestId))) {
                 var lastMessageId: Long? = null
                 for (part in response.reply.chunked(3500)) {
                     lastMessageId = bot.reply(message, part, allowSendingWithoutReply = true,
@@ -76,6 +77,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                 client.delivered(TutorDelivery(sessionId, requestId, replyMessageId = lastMessageId))
             }
             response.booking?.let { booking ->
+                if (!client.beginDelivery(TutorDelivery(sessionId, requestId, bookingId = booking.id, version = booking.version))) return@let
                 val chatId = telegramChatNumber(message.chat.id) ?: return@let
                 val card = TutorCardRequest(chatId, requireNotNull(response.bookingText),
                     tutorBookingMarkup(booking.status == "scheduled"), response.cardMessageId)

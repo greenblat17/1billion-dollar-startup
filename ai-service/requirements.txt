@@ -4,5 +4,4 @@ uvicorn==0.35.0
 openai==1.107.2
 httpx==0.28.1
 websockets==15.0.1
-redis==6.4.0
 webrtcvad-wheels==2.0.14.post1

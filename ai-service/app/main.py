@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+import httpx
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -45,6 +46,11 @@ from app.learner_store import LearnerStore, public_assessment
 from app.personalization import Personalization
 from app.tutor import TutorRuntime, TutorModel, TutorRequest
 from app.tutor_store import TutorStore
+from app.foundation_client import FoundationClient
+from app.foundation_api import install_foundation_api
+from app.foundation_tutor import FoundationTutor
+from app.context_builder import ContextBuilder
+from app.learning_engine import LearningEngine, PersonalCandidateExtractor
 from app.learner_model import LearnerModel
 from app.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_job_timings
 from app.retry import bind_provider_metrics, reset_provider_metrics
@@ -103,6 +109,22 @@ def create_app(
     personalization = Personalization(learner_store, learner_model, clip_pipeline.streaks)
     clip_pipeline.personalization = personalization
     tutor = TutorRuntime(TutorStore(learner_store._redis), TutorModel(clip_pipeline.characters.model_h or clip_pipeline.llm))
+    foundation_http = httpx.AsyncClient() if settings.foundation_backend_url else None
+    foundation_model_client = None
+    foundation_tutor = None
+    learning_engine = None
+    if foundation_http is not None:
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for the foundation tutor")
+        backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, foundation_http)
+        contexts = ContextBuilder(backend)
+        foundation_model_client = AsyncOpenAI(api_key=settings.openai_api_key,
+                                             base_url=settings.openai_base_url, max_retries=0)
+        foundation_tutor = FoundationTutor(backend, TutorModel(OpenAiChatModel(
+            foundation_model_client, settings.kora_model, metrics=clip_pipeline.metrics)), contexts)
+        memory_model = LearnerModel(OpenAiChatModel(foundation_model_client, settings.llm_model),
+                                    person_memory_model=settings.person_memory_model)
+        learning_engine = LearningEngine(backend, contexts, extractor=PersonalCandidateExtractor(memory_model))
     memory_jobs = MemoryJobRunner(MemoryJobStore(learner_store._redis), personalization)
     owns_calls = call_store is None
     calls = call_store or CallStore(
@@ -179,6 +201,10 @@ def create_app(
             await asyncio.gather(retention_task, *( [cost_task] if cost_task else [] ),
                                  return_exceptions=True)
         await learner_store.aclose()
+        if foundation_http is not None:
+            await foundation_http.aclose()
+        if foundation_model_client is not None:
+            await foundation_model_client.close()
         if rollout is not None:
             await rollout.aclose()
         if clip_pipeline.speech_meter is not None:
@@ -213,6 +239,8 @@ def create_app(
     app.state.tutor = tutor
     app.state.vocabulary = vocabulary
     app.state.memory_jobs = memory_jobs
+    if foundation_tutor is not None:
+        install_foundation_api(app, foundation_tutor, learning_engine)
 
     @app.middleware("http")
     async def require_internal_token(request: Request, call_next):

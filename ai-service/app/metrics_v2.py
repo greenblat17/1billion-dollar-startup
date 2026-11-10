@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import json
 import re
 import time
 from datetime import date, timedelta
 from contextvars import ContextVar, Token
 from typing import Any
-from redis.asyncio import Redis
-from redis.exceptions import WatchError
 
 from app.load_test import load_test_active
 from app.metrics import metrics_day, recent_days
@@ -413,6 +415,7 @@ class RedisMetricsV2(MetricsV2):
         await self._add(session_id, platform, now, "action", _token(action) or "other", "", {"count": 1}, False)
 
     async def record_telegram_message(self, session_id, action, event_id, *, now=None):
+        from redis.exceptions import WatchError
         if load_test_active():
             return
         if not _telegram_journey_event(session_id, action, event_id):
@@ -732,6 +735,7 @@ class RedisMetricsV2(MetricsV2):
 
 
 def build_metrics_v2(settings: Any, redis: Redis | None = None) -> MetricsV2:
+    from redis.asyncio import Redis
     if redis is not None:
         return RedisMetricsV2(redis)
     url = getattr(settings, "redis_url", None)

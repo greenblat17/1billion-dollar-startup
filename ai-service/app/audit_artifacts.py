@@ -1,13 +1,16 @@
 """Short-lived AI stage artifacts for recovery after a clip job fails or restarts."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import asyncio
 import logging
 import time
 from contextvars import ContextVar, Token
 from typing import Awaitable, Callable
 
-from redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 _writer: ContextVar[Callable[[str, str], Awaitable[None]] | None] = ContextVar("audit_writer", default=None)

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import asyncio
 import hashlib
 import json
@@ -11,8 +15,6 @@ from app.audit_artifacts import recorded_at
 from typing import Any, Protocol
 from uuid import uuid4
 
-from redis.asyncio import Redis
-from redis.exceptions import WatchError
 
 
 @dataclass
@@ -319,6 +321,7 @@ class RedisDialogueStore:
 
     async def record_shared_free_turn(self, session_id: str, personality: str,
                                       user_text: str, reply: str, turn_id: str) -> None:
+        from redis.exceptions import WatchError
         if personality not in {"speaky", "kora_h"}:
             raise ValueError("unknown personality")
         await self._migrate_shared(session_id)
@@ -362,6 +365,7 @@ class RedisDialogueStore:
         raise RuntimeError("shared free history write contention")
 
     async def _migrate_shared(self, session_id: str) -> None:
+        from redis.exceptions import WatchError
         canonical_key = _session_key(shared_free_scope_id(session_id))
         speaky_key = _session_key(session_id)
         kora_key = _session_key(f"{session_id}:kora_h")
@@ -420,6 +424,7 @@ class RedisDialogueStore:
         return changed
 
     async def _prune_key(self, key: str) -> tuple[list[ChatMessage], bool]:
+        from redis.exceptions import WatchError
         for _ in range(64):
             async with self._redis.pipeline(transaction=True) as pipe:
                 try:
@@ -449,6 +454,7 @@ class RedisDialogueStore:
 
 
 def build_dialogue_store(settings: Any, redis: Redis | None = None) -> DialogueStore:
+    from redis.asyncio import Redis
     max_messages = settings.dialogue_max_messages
     ttl_seconds = settings.dialogue_ttl_seconds
     if redis is not None:

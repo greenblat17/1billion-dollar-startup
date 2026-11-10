@@ -10,6 +10,10 @@ if [ ! -s "$APP/.env" ]; then
   echo "Missing or empty $APP/.env" >&2
   exit 1
 fi
+if ! grep -q '^FOUNDATION_BACKEND_URL=.' "$APP/.env"; then
+  echo "FOUNDATION_BACKEND_URL is required for Speaky; legacy runtime is not a fallback" >&2
+  exit 1
+fi
 chmod 600 "$APP/.env"
 
 cd "$APP"
@@ -26,7 +30,7 @@ if ! docker build -t ai-service:next "$BUILD" 2>&1 | tee "$BUILD/build.log"; the
     echo "Cannot reuse the previous AI image: image missing or dependencies changed" >&2
     exit 1
   fi
-  printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\n' > "$BUILD/Dockerfile.cached"
+  printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\nCMD ["uvicorn", "app.speaky_main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8090"]\n' > "$BUILD/Dockerfile.cached"
   docker build -f "$BUILD/Dockerfile.cached" -t ai-service:next "$BUILD"
 fi
 docker image tag ai-service:next ai-service:local
@@ -56,9 +60,7 @@ docker run -d --name ai-service --restart unless-stopped \
   -v "$APP/logs:/var/log/ai-service" \
   ai-service:local
 
-# Freeze this one-time campaign cohort on its first deployment. Later deploys
-# leave the Redis snapshot unchanged, so new users are never added to it.
-docker exec ai-service python -m app.legacy_onboarding_campaign snapshot
+# Legacy campaign workers and Redis are intentionally absent from the Speaky runtime.
 
 chmod 755 "$APP/restrict-8090.sh"
 install -m 644 "$APP/restrict-8090.service" /etc/systemd/system/restrict-8090.service

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import asyncio
 import json
 import math
@@ -7,7 +11,6 @@ import re
 import time
 from copy import deepcopy
 
-from redis.asyncio import Redis
 
 from app.review_score import overall_progress, normalize_shade
 

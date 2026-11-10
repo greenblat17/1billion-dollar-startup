@@ -49,8 +49,7 @@ jobs:
           cp infra/ai-service/restrict-8090.sh vps-upload/restrict-8090.sh
           cp infra/ai-service/restrict-8090.service vps-upload/restrict-8090.service
           cp infra/ai-service/deploy-alloy.sh vps-upload/deploy-alloy.sh
-          cp infra/redis/deploy-remote.sh vps-upload/deploy-redis.sh
-          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-redis.sh vps-upload/deploy-alloy.sh vps-upload/restrict-8090.sh
+          chmod +x vps-upload/deploy-remote.sh vps-upload/deploy-alloy.sh vps-upload/restrict-8090.sh
           umask 077
           if [ "$DESTINATION" = prod ]; then
             ENV_BODY="${PROD_AI_SERVER_ENV:-}"
@@ -110,7 +109,6 @@ jobs:
             vps-upload/Dockerfile \
             vps-upload/requirements.txt \
             vps-upload/deploy-remote.sh \
-            vps-upload/deploy-redis.sh \
             vps-upload/restrict-8090.sh \
             vps-upload/restrict-8090.service \
             vps-upload/deploy-alloy.sh \
@@ -120,8 +118,6 @@ jobs:
           scp -r "${SSH_OPTS[@]}" \
             vps-upload/app \
             "${USER}@${HOST}:/opt/ai-service/app"
-          ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
-            bash /opt/ai-service/deploy-redis.sh
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/ai-service/deploy-remote.sh
           if [ "$DESTINATION" = dev ]; then

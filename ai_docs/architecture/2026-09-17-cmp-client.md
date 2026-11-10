@@ -1,8 +1,8 @@
 # Устройство CMP-клиента
 
-**Дата:** 2026-09-17  
-**Статус:** UI в `:app:shared` (тема Inter, Nav3). HTTP к DEV Ktor: `HttpSpeakingCoachClient` (auth/home/sessions/rtc/complete/review). AuthScreen на почте. Call — WebRTC (`webrtc-kmp` / `webrtc-java`), Review — полл. Карточка «Последний разговор» — мок.  
-**Связанные документы:** `ai_docs/product.md`, `ai_docs/plans/mvp-plan.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md)  
+**Дата:** 2026-09-17
+**Статус:** UI в `:app:shared` (тема Inter, Nav3). HTTP к DEV Ktor: `HttpSpeakingCoachClient` (auth/home/sessions/rtc/complete/review). AuthScreen на почте. Call — WebRTC (`webrtc-kmp` / `webrtc-java`), Review — полл. Карточка «Последний разговор» — мок.
+**Связанные документы:** `ai_docs/product.md`, `ai_docs/design/2026-09-17-mobile-ui.md`, [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md)
 **Правила для агента:** `AGENTS.md`, скиллы `cmp-mvvm` / `cmp-theme` / `cmp-strings` / `cmp-icons` / `compose-widget-sandbox` / `compose-hot-reload`
 
 ## Роль CMP
@@ -26,7 +26,7 @@ androidApp / iosApp / desktopApp → :app:shared → :core
 
 Shared ходит в сервер по HTTP (`HttpSpeakingCoachClient`). Base URL запекается на compile (`generateApiConfig`): локально `cmp/client.local.properties` / env, в CI — `https://$DEV_CMP_SERVER_HOST` (`PROD_CMP_SERVER_HOST` на `main`). Desktop в runtime ещё читает `SPEAKING_COACH_API_BASE_URL`. Desktop `hotRun`: Kermit дублируется в CHR `get_logs` (`ChrKermitLogWriter`). Не `project(":server")`.
 
-Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экраны Истории, Pronunciation / Fluency / Speed of speech не реализованы. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`, Call rtc/WebRTC, Review poll. Карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/2026-09-18-mobile-api.md`](../integrations/2026-09-18-mobile-api.md). WebRTC — [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md).
+Навигация: Welcome → Auth → Home → Call → Review `0…1` (Grammar, Vocabulary); Home (аватар) → Profile. Нижнего таббара нет. Экраны Истории, Pronunciation / Fluency / Speed of speech не реализованы. Живые: Auth, Home (`GET /v1/home`), Profile (кэш user), `POST /v1/sessions`, Call rtc/WebRTC, Review poll. Карточка «Последний разговор» — `MockSpeakingData`. HTTP — [`../integrations/mobile-api.md`](../integrations/mobile-api.md#mobile-app-http-contract). WebRTC — [`2026-09-20-webrtc-client.md`](2026-09-20-webrtc-client.md).
 
 ## Модули клиента
 

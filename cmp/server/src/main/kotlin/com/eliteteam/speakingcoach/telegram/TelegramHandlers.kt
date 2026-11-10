@@ -1072,7 +1072,12 @@ internal fun BehaviourContext.installSpeakingCoachHandlers(
                     }
                     reply(message, QUEUE_FULL_TEXT)
                 },
-                action = block,
+                action = {
+                    block()
+                    telegramChatNumber(message.chat.id)?.let { chatId ->
+                        ai.tutor.foundation?.completeIntake(chatId, message.messageId.long)
+                    }
+                },
             )
         } catch (error: CancellationException) {
             outcome = "cancelled"
