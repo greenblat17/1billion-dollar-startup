@@ -14,12 +14,12 @@ Get the context needed for the user's task before editing. Context loading alone
 Paths below are relative to the repository root.
 
 1. `ai_docs/README.md` — documentation map.
-2. `ai_docs/product.md` — product intent, not shipped scope.
+2. `ai_docs/product/2026-11-08-ai-tutor-experience-v0.5.md` — product intent, not shipped scope.
 3. `ai_docs/status.md` — shipped behavior, work in progress and verification limits.
-4. `architecture.md` — baseline components and flows; follow its links for ongoing architecture work.
-5. `ai_docs/architecture/2026-09-18-agent-guardrails.md` — operational boundaries.
+4. `architecture.md` — single reference for implemented components, flows, data ownership and decision rationale.
+5. `AGENTS.md` — operational boundaries.
 
-Follow the status page to the current plan and implementation journal when the task concerns ongoing work.
+Follow the status page to the current plan when the task concerns ongoing work.
 Read the matching technical reference rather than every integration document:
 
 - Text tutor, Telegram routing, tools and trial: `ai_docs/integrations/tutor-chat.md`.
@@ -37,7 +37,7 @@ Check git status first and preserve other work. Read source under `src/` and `ai
 - Python shipping composition: `ai-service/app/speaky_main.py`; `app/main.py` is preserved legacy.
 - Baseline tutor behavior: `ai-service/app/tutor.py`, `tutor_tools.py`, `tutor_store.py`.
 - Existing voice path: `ai-service/app/pipeline.py`, `llm.py`, `dialogue.py`.
-- New adapters and storage ownership: follow the active implementation journal and verify actual composition-root wiring.
+- Foundation adapters and storage ownership: follow `architecture.md` and verify actual composition-root wiring; use `ai_docs/status.md` and the plan acceptance matrix for test evidence.
 - CMP client: `cmp/app/shared/`; its prototype is distinct from the planned lesson Mini App.
 
 Speaky's product direction is a continuing relationship with Sasha, with Kora H's character.

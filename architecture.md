@@ -1,220 +1,146 @@
-# Архитектура Speaking Coach
+# Архитектура Speaky
 
-Этот документ описывает **базовую архитектуру поставки SP-01 и сохранённых подсистем**.
-Локально реализованные и проверенные PostgreSQL foundation и wiring SP-00 описаны в [журнале реализации](ai_docs/plans/2026-11-10-sp00-implementation-status.md). Он не подтверждает версию, работающую на конкретном сервере. Продуктовая цель описана отдельно в [product.md](ai_docs/product.md); инструкции по окружениям и развертыванию — в [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление).
+Единственный справочник **реализованной архитектуры SP-00**: компоненты, данные, потоки и причины решений.
+Он описывает код рабочего дерева. Серверный cutover, DEV/PROD и живая приёмка не выполнены.
+Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
+команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
 
-## Точки входа текущего рабочего дерева
-
-SP-00: Kotlin `Application.kt` вызывает `startSpeakyServer` из
-[SpeakyApplication.kt](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt).
-AI Docker CMD запускает [app.speaky_main:create_app](ai-service/app/speaky_main.py).
-Это новые composition roots с PostgreSQL foundation; старые routes/workers не монтируются.
-`app.main` и прежние handlers сохранены как legacy, а не параллельный путь нового чата.
-Import marker TutorStore обязателен перед включением чата. Локальная реализация и широкая проверка SP-00 завершены;
-серверный cutover, DEV/PROD переключение и живая приёмка не выполнены. [Runbook](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
-
-Следующие схемы описывают базовую поставку SP-01, а не новый shipping graph.
-
-## Общая схема
-
-Основной пользовательский путь — Telegram-бот **Speaky**. Репозиторий также содержит прототип приложения на Compose Multiplatform (CMP). Часть его пути подключена к API, но значительная часть UI и данных ещё демонстрационная. Оба пути используют один Ktor-сервер и один FastAPI AI-сервис, но разные способы разговора и хранения сессий.
+## Компоненты и границы
 
 ```mermaid
 flowchart LR
-  userT[Пользователь Telegram] <--> tg[Telegram Bot API]
-  userA[Пользователь прототипа] <--> cmp[Android / iOS / Desktop<br/>Compose Multiplatform]
-
-  subgraph KtorHost[Хост Ktor]
-    ktor[Ktor server<br/>webhook + app API + dashboard]
-    pg[(PostgreSQL<br/>пользователи, сессии, аудит)]
-    ktor <--> pg
-  end
-
-  subgraph AIHost[Хост AI]
-    ai[FastAPI ai-service<br/>tutor + clips + calls + review]
-    redis[(Redis<br/>диалог, память, звонки, метрики)]
-    ai <--> redis
-  end
-
-  tg <-->|HTTPS webhook / Bot API| ktor
-  cmp <-->|HTTPS JSON / JWT / SDP| ktor
-  ktor <-->|HTTP + X-Internal-Token| ai
-  ai -->|STT| groq[Groq Whisper]
-  ai -->|ответы и анализ| llm[OpenRouter LLM]
-  ai -->|TTS| tts[OpenRouter или Deepgram]
-  ai -->|создание звонка| openai[OpenAI Realtime]
-  cmp <-->|WebRTC audio + events| openai
+  tg[Telegram] <-->|webhook / Bot API| ktor[Ktor: SpeakyApplication]
+  ktor <--> pg[(PostgreSQL: foundation)]
+  ktor -->|tutor turn / compute| ai[FastAPI: speaky_main]
+  ai -->|scoped commands / snapshots| ktor
+  ai <--> llm[LLM provider]
 ```
 
-Стрелка WebRTC означает прямой медиаканал приложения с OpenAI после согласования SDP через Ktor и AI-сервис. Голосовые сообщения Telegram идут другим путём: Telegram передаёт файл боту, а AI-сервис обрабатывает его как асинхронный clip job.
+Два процесса: Ktor и FastAPI. Foundation, Text Tutor, Context Builder и Learning Engine — модули этих процессов.
+Отдельных сервисов для каждого логического блока нет. Redis не входит в новый runtime.
 
-## Компоненты и ответственность
-
-| Компонент | Расположение | Ответственность |
-| --- | --- | --- |
-| Telegram adapter | `cmp/server/.../telegram/`, `speaking/` | Приём webhook, команды и кнопки, очередь клипов по чату, отправка текста и голоса, Telegram-аналитика |
-| Ktor app API | `cmp/server/.../app/` | Регистрация и вход, JWT, сессии приложения, SDP-посредник, сохранение и выдача review |
-| Общий Ktor процесс | `cmp/server/.../Application.kt` | TLS, маршруты, подключение к AI-сервису, dashboard и health |
-| AI-сервис | `ai-service/app/` | STT → ответ и исправления → TTS, текстовый TutorRuntime и независимые звонки, персональная память, OpenAI Realtime и анализ звонка приложения |
-| Прототип CMP-клиента | `cmp/app/shared/`, платформенные host-модули | UI, локальное состояние, запросы к Ktor, WebRTC-соединение и сбор реплик звонка |
-| PostgreSQL | на хосте Ktor | Пользователи и сессии приложения, результаты review, журнал взаимодействий Telegram и часть аналитики |
-| Redis | на хосте AI | История чата и trial, отдельная память звонков, звонки, напоминания и агрегаты метрик |
-
-`cmp/core/` содержит общий Kotlin-код. CMP-клиент **не** вызывает `/v1/clips` AI-сервиса, а Telegram-бот **не** использует WebRTC-путь приложения. Публичного прокси для clip API на Ktor нет.
-
-## Основной путь: постоянный текстовый чат
-
-```text
-Telegram text → Ktor TutorClient → FastAPI TutorRuntime ↔ LLM native tools
-                                      ↕
-                             TutorStore: tutor:v1
-                                      ↓
-                    русский ответ + сохранённая trial-карточка
-```
-
-`/start` и `/onboarding` продолжают тот же чат. Модель формулирует ответ и выбирает tools;
-сервер проверяет intent evidence, время, владельца, версию и результат операции.
-Память нового чата не синхронизируется с `learner:` существующих звонков.
-Маршрут `/internal/learners/{sessionId}/context` читает только TutorStore.
-[Контракт SP-01](ai_docs/integrations/tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей) содержит API, retention, CAS и карту исходников.
-«Открыть урок» не запускает звонок. Объединение профилей и lesson runtime отложены.
-
-## Сохранённый путь Telegram: голос в открытом call
-
-В обычном tutor-чате голос игнорируется. Схема ниже относится к явно открытому прежнему call;
-активный Vocabulary Builder имеет собственный обработчик. Эти возможности не проводят trial из SP-01.
-
-```mermaid
-sequenceDiagram
-  participant U as Пользователь
-  participant T as Telegram
-  participant K as Ktor webhook
-  participant Q as SessionClipQueue
-  participant A as ai-service
-  participant R as Redis
-  participant P as Провайдеры AI
-
-  U->>T: Голосовое сообщение
-  T->>K: POST /telegram/webhook
-  K-->>T: 200 после принятия update
-  K->>Q: Добавить клип для tg-chatId
-  Note over Q: По сессии: один обработчик, максимум 3 клипа в работе/очереди
-  Q->>A: POST /v1/clips
-  A-->>Q: 202 + jobId
-  A->>P: STT (Groq Whisper)
-  alt Есть распознанная речь
-    A->>R: Получить историю и контекст пользователя
-    A->>P: Запустить ответ и исправления параллельно
-    P-->>A: Текст ответа
-    A->>P: Запустить TTS, не дожидаясь исправлений
-    A->>R: Сохранить транскрипт и текст ответа
-  else Речь не распознана
-    A->>P: TTS с просьбой повторить
-  end
-  loop До завершения или таймаута
-    Q->>A: GET /v1/clips/{jobId}
-  end
-  Q->>A: GET /v1/clips/{jobId}/audio
-  Q->>T: Карточка исправления при уверенной ошибке
-  Q->>T: sendVoice
-  T-->>U: Текст и голос Speaky
-```
-
-Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`. Ktor отвечает Telegram после принятия update и обрабатывает его в отдельном scope; дальше Telegram не повторит уже подтверждённое сообщение. Сессия чата имеет id `tg-<chatId>`. `HttpClipClient` опрашивает job с интервалом 1.5 секунды до 90 секунд; очередь ограничена тремя клипами на сессию. Для обычного хода AI-сервис параллельно запускает ответ и исправления; синтез голоса начинается после готовности текста ответа. В историю диалога сохраняется текст ответа, а аудио остаётся в памяти clip job. Исправления имеют отдельный дедлайн **10 секунд** и при неудаче могут быть опущены без потери голосового ответа. Извлечение персональных фактов может идти дополнительной параллельной задачей.
-
-Голосовое знакомство удалено. Calls/reviews сохраняют собственную историю, профиль и правила оценивания.
-Подробности: [Telegram routing](ai_docs/integrations/tutor-chat.md#telegram-текущая-маршрутизация),
-[calls](ai_docs/integrations/voice-and-reviews.md#telegram-practice-calls), [коррекции](ai_docs/integrations/voice-and-reviews.md#коррекции-речи-в-сохранённых-calls),
-[clip API](ai_docs/integrations/voice-and-reviews.md#clip--session-http-contract).
-
-## Путь приложения: звонок и разбор
-
-```mermaid
-sequenceDiagram
-  participant U as Пользователь
-  participant C as CMP-клиент
-  participant K as Ktor app API
-  participant D as PostgreSQL
-  participant A as ai-service
-  participant O as OpenAI Realtime
-
-  U->>C: Вход и начало разговора
-  C->>K: POST /v1/auth/login или register
-  K->>D: Пользователь
-  K-->>C: JWT
-  C->>K: POST /v1/sessions (Bearer JWT)
-  K->>D: Сессия app-...
-  K-->>C: sessionId
-  C->>K: POST /v1/sessions/{id}/rtc (SDP offer)
-  K->>A: POST /internal/realtime/call
-  A->>O: Создать Realtime-сессию и обменять SDP
-  O-->>A: SDP answer
-  A-->>K: SDP answer
-  K-->>C: SDP answer
-  C->>O: WebRTC audio
-  O->>C: Голос и события транскрипта
-  U->>C: Завершить звонок
-  C->>K: POST /v1/sessions/{id}/complete (реплики, длительность)
-  K-->>C: 202 Accepted
-  K->>A: POST /internal/review
-  A-->>K: Grammar / Vocabulary review
-  K->>D: Сохранить review
-  loop Пока результат готовится
-    C->>K: GET /v1/sessions/{id}/review
-  end
-  K-->>C: Результат разбора
-```
-
-Общий UI расположен в `cmp/app/shared/`: Welcome → Auth → Home → Call → Review, а Profile открывается с Home. Состояние экранов организовано через ViewModel и Navigation 3. Ktor Client посылает только запросы к Ktor; ключ OpenAI Realtime остаётся на AI-сервисе. После SDP-обмена звук и события звонка идут напрямую между клиентом и OpenAI, минуя наши серверы. Клиент передаёт собранные реплики Ktor при завершении; Ktor запускает разбор и сохраняет результат.
-
-В текущем срезе разбор приложения содержит **Grammar и Vocabulary**. Карточка последнего разговора и часть показателей Home/Profile используют локальные или демонстрационные данные; пять целевых измерений из [product.md](ai_docs/product.md) не реализованы этим review. Контракт экранов и API: [mobile API](ai_docs/integrations/mobile-api.md#mobile-app-http-contract), архитектура WebRTC-клиента: [WebRTC](ai_docs/architecture/2026-09-20-webrtc-client.md).
-
-## Данные и жизненный цикл
-
-| Данные | Где хранятся | Важная особенность |
-| --- | --- | --- |
-| Пользователи, сессии и review приложения | PostgreSQL через Ktor `AppStore` | Flyway управляет схемой; при отсутствии `DATABASE_URL` локальный app API может использовать in-memory store |
-| Диалог Telegram | Redis, `session:{id}` | До 40 сообщений; код ограничивает срок хранения сообщений и TTL ключа семью днями, даже если `DIALOGUE_TTL_SECONDS` выше. Без Redis есть in-memory реализация для локальной разработки |
-| Чат Саши и trial | Redis `tutor:v1:*` | Отдельный aggregate; память и встречи переживают очистку короткой истории |
-| Профиль и звонки Telegram | Redis `learner:*`, `call:*` | Сохранённые `onboarding:*`/assessment читаются для совместимости; нового voice onboarding нет |
-| Clip jobs и аудио результата | Память процесса AI-сервиса | По умолчанию TTL 10 минут; незавершённые jobs теряются при рестарте |
-| Журнал взаимодействий Telegram | PostgreSQL и аудиофайлы на хосте Ktor | Работает при настроенном `DATABASE_URL`; используется для истории и диагностики |
-| Метрики и dashboard | Ktor + AI-сервис, PostgreSQL/Redis | Административные страницы начинаются с `/admin/metrics`; источники метрик разделены между сервисами |
-
-PostgreSQL находится рядом с Ktor и доступен на loopback, Redis — рядом с AI-сервисом и не публикуется наружу. Два хоста могут быть у разных провайдеров. Подробная схема сети, контейнеров и сохранения томов — в [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление).
-
-## Технологии и внешние зависимости
-
-| Область | Технологии в коде |
+| Компонент | Ответственность |
 | --- | --- |
-| Backend | Kotlin, Ktor/Netty, coroutines, kotlinx.serialization, tgbotapi |
-| Данные Ktor | PostgreSQL, HikariCP, Flyway, JWT |
-| Клиент | Kotlin Multiplatform, Compose Multiplatform Material 3, Koin, Navigation 3, Ktor Client, WebRTC |
-| AI-сервис | Python, FastAPI, Uvicorn, `redis.asyncio`, `httpx`, OpenAI-compatible SDK |
-| Речь и модели | Groq Whisper для STT; OpenRouter для ответа/исправлений и TTS по умолчанию; прямой Deepgram TTS по настройке; OpenAI Realtime для звонка приложения |
-| Поставка | Gradle, Docker, GitHub Actions; отдельные workflow Redeploy DEV и Redeploy PROD |
+| Ktor / foundation | Единственный владелец состояния ученика, бизнес-операций, истории, фоновых задач и контроля доступа |
+| PostgreSQL | Student/identity, profile/goal/memory, Lesson/Call Session, Schedule, payment/entitlement, Roadmap, Plan/Evaluation, history, jobs и receipts |
+| Telegram adapter | Проверка webhook, сохранение private-text входа, запуск хода, отправка ответа и учёт результата доставки |
+| Python FoundationTutor | Диалог Саши и native tools; все изменения выполняются через Ktor |
+| Python ContextBuilder | Ограниченные проекции общего состояния для text, voice и learning; чтение не меняет профиль |
+| Python LearningEngine | Вычисление результатов фоновой работы; применение результата контролирует backend |
+| LLM | Формулировка ответа, выбор tools и интерпретация контекста; не владелец состояния и прав доступа |
 
-Модели и провайдеры задаются конфигурацией AI-сервиса, поэтому здесь перечислены роли, а не обещаны неизменные версии моделей. Версии библиотек закреплены в [`cmp/gradle/libs.versions.toml`](cmp/gradle/libs.versions.toml) и [`ai-service/requirements.txt`](ai-service/requirements.txt).
+### Точки входа
 
-## Границы доступа и развертывание
+- Kotlin [`Application.kt`](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/Application.kt) вызывает
+  [`SpeakyApplication.kt`](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt).
+  Он подключает foundation, worker, `/health` и Telegram webhook при соответствующей конфигурации.
+- AI Docker запускает [`app.speaky_main:create_app`](ai-service/app/speaky_main.py).
+  Этот root создаёт FoundationClient, ContextBuilder, FoundationTutor и LearningEngine.
+- Ktor требует PostgreSQL и завершённый import marker. Без marker новый backend не стартует.
+  Это защищает существующий чат от случайного запуска с пустым профилем.
 
-- Telegram webhook доступен по HTTPS и проверяет секретный заголовок Telegram. Ktor регистрирует webhook только в режиме с `TELEGRAM_WEBHOOK_URL`; локальный запуск без него поднимает HTTP-сервер без бота.
-- Запросы приложения к защищённым маршрутам Ktor используют Bearer JWT. Внутренние запросы Ktor → AI-сервис используют `X-Internal-Token`; `/health` AI-сервиса доступен без него.
-- AI-сервис слушает порт 8090. Скрипт на AI-хосте ограничивает внешний доступ к нему списком разрешённых адресов Ktor. Redis доступен только на AI-хосте; PostgreSQL — только на Ktor-хосте.
-- Push и pull request запускают проверки и сборку, но не развертывание. Поставка DEV/PROD запускается вручную и может обновить Ktor и AI-сервис независимо. Рестарт сервисов не должен удалять тома Redis и PostgreSQL.
+## Ход текстового диалога
 
-В документации указаны только **имена** переменных и секретов. Значения ключей, токенов и содержимое `.env` здесь не хранятся. Детали окружений, CI и действий оператора: [эксплуатации](ai_docs/integrations/operations.md#выкладка-и-восстановление) и [run-and-ci](ai_docs/integrations/operations.md#run-locally-env-ci).
+1. Webhook проверяет секрет Telegram. Private-text update сохраняется до HTTP ACK.
+2. Backend связывает Telegram identity с Student и обрабатывает входы по порядку.
+   Lease/fence защищают обработку от конкурирующего или просроченного исполнителя.
+3. Ktor создаёт ограниченный execution scope и вызывает AI tutor turn.
+4. ContextBuilder читает backend snapshot. Модель получает общий профиль, цель и ограниченную историю.
+5. Native tools вызывают backend commands. Backend проверяет владельца, scope, источник, версии и idempotency.
+6. Результат операции и reply сохраняются. После сбоя используется сохранённый результат;
+   уже выполненная запись не становится новой операцией.
+7. Telegram adapter отправляет ответ и фиксирует исход. Неизвестная доставка не повторяется вслепую.
 
-## Где менять код
+Успешный ACK означает сохранённый вход, а не готовый ответ. Успех tool подтверждается backend receipt,
+а не фразой модели. Внешняя доставка Telegram не имеет гарантии exactly-once.
+Правила беседы и trial остаются в [продуктовом поведении SP-01](ai_docs/plans/2026-11-09-sp01-text-onboarding.md).
 
-| Задача | Основные файлы |
+## Данные, память и общий контекст
+
+Общий профиль принадлежит Ktor/PostgreSQL. Python не поддерживает вторую изменяемую копию профиля.
+Text, Voice и Learning используют одну идентичность и проекции одного состояния через ContextBuilder.
+Эта связь реализована и проверена локально; готового голосового урока из неё не следует.
+
+- Заявленные пользователем факты, самооценка и учебные observations разделены.
+  Observations сохраняют источник, версию анализа и неопределённость.
+- Личные факты, предложенные AI, остаются скрытыми candidates до подтверждения источником пользователя.
+- Контекст ограничен бюджетами; модель не получает всю историю без ограничений.
+- Новая сырая история хранится 30 дней. Копирование не продлевает срок источника.
+  Импортированная история TutorStore сохраняет прежние семидневные deadlines.
+- Forget/delete очищают данные нового пути и отзывают старые scopes/jobs через epoch.
+  Forget консервативно очищает raw history и производные копии, включая прежние значения цели;
+  другие подтверждённые факты сохраняются.
+- После восстановления backup до запуска применяется свежий внешний deletion ledger.
+  Очистка сохранённых legacy-хранилищ этим механизмом не обещается.
+
+## Фоновая работа и граница урока
+
+FoundationJobs хранит очередь в PostgreSQL. Worker получает lease и fence, вычисляет результат вне DB-транзакции,
+затем backend применяет его после проверки источника, epoch, зависимостей и версий.
+Просроченный worker не может перезаписать актуальное состояние. Retry и диагностика доступны оператору.
+
+Lesson/Call Session, Schedule, entitlement, Roadmap, Plan/Evaluation имеют backend-модель и операции.
+LessonVoice получает общий контекст только после backend admission. Отсутствующий или устаревший обязательный план блокирует вход.
+
+Production lesson analyzer/planner, календарный materializer и reminder sender пока не подключены.
+Их контракты и test adapters проверены; отсутствующий production handler отвечает unavailable.
+Mini App, настоящий voice transport, полный учебный цикл и пользовательская оплата остаются следующими этапами.
+
+## Внутренние API и доверие
+
+| Направление | Интерфейс |
 | --- | --- |
-| Telegram-команды, кнопки, карточки и очередь | `cmp/server/.../telegram/`, `cmp/server/.../speaking/` |
-| App API, авторизация и хранение сессий | `cmp/server/.../app/` |
-| Ktor TLS, маршруты и конфигурация | `cmp/server/.../Application.kt`, `AppConfig.kt` |
-| Контракт Ktor → AI-сервис | `cmp/server/.../ai/`, `app/HttpInternalAi.kt`, `ai-service/app/main.py` |
-| TutorRuntime/tools/store, STT, LLM, TTS и память | `ai-service/app/` |
-| CMP UI, навигация и WebRTC | `cmp/app/shared/` и платформенные `cmp/app/*App/` |
-| Контейнеры, сети и CI | `infra/`, `.github/workflows/` |
+| Ktor → AI | `POST /internal/foundation/tutor/turn`, `POST /internal/foundation/compute` |
+| AI → Ktor | `/internal/foundation/v1`: `POST /commands`, `GET /snapshot`, `/operations/{id}`, `/jobs`, `/diagnostics` |
+| Проверка процесса | `/health` каждого сервиса |
 
-Перед изменением поведения сверяйте эту общую карту с соответствующим документом из [`ai_docs/README.md`](ai_docs/README.md) и с текущим кодом. Исследовательский документ `architecture.md` описывает более раннюю схему и не является описанием текущей реализации.
+Внутренние запросы используют `X-Internal-Token`; операции дополнительно связаны с `X-Execution-Scope`.
+Scope выдаёт backend, а не модель. Service token сам по себе не разрешает произвольную запись за другого ученика.
+Версии и receipts делают конфликт или повтор явным. Ошибка хранилища не переключает работу на in-memory или Redis.
+Конфигурация, сетевые адреса и секреты перечислены только в [operations](ai_docs/integrations/operations.md).
+
+## Почему устроено так
+
+| Решение | Причина |
+| --- | --- |
+| Единый владелец данных в backend | У чата, голоса и learning одна цель и память; нет двусторонней синхронизации отдельных профилей |
+| LLM выбирает tools, backend исполняет | Сохраняется свободный диалог; ownership, версии и успех операции не зависят от ответа модели |
+| Durable inbox, runs и receipts | Перезапуск не теряет подтверждённый вход и не повторяет уже выполненную бизнес-операцию |
+| Compute вне транзакции | Медленный AI-вызов не удерживает DB-транзакцию; актуальность проверяется при apply |
+| Structured Memory и bounded context | Факты имеют источник; embeddings и семантический поиск не обязательны для текущего этапа |
+| Отдельные shipping roots | Legacy не запускает скрытые routes/workers и не возвращает Redis-зависимость новому пути |
+| Import marker до запуска | Переход выполняется только после сверки перенесённого TutorStore |
+
+## Изоляция legacy и CMP
+
+`app.main`, прежний Kotlin wiring, calls, clips, Vocabulary Builder, reminders, dashboards и app API
+сохранены в исходниках, но не подключены к новым shipping roots. Старые HTTP adapters используются в test harness,
+который не входит в fat JAR. Промежуточные legacy PG adapters также не являются активным владельцем данных.
+
+Переносится только текущий TutorStore. Legacy Redis namespaces не мигрируют в рамках SP-00.
+Серверные Redis/PG данные и применённые Flyway-миграции сохраняются.
+Порядок freeze/export/import/reconciliation описан один раз в [runbook](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
+
+CMP Android/iOS/Desktop остаётся отдельным прототипом. Его app API не монтируется новым runtime.
+Устройство клиента, WebRTC и прежний HTTP-контракт собраны в [справочнике CMP](ai_docs/integrations/mobile-api.md).
+Справочники voice/practice/analytics описывают сохранённый код и не являются перечнем активных маршрутов SP-00.
+
+## Карта исходников
+
+Пути Kotlin ниже относительны к `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/`.
+
+| Задача | Файлы |
+| --- | --- |
+| Запуск, маршруты и доступ | `SpeakyApplication.kt`, `foundation/FoundationRoutes.kt`, `FoundationIdentity.kt`; `ai-service/app/speaky_main.py`, `foundation_api.py` |
+| Бизнес-операции и данные | `foundation/FoundationService.kt`, `FoundationDatabase.kt`, `LessonManagement.kt`, `LearningState.kt` |
+| Сохранение входа и восстановление хода | `foundation/TelegramTextIntake.kt`, `ConversationRuns.kt`, `FoundationChat.kt`; `ai/TutorClient.kt` |
+| Диалог и native tools | `ai-service/app/foundation_tutor.py`, `tutor.py`, `foundation_client.py` |
+| Общая память и контекст | `foundation/StructuredMemory.kt`, `ConversationHistory.kt`, `TutorContextOperations.kt`; `ai-service/app/context_builder.py` |
+| Фоновые вычисления | `foundation/FoundationJobs.kt`, `FoundationWorker.kt`, `BackgroundContracts.kt`; `ai-service/app/learning_engine.py`, `lesson_voice.py` |
+| Импорт, очистка и восстановление | `foundation/TutorStateImport.kt`, `FoundationImportCli.kt`, `FoundationMaintenance.kt`, `FoundationMaintenanceCli.kt`; `ai-service/scripts/export_tutor_state.py` |
+| Клиент и поставка | `cmp/app/`, `infra/`, `.github/workflows/` |
+
+[Исходная архитектура MVP v1](ai_docs/architecture/speaky-mvp-high-level-architecture-v1.md) задаёт целевые обязанности будущего MVP.
+Она не описывает текущий runtime. [План SP-00](ai_docs/plans/2026-11-10-sp00-foundation.md) фиксирует объём задачи,
+[статус](ai_docs/status.md) — доказательства проверок и ограничения.
+Архитектурные изменения следует отражать здесь, не создавать параллельную system map.

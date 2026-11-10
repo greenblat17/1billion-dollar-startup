@@ -8,7 +8,7 @@ Telegram — постоянная переписка с репетитором. 
 Существующие calls, reviews, Vocabulary Builder и явные reminders сохранены отдельно.
 Состояние общего профиля, нового runtime и изоляции legacy описано в [статусе реализации](ai_docs/status.md).
 
-**[Единый вход в документацию](ai_docs/README.md)** · [Продукт](ai_docs/product.md) · [Статус и проверки](ai_docs/status.md).
+**[Единый вход в документацию](ai_docs/README.md)** · [Продукт](ai_docs/product/2026-11-08-ai-tutor-experience-v0.5.md) · [Статус и проверки](ai_docs/status.md).
 Последняя зафиксированная DEV-выкладка — `21caf098`; новое поведение модели и Telegram UX вживую ещё не принято.
 Сведения о DEV исторические и не подтверждают текущий PROD.
 
@@ -17,23 +17,16 @@ CMP Android/iOS/Desktop остаётся прототипом с частью п
 
 ## Как устроен проект
 
-```mermaid
-flowchart LR
-  tg[Telegram / Speaky] <-->|webhook и Bot API| ktor[Ktor server]
-  ktor -->|внутренний HTTP API| ai[FastAPI ai-service]
-  ktor --> pg[(PostgreSQL)]
-  ai --> redis[(Redis)]
-  ai --> providers[STT / LLM / TTS]
-```
-
-Ktor принимает Telegram webhook и направляет текст в TutorRuntime AI-сервиса. LLM ведёт диалог и вызывает проверяемые инструменты памяти и trial. Для явно открытых старых звонков сохраняется отдельный STT/LLM/TTS pipeline. API и WebRTC-путь прототипа приложения показаны отдельно в [архитектуре](architecture.md).
+Реализованное устройство SP-00, потоки данных, причины решений и карта исходников — в
+[architecture.md](architecture.md). Ktor владеет состоянием в PostgreSQL; Python выполняет AI-вычисления.
+Новый runtime не запускает legacy-маршруты и не требует Redis.
 
 ## Технологии
 
 | Часть | Основные технологии |
 | --- | --- |
 | Ktor-сервер и Telegram | Kotlin, Ktor, tgbotapi, PostgreSQL, Flyway; JWT для API прототипа |
-| AI-сервис | Python, FastAPI, Redis, Groq Whisper, OpenRouter, Deepgram (опционально); OpenAI Realtime для прототипа |
+| AI-сервис | Python, FastAPI, OpenAI-compatible LLM API; состояние через Ktor foundation |
 | Прототип приложения | Kotlin Multiplatform, Compose Multiplatform, Ktor Client, Koin, Navigation 3, WebRTC |
 | Сборка и поставка | Gradle, Docker, GitHub Actions |
 
@@ -43,10 +36,10 @@ Ktor принимает Telegram webhook и направляет текст в T
 
 | Путь | Назначение |
 | --- | --- |
-| [`cmp/server/`](cmp/server/) | Ktor API, Telegram webhook, очередь голосовых сообщений, аналитика |
+| [`cmp/server/`](cmp/server/) | Ktor foundation, PostgreSQL, durable Telegram intake и jobs; изолированный legacy |
 | [`cmp/app/`](cmp/app/) | Прототип для Android, iOS и Desktop; общая Compose UI и клиент API |
 | [`cmp/core/`](cmp/core/) | Общий Kotlin-код |
-| [`ai-service/`](ai-service/) | FastAPI, TutorRuntime/tools/store, отдельные voice pipeline и reviews |
+| [`ai-service/`](ai-service/) | FastAPI, FoundationTutor, ContextBuilder, LearningEngine; изолированный legacy |
 | [`infra/`](infra/) | Docker и скрипты развертывания сервисов и хранилищ |
 | [`ai_docs/`](ai_docs/) | Продуктовые решения, архитектура, контракты, планы и инструкции по развертыванию |
 | [`.github/workflows/`](.github/workflows/) | CI и ручные workflow развертывания |

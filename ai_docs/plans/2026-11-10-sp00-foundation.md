@@ -561,6 +561,32 @@ Redis reader и его зависимости изолированы в tooling 
 Модель и медиапровайдер подменяются; хранилища, HTTP-границы, сериализация, права,
 операции, worker и применение результатов остаются настоящими.
 
+
+### Локальные доказательства реализации
+
+Результаты относятся к рабочему дереву поверх `60d4085`, проверенному 2026-11-10.
+Внешние Telegram/model/media boundary заменены; PostgreSQL, HTTP, import Redis и backup/restore настоящие.
+Это не серверный cutover и не живая приёмка. Сводка результатов — в [status.md](../status.md).
+
+| Критерий | Тестовое доказательство |
+| --- | --- |
+| Компоненты/интерфейсы, IT-01 | `test_shipping_python_app_uses_real_backend_scope_and_native_tools`; `capabilitiesVersionsAndReceiptsPreventCrossStudentWritesAndRepeatedChanges` |
+| Сущности/связи, IT-02 | `confirmedPaymentIsIdempotentAndDoesNotOwnTheSchedule`; `scheduleHandlerMaterializesOneOccurrenceAndCannotResurrectACancellation`; центральный state test |
+| Общий state, IT-03 | `test_text_tool_commits_in_ktor_and_voice_reads_same_goal`; `test_learning_result_returns_to_chat_without_reverting_a_new_goal`; `chatGoalAndLessonObservationShareStateWithoutAllowingAnOldJobToRewriteTheGoal` |
+| Memory/Context, IT-04 | `personalCandidatesRemainHiddenUntilAUserConfirmsTheirSource`; `test_memory_extraction_commits_only_hidden_candidates_from_its_durable_source`; центральный state test |
+| Tools, IT-05 | `capabilitiesVersionsAndReceiptsPreventCrossStudentWritesAndRepeatedChanges`; `recoveredRunReturnsCommittedBookingInsteadOfRepeatingTheInstruction` |
+| Jobs, IT-06 | `expiredWorkerCannotCommitAndRetentionDoesNotRenewSourceDeadlines`; `workerRenewalExtendsOnlyItsLiveFencedCapability`; `workerUsesBoundCapabilityAndCommitsPreparationOutsideTheClaimTransaction` |
+| Schedule/reminder contracts, IT-07 | `scheduleHandlerMaterializesOneOccurrenceAndCannotResurrectACancellation`; `reminderTestAdapterRunsOnceAndRecordsItsDeliveryReceipt`; `reminderContractSkipsCancelledLessonsAndNeverResendsUnknownDelivery` |
+| Retention/delete, IT-08 | `expiredWorkerCannotCommitAndRetentionDoesNotRenewSourceDeadlines`; `forgettingGoalErasesHistoricalRevisionsAndInvalidatesOldScopes`; `realBackupRestoreReplaysDeletionLedgerBeforeServingContext` |
+| Chat/cutover, IT-09 | `telegramBridgePersistsInputAndDeliveryAndRejectsAGroupIdentity`; `telegramIntakeIsDurableOrderedAndRecoverableAfterAnExpiredDispatch`; `uncertainTelegramDeliveryIsNotRetriedBlindly`; recovered booking test |
+| Readiness/capture, IT-10 | `test_voice_transport_receives_context_only_after_backend_admission`; центральный state test; worker preparation test |
+| Isolation, IT-11 | `isolatedShippingRuntimeRequiresCutoverAndRegistersNoLegacyRoutes`; `tests/test_speaky_runtime.py` |
+| TutorStore import, IT-12 | `integration/test_tutor_import_redis.py`; `cutoverRejectsCorruptManifestAndCompletesOnlyAfterAllTutorImports` (включая прерывание после per-student receipt до marker) |
+| Redis-free, IT-13 | Fresh runtime-only venv + `test_speaky_runtime.py` с запретом любого Redis import; 5 HTTP tests; Kotlin isolation test; runtime/deploy graph изменён |
+
+Kotlin: `FoundationIntegrationTest.kt`; Python: `integration/test_foundation_http.py`.
+Runner: `scripts/test-foundation.sh`; CI: `.github/workflows/foundation.yml` (удалённый CI в этой проверке не запускался).
+
 ## 10. Полный DoD
 
 - Все выбранные компоненты имеют рабочие взаимодействия, а текущий чат переведён на общий источник истины.

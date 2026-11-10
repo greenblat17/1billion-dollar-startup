@@ -2,10 +2,12 @@
 
 Контракты базовой поставки SP-01 и сохранённого legacy-кода. Новый фундамент SP-00 использует PostgreSQL;
 legacy сохраняется отдельно, без переноса его Redis-хранилищ и без обязательного подключения старых функций к новому runtime.
-Готовность изоляции и переключения текущего чата проверяется по [журналу реализации](../plans/2026-11-10-sp00-implementation-status.md).
+Готовность изоляции и переключения текущего чата проверяется по [статусу](../status.md).
 Описание legacy API ниже не означает, что эти маршруты доступны в новом runtime.
 
 - [Mobile app HTTP contract](#mobile-app-http-contract)
+- [Устройство CMP-клиента](#устройство-cmp-клиента)
+- [WebRTC клиента](#webrtc-клиента)
 
 ## Mobile app HTTP contract
 
@@ -74,7 +76,7 @@ flowchart LR
 
 ### Welcome — `WelcomeScreen` / `WelcomeWidget`
 
-Макет [01-welcome.png](../design/screens/01-welcome.png). Кнопки: `welcome_start` («Начать»), `welcome_have_account` («У меня уже есть аккаунт»). Ссылки на условия/политику — статичные strings, без API.
+Кнопки: `welcome_start` («Начать»), `welcome_have_account` («У меня уже есть аккаунт»). Ссылки на условия/политику — статичные strings, без API.
 
 **Сейчас:** CTA открывают Auth (регистрация / вход).
 
@@ -130,8 +132,6 @@ flowchart LR
 
 ### Home — `HomeScreen` / `HomeViewModel` / `HomeWidget`
 
-Макет [02-home.png](../design/screens/02-home.png).
-
 | UI | Когда | API |
 | --- | --- | --- |
 | Заголовок «Привет, Алекс!» | вход на экран, смена `userId` в `SessionStore` (logout → login/register) | `GET /v1/home` → `userName`. Пока ответ не пришёл — `displayName` из сессии. `HomeViewModel` переживает logout, поэтому имя нельзя кэшировать в `init` |
@@ -177,7 +177,7 @@ Bearer.
 
 ### Call — `CallScreen` / `CallViewModel` / `CallWidget`
 
-Макет [03-call.png](../design/screens/03-call.png). Таймер, субтитр AI, mute, hangup, CC.
+Таймер, субтитр AI, mute, hangup, CC.
 
 | UI | Когда | API |
 | --- | --- | --- |
@@ -223,7 +223,7 @@ Bearer. Сразу после hangup, **до** того как Review что-т�
 
 ### Review — `ReviewScreen` / `ReviewViewModel` / `ReviewWidget`
 
-Макеты [04-review-grammar.png](../design/screens/04-review-grammar.png) (`1/2`) и [05-review-vocabulary.png](../design/screens/05-review-vocabulary.png) (`2/2`). Карусель `ReviewMetric.Grammar` → `Vocabulary`. Pronunciation / Fluency / Speed, История и карточка «Последний разговор» на Home — не вызывают API.
+Карусель `ReviewMetric.Grammar` → `Vocabulary`. Pronunciation / Fluency / Speed, История и карточка «Последний разговор» на Home — не вызывают API.
 
 Единственный вход — hangup с Call:
 
@@ -287,8 +287,6 @@ Bearer. Только владелец.
 
 ### Profile — `ProfileScreen` / `ProfileWidget`
 
-Макет [10-profile.png](../design/screens/10-profile.png).
-
 | UI | API |
 | --- | --- |
 | Имя, буква аватара, email | **нет отдельного GET.** Кэш `user` с login/register |
@@ -338,3 +336,61 @@ Bearer. Только владелец.
 | 409 register | «email занят» на Auth |
 | 409 rtc | «уже идёт звонок» на Call |
 | 422 complete/review | «мало речи», не карусель с мок-баллами |
+
+## Устройство CMP-клиента
+
+Сохранённый прототип Android/iOS/Desktop, не Mini App SP-00. Его серверные маршруты изолированы от нового runtime.
+Общий UI находится в `cmp/app/shared/`; host-модули запускают один `App()`.
+Shared использует `HttpSpeakingCoachClient`, не зависимость на `:server`.
+Base URL задаётся при сборке через `generateApiConfig`, `cmp/client.local.properties` или env.
+Desktop дополнительно читает `SPEAKING_COACH_API_BASE_URL` при запуске.
+В CI адрес определяется DEV/PROD host; это конфигурация сборки, не доказательство доступности API.
+Kermit в desktop hotRun передаёт логи в CHR через `ChrKermitLogWriter`.
+
+### Модули клиента
+
+| Модуль | Роль |
+| --- | --- |
+| `:app:shared` | Весь UI разговора. Таргеты: `android`, `jvm()`, iOS framework `Shared`. Код экранов — `commonMain`. WebRTC — `webrtcMain` (Android/iOS, shepeliev) и `jvmMain` (webrtc-java). |
+| `:app:androidApp` | `MainActivity.setContent { App() }`. `configChanges=uiMode` — смена темы без recreate; window theme DayNight с `windowBackground` как у `AppTheme` (cream / ink). |
+| `:app:iosApp` | SwiftUI → `MainViewController()` → `App()`. |
+| `:app:desktopApp` | `Window { App() }` или `SandboxHost`. Не второй клиент и не копия виджетов. |
+| `:core` | Общий Kotlin без UI. Shared берёт как `api`. |
+
+Хост не рисует speaking-сессию. Activity/Swift — вход в `App()`.
+
+### Compose: shared vs хост
+
+В `commonMain` shared Compose (runtime, foundation, material3, ui, resources) — **`implementation`**. Он на всех **таргетах shared**, поэтому `App()` собирается на android/jvm/ios.
+
+Он не протекает в androidApp / desktopApp / iosApp: хост вызывает уже собранный `App()`. Desktop `SandboxHost` сам пишет Material3 — у `:app:desktopApp` свой `implementation(libs.compose.material3)`. `compose.desktop.currentOs` — окно JVM, не M3. Не делать `api` Compose из shared «на все приложения».
+
+Ресурсы: `cmp/app/shared/src/commonMain/composeResources/` (`drawable/`, `values/strings.xml`). Шрифты — туда же (`font/`), не `androidApp/res`. На android-таргете shared: `androidResources { enable = true }`.
+
+### Как смотрим UI прототипа
+
+Продуктовый layout — телефон. Desktop `hotRun` показывает то же `App()` в **412×915**. Это превью мобильного разговора, не десктоп-продукт.
+
+- `./gradlew :app:desktopApp:hotRun --auto` из `cmp/`
+- MCP `compose-hot-reload`; новый чат Cursor сервер не перезапускает
+- Один виджет: `runSandbox = true`, виджет в shared, в sandbox только моки
+- `@Preview` видит человек, не агент
+
+### Чего в CMP-коде ещё нет
+
+Записи/плеера клипов, истории, pronunciation/fluency. WebRTC Call и Review poll есть; карточка «Последний разговор» мок. Не тащить в commonMain Hilt, Android Maven Compose/Nav, Room, зоопарк `:feature:*`.
+
+## WebRTC клиента
+
+Ниже устройство сохранённого клиента и его legacy-интеграции; оно не подтверждает голосовой урок SP-00.
+
+
+Один `expect fun createRealtimeCall()`. Android+iOS: `com.shepeliev:webrtc-kmp:0.125.11` (общий код в `src/webrtcMain`, это `srcDir` android/ios — JVM у библиотеки нет). Desktop: `dev.onvoid.webrtc:webrtc-java:0.14.0` + native classifier хоста.
+
+Порядок как в HTTP-контракте: mic → SDP offer → один `POST /v1/sessions/{id}/rtc` (`application/sdp`). Trickle ICE нет. Субтитры и `turns` — data channel `oai-events`, не Ktor. Hangup → `POST .../complete` → Review поллит `GET .../review`. Карточка «Последний разговор» остаётся моком (`ReviewRoute()` без sessionId).
+
+iOS: `WebRTC` из [webrtc-sdk/Specs](https://github.com/webrtc-sdk/Specs) `125.6422.07`. Gradle качает `WebRTC.xcframework` в `~/.gradle/caches/webrtc-sdk/` (готово = есть `WebRTC.framework`, не пустая папка от `outputs.dir`) и даёт `-F` по slice `ios-arm64_x86_64-simulator` / `ios-arm64-simulator`. Иначе `iosSimulatorArm64Test` падает: cinterop уже пишет `-framework WebRTC`. `iosApp` дополнительно линкует тот же SDK через SPM. Android: `RECORD_AUDIO` + запрос в `MainActivity`. Desktop: Pulse/ALSA через native webrtc-java.
+
+Клиент `ek_` не видит. coturn в этот срез не входит. SDP offer до OpenAI идёт с хвостовым `\r\n` (без `trim`/`strip` — иначе `invalid_offer` / unmarshal EOF). Отказ OpenAI `POST /v1/realtime/calls` пишется в лог ai-service как `openai realtime HTTP … body=` (без ключа и без SDP).
+
+Пустой `iceServers` на телефоне не проходит NAT (mDNS host-only). Клиент ставит Google STUN (`stun.l.google.com` / `stun1.l.google.com:19302`), ждёт ICE gathering Complete до POST rtc, после answer — ICE `Connected`/`Completed` (Failed/timeout → `CallError.Network`). Offer: `offerToReceiveAudio`. Remote audio: `onTrack` + enable. Android: `MODE_IN_COMMUNICATION`, выход BT/провод если есть, иначе speaker (не earpiece); data-channel payload копируется в native observer (Buffer живёт только в колбэке). iOS: `RTCAudioSession` PlayAndRecord + DefaultToSpeaker + AllowBluetooth, без `overrideOutputAudioPort(Speaker)`.
