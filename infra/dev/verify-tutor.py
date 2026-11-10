@@ -33,7 +33,7 @@ def main():
     markers = ['Application started', 'Application startup complete', 'FlywayValidateException', 'Traceback', 'ERROR']
     print('startup_log_markers=' + json.dumps({m: logs.count(m) for m in markers}))
     for line in logs.splitlines():
-        if 'ERROR' not in line:
+        if 'ERROR' not in line and 'Caused by:' not in line and not re.match(r'^[\w.$]+(?:Exception|Error):', line):
             continue
         for value in env.values():
             if len(value) >= 8:
