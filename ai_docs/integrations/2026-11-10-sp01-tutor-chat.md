@@ -1,6 +1,6 @@
 # SP-01: постоянный текстовый чат с Сашей
 
-Реализация в рабочей директории, без деплоя. Контракт: [утверждённый план](../plans/2026-11-09-sp01-text-onboarding.md).
+Реализация развёрнута на DEV; живая диалоговая приёмка остаётся открытой. Контракт: [утверждённый план](../plans/2026-11-09-sp01-text-onboarding.md).
 Полная [v0.5](../product/2026-11-08-ai-tutor-experience-v0.5.md) остаётся направлением будущего продукта.
 
 ## Реализованный путь
@@ -226,3 +226,29 @@ Readonly DEV run [42815733369](https://github.com/greenblat17/1billion-dollar-st
 удалённого onboarding API. Оба компонента выкатываются независимо; последующие проверки
 AI health и Ktor→AI дали 200. Сбой прерывает соответствующий раунд DailyReminder.
 Изменения планировщика напоминаний в текущую правку знакомства не включены.
+
+
+### DEV после уточнения знакомства
+
+Runtime обоих компонентов: `21caf098f0d8c22ec5f609a6db2016d48afcb942`.
+PR [#52](https://github.com/greenblat17/1billion-dollar-startup/pull/52),
+10/10 CI checks passed для этой ревизии.
+[Redeploy DEV 42818030607](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42818030607):
+оба deploy jobs и readiness успешны. Предыдущий runtime — `c148e31ab3afd67a2ac790794be4ccd0ab97dcc2`;
+прежние image IDs сохранены в deploy logs для восстановления.
+
+Проверено на запущенных контейнерах: AI и Ktor health 200, Ktor→AI health 200,
+authenticated learner-context 200; оба running, restarts=0, OOM=false.
+В доступном startup-интервале обоих контейнеров ERROR/Traceback/FlywayValidateException=0.
+Конфигурация модели присутствует, модель `anthropic/claude-sonnet-4.6`; платные запросы не выполнялись.
+
+Совпали хеши артефактов раннера и контейнеров:
+- `tutor.py`: `ff3a395f1d194c1f84181d8b1f46fe00e873f99cf0ac294c263923189d74d4e5`;
+- дерево Python app: `494c0e9c0df83d6a6bb8a73d8deed46611edbb4733b503df7ddc33a90179b483`;
+- server JAR: `94ed4803c13c0bfb06b40e386bc4b14f356193568151c8ed2cb0beca1c37be67`.
+
+Ручная приёмка: [@vlama_bot](https://t.me/vlama_bot). Сообщить только общую цель и проверить,
+что репетитор знакомится дальше; затем рассказать результат, трудности, опыт и самооценку
+(«уровень не знаю» допустимо). Проверить отсутствие повторов и уместное приглашение.
+Отдельно проверить раннее «Хочу урок прямо сейчас» без дополнительного подтверждения.
+Существующая память сохраняется: `/start` не создаёт чистого ученика.
