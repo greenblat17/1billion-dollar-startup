@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -18,7 +19,22 @@ internal class FoundationService(val database: FoundationDatabase) : AutoCloseab
     private val runs = ConversationRuns()
     private val tutorContext = TutorContextOperations(memory)
 
-    suspend fun command(token: String, request: JsonObject): JsonObject = database.transaction { connection, startedAt ->
+    suspend fun command(token: String, request: JsonObject): JsonObject = RuntimeDiagnostics.withContext(mapOf(
+        "operation_id" to (RuntimeDiagnostics.id(request.optionalText("operationId")) ?: "invalid"),
+    )) {
+        val action = RuntimeDiagnostics.id(request.optionalText("action")) ?: "invalid"
+        RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "started"))
+        try {
+            executeCommand(token, request).also {
+                RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "completed"))
+            }
+        } catch (error: Exception) {
+            if (error !is kotlinx.coroutines.CancellationException) RuntimeDiagnostics.record("backend_command_failed", action, error)
+            throw error
+        }
+    }
+
+    private suspend fun executeCommand(token: String, request: JsonObject): JsonObject = database.transaction { connection, startedAt ->
         request.only("version", "operationId", "action", "args")
         if (request.number("version") != 1L) reject("unsupported_contract_version")
         val initial = authenticateScope(connection, token, startedAt)

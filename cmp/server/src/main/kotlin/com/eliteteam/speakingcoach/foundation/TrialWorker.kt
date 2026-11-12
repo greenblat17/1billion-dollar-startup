@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+
 import io.ktor.client.HttpClient
 import io.ktor.client.request.post
 import io.ktor.client.request.header
@@ -14,7 +16,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import org.slf4j.LoggerFactory
 
 /** Durable proactive messages. Unknown Telegram delivery is never retried blindly. */
 internal class TrialWorker(private val service: FoundationService, private val http: HttpClient,
@@ -23,7 +24,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
         while (isActive) {
             try { tick() }
             catch (error: CancellationException) { throw error }
-            catch (_: Exception) { LoggerFactory.getLogger(javaClass).warn("trial_worker_unavailable") }
+            catch (error: Exception) { RuntimeDiagnostics.record("trial_worker_unavailable", "followup", error) }
             delay(3000)
         }
     }
@@ -47,10 +48,15 @@ internal class TrialWorker(private val service: FoundationService, private val h
         val student = notice.text("student_id")
         val execution = service.identity.issue(student, "voice", lesson = notice.text("lesson_id"))
         val response = http.post("${aiRoot.trimEnd('/')}/internal/trial/followup") {
+            header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(notice.text("id")))
+            header("X-Diagnostic-Lesson", notice.text("lesson_id"))
             header("X-Internal-Token", internalToken); header("X-Execution-Scope", execution)
             contentType(ContentType.Application.Json); setBody(notice.toString())
         }
         if (response.status.value !in 200..299) {
+            RuntimeDiagnostics.record("trial_followup_failed", "ai_response", extra = mapOf(
+                "notice_id" to notice.text("id"),
+                "trace_id" to RuntimeDiagnostics.trace(notice.text("id"))) + RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
             service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='failed' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
             return
         }
@@ -72,7 +78,11 @@ internal class TrialWorker(private val service: FoundationService, private val h
         val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
             contentType(ContentType.Application.Json); setBody(json("chat_id" to subject, "text" to reply, "reply_markup" to markup).toString())
         }
-        val ok = runCatching { foundationJson.parseToJsonElement(sent.bodyAsText()).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
+        val sentBody = sent.bodyAsText()
+        val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
+        if (!ok) RuntimeDiagnostics.record("trial_delivery_failed", "telegram_response", extra = mapOf(
+            "notice_id" to notice.text("id"), "http_status" to sent.status.value.toString(),
+            "trace_id" to RuntimeDiagnostics.trace(notice.text("id")), "outcome" to "unknown") + RuntimeDiagnostics.httpFields(sent.status.value, sentBody))
         if (ok) service.database.transaction { c, now ->
             c.lockStudent(student)
             c.update("UPDATE trial_notice SET status='sent' WHERE id=? AND status='unknown'", notice.text("id"))

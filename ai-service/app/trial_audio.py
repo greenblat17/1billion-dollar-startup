@@ -1,6 +1,6 @@
 """Private audio objects; authoritative ownership and expiry remain in foundation."""
 import asyncio
-import logging
+from app.diagnostics import event
 
 
 class TrialAudioStore:
@@ -41,6 +41,6 @@ class TrialAudioStore:
                     await backend._request('POST', '/trial/audio_deleted', '', json={'objectKey': item['object_key']})
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logging.getLogger(__name__).warning('trial_audio_cleanup_failed')
+            except Exception as error:
+                event('trial_audio_cleanup_failed', error=error, stage='retention')
             await asyncio.sleep(60)

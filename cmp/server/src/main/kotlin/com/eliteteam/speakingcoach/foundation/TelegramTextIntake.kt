@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -7,7 +9,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import org.slf4j.LoggerFactory
 
 /** Stores the authenticated envelope before webhook ACK; routing still belongs to Telegram handlers. */
 internal class TelegramTextIntake(private val database: FoundationDatabase) {
@@ -44,15 +45,14 @@ internal class TelegramTextIntake(private val database: FoundationDatabase) {
     }
 
     fun launch(scope: CoroutineScope, dispatch: suspend (JsonObject) -> Unit) = scope.launch {
-        val log = LoggerFactory.getLogger(javaClass)
         while (isActive) {
             try {
                 val row = claim()
                 if (row == null) delay(500) else dispatch(row["payload"]!!.jsonObject)
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
-                log.warn("telegram_text_intake_dispatch_failed")
+            } catch (error: Exception) {
+                RuntimeDiagnostics.record("telegram_text_intake_dispatch_failed", "dispatch", error)
                 delay(1000)
             }
         }

@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -66,6 +68,12 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
         call.respondText(json("ok" to false, "error" to "unauthorized").toString(), ContentType.Application.Json, HttpStatusCode.Unauthorized)
         return
     }
+    val diagnostic = mapOf(
+        "trace_id" to (RuntimeDiagnostics.id(call.request.header("X-Diagnostic-Trace")) ?: java.util.UUID.randomUUID().toString()),
+        "lesson_id" to (RuntimeDiagnostics.id(call.request.header("X-Diagnostic-Lesson")) ?: ""),
+        "call_session_id" to (RuntimeDiagnostics.id(call.request.header("X-Diagnostic-Call")) ?: ""),
+    )
+    RuntimeDiagnostics.withContext(diagnostic) {
     try {
         val scope = call.request.header("X-Execution-Scope") ?: if (requireScope) reject("scope_expired") else ""
         val result = operation(scope)
@@ -73,17 +81,22 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
     } catch (error: CancellationException) {
         throw error
     } catch (error: FoundationFailure) {
+        RuntimeDiagnostics.record("foundation_failed", "command", error)
         val status = when (error.code) {
             "scope_expired", "not_permitted", "not_owned" -> HttpStatusCode.Forbidden
             "version_conflict", "operation_conflict", "stale_job", "active_booking_exists", "active_episode", "not_ready", "conversation_busy", "stale_run" -> HttpStatusCode.Conflict
             else -> HttpStatusCode.BadRequest
         }
         call.respondText(json("ok" to false, "error" to error.code).toString(), ContentType.Application.Json, status)
-    } catch (_: SQLException) {
+    } catch (error: SQLException) {
+        RuntimeDiagnostics.record("foundation_failed", "command", error)
         call.respondText(json("ok" to false, "error" to "storage_unavailable").toString(), ContentType.Application.Json, HttpStatusCode.ServiceUnavailable)
-    } catch (_: SerializationException) {
+    } catch (error: SerializationException) {
+        RuntimeDiagnostics.record("foundation_failed", "command", error)
         call.respondText(json("ok" to false, "error" to "invalid_payload").toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
-    } catch (_: IllegalArgumentException) {
+    } catch (error: IllegalArgumentException) {
+        RuntimeDiagnostics.record("foundation_failed", "command", error)
         call.respondText(json("ok" to false, "error" to "invalid_payload").toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+    }
     }
 }

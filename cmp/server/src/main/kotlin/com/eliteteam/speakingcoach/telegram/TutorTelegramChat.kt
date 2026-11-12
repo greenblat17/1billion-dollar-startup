@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.ai.TutorClient
 import com.eliteteam.speakingcoach.ai.TutorRequest
 import com.eliteteam.speakingcoach.ai.TutorDelivery
@@ -27,7 +28,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import dev.inmo.tgbotapi.bot.exceptions.RequestException
 import java.time.Instant
-import org.slf4j.LoggerFactory
 
 /** Native disabled button is absent from tgbotapi 36.1.0; use the Bot API wire shape. */
 internal fun tutorBookingMarkup(active: Boolean, lessonId: String? = null, miniUrl: String = System.getenv("MINI_APP_URL").orEmpty()): JsonObject = buildJsonObject {
@@ -54,15 +54,24 @@ internal data class TutorCardRequest(
 }
 
 internal class TutorTelegramChat(private val bot: BehaviourContext, private val client: TutorClient) {
-    private val log = LoggerFactory.getLogger(javaClass)
 
-    suspend fun respond(message: ChatMessage, text: String, at: Instant, start: Boolean = false) = coroutineScope {
+    suspend fun respond(message: ChatMessage, text: String, at: Instant, start: Boolean = false) =
+        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(
+            "tg-${telegramChatNumber(message.chat.id)}:message:${message.messageId.long}"))) {
+            try { respondCurrent(message, text, at, start) }
+            catch (error: Exception) {
+                if (error !is CancellationException) RuntimeDiagnostics.record("telegram_turn_failed", "respond_or_deliver", error)
+                throw error
+            }
+        }
+
+    private suspend fun respondCurrent(message: ChatMessage, text: String, at: Instant, start: Boolean) = coroutineScope {
         require(message.chat is dev.inmo.tgbotapi.types.chat.PrivateChat) { "Tutor requires a private Telegram chat" }
         val typing = launch {
             while (true) {
                 try { bot.sendBotAction(message.chat.id, TypingAction) }
                 catch (e: CancellationException) { throw e }
-                catch (_: Exception) { /* typing is best effort */ }
+                catch (error: Exception) { RuntimeDiagnostics.record("telegram_typing_failed", "typing", error) }
                 delay(4000)
             }
         }
@@ -90,7 +99,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                         error.response.description?.contains("message is not modified", ignoreCase = true) == true
                     ) JsonPrimitive(true)
                     else {
-                        log.warn("Could not edit trial card; sending current status")
+                        RuntimeDiagnostics.record("telegram_card_failed", "edit_card_fallback", error)
                         bot.execute(card.copy(messageId = null))
                     }
                 }

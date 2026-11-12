@@ -13,6 +13,12 @@
 
 ## Проверка и поставка
 
+[Логирование активного runtime](audits/2026-11-12-runtime-logging.md): добавлены причины отказов провайдеров,
+безопасные stack frames, trace_id между AI/backend, ID урока/эпизода, журнал streaming TTS,
+ошибки S3/Telegram/DB/jobs и диагностика Mini App. Локально: Python 555 passed; Kotlin 281 passed,
+fatJar/detekt и Node syntax check. Метрики не менялись. Пользователь разрешил push и redeploy обоих DEV-сервисов;
+поставка этой версии и живая проверка новых логов пока ожидаются. Команды поиска — в operations.md.
+
 DEV диагностика 2026-11-12: на приветствие модель вызвала create_trial_booking, проверка отклонила
 invalid_evidence; бронь не создавалась. Диагностика поставлена: run 43199872157 success.
 Исправлена сборка text-контекста: текущий event исключается из истории по ID и передаётся отдельно,

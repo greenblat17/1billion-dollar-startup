@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import Any, TypeVar
 
+from app.diagnostics import context_fields, event
 from app.load_test import load_test_active
 from app.metrics_v2 import client_for, current_session
 from app.operational_metrics import PROVIDER_CALL_METRICS, current_voice_usage
@@ -63,6 +64,8 @@ async def logged_provider_call(
     try:
         response = await call()
     except BaseException as error:
+        if not isinstance(error, asyncio.CancelledError):
+            event("provider_failed", error=error, stage=kind, provider=provider, model=model)
         status = _http_status(error)
         result = "cancelled" if isinstance(error, asyncio.CancelledError) else "error"
         _emit(kind, provider, model, purpose, result, status, type(error).__name__, None, started)
@@ -102,6 +105,7 @@ def _emit(
     session = current_session()
     is_load_test = load_test_active()
     event = {
+        **context_fields(),
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
         "source": "load_test" if is_load_test else client_for(session),
         "user_id": anonymous_user_id(),

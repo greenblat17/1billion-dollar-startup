@@ -7,6 +7,7 @@ import time
 import wave
 
 import webrtcvad
+from app.diagnostics import event
 
 
 class GroqTrialSTT:
@@ -109,6 +110,7 @@ class GroqTrialSTT:
         except asyncio.CancelledError:
             raise
         except Exception as error:
+            event('trial_stt_failed', error=error, stage='transcribe')
             self.results.put_nowait(error)
 
     async def events(self):
@@ -124,9 +126,23 @@ class KoraTrialTTS:
         self.client, self.model, self.voice = client, model, voice
 
     async def stream(self, text):
-        # Preserve the selected Kora model/voice. No fallback to a different speaker.
-        async with self.client.audio.speech.with_streaming_response.create(
-            model=self.model, voice=self.voice, input=text, response_format='pcm',
-        ) as response:
-            async for chunk in response.iter_bytes(chunk_size=4800):
-                yield chunk
+        started, size = time.monotonic(), 0
+        event('provider_stream', stage='tts', outcome='started', model=self.model)
+        try:
+            async with self.client.audio.speech.with_streaming_response.create(
+                model=self.model, voice=self.voice, input=text, response_format='pcm',
+            ) as response:
+                async for chunk in response.iter_bytes(chunk_size=4800):
+                    if not size:
+                        event('provider_stream', stage='tts', outcome='first_chunk', elapsed_ms=int((time.monotonic()-started)*1000))
+                    size += len(chunk)
+                    yield chunk
+        except (asyncio.CancelledError, GeneratorExit):
+            event('provider_stream', stage='tts', outcome='cancelled', bytes_sent=size)
+            raise
+        except Exception as error:
+            event('provider_stream', error=error, stage='tts', outcome='failed', model=self.model, bytes_sent=size)
+            raise
+        else:
+            event('provider_stream', stage='tts', outcome='completed', model=self.model,
+                  bytes_sent=size, elapsed_ms=int((time.monotonic()-started)*1000))

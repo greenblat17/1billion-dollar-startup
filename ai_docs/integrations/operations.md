@@ -677,3 +677,26 @@ STT SP-02 переиспользует `GroqSpeechToText` и прежние на
 запускаются только через `:server:foundationIntegrationTest` с обязательным `TEST_POSTGRES_URL`.
 Их выполняет workflow Foundation integration и `scripts/test-foundation.sh`; отсутствие базы там остаётся ошибкой.
 Это исправляет падение шести trial-тестов при package-server в Redeploy DEV run 43196289189.
+
+
+## Поиск причины сбоя SP-02
+
+События `runtime_event` содержат trace_id; голосовые — также lesson_id/call_session_id.
+`provider_failed` и неуспешный `provider_stream` содержат безопасные поля provider_error,
+HTTP status, request ID и Retry-After, если провайдер их вернул. `error_id` связывает экран ошибки с серверной записью.
+В Loki ищите сначала error_id или lesson_id, затем trace_id среди обоих сервисов:
+
+```logql
+{service_name=~"ai-service|speaking-coach"} |= "runtime_event" |= "<trace_id>"
+```
+
+На хосте без Loki:
+
+```sh
+docker logs --since 15m ai-service 2>&1 | rg 'runtime_event|provider_call|tutor_tool'
+docker logs --since 15m speaking-coach 2>&1 | rg 'runtime_event'
+```
+
+`miniapp_failed` — клиентский отчёт с проверенной Telegram auth, но его code описывает наблюдение браузера,
+а не доказанную причину сервера. Он доставляется отдельно от WebSocket; при полном отсутствии сети доставка невозможна.
+Не включайте HTTP debug с заголовками/телами для расследования: initData, scopes и API keys не должны попадать в логи.

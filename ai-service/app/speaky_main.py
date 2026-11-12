@@ -9,6 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
+from app.diagnostics import diagnostic_context, event, identifier
+from uuid import uuid4
 from app.config import Settings
 from app.context_builder import ContextBuilder
 from app.foundation_api import install_foundation_api
@@ -75,7 +77,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             provided = request.headers.get('X-Internal-Token', '')
             if not compare_digest(provided.encode(), settings.ai_internal_token.encode()):
                 return JSONResponse({'detail': 'unauthorized'}, status_code=401)
-        return await call_next(request)
+        with diagnostic_context(trace_id=identifier(request.headers.get('X-Diagnostic-Trace')) or uuid4().hex,
+                                lesson_id=request.headers.get('X-Diagnostic-Lesson'),
+                                call_session_id=request.headers.get('X-Diagnostic-Call')):
+            try:
+                return await call_next(request)
+            except Exception as error:
+                event('http_failed', error=error, stage='handler')
+                raise
 
     @app.get('/health')
     async def health():

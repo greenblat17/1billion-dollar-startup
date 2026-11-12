@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from app.diagnostics import context_fields, diagnostic_context, event
 
 
 @dataclass(frozen=True)
@@ -26,16 +27,23 @@ class FoundationClient:
         try:
             response = await self.http.request(method, self.root + path, headers={
                 'X-Internal-Token': self.service_token, 'X-Execution-Scope': scope,
+                'X-Diagnostic-Trace': context_fields().get('trace_id', ''),
+                'X-Diagnostic-Lesson': context_fields().get('lesson_id', ''),
+                'X-Diagnostic-Call': context_fields().get('call_session_id', ''),
             }, timeout=15, **kwargs)
-        except httpx.TransportError:
+        except httpx.TransportError as error:
+            event("backend_failed", error=error, stage="transport", method=method, route=path.split("/operations/")[0])
             # An uncertain write is recovered with its original operation ID, never a new ID.
             raise BackendFailure('transport_outcome_unknown', 503) from None
         try:
             payload = response.json()
-        except ValueError:
+        except ValueError as error:
+            event("backend_failed", error=error, stage="decode", http_status=response.status_code)
             raise BackendFailure('invalid_backend_response', 502) from None
         if not response.is_success or payload.get('ok') is not True:
-            raise BackendFailure(payload.get('error', 'backend_unavailable'), response.status_code)
+            failure = BackendFailure(payload.get('error', 'backend_unavailable'), response.status_code)
+            event('backend_failed', error=failure, stage='response')
+            raise failure
         result = payload.get('result')
         if not isinstance(result, dict):
             raise BackendFailure('invalid_backend_response', 502)
@@ -48,9 +56,13 @@ class FoundationClient:
         return await self._request('GET', '/snapshot', scope, params=params)
 
     async def command(self, scope: str, operation_id: str, action: str, arguments: dict) -> dict:
-        return await self._request('POST', '/commands', scope, json={
-            'version': 1, 'operationId': operation_id, 'action': action, 'args': arguments,
-        })
+        with diagnostic_context(operation_id=operation_id):
+            event('backend_command', stage=action, outcome='started')
+            result = await self._request('POST', '/commands', scope, json={
+                'version': 1, 'operationId': operation_id, 'action': action, 'args': arguments,
+            })
+            event('backend_command', stage=action, outcome='completed')
+            return result
 
     async def receipt(self, scope: str, operation_id: str) -> dict | None:
         return (await self._request('GET', '/operations/' + operation_id, scope)).get('result')

@@ -6,6 +6,7 @@ import logging
 from pydantic import ValidationError
 
 from app.foundation_client import BackendFailure
+from app.diagnostics import context_fields, event as diagnostic_event
 
 TOOLS = frozenset({
     'get_trial_booking', 'create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking',
@@ -30,9 +31,10 @@ FIELDS = frozenset({
 
 
 def record_tool(request_id, name, stage, outcome, error=None, result=None):
-    event = dict(request_key=hashlib.sha256(request_id.encode()).hexdigest()[:16],
+    event = dict(**context_fields(), request_key=hashlib.sha256(request_id.encode()).hexdigest()[:16],
                  tool=name if name in TOOLS else 'unknown', stage=stage, outcome=outcome)
     if error is not None:
+        diagnostic_event('tutor_failed', error=error, stage=stage, tool=event['tool'])
         event['error_type'] = type(error).__name__
         code = str(error).split(':', 1)[0]
         event['code'] = code if code in CODES else 'unclassified_error'

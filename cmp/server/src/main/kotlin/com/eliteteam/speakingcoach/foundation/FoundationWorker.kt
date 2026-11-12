@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -24,6 +26,7 @@ internal class HttpLearningComputer(private val http: HttpClient, private val ro
     override suspend fun compute(scope: String, job: JsonObject): JsonObject {
         val response = http.post("${root.trimEnd('/')}/internal/foundation/compute") {
             header("X-Internal-Token", serviceToken)
+            header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(job.text("id")))
             header("X-Execution-Scope", scope)
             contentType(ContentType.Application.Json)
             setBody(job.toString())
@@ -59,8 +62,8 @@ internal class FoundationWorker(
                 if (!runOnce()) delay(1000)
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Exception) {
-                log.warn("foundation_worker_unavailable")
+            } catch (error: Exception) {
+                RuntimeDiagnostics.record("foundation_worker_unavailable", "worker", error)
                 delay(1000)
             }
         }
@@ -99,6 +102,8 @@ internal class FoundationWorker(
             } catch (error: CancellationException) {
                 throw error // Leave the durable lease for recovery by another worker.
             } catch (error: Exception) {
+                RuntimeDiagnostics.record("foundation_job_failed", "compute", error,
+                    mapOf("job_id" to job.text("id"), "trace_id" to RuntimeDiagnostics.trace(job.text("id")), "attempt" to job.number("attempts").toString()))
                 val code = (error as? FoundationFailure)?.code?.takeIf {
                     it in setOf("budget_exhausted", "handler_unavailable", "source_expired", "invalid_result")
                 } ?: "provider_error"

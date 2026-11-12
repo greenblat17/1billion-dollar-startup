@@ -1,6 +1,9 @@
 package com.eliteteam.speakingcoach.ai
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+
 import io.ktor.client.HttpClient
+import io.ktor.client.statement.bodyAsText
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.post
@@ -35,23 +38,36 @@ class TutorClient(private val root: String, private val http: HttpClient, privat
         foundation?.let { it.delivered(delivery); return }
         val response = http.post("$root/internal/tutor/delivery") {
             header(AI_INTERNAL_TOKEN_HEADER, token)
+            header("X-Diagnostic-Trace", RuntimeDiagnostics.current()["trace_id"].orEmpty())
             contentType(ContentType.Application.Json)
             setBody(delivery)
         }
         check(response.status.isSuccess()) { "Tutor delivery receipt failed: ${response.status}" }
     }
 
-    suspend fun respond(request: TutorRequest, start: Boolean): TutorResponse {
+    suspend fun respond(request: TutorRequest, start: Boolean): TutorResponse =
+        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(request.sessionId + ":" + request.requestId))) {
+            try { respondCurrent(request, start) }
+            catch (error: Exception) {
+                if (error !is kotlinx.coroutines.CancellationException) RuntimeDiagnostics.record("tutor_failed", "respond", error)
+                throw error
+            }
+        }
+
+    private suspend fun respondCurrent(request: TutorRequest, start: Boolean): TutorResponse {
         val bridge = foundation
         val scope = bridge?.accept(request, start)
         val path = if (bridge != null) "/internal/foundation/tutor/turn?start=$start" else "/internal/tutor/${if (start) "start" else "turn"}"
         val response = http.post("$root$path") {
             header(AI_INTERNAL_TOKEN_HEADER, token)
+            header("X-Diagnostic-Trace", RuntimeDiagnostics.current()["trace_id"].orEmpty())
             if (scope != null) header("X-Execution-Scope", scope)
             contentType(ContentType.Application.Json)
             timeout { requestTimeoutMillis = 120_000; socketTimeoutMillis = 120_000 }
             setBody(request)
         }
+        if (!response.status.isSuccess()) RuntimeDiagnostics.record("tutor_http_failed", "ai_response",
+            extra = RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
         check(response.status.isSuccess()) { "Tutor request failed: ${response.status}" }
         val answer: TutorResponse = response.body()
         return bridge?.withDelivery(request, answer) ?: answer

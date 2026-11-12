@@ -9,6 +9,7 @@ import time
 from uuid import uuid4
 
 from app.trial_policy import VOICE_POLICY
+from app.diagnostics import diagnostic_context, event as log_event
 
 
 def timestamp():
@@ -50,9 +51,12 @@ class TrialSession:
         try:
             await asyncio.wait_for(self.store.put(key, bytes(audio)), 30)
             await self.command('voice.audio_stored', objectKey=key)
-        except BaseException:
-            with suppress(Exception):
+        except BaseException as error:
+            log_event('audio_archive_failed', error=error, stage='store', direction=direction)
+            try:
                 await self.store.delete(key)
+            except Exception as cleanup_error:
+                log_event('audio_archive_failed', error=cleanup_error, stage='rollback')
             raise
 
     async def archive_input(self):
@@ -88,8 +92,13 @@ class TrialSession:
         self.turn_task = asyncio.create_task(self.respond(cue, self.generation))
 
     async def respond(self, cue, generation):
+        with diagnostic_context(turn_id=uuid4().hex):
+            await self._respond(cue, generation)
+
+    async def _respond(self, cue, generation):
         started = time.monotonic()
         first_audio = True
+        stage = 'context'
         try:
             context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
             now = datetime.now(timezone.utc)
@@ -98,8 +107,10 @@ class TrialSession:
             data = dict(context=context.data, history=context.history, cue=cue,
                         elapsedFromScheduledStartSeconds=elapsed,
                         plannedMinutes=self.lesson['duration_minutes'])
+            stage = 'llm'
             raw = await self.model.complete_json(VOICE_POLICY, json.dumps(data, ensure_ascii=False),
                                                   temperature=0.6, operation='trial_voice', retry=False)
+            stage = 'voice_validation'
             result = json.loads(raw)
             if not isinstance(result.get('reply'), str) or type(result.get('finish')) is not bool or type(result.get('wait')) is not bool:
                 raise ValueError('invalid_voice_reply')
@@ -117,9 +128,11 @@ class TrialSession:
                 item = dict(text=sentence, finish=result['finish'] and index == len(sentences) - 1,
                             cancelled=False, delivered=False)
                 self.pending[audio_id] = item
+                stage = 'audio_start'
                 await self.socket.send_json({'type': 'audio_start', 'id': audio_id, 'sampleRate': 24000})
                 collected = bytearray()
                 try:
+                    stage = 'tts'
                     async for chunk in self.tts.stream(sentence):
                         if generation != self.generation:
                             return
@@ -129,16 +142,22 @@ class TrialSession:
                         collected.extend(chunk)
                         if len(collected) > 6_000_000:
                             raise ValueError('audio_too_large')
+                        stage = 'socket_send'
                         await self.socket.send_bytes(chunk)
+                        stage = 'tts'
+                except Exception as error:
+                    log_event('trial_audio_stream_failed', error=error, stage=stage)
+                    raise
                 finally:
                     if collected:
+                        stage = 'archive_assistant'
                         await self.record('assistant', collected, {'utteranceId': audio_id, 'generatedText': sentence, 'generation': generation})
                 await self.socket.send_json({'type': 'audio_end', 'id': audio_id})
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logging.getLogger(__name__).warning('trial_response_failed')
-            await self.socket.send_json({'type': 'error', 'code': 'voice_unavailable'})
+        except Exception as error:
+            error_id = log_event('trial_response_failed', error=error, stage=stage)
+            await self.socket.send_json({'type': 'error', 'code': 'voice_unavailable', 'errorId': error_id})
 
     async def acknowledged(self, message):
         item = self.pending.pop(message.get('id'), None)
@@ -167,6 +186,7 @@ class TrialSession:
         while not self.ended:
             message = await self.socket.receive()
             if message['type'] == 'websocket.disconnect':
+                log_event('trial_disconnected', stage='receive', close_code=message.get('code'))
                 return
             audio = message.get('bytes')
             if audio is not None:
@@ -240,6 +260,17 @@ class TrialSession:
                 self.start_turn('There is continued silence after the last learner words. Decide whether to keep waiting or gently help; never use a fixed time rule.')
 
     async def run(self):
+        with diagnostic_context(lesson_id=self.lesson_id, call_session_id=self.episode):
+            log_event('trial_session', outcome='started')
+            try:
+                await self._run()
+            except Exception as error:
+                log_event('trial_session_failed', error=error, stage='run')
+                raise
+            finally:
+                log_event('trial_session', outcome='closed')
+
+    async def _run(self):
         tasks = []
         try:
             async with self.stt:
@@ -250,17 +281,29 @@ class TrialSession:
                 for task in done:
                     task.result()
         finally:
-            with suppress(Exception):
+            try:
                 await asyncio.wait_for(self.user_archive.join(), 5)
+            except Exception as error:
+                log_event('trial_cleanup_failed', error=error, stage='archive_drain')
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    log_event('trial_task_failed', error=result, stage='shutdown')
             if self.turn_task:
                 self.turn_task.cancel()
-                await asyncio.gather(self.turn_task, return_exceptions=True)
+                turn_results = await asyncio.gather(self.turn_task, return_exceptions=True)
+                for result in turn_results:
+                    if isinstance(result, Exception):
+                        log_event('trial_task_failed', error=result, stage='turn_shutdown')
             if self.user_audio:
-                with suppress(Exception):
+                try:
                     await self.record('user', self.user_audio)
+                except Exception as error:
+                    log_event('trial_cleanup_failed', error=error, stage='archive_tail')
             if not self.ended:
-                with suppress(Exception):
+                try:
                     await self.command('voice.end', reason='technical_disconnect')
+                except Exception as error:
+                    log_event('trial_cleanup_failed', error=error, stage='voice_end')

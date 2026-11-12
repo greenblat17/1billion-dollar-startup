@@ -1,5 +1,7 @@
 """Public Mini App edge; all admission/business state is delegated to authenticated foundation."""
 import asyncio
+from uuid import uuid4
+from app.diagnostics import diagnostic_context, event, identifier
 from contextlib import suppress
 import json
 from pathlib import Path
@@ -48,36 +50,79 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
         except BackendFailure as error:
             raise HTTPException(error.status, error.code) from None
 
+    @app.post('/miniapp/diagnostics')
+    async def client_diagnostic(request: Request):
+        raw = await request.body()
+        if len(raw) > 20000:
+            raise HTTPException(413)
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise HTTPException(400)
+            # Reuse Telegram authentication; diagnostics grant no lesson access.
+            await backend._request('POST', '/trial/access', '', json={
+                'action': 'list', 'initData': payload['initData']})
+            stage = payload.get('stage')
+            if stage not in {'microphone', 'audio_context', 'worklet', 'socket', 'playback', 'buffer', 'connect'}:
+                raise HTTPException(400)
+            with diagnostic_context(trace_id=payload.get('attemptId')):
+                event('miniapp_failed', stage=stage,
+                      client_code=payload.get('code') if payload.get('code') in {
+                          'NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError',
+                          'SecurityError', 'AbortError', 'TypeError', 'SyntaxError', 'InvalidStateError',
+                          'connection_lost', 'buffer_overflow', 'voice_unavailable', 'trial_not_configured',
+                          'invalid_telegram_auth', 'microphone_denied'} else 'unknown',
+                      close_code=payload.get('closeCode') if isinstance(payload.get('closeCode'), int) else None)
+            return {'ok': True}
+        except BackendFailure as error:
+            raise HTTPException(error.status, error.code) from None
+        except (ValueError, KeyError, TypeError):
+            raise HTTPException(400) from None
+
     @app.websocket('/miniapp/voice')
     async def voice(socket: WebSocket):
-        await socket.accept()
-        admitted = None
-        try:
-            if speech is None or audio_store is None:
-                await socket.send_json({'type': 'error', 'code': 'trial_not_configured'})
-                return
-            # Auth is the first frame, never a query string or a loggable URL.
-            raw = await asyncio.wait_for(socket.receive_text(), 10)
-            if len(raw) > 20000:
-                return
-            request = json.loads(raw)
-            admitted = await backend._request('POST', '/trial/access', '', json={
-                'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
-                'attemptId': request['attemptId'],
-            })
-            session = TrialSession(socket, backend, contexts, model,
-                GroqTrialSTT(speech),
-                KoraTrialTTS(client, settings.kora_tts_model, settings.kora_tts_voice), audio_store, admitted)
-            await session.run()
-        except BackendFailure as error:
-            with suppress(Exception):
-                await socket.send_json({'type': 'error', 'code': error.code})
-        except Exception:
-            with suppress(Exception):
-                await socket.send_json({'type': 'error', 'code': 'connection_lost'})
-        finally:
-            with suppress(Exception):
-                await socket.close()
+        trace_id = uuid4().hex
+        with diagnostic_context(trace_id=trace_id):
+            await socket.accept()
+            admitted = None
+            stage = 'authenticate'
+            try:
+                if speech is None or audio_store is None:
+                    await socket.send_json({'type': 'error', 'code': 'trial_not_configured'})
+                    return
+                # Auth is the first frame, never a query string or a loggable URL.
+                raw = await asyncio.wait_for(socket.receive_text(), 10)
+                if len(raw) > 20000:
+                    return
+                request = json.loads(raw)
+                trace_id = identifier(request.get('attemptId')) or trace_id
+                with diagnostic_context(trace_id=trace_id):
+                    stage = 'admission'
+                    admitted = await backend._request('POST', '/trial/access', '', json={
+                        'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
+                        'attemptId': request['attemptId'],
+                    })
+                    session = TrialSession(socket, backend, contexts, model,
+                        GroqTrialSTT(speech),
+                        KoraTrialTTS(client, settings.kora_tts_model, settings.kora_tts_voice), audio_store, admitted)
+                    stage = 'session'
+                    with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
+                        await session.run()
+            except BackendFailure as error:
+                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id,
+                                 lesson_id=admitted['lesson']['id'] if admitted else None,
+                                 call_session_id=admitted.get('callSessionId') if admitted else None)
+                with suppress(Exception):
+                    await socket.send_json({'type': 'error', 'code': error.code, 'errorId': error_id})
+            except Exception as error:
+                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id,
+                                 lesson_id=admitted['lesson']['id'] if admitted else None,
+                                 call_session_id=admitted.get('callSessionId') if admitted else None)
+                with suppress(Exception):
+                    await socket.send_json({'type': 'error', 'code': 'connection_lost', 'errorId': error_id})
+            finally:
+                with suppress(Exception):
+                    await socket.close()
 
     @app.post('/internal/trial/followup')
     async def followup(request: Request, x_execution_scope: str = Header()):
