@@ -13,13 +13,18 @@
 
 ## Проверка и поставка
 
+Диагностика ошибки Telegram 2026-11-12 13:13: HTTP-запросы успешны, команды бронирования не было;
+точная причина пока не установлена. Добавлен content-free `tutor_tool` audit: request hash, tool,
+stage, outcome, код/тип ошибки и имена невалидных полей. Поведение и промпт не менялись.
+Локально 544 Python-теста прошли; пользователь разрешил поставку диагностики на DEV AI.
+
 Исправлен CI run 43196289189: TrialIntegrationTest перенесён из обычного `:server:test` в
 `:server:foundationIntegrationTest`. Локально проверены оба набора: unit без TEST_POSTGRES_URL, integration с отдельной базой.
 
 SP-02: **локальная реализация завершена; приложения SP-02 не поставлены на DEV/PROD**.
 На DEV отдельно настроен [HTTPS edge Mini App](integrations/operations.md#dev-https-edge-sp-02--проверено-2026-11-11):
 сертификат проверен, маршрут до AI доступен; текущий AI отвечает 401. End-to-end WebSocket/звонок ещё не проверены.
-Python **539 passed** (1 dependency deprecation warning); Kotlin **277 unit + 26 PostgreSQL integration**, без failed/skipped;
+Python **544 passed** (1 dependency deprecation warning); Kotlin **277 unit + 26 PostgreSQL integration**, без failed/skipped;
 `:server:buildFatJar` и `detekt` прошли. Межсервисные Python→Ktor→PostgreSQL проверки: **6 passed**.
 Проверено на отдельной локальной PostgreSQL 14.10 с 39 миграциями; Node syntax checks прошли.
 Провайдеры, S3 и Telegram в соответствующих тестах подставные. Эти результаты не доказывают качество

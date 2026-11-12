@@ -14,6 +14,7 @@ from app.tutor import SYSTEM, TutorRequest
 from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule
+from app.tutor_diagnostics import record_tool
 
 
 def booking_label(booking):
@@ -81,10 +82,12 @@ class FoundationTutor:
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
                 else:
                     raise ValueError('tool_round_limit')
-        except BackendFailure:
+        except BackendFailure as error:
+            record_tool(request.requestId, '', 'turn', 'failed', error=error)
             # Storage uncertainty must not be disguised as an ordinary conversational response.
             raise
-        except Exception:
+        except Exception as error:
+            record_tool(request.requestId, '', 'turn', 'degraded', error=error)
             degraded = True
             reply = booking_label(changed) if changed else 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
@@ -99,24 +102,40 @@ class FoundationTutor:
                     bookingText=booking_label(booking) if booking else None, degraded=saved.get('degraded', False))
 
     async def execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
+        record_tool(request_id, name, 'dispatch', 'started')
+        try:
+            result = await self._execute(scope, request_id, source, name, arguments)
+        except Exception as error:
+            record_tool(request_id, name, 'dispatch', 'failed', error=error)
+            raise
+        record_tool(request_id, name, 'dispatch', 'returned', result=result)
+        return result
+
+    async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
+        stage = 'validate_arguments'
         try:
             if name in ('save_preliminary_schedule', 'get_preliminary_schedules', 'cancel_preliminary_schedule'):
                 if name == 'get_preliminary_schedules':
                     return await self.backend.command(scope, uuid4().hex, 'trial.schedules', {})
+                stage = 'validate_arguments'
                 schedule = (CancelPreliminarySchedule if name == 'cancel_preliminary_schedule' else PreliminarySchedule).model_validate(arguments)
                 identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                stage = 'schedule_command'
                 return await self.backend.command(scope, identity, 'trial.schedule_cancel' if name == 'cancel_preliminary_schedule' else 'trial.schedule', {'sourceId': source['id'], **schedule.model_dump()})
             if name not in MODELS:
                 raise ValueError('unknown_tool')
             args = MODELS[name].model_validate(arguments)
             identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+            stage = 'receipt'
             previous = await self.backend.receipt(scope, identity)
             if previous is not None:
                 if name == 'update_learner_context':
                     return {'ok': True}
                 booking = booking_projection(previous)
                 return {'ok': True, 'booking': booking, 'confirmation': booking_label(booking)}
+            stage = 'snapshot'
             snapshot = await self.backend.snapshot(scope, 'text')
+            stage = 'booking_projection'
             current = booking_projection(snapshot.get('booking'))
             if name == 'get_trial_booking':
                 return {'ok': True, 'booking': current}
@@ -125,9 +144,11 @@ class FoundationTutor:
                     'sourceId': source['id'], **args.model_dump(),
                 })
                 return {'ok': True}
+            stage = 'validate_evidence'
             if getattr(args, 'evidence', '') not in source['body']:
                 raise ValueError('invalid_evidence')
             command = {'sourceId': source['id'], 'evidence': args.evidence}
+            stage = 'validate_booking'
             if name != 'create_trial_booking':
                 if not current or current['id'] != args.bookingId:
                     raise ValueError('booking_not_owned_or_not_active')
@@ -135,6 +156,7 @@ class FoundationTutor:
             if name == 'cancel_trial_booking':
                 action = 'lesson.cancel'
             else:
+                stage = 'resolve_time'
                 received = datetime.fromisoformat(source['occurred_at']).timestamp()
                 starts, zone, timing = resolve_time(args.schedule, received, current, datetime.now(timezone.utc))
                 command.update(startsAt=starts, timezone=zone, timing=timing)
@@ -144,12 +166,16 @@ class FoundationTutor:
                 else:
                     action = 'lesson.reschedule'
                     command['launchMode'] = 'executable'
+            stage = 'booking_command'
             lesson = await self.backend.command(scope, identity, action, command)
+            stage = 'result_projection'
             booking = booking_projection(lesson)
             return {'ok': True, 'booking': booking, 'confirmation': booking_label(booking)}
         except BackendFailure as error:
+            record_tool(request_id, name, stage, 'rejected', error=error)
             if error.status >= 500:
                 raise
             return {'ok': False, 'error': error.code}
         except (ValueError, TypeError, KeyError) as error:
+            record_tool(request_id, name, stage, 'rejected', error=error)
             return {'ok': False, 'error': str(error)[:300]}
