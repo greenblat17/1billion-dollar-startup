@@ -31,9 +31,13 @@
 
 ## DEV и ограничения
 
-SP-03/SP-04 не отправлены и не развёрнуты. Последняя подтверждённая здесь поставка SP-02:
-backend/Mini App `175f5f5`, AI `214b44d` с semantic VAD medium и latency timings
-([run](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43234153691)).
+SP-03/SP-04 поставлены на DEV из зависимого [PR #53](https://github.com/greenblat17/1billion-dollar-startup/pull/53)
+(base — ветка PR #52), runtime `1e3a8ee`: backend, AI и отдельный Mini App.
+[Redeploy DEV 43249635309](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43249635309)
+завершился success, включая общую readiness-проверку. Платные smoke-вызовы выключены.
+Полного CI перед поставкой не ожидали по прямому поручению пользователя;
+встроенные тесты и проверки deploy прошли. Исправлены стартовая гонка frontend CI и
+установка PostgreSQL-клиента на обновлённом runner. Живой regular-урок ещё не проверен.
 Пользователь оценил разговор как достаточно хороший для проверки полного trial.
 Полная педагогическая приёмка SP-02, SP-03 и естественного scheduling-диалога SP-04 остаётся открытой.
 Замер 1057 ms (7 ответов) относился к commit→планированию playback до изменения VAD;
