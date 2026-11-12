@@ -39,6 +39,18 @@ internal fun tutorBookingMarkup(active: Boolean, lessonId: String? = null, miniU
     })
 }
 
+/** Persistent navigation is independent of lesson admission and payment. */
+internal fun tutorProgressMarkup(miniUrl: String = System.getenv("MINI_APP_URL").orEmpty()): JsonObject = buildJsonObject {
+    if (miniUrl.startsWith("https://")) {
+        put("keyboard", buildJsonArray { add(buildJsonArray { add(buildJsonObject {
+            put("text", "My Progress")
+            put("web_app", buildJsonObject { put("url", miniUrl + (if ('?' in miniUrl) "&" else "?") + "view=progress") })
+        }) }) })
+        put("resize_keyboard", true)
+        put("is_persistent", true)
+    } else put("remove_keyboard", true)
+}
+
 @Serializable
 internal data class TutorCardRequest(
     @SerialName("chat_id") val chatId: Long,
@@ -81,7 +93,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                 var lastMessageId: Long? = null
                 for (part in tutorTextParts(response.reply)) {
                     val sent = bot.execute(TutorTextRequest(requireNotNull(telegramChatNumber(message.chat.id)),
-                        part.text, part.entities, buildJsonObject { put("remove_keyboard", true) },
+                        part.text, part.entities, tutorProgressMarkup(),
                         TutorReplyParameters(message.messageId.long, true)))
                     lastMessageId = (sent as JsonObject).getValue("message_id").jsonPrimitive.long
                 }

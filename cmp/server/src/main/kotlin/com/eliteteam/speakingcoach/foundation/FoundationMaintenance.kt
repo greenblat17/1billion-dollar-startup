@@ -53,6 +53,7 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now)
+        connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
         connection.update("DELETE FROM memory_candidate WHERE student_id=?", student)
@@ -117,6 +118,7 @@ internal class FoundationMaintenance {
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
         // Observations and roadmap prose can paraphrase a forgotten fact without a complete source graph.
+        connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
         connection.update("UPDATE roadmap_revision SET content='{}',reason='',confirmed_source_id=NULL,status='superseded' WHERE student_id=?", student)

@@ -78,7 +78,7 @@ class ContextBuilder:
         for observation in all_observations:
             projected = {key: observation.get(key) for key in (
                 'lesson_id', 'dimension', 'content', 'uncertainty', 'source_event_id', 'occurred_at',
-                'source_content_expired', 'source_revision', 'analyzer_version', 'observation_key', 'review')}
+                'source_content_expired', 'source_revision', 'analyzer_version', 'observation_key', 'review', 'id', 'evidence')}
             size = len(json.dumps(projected, ensure_ascii=False))
             if size > budget:
                 truncated = True
@@ -121,6 +121,8 @@ class ContextBuilder:
             'studentId': snapshot['student']['id'],
             'tutor': {'id': snapshot['student']['tutor_id'], 'version': snapshot['student']['tutor_version']},
             'goal': snapshot.get('goal'), 'facts': selected, 'roadmap': roadmap,
+            'progress': snapshot.get('progress'),
+            'progressEvidence': snapshot.get('progressEvidence') if purpose == 'learning' else None,
             'observations': observations, 'roadmapPreparation': snapshot.get('roadmapPreparation'),
             'trialResult': snapshot.get('trialResult'), 'lessonAnalysis': snapshot.get('lessonAnalysis'),
             'billing': snapshot.get('billing'),

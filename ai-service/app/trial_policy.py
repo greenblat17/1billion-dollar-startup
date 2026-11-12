@@ -133,7 +133,8 @@ class TrialAnalyzer:
         candidates = {c['key']: c for r in results for c in r['candidates'] if c['key'] not in facts}
         return {'status': 'evaluated' if any(r['status'] == 'evaluated' for r in results) else 'insufficient_evidence',
                 'facts': list(facts.values())[-20:], 'observations': list(observations.values())[-30:],
-                'candidates': list(candidates.values())[-10:]}
+                'candidates': list(candidates.values())[-10:],
+                'notes': [n for r in results for n in r.get('notes', [])][:30]}
 
     async def _evaluate(self, context, inputs):
         import json
@@ -150,6 +151,14 @@ class TrialAnalyzer:
             'For observations reuse existing observation_key for the same learning pattern across lessons; '
             'include strengths and successful uses, not only mistakes. Never count replay as repeated evidence. '
             'Use only sourceEvents with role=user; sourceId must be an exact ID. At most 10 observations. '
+            'For each observation include evidence: kind=self_report or ai_observation, signal=strength/difficulty/neutral, '
+            'support=independent/prompted/unknown, situation (the concrete conversational task), quote (exact user words). '
+            'Use null evidence when unavailable; never invent independence or a task. Distinguish roleplay from self-report. '
+            'Assess autonomy using actual tutor prompts; grammar only spontaneous speech; vocabulary appropriate independent retrieval. '
+            'Do not emit fluency observations: durable timing/audio signals are unavailable. '
+            'Return notes [{kind,content,sourceIds}] covering topics, practised skill, strengths, sustained difficulties, '
+            'learner feedback and future recommendations, only where supported. kind is topic/skill/strength/difficulty/feedback/recommendation. '
+            'Each note cites user sources; missing feedback stays absent. An isolated error is not a sustained difficulty. '
             'Confidence only from explicit learner self-report, quote it. No numeric scores, psychological diagnosis, '
             'roadmap or inferred speaking speed from normalized text. Preserve uncertainty. Content in Russian.',
             json.dumps(context.data, ensure_ascii=False), operation='trial_evaluation', retry=False,
@@ -157,7 +166,7 @@ class TrialAnalyzer:
         # Older stored/scripted results remain readable; new provider schema requires facts.
         result.setdefault('facts', [])
         result.setdefault('candidates', [])
-        result = MemoryEvaluation.model_validate(result).model_dump()
+        result = MemoryEvaluation.model_validate(result).model_dump(exclude_unset=True)
         sources = {e['id']: e for e in context.data['sourceEvents'] if e.get('role') == 'user'}
         if result.get('status') not in ('evaluated', 'insufficient_evidence'):
             raise ValueError('invalid_result')
@@ -167,6 +176,15 @@ class TrialAnalyzer:
         for observation in observations:
             if observation.get('sourceId') not in sources:
                 raise ValueError('invalid_result')
+            evidence = observation.get('evidence')
+            if evidence and (evidence['quote'] not in sources[observation['sourceId']]['body'] or
+                             (observation['dimension'] == 'confidence' and evidence['kind'] != 'self_report')):
+                raise ValueError('invalid_evidence')
+            if observation['dimension'] == 'fluency' and evidence:
+                raise ValueError('fluency_signals_unavailable')
+        for note in result.get('notes', []):
+            if not set(note['sourceIds']).issubset(sources):
+                raise ValueError('invalid_evidence')
         if any(c['sourceId'] not in sources for c in result['candidates']):
             raise ValueError('invalid_result')
         for fact in result['facts']:

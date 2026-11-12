@@ -22,3 +22,11 @@ Frontend поставляется до AI при совместном redeploy. 
 
 Для UI-only deploy AI/backend не перезапускаются. Откат — предыдущая версия workflow по нужному git ref.
 DEV public URL остаётся прежним. PROD frontend этим workflow не обслуживается.
+
+
+My Progress: `?view=progress` или Telegram start_param `progress` открывает roadmap без микрофона,
+WebSocket и создания Lesson. `POST /miniapp/api` с `action=progress` и подписанным initData
+возвращает принадлежащую ученику backend-проекцию; подписка для просмотра не нужна.
+Состояния: ready, no_roadmap, preparing, insufficient_evidence, error; этапы completed/current/
+upcoming/needs_review. Кнопка Telegram появляется со следующим обычным ответом репетитора.
+Просмотр не запускает восстановление старых roadmap jobs или платные вызовы.

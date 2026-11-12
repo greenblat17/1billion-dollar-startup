@@ -1,6 +1,7 @@
 const tg=window.Telegram?.WebApp;
 tg?.ready();tg?.expand();
 const $=id=>document.getElementById(id);
+const progressMode=new URLSearchParams(location.search).get('view')==='progress'||tg?.initDataUnsafe?.start_param==='progress';
 let lessonId=new URLSearchParams(location.search).get('lesson')||tg?.initDataUnsafe?.start_param;
 let ws,ctx,mic,worklet,pinger,ticker,muted=false,closing=false,started=0,cursor=0,current,carry=null;
 let attemptId=crypto.randomUUID(),diagnosticStage='connect',reported=false;
@@ -20,7 +21,7 @@ function renderMicrophone(){
  $('mic-status').dataset.muted=String(muted);
  $('mic-status').textContent=$('mute').disabled?'Подключаем микрофон…':muted?'Микрофон выключен — Саша вас не слышит':'Микрофон включён — можно говорить';
 }
-function view(id){for(const name of ['call','lobby','error'])$(name).hidden=name!==id;}
+function view(id){for(const name of ['call','lobby','error','progress'])$(name).hidden=name!==id;}
 function send(data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(data));}
 function stopAudio(report=true){
  for(const [id,item] of playing){for(const source of item.sources){try{source.stop();}catch{}}clearTimeout(item.timer);if(report)send({type:'played',id,complete:false,playedMs:playedMilliseconds(item)});}
@@ -89,7 +90,37 @@ function play(bytes){
  const pcm=new DataView(data.buffer,data.byteOffset,data.length);const buffer=ctx.createBuffer(1,data.length/2,24000);const out=buffer.getChannelData(0);for(let i=0;i<out.length;i++)out[i]=pcm.getInt16(i*2,true)/32768;
  const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);cursor=Math.max(cursor,ctx.currentTime+.02);const item=playing.get(current);if(item.first){item.start=cursor;item.first=false;if(turnCompletedAt){send({type:'metric',name:'first_audio',milliseconds:Math.max(0,performance.now()-turnCompletedAt+(cursor-ctx.currentTime)*1000)});turnCompletedAt=0;}}item.segments.push({start:cursor,duration:buffer.duration});source.start(cursor);cursor+=buffer.duration;item.duration+=buffer.duration;item.sources.push(source);
 }
+
+const progressMessages={no_roadmap:'Ваш маршрут пока не составлен. Обсудите с Сашей цель и следующий шаг в Telegram.',preparing:'Саша сейчас готовит ваш маршрут. Обновите экран чуть позже.',insufficient_evidence:'Пока недостаточно данных для маршрута. Саша продолжит знакомиться с вашей речью на занятиях.',error:'Не удалось подготовить маршрут. Напишите Саше в Telegram.'};
+function renderProgress(data){
+ $('progress-content').hidden=data.status!=='ready';
+ $('progress-state').textContent=progressMessages[data.status]||'';
+ if(data.status!=='ready')return;
+ const goal=data.goal?.value||data.goal?.text;
+ $('progress-goal').textContent=typeof goal==='string'?goal:'Обсудите вашу цель с Сашей';
+ const allDone=data.steps.length>0&&data.steps.every(step=>step.status==='completed');
+ $('progress-note').textContent=allDone?'Все этапы этого маршрута пройдены. Обсудите следующий шаг с Сашей.':data.evidenceStatus==='insufficient_evidence'?'Маршрут готов. Для подтверждения освоенных навыков пока недостаточно данных.':'Ваш текущий этап и следующие шаги.';
+ $('progress-steps').replaceChildren();
+ const labels={completed:'Пройдено',current:'Сейчас в фокусе',upcoming:'Впереди',needs_review:'Нужно проверить ещё раз'};
+ for(const step of data.steps){
+  const row=document.createElement('li');row.className='roadmap-step '+step.status;
+  const marker=document.createElement('span');marker.className='step-marker';marker.textContent=step.status==='completed'?'✓':'•';marker.setAttribute('aria-hidden','true');
+  const body=document.createElement('div');const label=document.createElement('p');label.className='step-label';label.textContent=labels[step.status]||'Впереди';
+  const title=document.createElement('h2');title.textContent=step.outcome;
+  const detail=document.createElement('p');detail.className='step-detail';detail.textContent=step.status==='needs_review'?'Ранее этот этап был пройден. После уточнения прежних наблюдений Саша проверит навык в разговоре.':step.tactic;
+  body.append(label,title,detail);row.append(marker,body);$('progress-steps').append(row);
+ }
+}
+async function progress(){
+ view('progress');$('progress-state').textContent='Загружаем ваш маршрут…';$('progress-content').hidden=true;$('progress-refresh').disabled=true;
+ try{renderProgress(await api('progress'));}
+ catch(error){$('progress-state').textContent=['invalid_telegram_auth','telegram_auth_expired'].includes(error.message)?'Откройте My Progress заново из Telegram.':'Не удалось загрузить прогресс. Проверьте сеть и попробуйте ещё раз.';}
+ finally{$('progress-refresh').disabled=false;}
+}
+$('progress-refresh').onclick=progress;
+$('progress-back').onclick=()=>tg?.close();
+
 $('mute').onclick=()=>{muted=!muted;mic?.getAudioTracks().forEach(t=>t.enabled=!muted);worklet?.port.postMessage({muted});send({type:'mute',value:muted});renderMicrophone();};
 $('end').onclick=leave;$('return').onclick=()=>tg?.close();$('back').onclick=()=>tg?.close();$('retry').onclick=()=>{closing=false;lessonId?connect():list();};
 window.addEventListener('pagehide',()=>{closing=true;cleanup();});
-lessonId?connect():list();
+progressMode?progress():lessonId?connect():list();

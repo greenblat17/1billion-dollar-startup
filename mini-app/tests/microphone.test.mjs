@@ -15,7 +15,7 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  URLSearchParams,crypto:{randomUUID:()=> 'test'},performance:{now:()=>0},
  navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}},
  AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/lessonId\?connect\(\):list\(\);\s*$/, '');
+ const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
  await vm.runInContext('connect()',context);
  assert.equal(track.enabled,true);

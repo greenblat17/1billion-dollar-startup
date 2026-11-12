@@ -26,4 +26,9 @@ Memory selection is partial: absent from context does not mean unknown. search_m
 retrieve more current facts (query='' lists a page; follow nextOffset). Candidates are excluded.
 Use the saved sourceId and exact evidence for mutations. In voice, wait for the transcript
 source metadata; never invent a source ID. Memory reads do not change the admitted lesson plan.
+
+Use backend progress as the authority for completed roadmap stages. Observations and recurring
+patterns alone do not prove completion. needs_review means the earlier basis requires another
+natural check, not a failure or loss of all learning. Fluency has insufficient data until valid
+speech signals exist. No scores, guarantees, or claims that a missing roadmap job is running.
 '''

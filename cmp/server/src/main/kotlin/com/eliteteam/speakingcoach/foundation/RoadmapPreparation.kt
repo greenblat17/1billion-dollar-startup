@@ -27,7 +27,7 @@ internal class RoadmapPreparation {
         if (inputs.number("goalRevision") != c.goalRevision(scope.studentId) ||
             inputs.number("learningRevision") != c.learningRevision(scope.studentId) ||
             inputs.number("roadmapRevision") != c.roadmapRevision(scope.studentId)) return false
-        result.only("decision", "reason", "steps", "sourceIds")
+        result.only("decision", "reason", "steps", "sourceIds", "progress", "dimensions")
         val decision = result.text("decision")
         if (decision !in setOf("revise", "keep", "insufficient_evidence") || result.text("reason").isBlank() || result.text("reason").length > 1000) reject("invalid_result")
         val sources = result["sourceIds"]?.jsonArray ?: reject("invalid_result")
@@ -40,6 +40,7 @@ internal class RoadmapPreparation {
         }
         val active = c.currentRoadmap(scope.studentId)
         if (decision == "keep" && active == null) reject("invalid_result")
+        LearningProgress().apply(c, scope, inputs, result, now)
         if (decision != "revise") {
             if (steps.isNotEmpty()) reject("invalid_result")
             return true

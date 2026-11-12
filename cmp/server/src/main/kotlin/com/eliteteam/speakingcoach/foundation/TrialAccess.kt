@@ -14,6 +14,7 @@ internal class TrialAccess(private val service: FoundationService) {
             val now = service.database.clock.instant()
             val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", student) { it.getLong(1) }.single()
             when (args.text("action")) {
+                "progress" -> LearningProgress().read(c, student)
                 "list" -> json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? ORDER BY starts_at DESC LIMIT 40", student)),
                     "schedules" to JsonArray(c.documents("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? ORDER BY effective_from DESC", student)),
                     "demoReceipts" to JsonArray(c.documents("SELECT to_jsonb(r) FROM trial_demo_receipt r WHERE student_id=?", student)))

@@ -182,8 +182,8 @@ internal fun evidence(connection: Connection, scope: ExecutionScope, args: JsonO
 
 internal fun Connection.enqueueEvaluation(student: String, lesson: String, now: Instant) {
     val revision = rows("SELECT transcript_revision FROM lesson WHERE id=?", lesson) { it.getLong(1) }.single()
-    enqueueJob(student, "lesson.evaluate", "$lesson:$revision:v1", lesson,
-        json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to "v1"), now)
+    enqueueJob(student, "lesson.evaluate", "$lesson:$revision:sp08-v1", lesson,
+        json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to "sp08-v1"), now)
 }
 
 /** Relative intent is resolved once under the student lock; the receipt fixes it across retries. */

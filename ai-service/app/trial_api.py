@@ -20,7 +20,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             payload = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise HTTPException(400) from None
-        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio'):
+        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress'):
             raise HTTPException(400)
         try:
             result = await backend._request('POST', '/trial/access', '', json=payload)

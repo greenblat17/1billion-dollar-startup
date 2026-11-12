@@ -163,6 +163,8 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
                 AND j.kind='lesson.evaluate' AND (j.input_refs->>'transcriptRevision')::bigint=l.transcript_revision
                 ORDER BY j.created_at DESC LIMIT 1""", scope.studentId, it) },
             "trialResult" to connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE student_id=? ORDER BY created_at DESC LIMIT 1", scope.studentId),
+            "progress" to LearningProgress().read(connection, scope.studentId),
+            "progressEvidence" to if (purpose == "learning" && lessonId == null) LearningProgress().evidence(connection, scope.studentId) else null,
             "roadmap" to roadmap, "roadmapPreparation" to RoadmapPreparation().state(connection, scope.studentId), "events" to JsonArray(events), "analysisSources" to JsonArray(analysisSources.take(1000)),
             "analysisSourceTruncated" to (analysisSources.size > 1000), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })

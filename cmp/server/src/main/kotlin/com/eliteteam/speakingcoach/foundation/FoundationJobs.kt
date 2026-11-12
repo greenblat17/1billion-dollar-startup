@@ -140,33 +140,37 @@ internal class FoundationJobs {
     }
 
     private fun evaluate(connection: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
-        result.only("status", "observations", "facts", "candidates")
+        result.only("status", "observations", "facts", "candidates", "notes")
         if (result.text("status") !in setOf("evaluated", "insufficient_evidence")) reject("invalid_result")
         val lesson = connection.lesson(scope, lessonId)
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
+        if (connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE lesson_id=? AND source_revision=? AND analyzer_version=?",
+            lessonId, inputs.number("transcriptRevision"), inputs.text("analyzerVersion")) != null) return true
+        LessonEvidence().notes(connection, scope, lessonId, result, now)
         val observations = result["observations"]?.jsonArray ?: reject("invalid_result")
         if (observations.size > 30) reject("invalid_result")
         observations.forEach { item ->
             val observation = item.jsonObject
-            observation.only("key", "dimension", "content", "uncertainty", "sourceId")
+            observation.only("key", "dimension", "content", "uncertainty", "sourceId", "evidence")
             if (observation.text("dimension") !in setOf("fluency", "confidence", "autonomy", "grammar", "vocabulary") ||
                 observation.text("uncertainty") !in setOf("limited", "tentative", "supported") || observation.text("content").length > 1000
             ) reject("invalid_result")
             val source = sourceMessage(connection, scope, observation.text("sourceId"), now)
+            LessonEvidence().validate(observation, source)
             if (connection.document("SELECT to_jsonb(e) FROM lesson_event e WHERE lesson_id=? AND event_id=?", lessonId, source.text("id")) == null) reject("invalid_evidence")
         }
         connection.update(
             """INSERT INTO lesson_evaluation(student_id,lesson_id,source_revision,analyzer_version,result,created_at)
                VALUES (?,?,?,?,?::jsonb,?) ON CONFLICT DO NOTHING""", scope.studentId, lessonId, inputs.number("transcriptRevision"),
-            inputs.text("analyzerVersion"), JsonObject(result - "facts" - "candidates"), now,
+            inputs.text("analyzerVersion"), JsonObject(result - "facts" - "candidates" + ("observations" to kotlinx.serialization.json.JsonArray(observations.map { stripEvidenceQuote(it.jsonObject) }))), now,
         )
         observations.forEach { item ->
             val observation = item.jsonObject
             connection.update(
                 """INSERT INTO memory_observation(id,student_id,lesson_id,source_revision,analyzer_version,observation_key,
-                   dimension,content,uncertainty,source_event_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING""",
+                   dimension,content,uncertainty,source_event_id,created_at,evidence) VALUES (?,?,?,?,?,?,?,?,?,?,?,?::jsonb) ON CONFLICT DO NOTHING""",
                 newId(), scope.studentId, lessonId, inputs.number("transcriptRevision"), inputs.text("analyzerVersion"), observation.text("key"),
-                observation.text("dimension"), observation.text("content"), observation.text("uncertainty"), observation.text("sourceId"), now,
+                observation.text("dimension"), observation.text("content"), observation.text("uncertainty"), observation.text("sourceId"), now, stripEvidenceQuote(observation)["evidence"],
             )
         }
         // Personal direct reports only; evaluation never changes the goal or learning self-assessment.
@@ -235,4 +239,9 @@ internal fun Connection.preparation(scope: ExecutionScope, lessonId: String): Js
         scope.studentId, lessonId, goalRevision(scope.studentId), learningRevision(scope.studentId), lesson.number("version"))
     return if (failed != null) json("status" to "failed", "reason" to "plan_failed")
         else json("status" to "blocked", "reason" to "plan_not_ready")
+}
+
+private fun stripEvidenceQuote(observation: JsonObject): JsonObject {
+    val evidence = observation["evidence"] as? JsonObject ?: return observation
+    return JsonObject(observation + ("evidence" to JsonObject(evidence - "quote")))
 }
