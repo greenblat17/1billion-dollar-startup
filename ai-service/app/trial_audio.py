@@ -7,7 +7,17 @@ class TrialAudioStore:
     def __init__(self, bucket: str, endpoint: str | None = None):
         import boto3
         self.bucket = bucket
-        self.client = boto3.client('s3', endpoint_url=endpoint or None)
+        self.session = boto3.Session()
+        self.client = self.session.client('s3', endpoint_url=endpoint or None)
+
+    async def check_credentials(self):
+        """Resolve the SDK credential chain before admitting a paid voice session."""
+        from botocore.exceptions import NoCredentialsError
+        credentials = await asyncio.to_thread(self.session.get_credentials)
+        if credentials is None:
+            raise NoCredentialsError()
+        # Resolve refreshable credentials too; never log or return their values.
+        await asyncio.to_thread(credentials.get_frozen_credentials)
 
     async def put(self, key: str, audio: bytes):
         await asyncio.to_thread(self.client.put_object, Bucket=self.bucket, Key=key, Body=audio,

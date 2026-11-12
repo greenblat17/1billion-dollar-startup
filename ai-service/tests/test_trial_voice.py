@@ -133,7 +133,7 @@ def test_websocket_routes_audio_and_finishes_after_ack_without_real_providers(mo
     app = FastAPI()
     settings = SimpleNamespace(kora_tts_model='kora', kora_tts_voice='Leda')
     install_trial_api(app, backend, SimpleNamespace(build=AsyncMock(return_value=context)), model, None,
-                      settings, SimpleNamespace(put=AsyncMock(), delete=AsyncMock()), speech=object())
+                      settings, SimpleNamespace(put=AsyncMock(), delete=AsyncMock(), check_credentials=AsyncMock()), speech=object())
     with TestClient(app) as client:
         assert client.get('/miniapp').status_code == 200
         with client.websocket_connect('/miniapp/voice') as socket:

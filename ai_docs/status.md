@@ -13,11 +13,30 @@
 
 ## Проверка и поставка
 
+DEV storage 2026-11-12: SeaweedFS 4.53 развёрнут отдельно на AI-хосте, `/opt/speaky-storage`.
+Созданы приватный `speaky-trial-audio-dev` и отдельный ключ AI с Read/Write/List только этого bucket.
+Постоянный диск, закрытая Docker-сеть, без публичных портов; credentials сгенерированы на хосте и не выводились.
+Живой storage probe через deployed AI image прошёл: put, signed get, list versions, delete,
+сохранность после пересоздания, запрет anonymous/cross-bucket/public ACL. Тестовые объекты удалены.
+AI env/сеть ещё не подключены, приложение не перезапускалось. Retention и backup пока не настроены.
+Локально deploy AI дополнен второй сетью для внутреннего S3 endpoint; helper на обеих сетях проверил DNS/S3 auth/default route.
+Изменение deploy-скрипта ещё не поставлено, GitHub env secret пока не обновлён.
+Инструкция и границы проверки: [infra/storage](../infra/storage/README.md).
+
+Причина обрыва `0468b04f316b43a69b8e7b12a97d0fff` установлена по обоим DEV-сервисам:
+11:09:24 UTC, S3 `put_object` → `NoCredentialsError`; STT перед этим завершился успешно.
+Фактический STT: OpenRouter `assemblyai/universal-3-5-pro`, выбран через `GROQ_BASE_URL`/`STT_MODEL`.
+Урок сохранился `in_progress`, эпизод завершён как `technical_disconnect`; 2 события текста сохранены,
+2 аудио-записи остались `reserved`, сохранённое аудио не подтверждено. Прежний 402 к этому обрыву не относится.
+Локально добавлены ранняя проверка credentials до admission и проверка S3 в DEV readiness; не поставлены.
+Python 558 passed; 7 TrialIntegrationTest на отдельном PostgreSQL passed, включая reconnect/ownership/fencing.
+Это не живая приёмка голоса. Для восстановления звонка требуется подключить созданное хранилище к AI.
+
 [Логирование активного runtime](audits/2026-11-12-runtime-logging.md): добавлены причины отказов провайдеров,
 безопасные stack frames, trace_id между AI/backend, ID урока/эпизода, журнал streaming TTS,
 ошибки S3/Telegram/DB/jobs и диагностика Mini App. Локально: Python 555 passed; Kotlin 281 passed,
 fatJar/detekt и Node syntax check. Метрики не менялись. Пользователь разрешил push и redeploy обоих DEV-сервисов;
-поставка этой версии и живая проверка новых логов пока ожидаются. Команды поиска — в operations.md.
+поставка cb3c626 подтверждена run 43205973385 (AI/backend/readiness success); живая проверка новых логов отдельно. Команды поиска — в operations.md.
 
 DEV диагностика 2026-11-12: на приветствие модель вызвала create_trial_booking, проверка отклонила
 invalid_evidence; бронь не создавалась. Диагностика поставлена: run 43199872157 success.
@@ -31,9 +50,10 @@ invalid_evidence; бронь не создавалась. Диагностика
 Исправлен CI run 43196289189: TrialIntegrationTest перенесён из обычного `:server:test` в
 `:server:foundationIntegrationTest`. Локально проверены оба набора: unit без TEST_POSTGRES_URL, integration с отдельной базой.
 
-SP-02: **локальная реализация завершена; приложения SP-02 не поставлены на DEV/PROD**.
-На DEV отдельно настроен [HTTPS edge Mini App](integrations/operations.md#dev-https-edge-sp-02--проверено-2026-11-11):
-сертификат проверен, маршрут до AI доступен; текущий AI отвечает 401. End-to-end WebSocket/звонок ещё не проверены.
+SP-02: **код присутствует в DEV cb3c626; голосовая приёмка не пройдена, S3 ещё не подключён к AI**.
+[HTTPS edge Mini App](integrations/operations.md#dev-https-edge-sp-02--проверено-2026-11-11) работает;
+пользовательский WebSocket дошёл до STT и записи текста, затем упал на архиве аудио. PROD не поставлен этой задачей.
+Ниже — исторические локальные проверки SP-02 до текущего исправления:
 Python **544 passed** (1 dependency deprecation warning); Kotlin **277 unit + 26 PostgreSQL integration**, без failed/skipped;
 `:server:buildFatJar` и `detekt` прошли. Межсервисные Python→Ktor→PostgreSQL проверки: **6 passed**.
 Проверено на отдельной локальной PostgreSQL 14.10 с 39 миграциями; Node syntax checks прошли.

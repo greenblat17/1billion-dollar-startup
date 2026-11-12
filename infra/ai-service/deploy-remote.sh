@@ -16,6 +16,16 @@ if ! grep -q '^FOUNDATION_BACKEND_URL=.' "$APP/.env"; then
 fi
 chmod 600 "$APP/.env"
 
+# Local DEV S3 is on an isolated network. Validate it before replacing AI.
+STORAGE_NETWORK_ARGS=()
+if grep -qx 'TRIAL_S3_ENDPOINT=http://speaky-storage:8333' "$APP/.env"; then
+  if ! docker network inspect speaky-storage >/dev/null 2>&1; then
+    echo "Local trial storage network is missing; existing AI container preserved" >&2
+    exit 1
+  fi
+  STORAGE_NETWORK_ARGS=(--network speaky-storage)
+fi
+
 cd "$APP"
 BUILD=$(mktemp -d)
 cp "$APP/Dockerfile" "$APP/requirements.txt" "$BUILD/"
@@ -59,6 +69,7 @@ fi
 docker run -d --name ai-service --restart unless-stopped \
   --log-driver local --log-opt max-size=10m --log-opt max-file=3 \
   --network "$NETWORK" \
+  "${STORAGE_NETWORK_ARGS[@]}" \
   -p "${PUBLISH_PORT}:8090" \
   --env-file "$APP/.env" \
   "${BACKEND_TLS_ARGS[@]}" \

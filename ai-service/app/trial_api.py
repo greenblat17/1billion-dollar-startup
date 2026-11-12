@@ -97,6 +97,8 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                 request = json.loads(raw)
                 trace_id = identifier(request.get('attemptId')) or trace_id
                 with diagnostic_context(trace_id=trace_id):
+                    stage = 'audio_credentials'
+                    await asyncio.wait_for(audio_store.check_credentials(), 10)
                     stage = 'admission'
                     admitted = await backend._request('POST', '/trial/access', '', json={
                         'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
@@ -119,7 +121,8 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                                  lesson_id=admitted['lesson']['id'] if admitted else None,
                                  call_session_id=admitted.get('callSessionId') if admitted else None)
                 with suppress(Exception):
-                    await socket.send_json({'type': 'error', 'code': 'connection_lost', 'errorId': error_id})
+                    code = 'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost'
+                    await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
             finally:
                 with suppress(Exception):
                     await socket.close()

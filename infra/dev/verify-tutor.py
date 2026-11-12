@@ -64,8 +64,31 @@ except urllib.error.HTTPError as exc:
 else:
     raise AssertionError('backend accepted a request without execution scope')
 print('ai_to_backend_tls_and_service_auth=passed')
+import asyncio
+import boto3
+from botocore.config import Config
+from app.trial_audio import TrialAudioStore
+assert os.environ.get('GROQ_API_KEY'), 'trial_stt_not_configured'
+assert os.environ.get('TRIAL_AUDIO_BUCKET'), 'trial_audio_bucket_not_configured'
+store = TrialAudioStore(os.environ['TRIAL_AUDIO_BUCKET'], os.environ.get('TRIAL_S3_ENDPOINT'))
+print('trial_audio_readiness=checking_credentials', flush=True)
+asyncio.run(store.check_credentials())
+# Use the version-list permission already required by audio erasure.
+s3 = boto3.client('s3', endpoint_url=os.environ.get('TRIAL_S3_ENDPOINT') or None,
+                  config=Config(connect_timeout=5, read_timeout=5, retries={'max_attempts': 0}))
+print('trial_audio_readiness=checking_bucket_version_access', flush=True)
+s3.list_object_versions(Bucket=os.environ['TRIAL_AUDIO_BUCKET'], Prefix='trial/', MaxKeys=1)
+print('trial_audio_credentials_and_bucket_read=passed; write_and_erasure=unverified')
 """
-        subprocess.run(['docker', 'exec', '-i', container, 'python', '-'], input=probe.encode(), check=True)
+        result = subprocess.run(['docker', 'exec', '-i', container, 'python', '-'], input=probe.encode(),
+                                capture_output=True, timeout=60)
+        # SDK tracebacks can contain endpoints; expose only the controlled success markers.
+        for line in result.stdout.decode().splitlines():
+            if line.startswith(('ai_to_backend_tls_and_service_auth=', 'trial_audio_credentials_and_bucket_read=',
+                                'trial_audio_readiness=')):
+                print(line)
+        if result.returncode:
+            raise RuntimeError('ai_backend_or_trial_readiness_failed')
         return
     tls = ssl.create_default_context(cafile='/opt/speaking-coach/tls.crt')
     tls.check_hostname = False  # Trust the deployed certificate itself for the loopback health probe.
