@@ -593,59 +593,67 @@ Migration suite не пропускается молча при отсутств
 
 ## SP-02: Mini App и пробный голосовой урок
 
-Trial включён в коде, отдельного feature flag нет. Текущая поставка и ограничения — в [статусе](../status.md).
-На DEV отдельно установлен [SeaweedFS и приватный audio bucket](../../infra/storage/README.md);
-подключение созданной учётной записи к AI env/сети ещё не выполнено. Публичных S3-портов нет.
+Trial включён без feature flag. Голосовой путь — OpenAI Realtime; текстовый tutor/analyzer остаются на своих моделях.
+Текущая поставка — в [статусе](../status.md). Существующий DEV SeaweedFS/bucket/сеть не пересоздавать.
 
-| Компонент | Настройка |
+| Компонент | Конфигурация |
 | --- | --- |
-| Ktor | `MINI_APP_URL=https://<public-host>/miniapp`; существующие Telegram bot token, AI URL/internal token и PostgreSQL |
-| AI | Существующие `GROQ_API_KEY`, `GROQ_BASE_URL`, `STT_MODEL`; `TRIAL_AUDIO_BUCKET` |
-| Kora | Существующие `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `KORA_MODEL`, `KORA_TTS_MODEL`, `KORA_TTS_VOICE`; голос не подменяется fallback |
-| Хранилище | AWS credential chain и region; опциональный `TRIAL_S3_ENDPOINT` для совместимого приватного S3 |
-| HTTPS edge | Пример [nginx](../../infra/miniapp/nginx.conf.example), только `/miniapp` и его подмаршруты |
-| Retention | Дополнительный [S3 lifecycle](../../infra/miniapp/audio-lifecycle.json), prefix `trial/` |
+| Ktor | `MINI_APP_URL=https://<host>/miniapp`, прежние Telegram/internal token/PostgreSQL |
+| AI speech-to-speech | `OPENAI_REALTIME_API_KEY`: серверный OpenAI API project key; никогда не frontend env |
+| Модель/голос | `TRIAL_REALTIME_MODEL=gpt-realtime-2.1`, `TRIAL_REALTIME_VOICE=marin` — согласованный голос |
+| Text/analyzer | Прежние `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `KORA_MODEL`; это отдельный клиент |
+| Архив | Прежние AWS credential chain/region, `TRIAL_AUDIO_BUCKET`, `TRIAL_S3_ENDPOINT` |
+| DEV storage | `speaky-trial-audio-dev`, `http://speaky-storage:8333`, Docker network `speaky-storage` |
 
-Текущие defaults TTS: `google/gemini-3.1-flash-tts-preview`, `Leda`. Сохраняйте установленные Kora overrides.
-Наличие ключа не доказывает доступность модели и её потокового PCM-ответа. Настоящие провайдеры здесь не вызывались.
+Realtime соединяется только с `wss://api.openai.com/v1/realtime`; `OPENAI_BASE_URL` не переиспользуется.
+Groq/AssemblyAI, Kora TTS и `STT_MODEL` не участвуют в новом trial. Входная транскрипция OpenAI
+`gpt-4o-mini-transcribe` работает параллельно ради истории; она не стоит перед генерацией ответа.
+ChatGPT subscription не заменяет API key и разрешение расходов. Наличие ключа не доказывает доступ к модели.
 
-Порядок включения оператором:
+### DEV-переход
 
-1. Завершить согласованный SP-00 cutover и проверить оба shipping roots. Старые calls/Redis не подключать.
-2. Применить штатным запуском Flyway V39 на подготовленной базе. Не менять применённые миграции.
-3. Подготовить приватный bucket. AI нужны PutObject/GetObject/DeleteObject/DeleteObjectVersion и ListBucketVersions
-   только для выбранного bucket/prefix. Запретить публичный доступ. Проверьте поддержку version-list API у S3-совместимого сервиса.
-4. Настроить HTTPS origin и WebSocket proxy; сохранить закрытыми `/internal/*` и прямой AI port.
-   Настроить домен Telegram Mini App в BotFather. Это отдельное операторское действие.
-5. Установить переменные одновременно на AI/backend. `MINI_APP_URL` включает кнопки и TrialWorker;
-   Voice admission и инструменты расписания всегда подключены. Без STT key или audio bucket звонок возвращает `trial_not_configured`.
-6. Проверить реальный Telegram путь самостоятельно по матрице [плана](../plans/2026-11-11-sp02-trial-lesson.md#матрица-приёмки).
-   Проверки используют реальные модели и могут расходовать средства. Локальные тесты этого не делают.
+1. Получить отдельное разрешение на commit/push/DEV и платные вызовы. При необходимости принять новый ключ через secrets skill.
+   Не читать и не переносить существующие секреты в чат; не менять SeaweedFS credentials без причины.
+2. Установить realtime env в AI через существующий защищённый механизм. Backend schema не меняется;
+   новый backend нужен для пагинации аудиоархива. `verify-tutor.py` проверяет наличие ключа и S3 list versions без вызова модели.
+3. Поставить backend, AI и `mini-app` согласованной ревизии. Клиент передаёт `protocol=realtime-pcm-v1`;
+   старый frontend отклоняется до admission. В окне смешанных версий звонки не принимать; открыть Mini App заново.
+4. Проверить HTTPS/WSS edge, readiness и release SHA. Зелёная readiness не проверяет голос.
+5. Только после разрешения бюджета выполнить матрицу приёмки SP-02. При 402/quota stop не повторять платные запросы.
+6. Откат требует согласованной предыдущей AI/frontend/backend ревизии; автоматического fallback на старый голос нет.
 
-Старая placeholder-запись не становится executable сама: явно перенесите её через чат или создайте новую встречу.
-Для входа нужна согласованная executable trial и подписанное `initData`; первый вход доступен в её временном интервале.
-После начала урока reconnect доступен до завершения. Кнопка завершения останавливает микрофон и возвращает в Telegram.
-Первые 14 дней предварительного расписания отображаются как неподключаемые встречи. Demo-оплата не включает подписку.
+### Архив и восстановление
 
-Аудио сохраняется сегментами PCM16 mono, user 16 kHz / assistant 24 kHz. API `audio` требует Telegram initData
-и owned lesson; выдаёт ссылки на 60 секунд. Playback metadata отличает сгенерированное аудио от подтверждённого воспроизведения.
-Фоновая очистка раз в минуту удаляет записи старше 30 дней и все версии объектов; сбой не отмечается как успешное удаление.
-Lifecycle — дополнительная страховка, не замена cleanup и проверке прав удаления. Сохраняемые учебные выводы отделены от raw audio.
+PCM16 mono 24 kHz в обе стороны. `TrialJournal` резервирует metadata, сохраняет private S3 object,
+подтверждает stored receipt; только после этого relay пересылает аудио. Вход — batches по 100 ms,
+выход — provider deltas. Это повышает количество S3/DB операций и добавляет latency: измерить на DEV.
+Не обещать запись потерянных до сервера данных или ещё не подтверждённых буферов при аварии.
+S3 backup и lifecycle DEV ещё требуют операторской проверки; запись объектов сама по себе не доказывает disaster recovery.
 
-Для локальной проверки: Python 3.12+ из `ai-service/` — `python -m pytest`; из `cmp/` —
-`GRADLE_USER_HOME=$HOME/.gradle ./gradlew :server:test :server:buildFatJar detekt` с `TEST_POSTGRES_URL` отдельной тестовой базы.
-`scripts/test-foundation.sh` запускает настоящий Ktor HTTP harness и Python integration; задайте `FOUNDATION_TEST_PYTHON`
-и `SP00_TEST_PORT`, если стандартный Python/порт занят. Используйте тестовую базу, не DEV/PROD.
-В SP-02 проверено: 539 Python, 284 Kotlin (без skipped), 6 HTTP integration; buildFatJar/detekt и JS syntax прошли.
+`POST /miniapp/api` action=`audio`, `initData`, `lessonId`, optional `cursor` возвращает до 200 objects
+и `nextCursor`. Читать страницы до null; старый лимит 2000 больше не обрезает архив.
+Сортировать воспроизведение по call_session_id/direction/sequence, внутри реплики учитывать offsetBytes.
+Ссылки действуют 60 секунд; доступ только владельцу. `playbackComplete`/`playedMs` — ограниченный отчёт клиента,
+не доказательство человеческого восприятия. Не проигранные окончания не попадают в историю как услышанные.
+Фоновая очистка удаляет аудио/версии через 30 дней; [S3 lifecycle](../../infra/miniapp/audio-lifecycle.json) — дополнительная страховка.
 
-Логи `trial_metric first_audio_ms` показывают серверное время до первого отправленного звука, а `trial_client_metric join`
-— клиентское подключение. Они не заменяют измерение реально слышимой задержки, эха и ложных перебиваний.
-Для приёмки пользователь проверяет длинные паузы, динамик/наушники, mute, End Call, background, reconnect,
-устные выводы и комфорт, затем Telegram-продолжение и demo-оплату. Живые результаты пока отсутствуют.
+Reconnect получает новый Call Session/provider session в том же Lesson. ContextBuilder переносит только сохранённые события.
+Natural goodbye требует server tool + архив + audio.done/response.done + playback report + входные транскрипты.
+End button не равен technical_disconnect; оба сохраняют возможность продолжить in_progress Lesson.
+50 минут — защитный лимит одного транспорта, не отметка об успешном уроке. Модель ориентируется на trial около 15 минут.
 
-STT SP-02 переиспользует `GroqSpeechToText` и прежние настройки Groq. `GroqTrialSTT` — только адаптер
-входящего PCM: локальный WebRTC VAD, ограниченные WAV-фрагменты и вызов существующего STT.
-`DEEPGRAM_API_KEY` для trial не требуется. Kora LLM/TTS остаются прежними. Новые STT credentials не нужны.
+### Проверки и наблюдаемость
+
+Из `ai-service/`: `python -m pytest`. Из `mini-app/`: `npm test && npm run build` (Node 22+).
+Из `cmp/`: `GRADLE_USER_HOME=$HOME/.gradle ./gradlew :server:test :server:buildFatJar detekt`.
+Отдельный PostgreSQL и `scripts/test-foundation.sh` проверяют ownership/fencing/retention/pagination и HTTP boundary.
+
+`trial_realtime_response` содержит status и token usage/details, `trial_realtime_first_audio` — серверную оценку задержки,
+`trial_client_metric first_audio` — от получения turn-complete до запланированного browser playback, не акустический замер.
+Provider errors проходят безопасный formatter; сообщения/ключи/полные транскрипты не журналируются.
+Собирать usage всех responses, включая cancelled, и отдельный расход транскрипции. Стоимость trial пока не измерена.
+Живая приёмка: несколько RU/EN обменов, паузы, настоящий barge-in, динамик/наушники, mute/reconnect/end,
+контекст в Telegram, полный архив, p50/p95 первого слышимого звука и стоимость примерно 15 минут.
 
 ### DEV HTTPS edge SP-02 — проверено 2026-11-11
 

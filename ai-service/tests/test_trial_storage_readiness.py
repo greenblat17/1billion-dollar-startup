@@ -39,10 +39,10 @@ def test_missing_s3_credentials_do_not_open_episode_or_call_paid_providers(caplo
     backend = SimpleNamespace(_request=AsyncMock(), command=AsyncMock())
     model = SimpleNamespace(complete_json=AsyncMock())
     store = SimpleNamespace(check_credentials=AsyncMock(side_effect=NoCredentialsError()), put=AsyncMock())
-    install_trial_api(app, backend, None, model, None, SimpleNamespace(), store, speech=object())
+    install_trial_api(app, backend, None, model, None, SimpleNamespace(openai_realtime_api_key='test'), store, speech=object())
     with TestClient(app) as client:
         with client.websocket_connect('/miniapp/voice') as socket:
-            socket.send_json({'initData': 'not-logged', 'lessonId': 'same-lesson', 'attemptId': 'new-attempt'})
+            socket.send_json({'initData': 'not-logged', 'lessonId': 'same-lesson', 'attemptId': 'new-attempt', 'protocol': 'realtime-pcm-v1'})
             result = socket.receive_json()
     assert result['type'] == 'error'
     assert result['code'] == 'trial_not_configured'

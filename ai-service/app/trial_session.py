@@ -12,11 +12,10 @@ from app.trial_policy import VOICE_POLICY
 from app.diagnostics import diagnostic_context, event as log_event
 
 
-def timestamp():
-    return datetime.now(timezone.utc).isoformat()
+from app.trial_journal import TrialJournal
 
 
-class TrialSession:
+class TrialSession(TrialJournal):
     def __init__(self, socket, backend, contexts, model, stt, tts, audio_store, admitted):
         self.socket, self.backend, self.contexts, self.model = socket, backend, contexts, model
         self.stt, self.tts, self.store = stt, tts, audio_store
@@ -37,29 +36,6 @@ class TrialSession:
         self.generation = 0
         self.user_archive = asyncio.Queue(maxsize=12)
 
-    async def command(self, action, **args):
-        return await self.backend.command(self.scope, uuid4().hex, action,
-                                          dict(lessonId=self.lesson_id, callSessionId=self.episode, **args))
-
-    async def record(self, direction, audio, metadata=None):
-        if not audio:
-            return
-        sequence = self.audio_sequence[direction]
-        self.audio_sequence[direction] += 1
-        receipt = await self.command('voice.audio', direction=direction, sequence=sequence,
-                                     metadata={'sampleRate': 16000 if direction == 'user' else 24000, 'encoding': 'pcm_s16le', **(metadata or {})})
-        key = receipt['objectKey']
-        try:
-            await asyncio.wait_for(self.store.put(key, bytes(audio)), 30)
-            await self.command('voice.audio_stored', objectKey=key)
-        except BaseException as error:
-            log_event('audio_archive_failed', error=error, stage='store', direction=direction)
-            try:
-                await self.store.delete(key)
-            except Exception as cleanup_error:
-                log_event('audio_archive_failed', error=cleanup_error, stage='rollback')
-            raise
-
     async def archive_input(self):
         while True:
             data = await self.user_archive.get()
@@ -73,10 +49,6 @@ class TrialSession:
         if self.user_audio:
             await self.record('user', self.user_audio)
             self.user_audio.clear()
-
-    async def append(self, role, text, source=None):
-        return await self.command('voice.append', sourceId=source or uuid4().hex, role=role,
-                                  body=text[:12000], occurredAt=timestamp())
 
     async def interrupt(self, reason='speech_start', *, notify=True):
         log_event('trial_interrupt', reason=reason, generation=self.generation,

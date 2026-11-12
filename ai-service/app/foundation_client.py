@@ -8,7 +8,7 @@ import httpx
 from app.diagnostics import context_fields, diagnostic_context, event
 
 
-@dataclass(frozen=True)
+@dataclass
 class BackendFailure(Exception):
     code: str
     status: int

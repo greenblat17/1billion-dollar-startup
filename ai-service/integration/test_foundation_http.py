@@ -203,7 +203,7 @@ async def test_shipping_python_app_uses_real_backend_scope_and_native_tools(monk
         subject, request = str(time.time_ns()), uuid4().hex
         text = await actor(http, root, token, subject, 'text', requestId=request, text='relocation', occurredAt=now())
         model = GoalModel()
-        monkeypatch.setattr('app.speaky_main.TutorModel', lambda _: model)
+        monkeypatch.setattr('app.speaky_main.TrialTutorModel', lambda _: model)
         settings = replace(Settings.from_env(), foundation_backend_url=root, ai_internal_token=token,
                            openai_api_key='local-test', redis_url=None)
         app = create_app(settings)

@@ -104,52 +104,6 @@ async def test_interruption_reaches_browser_before_slow_archive_finishes():
     await interruption
 
 
-def test_websocket_routes_audio_and_finishes_after_ack_without_real_providers(monkeypatch):
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from app.trial_api import install_trial_api
-    import app.trial_api as api
-
-    class STT:
-        def __init__(self, key): pass
-        async def __aenter__(self): return self
-        async def __aexit__(self, *args): pass
-        async def send(self, data): pass
-        async def keepalive(self): pass
-        async def events(self):
-            await asyncio.Event().wait()
-            yield {}
-    class TTS:
-        def __init__(self, *args): pass
-        async def stream(self, text): yield b'\x00\x00' * 100
-    monkeypatch.setattr(api, 'GroqTrialSTT', STT)
-    monkeypatch.setattr(api, 'KoraTrialTTS', TTS)
-    backend = SimpleNamespace(_request=AsyncMock(return_value={
-        'scope': 'scoped', 'callSessionId': 'episode',
-        'lesson': {'id': 'lesson', 'starts_at': '2026-11-11T10:00:00+00:00', 'duration_minutes': 15}}),
-        command=AsyncMock(return_value={'objectKey': 'trial/test.pcm'}))
-    context = SimpleNamespace(data={}, history=[])
-    model = SimpleNamespace(complete_json=AsyncMock(return_value='{"reply":"До встречи!","wait":false,"finish":true}'))
-    app = FastAPI()
-    settings = SimpleNamespace(kora_tts_model='kora', kora_tts_voice='Leda')
-    install_trial_api(app, backend, SimpleNamespace(build=AsyncMock(return_value=context)), model, None,
-                      settings, SimpleNamespace(put=AsyncMock(), delete=AsyncMock(), check_credentials=AsyncMock()), speech=object())
-    with TestClient(app) as client:
-        assert client.get('/miniapp').status_code == 404
-        assert client.get('/miniapp/assets/app.js').status_code == 404
-        with client.websocket_connect('/miniapp/voice') as socket:
-            socket.send_json({'initData': 'signed', 'lessonId': 'lesson', 'attemptId': 'attempt'})
-            assert socket.receive_json()['type'] == 'connected'
-            start = socket.receive_json()
-            assert start['type'] == 'audio_start'
-            assert socket.receive_bytes() == b'\x00\x00' * 100
-            assert socket.receive_json()['type'] == 'audio_end'
-            assert not any(call.args[2] == 'voice.end' for call in backend.command.call_args_list)
-            socket.send_json({'type': 'played', 'id': start['id'], 'complete': True, 'playedMs': 20})
-            assert socket.receive_json()['type'] == 'finished'
-    assert any(call.args[2] == 'voice.end' and call.args[3]['reason'] == 'natural_goodbye' for call in backend.command.call_args_list)
-
-
 def test_unconfigured_trial_cannot_start_paid_providers():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

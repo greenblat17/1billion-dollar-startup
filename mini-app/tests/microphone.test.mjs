@@ -20,7 +20,7 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  await vm.runInContext('connect()',context);
  assert.equal(track.enabled,true);
  assert.equal(element('mute').disabled,true);
- await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected'})});
+ await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
  assert.equal(element('mute').disabled,false);
  assert.equal(element('mic-status').textContent,'Микрофон включён — можно говорить');
  assert.equal(element('mic-action').textContent,'Выключить');
@@ -30,7 +30,7 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(element('mic-action').textContent,'Включить');
  assert.equal(element('mic-status').textContent,'Микрофон выключен — Саша вас не слышит');
  await vm.runInContext('connect()',context);
- await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected'})});
+ await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
  assert.equal(track.enabled,true);
  assert.equal(element('mute')['aria-pressed'],'false');
  assert.equal(element('mic-action').textContent,'Выключить');

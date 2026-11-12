@@ -25,7 +25,6 @@ from app.trial_policy import TrialPlanner, TrialAnalyzer
 from app.trial_audio import TrialAudioStore
 from app.trial_api import install_trial_api
 from app.trial_tools import TrialTutorModel
-from app.stt import GroqSpeechToText
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -41,9 +40,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backend_tls.load_verify_locations(cafile=settings.foundation_backend_ca_file)
     http = httpx.AsyncClient(timeout=30, verify=backend_tls)
     model_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0)
-    groq_client = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url, max_retries=0) if settings.groq_api_key else None
-    speech = GroqSpeechToText(groq_client, settings.stt_model, settings.ffmpeg_bin,
-                             requires_wav=settings.stt_model.startswith("assemblyai/")) if groq_client else None
     backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, http)
     contexts = ContextBuilder(backend)
     voice_model = OpenAiChatModel(model_client, settings.kora_model)
@@ -65,8 +61,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     await cleanup
             await http.aclose()
             await model_client.close()
-            if groq_client:
-                await groq_client.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
@@ -91,5 +85,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {'status': 'ok', 'runtime': 'speaky'}
 
     install_foundation_api(app, tutor, learning)
-    install_trial_api(app, backend, contexts, voice_model, model_client, settings, audio_store, speech)
+    install_trial_api(app, backend, contexts, voice_model, model_client, settings, audio_store)
     return app

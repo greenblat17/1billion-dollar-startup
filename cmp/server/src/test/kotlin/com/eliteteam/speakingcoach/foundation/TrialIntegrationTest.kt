@@ -121,6 +121,31 @@ class TrialIntegrationTest {
         }
     }
 
+    @Test fun audioArchivePagesBeyondLegacyLimitAndKeepsOwnership() = runTest {
+        store { s, clock ->
+            val l = lesson(s, "100", clock.value)
+            val a = open(s, "100", l.text("id"), clock.value)
+            s.database.transaction { c, now ->
+                c.update("INSERT INTO trial_audio(object_key,student_id,lesson_id,call_session_id,data_epoch,direction,sequence,created_at,expires_at,status) SELECT 'trial/page/' || n,?,?,?,1,'user',n,?,?,'stored' FROM generate_series(0,2104) AS n",
+                    l.text("student_id"), l.text("id"), a.text("callSessionId"), now, now.plusSeconds(3600))
+            }
+            val access = TrialAccess(s)
+            val keys = mutableSetOf<String>()
+            var cursor: String? = null
+            do {
+                val page = access.access(json("action" to "audio", "initData" to auth("100", clock.value), "lessonId" to l.text("id"), "cursor" to cursor), bot)
+                val objects = page["objects"]!!.jsonArray
+                assertTrue(objects.size <= 200)
+                objects.forEach { assertTrue(keys.add(it.jsonObject.text("object_key"))) }
+                cursor = page.optionalText("nextCursor")
+            } while (cursor != null)
+            assertEquals(2105, keys.size)
+            assertEquals("not_owned", assertFailsWith<FoundationFailure> {
+                access.access(json("action" to "audio", "initData" to auth("200", clock.value), "lessonId" to l.text("id"), "cursor" to "trial/page/0"), bot)
+            }.code)
+        }
+    }
+
     @Test fun audioExpiryAndDeletionRevokeAccessWithoutExtendingDeadline() = runTest {
         store { s, clock ->
             val l = lesson(s, "100", clock.value)

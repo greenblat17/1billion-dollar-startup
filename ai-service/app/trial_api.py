@@ -8,8 +8,7 @@ import json
 from fastapi import Header, HTTPException, Request, WebSocket
 
 from app.foundation_client import BackendFailure
-from app.trial_providers import GroqTrialSTT, KoraTrialTTS
-from app.trial_session import TrialSession
+from app.trial_realtime import RealtimeTrialSession
 
 def install_trial_api(app, backend, contexts, model, client, settings, audio_store, speech=None):
     @app.post('/miniapp/api')
@@ -71,7 +70,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             admitted = None
             stage = 'authenticate'
             try:
-                if speech is None or audio_store is None:
+                if not getattr(settings, 'openai_realtime_api_key', None) or audio_store is None:
                     await socket.send_json({'type': 'error', 'code': 'trial_not_configured'})
                     return
                 # Auth is the first frame, never a query string or a loggable URL.
@@ -81,6 +80,9 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                 request = json.loads(raw)
                 trace_id = identifier(request.get('attemptId')) or trace_id
                 with diagnostic_context(trace_id=trace_id):
+                    if request.get('protocol') != 'realtime-pcm-v1':
+                        await socket.send_json({'type': 'error', 'code': 'client_update_required'})
+                        return
                     stage = 'audio_credentials'
                     await asyncio.wait_for(audio_store.check_credentials(), 10)
                     stage = 'admission'
@@ -88,9 +90,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                         'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
                         'attemptId': request['attemptId'],
                     })
-                    session = TrialSession(socket, backend, contexts, model,
-                        GroqTrialSTT(speech),
-                        KoraTrialTTS(client, settings.kora_tts_model, settings.kora_tts_voice), audio_store, admitted)
+                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings)
                     stage = 'session'
                     with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
                         await session.run()

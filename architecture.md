@@ -84,7 +84,7 @@ LessonVoice получает общий контекст только после
 
 Production lesson analyzer/planner, календарный materializer и reminder sender пока не подключены.
 Их контракты и test adapters проверены; отсутствующий production handler отвечает unavailable.
-Mini App, настоящий voice transport, полный учебный цикл и пользовательская оплата остаются следующими этапами.
+Mini App и trial voice transport реализованы в SP-02 ниже; полный учебный цикл и настоящая оплата остаются следующими этапами.
 
 ## Внутренние API и доверие
 
@@ -155,11 +155,41 @@ Mini App — самостоятельный frontend в `mini-app/src`, со с�
 защищает время/ownership/epoch и единственный активный Call Session. Lease обновляется heartbeat;
 отключение освобождает транспорт, но in_progress Lesson остаётся доступным для возврата без временного окна.
 
-`TrialSession` соединяет существующий GroqSpeechToText (файловый STT), существующую Kora LLM и Kora TTS через OpenRouter.
-PCM16 mono: вход 16 kHz, выход 24 kHz. Web Audio/AudioWorklet управляет микрофоном и очередью воспроизведения.
-LLM выбирает продолжение/ожидание/естественное завершение; VAD endpoint сам не задаёт учебную реакцию.
-Подтверждённая локальным VAD речевая активность отменяет генерацию и воспроизведение. Браузер подтверждает услышанные предложения;
-прерванные предложения не записываются как полностью услышанные. Завершение прощания — после playback ack.
+`RealtimeTrialSession` в `trial_realtime.py` соединяет браузер с OpenAI Realtime `gpt-realtime-2.1`, голос Marin.
+Педагогика и характер Kora H остаются в `REALTIME_VOICE_POLICY`; ContextBuilder передаёт общую память
+и историю прежних эпизодов. Старые `TrialSession`/STT/TTS сохранены для регрессий, но shipping root их не создаёт.
+
+```mermaid
+flowchart LR
+  M[Mini App / Web Audio] <-->|WSS PCM 24 kHz| A[AI Realtime relay]
+  A <-->|WSS speech-to-speech| O[OpenAI Realtime]
+  A -->|archive before forwarding| S[Private S3 / 30 days]
+  A <-->|scope / events / lease| K[Ktor foundation]
+  K --> P[(PostgreSQL)]
+```
+
+WebRTC рассмотрен первым. Direct browser→provider не выбран: серверный архив обоих потоков через sideband
+не подтверждён, а browser upload не гарантирует сохранность при закрытии WebView. Relay получает оба потока,
+сохраняет PCM в S3 и подтверждает metadata в PostgreSQL **до** пересылки. Вход группируется по 100 ms;
+выход сохраняется по provider delta. Цена решения — дополнительные RTT и много небольших объектов/операций.
+Это проверяемый компромисс, не обещание более низкой latency. Сбой архива закрывает эпизод как технический.
+После crash возможны reserved-объекты и потеря ещё не переданных буферов; уже пересланное аудио имеет stored receipt.
+Backup/долговечность диска остаются отдельными эксплуатационными гарантиями.
+
+`semantic_vad` с `eagerness=low` определяет ход. Provider speech-start останавливает browser playback;
+сервер ждёт bounded playback report и подтверждение `conversation.item.truncate` перед новым ответом.
+При отсутствии отчёта история консервативна: truncate до 0, без полного текста. Отчёт клиента не доказывает,
+что человек услышал звук. Полный assistant transcript сохраняется только после audio.done и полного playback report;
+для частичного звука сохраняется маркер неопределённости. Входная ASR транскрипция идёт параллельно и нужна
+для history/analyzer, не для генерации ответа. Provider event_id/item_id и tool call_id дедуплицируются.
+
+Модель получает только `finish_after_reply`: подготовить последнюю реплику. Урок завершается после её архива,
+provider response.done, playback report и ожидаемых входных транскриптов. Клиент не получает ключ, scope,
+право изменять provider session или выполнять tools. End button и disconnect различаются; heartbeat проверяет
+серверный lease/epoch. Reconnect открывает новый provider session в прежнем Lesson с сохранённым контекстом.
+Mute завершает уже начатую фразу; микрофон включён при каждом подключении. Лимит транспорта 50 минут
+освобождает ресурсы как technical_disconnect, не отмечает урок пройденным. Плановое завершение около 15 минут —
+инструкция модели и мягкое напоминание; обычный урок не обрывается таймером.
 
 `TrialCommands` хранит события в общей history, завершает урок идемпотентно, ставит evaluation и notice.
 `TrialPlanner` делает briefing, `TrialAnalyzer` — качественные наблюдения с источниками, без roadmap/числового экзамена.

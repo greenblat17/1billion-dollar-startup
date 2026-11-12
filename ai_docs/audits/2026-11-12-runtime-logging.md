@@ -90,3 +90,13 @@ Mock-тесты доказывают заполнение полей, защит
 ## Границы аудита
 
 Просмотрены shipping roots, text tutor/tools, голосовой trial, frontend, фоновые jobs, Telegram adapter, HTTP/DB boundaries, logging helpers и конфигурация доставки. Legacy исходники рассматривались только для сравнения wiring, не как активный runtime. PROD не проверялся. В ходе аудита ключи и конфигурация DEV не менялись; платных запросов и Telegram-сообщений агент не делал. Таблица фиксирует исходные пробелы; локальный результат и границы проверки указаны в разделе реализации.
+
+
+## Realtime relay
+
+Новый `trial_realtime.py` сохраняет trace/lesson/episode correlation и bounded client audio-state.
+События: `trial_realtime_response` (status, token usage/details), `trial_realtime_transcription` (usage),
+`trial_realtime_first_audio`, `trial_interrupt`, `trial_session_failed`, `audio_archive_failed`.
+HTTP handshake errors и provider error events проходят общий sanitizer; 402/429 не ретраятся.
+Ни ключ, ни scope, ни SDP/аудио, ни полный transcript не включаются в события.
+Поля playback отражают отчёт браузера, не доказанную слышимость. Доставка новых событий в DEV Loki ещё не проверена.

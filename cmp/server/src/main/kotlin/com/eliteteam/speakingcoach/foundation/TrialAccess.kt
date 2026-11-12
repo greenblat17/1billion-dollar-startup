@@ -18,7 +18,10 @@ internal class TrialAccess(private val service: FoundationService) {
                     "demoReceipts" to JsonArray(c.documents("SELECT to_jsonb(r) FROM trial_demo_receipt r WHERE student_id=?", student)))
                 "audio" -> {
                     val lesson = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
-                    json("objects" to JsonArray(c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND data_epoch=? AND status='stored' AND expires_at>? ORDER BY created_at,sequence LIMIT 2000", student, lesson.text("id"), epoch, now)))
+                    val cursor = args.optionalText("cursor") ?: ""
+                    if (cursor.length > 512) reject("invalid_cursor")
+                    val objects = c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND data_epoch=? AND status='stored' AND expires_at>? AND object_key>? ORDER BY object_key LIMIT 201", student, lesson.text("id"), epoch, now, cursor)
+                    json("objects" to JsonArray(objects.take(200)), "nextCursor" to if (objects.size > 200) objects[199].text("object_key") else null)
                 }
                 "demo_pay" -> {
                     val schedule = c.document("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? AND id=?", student, args.text("scheduleId")) ?: reject("not_owned")

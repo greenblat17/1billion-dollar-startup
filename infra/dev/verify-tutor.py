@@ -68,7 +68,8 @@ import asyncio
 import boto3
 from botocore.config import Config
 from app.trial_audio import TrialAudioStore
-assert os.environ.get('GROQ_API_KEY'), 'trial_stt_not_configured'
+assert os.environ.get('OPENAI_REALTIME_API_KEY'), 'trial_realtime_not_configured'
+assert os.environ.get('TRIAL_REALTIME_VOICE', 'marin') == 'marin', 'trial_voice_not_approved'
 assert os.environ.get('TRIAL_AUDIO_BUCKET'), 'trial_audio_bucket_not_configured'
 store = TrialAudioStore(os.environ['TRIAL_AUDIO_BUCKET'], os.environ.get('TRIAL_S3_ENDPOINT'))
 print('trial_audio_readiness=checking_credentials', flush=True)
