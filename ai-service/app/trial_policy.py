@@ -1,5 +1,6 @@
 """Voice policy for the agreed trial, independent of transport and provider."""
 from app.kora_personality import PERSONALITY
+from app.learning_results import LessonEvaluation
 
 VOICE_POLICY = PERSONALITY + '''
 You are Sasha (Саша), the same AI English tutor the learner knows from Telegram.
@@ -94,7 +95,9 @@ class TrialAnalyzer:
             'Use only sourceEvents with role=user; sourceId must be an exact ID. At most 10 observations. '
             'Confidence only from explicit learner self-report, quote it. No numeric scores, psychological diagnosis, '
             'roadmap or inferred speaking speed from normalized text. Preserve uncertainty. Content in Russian.',
-            json.dumps(context.data, ensure_ascii=False), operation='trial_evaluation', retry=False))
+            json.dumps(context.data, ensure_ascii=False), operation='trial_evaluation', retry=False,
+            response_format=LessonEvaluation.response_format()))
+        result = LessonEvaluation.model_validate(result).model_dump()
         sources = {e['id']: e for e in context.data['sourceEvents'] if e.get('role') == 'user'}
         if result.get('status') not in ('evaluated', 'insufficient_evidence'):
             raise ValueError('invalid_result')

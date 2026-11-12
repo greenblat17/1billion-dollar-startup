@@ -18,13 +18,13 @@
   V40 добавляет DST issues и версии уведомлений. Старые placeholders не активируются автоматически.
 - Локальное исправление переноса: regular tools передают `now`/`after`, время вычисляет backend
   при сохранении; повтор receipt не сдвигает урок. Активный prompt отделён от legacy-ограничений
-  и требует выполнять однозначный перенос без второго подтверждения. Исправление времени поставлено; дополнительный фикс активации выбранного старого placeholder при явном переносе прошёл 625 Python-тестов и PostgreSQL schedule integration tests; ожидает поставки.
+  и требует выполнять однозначный перенос без второго подтверждения. Исправление времени поставлено; активация выбранного старого placeholder при явном переносе также поставлена.
 - SP-03 и SP-04 объединены в родительской ветке из отдельных worktree без текстовых конфликтов.
   Совместная локальная проверка PostgreSQL/lifecycle прошла; живая приёмка ещё не выполнена.
 
 ## Проверки объединённой версии
 
-- Python: **625 passed**, одно dependency deprecation warning.
+- Python: **628 passed**, одно dependency deprecation warning.
 - Frontend: **5 passed**, syntax/build прошли.
 - Kotlin: **281 unit + 46 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
 - Проверены schedule.agree → job claim/apply → regular admission → voice-scoped lesson.next,
@@ -38,8 +38,8 @@
 ## DEV и ограничения
 
 SP-03/SP-04 поставлены на DEV из зависимого [PR #53](https://github.com/greenblat17/1billion-dollar-startup/pull/53)
-(base — ветка PR #52), runtime `b450db0`: backend, AI и отдельный Mini App.
-[Redeploy DEV 43253766317](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43253766317)
+(base — ветка PR #52), runtime `c052dd9`: backend, AI и отдельный Mini App.
+[Redeploy DEV 43255766656](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43255766656)
 завершился success, включая общую readiness-проверку. Платные smoke-вызовы выключены.
 Полного CI перед поставкой не ожидали по прямому поручению пользователя;
 встроенные тесты и проверки deploy прошли. Исправлены стартовая гонка frontend CI и
@@ -59,3 +59,13 @@ PROD и merge main не выполнялись. Платные прогоны и
 
 [Архитектура](../architecture.md) · [Эксплуатация](integrations/operations.md) ·
 [SP-03](plans/2026-11-12-sp03-regular-lessons.md) · [SP-04](plans/2026-11-12-sp04-scheduling.md)
+
+## Исправление формата learning-ответов
+
+Локально убран общий default 500 токенов: без явного лимита параметр не отправляется провайдеру.
+Для lesson.evaluate и regular lesson.prepare заданы строгие JSON-схемы; OpenRouter должен поддерживать параметры формата.
+628 Python-тестов прошли, включая проверку отправляемых API-параметров; платная приёмка не запускалась.
+DEV: четыре старых evaluation jobs остаются failed (два JSONDecodeError, два CompletionTokenLimitError по Loki).
+Новый plan также упал при лимите 500; backend завершал ожидание раньше ответа AI.
+Восстановление jobs, согласование таймаутов и сообщение UI о failed вместо ожидания пока не выполнены.
+Этот deploy не снимает существующую блокировку analysis_not_ready автоматически.

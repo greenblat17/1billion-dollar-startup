@@ -167,7 +167,7 @@ class OpenAiChatModel:
         model: str,
         reply_temperature: float = 0.7,
         notes_temperature: float = 0.0,
-        max_tokens: int = 500,
+        max_tokens: int | None = None,
         metrics: MetricsStore | None = None,
         notes_model: str | None = None,
     ) -> None:
@@ -263,7 +263,7 @@ class OpenAiChatModel:
                     "schema": {"type": "object", "properties": {"reply": {"type": "string"},
                                "trialOffered": {"type": "boolean"}},
                                "required": ["reply", "trialOffered"], "additionalProperties": False}}},
-                extra_body={"provider": {"require_parameters": True}} if "openrouter.ai" in str(self._client.base_url) else {},
+                extra_body={"provider": {"require_parameters": True}} if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else {},
             ), kind="llm", provider=provider_from_url(self._client.base_url),
             model=self._model, purpose="tutor", cost_of=read_provider_cost,
         )
@@ -297,7 +297,7 @@ class OpenAiChatModel:
         token_limit = self._max_tokens if max_tokens is None else max_tokens
 
         async def call() -> Any:
-            extra_body = {"provider": {"require_parameters": True}} if response_format and "openrouter.ai" in str(self._client.base_url) else {}
+            extra_body = {"provider": {"require_parameters": True}} if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else {}
             if reasoning_effort is not None:
                 extra_body["reasoning"] = {"effort": reasoning_effort}
             started = time.perf_counter()
@@ -307,7 +307,7 @@ class OpenAiChatModel:
                         model=model_name,
                         messages=messages,
                         temperature=temperature,
-                        max_completion_tokens=token_limit,
+                        **({"max_completion_tokens": token_limit} if token_limit is not None else {}),
                         response_format=response_format or {"type": "json_object"},
                         extra_body=extra_body or None,
                         extra_headers=(
@@ -327,7 +327,7 @@ class OpenAiChatModel:
                     )
                 if operation:
                     logger.warning(
-                        "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
+                        "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%s "
                         "finish_reason=unavailable prompt_tokens=unavailable completion_tokens=unavailable "
                         "reasoning_tokens=unavailable error_type=%s",
                         anonymous_user_id(), operation, model_name, token_limit, type(error).__name__,
@@ -348,7 +348,7 @@ class OpenAiChatModel:
             if operation:
                 choices = getattr(response, "choices", None) or []
                 logger.info(
-                    "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%d "
+                    "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%s "
                     "finish_reason=%s prompt_tokens=%d completion_tokens=%d reasoning_tokens=%s",
                     anonymous_user_id(), operation, model_name, token_limit,
                     getattr(choices[0], "finish_reason", None) if choices else None,

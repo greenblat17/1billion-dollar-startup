@@ -312,3 +312,20 @@ async def test_silence_recovery_can_answer_with_microphone_muted(monkeypatch, mu
     monkeypatch.setattr('app.trial_session.asyncio.sleep', one_tick)
     await s.heartbeat()
     assert s.start_turn.called is expected
+
+
+@pytest.mark.asyncio
+async def test_analyzer_requests_strict_schema_and_validates_evidence():
+    from app.learning_results import LessonEvaluation
+    observation = dict(key='grammar-1', dimension='grammar', content='Есть ошибка в прошедшем времени.',
+                       uncertainty='limited', sourceId='user-1')
+    import json
+    result = dict(status='evaluated', observations=[observation])
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(result)))
+    context = SimpleNamespace(data={'sourceEvents': [{'id': 'user-1', 'role': 'user'}]})
+    assert await TrialAnalyzer(model).evaluate(context, {}) == result
+    assert model.complete_json.call_args.kwargs == dict(operation='trial_evaluation', retry=False,
+        response_format=LessonEvaluation.response_format())
+    model.complete_json.return_value = json.dumps(dict(status='evaluated', observations=[dict(observation, dimension='invented')]))
+    with pytest.raises(ValueError):
+        await TrialAnalyzer(model).evaluate(context, {})

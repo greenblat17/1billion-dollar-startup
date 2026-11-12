@@ -22,7 +22,9 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
     assert await LessonPlanner(model).prepare(context, {}) == plan
     payload = json.loads(model.complete_json.call_args.args[1])
     assert payload == context.data
-    assert model.complete_json.call_args.kwargs == {'operation': 'regular_lesson_prepare', 'retry': False}
+    from app.learning_results import LessonPlan
+    assert model.complete_json.call_args.kwargs == {'operation': 'regular_lesson_prepare', 'retry': False,
+        'response_format': LessonPlan.response_format()}
 
 
 @pytest.mark.asyncio
