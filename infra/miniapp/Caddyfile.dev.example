@@ -1,0 +1,12 @@
+# Installed on DEV in /opt/speaky-voice-lab/Caddyfile.
+# Caddy's reverse_proxy supports WebSocket upgrades without a separate location.
+# Proxy joins external Docker network 'speaking-coach'; AI keeps its host firewall restrictions.
+speaky-miniapp-dev.109.71.241.224.sslip.io {
+    @miniapp path /miniapp /miniapp/*
+    handle @miniapp {
+        reverse_proxy ai-service:8090
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

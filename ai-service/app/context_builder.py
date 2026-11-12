@@ -92,6 +92,7 @@ class ContextBuilder:
             'tutor': {'id': snapshot['student']['tutor_id'], 'version': snapshot['student']['tutor_version']},
             'goal': snapshot.get('goal'), 'facts': selected, 'roadmap': roadmap,
             'observations': observations,
+            'trialResult': snapshot.get('trialResult'),
             'lesson': snapshot.get('lesson'), 'booking': snapshot.get('booking'),
             'preparation': snapshot.get('preparation'),
             'sourceEvents': ([snapshot['workSource']] if snapshot.get('workSource') else list(reversed(sources))) if purpose == 'learning' else [],

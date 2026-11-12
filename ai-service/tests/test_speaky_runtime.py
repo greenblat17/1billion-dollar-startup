@@ -27,7 +27,7 @@ async def check():
                 assert (await client.post('/internal/foundation/compute', json={})).status_code == 401
                 for path in ('/internal/calls/open', '/internal/vocabulary/list', '/internal/tutor/turn', '/internal/metrics'):
                     assert (await client.post(path, headers={'X-Internal-Token': 'local-test'}, json={})).status_code == 404
-        assert {route.path for route in app.routes} == {'/health', '/internal/foundation/tutor/turn', '/internal/foundation/compute'}
+        assert {route.path for route in app.routes} == {'/health', '/internal/foundation/tutor/turn', '/internal/foundation/compute', '/internal/trial/followup', '/miniapp', '/miniapp/', '/miniapp/assets/{name}', '/miniapp/api', '/miniapp/voice'}
 asyncio.run(check())
 '''
     import os

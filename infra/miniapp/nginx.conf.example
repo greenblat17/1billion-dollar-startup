@@ -1,0 +1,18 @@
+# Include inside an existing HTTPS server on the AI host. No internal routes are public.
+# Set MINI_APP_URL on Ktor to https://YOUR_HOST/miniapp and configure that domain in BotFather.
+# Keep the existing restriction of host port 8090 to loopback/trusted backend sources.
+location = /miniapp {
+    proxy_pass http://127.0.0.1:8090;
+    proxy_set_header Host $host;
+}
+location /miniapp/ {
+    client_max_body_size 32k;
+    proxy_pass http://127.0.0.1:8090;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 90s;
+    proxy_send_timeout 90s;
+    proxy_buffering off;
+}

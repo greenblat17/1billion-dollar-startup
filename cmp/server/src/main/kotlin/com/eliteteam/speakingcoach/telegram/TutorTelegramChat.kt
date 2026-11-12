@@ -30,11 +30,13 @@ import java.time.Instant
 import org.slf4j.LoggerFactory
 
 /** Native disabled button is absent from tgbotapi 36.1.0; use the Bot API wire shape. */
-internal fun tutorBookingMarkup(active: Boolean): JsonObject = buildJsonObject {
+internal fun tutorBookingMarkup(active: Boolean, lessonId: String? = null, miniUrl: String = System.getenv("MINI_APP_URL").orEmpty()): JsonObject = buildJsonObject {
     put("inline_keyboard", buildJsonArray {
         if (active) add(buildJsonArray { add(buildJsonObject {
             put("text", "Открыть урок")
-            put("disabled", buildJsonObject {})
+            if (lessonId != null && miniUrl.startsWith("https://")) {
+                put("web_app", buildJsonObject { put("url", miniUrl + (if ('?' in miniUrl) "&" else "?") + "lesson=" + java.net.URLEncoder.encode(lessonId, "UTF-8")) })
+            } else put("disabled", buildJsonObject {})
         }) })
     })
 }
@@ -80,7 +82,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                 if (!client.beginDelivery(TutorDelivery(sessionId, requestId, bookingId = booking.id, version = booking.version))) return@let
                 val chatId = telegramChatNumber(message.chat.id) ?: return@let
                 val card = TutorCardRequest(chatId, requireNotNull(response.bookingText),
-                    tutorBookingMarkup(booking.status == "scheduled"), response.cardMessageId)
+                    tutorBookingMarkup(booking.status == "scheduled", booking.id), response.cardMessageId)
                 val sent = try { bot.execute(card) }
                 catch (e: CancellationException) { throw e }
                 catch (error: Exception) {

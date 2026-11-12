@@ -221,3 +221,41 @@ async def test_shipping_python_app_uses_real_backend_scope_and_native_tools(monk
                 assert (await ai.post('/internal/foundation/tutor/turn', headers=headers, json=payload)).status_code == 403
         backend = FoundationClient(root, token, http)
         assert (await backend.snapshot(text['scope'], 'text'))['goal']['content']['value'] == 'relocation'
+
+
+@pytest.mark.asyncio
+async def test_sp02_telegram_admission_capture_completion_and_context():
+    import hashlib
+    import hmac
+    import json
+    from urllib.parse import urlencode
+    root, token = os.environ['SP00_TEST_URL'], os.environ['SP00_TEST_TOKEN']
+    async with httpx.AsyncClient() as http:
+        subject = str(time.time_ns())
+        operator = await actor(http, root, token, subject)
+        backend = FoundationClient(root, token, http)
+        lesson = await backend.command(operator['scope'], uuid4().hex, 'lesson.create', {
+            'kind': 'trial', 'launchMode': 'executable', 'durationMinutes': 15, 'startsAt': now(), 'timezone': 'UTC'})
+        fields = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': int(subject)})}
+        secret = hmac.new(b'WebAppData', b'123:sp02-local-only', hashlib.sha256).digest()
+        fields['hash'] = hmac.new(secret, '\n'.join(f'{k}={v}' for k, v in sorted(fields.items())).encode(), hashlib.sha256).hexdigest()
+        admitted = await backend._request('POST', '/trial/access', '', json={
+            'initData': urlencode(fields), 'action': 'open', 'lessonId': lesson['id'], 'attemptId': uuid4().hex})
+        scope = admitted['scope']
+        base = dict(lessonId=lesson['id'], callSessionId=admitted['callSessionId'])
+        await backend.command(scope, uuid4().hex, 'voice.heartbeat', base)
+        await backend.command(scope, uuid4().hex, 'voice.append', {
+            **base, 'sourceId': 'test-utterance', 'role': 'user', 'body': 'I feel more comfortable now.', 'occurredAt': now()})
+        context = await ContextBuilder(backend).build(scope, 'voice', lesson['id'])
+        assert context.history[-1]['content'] == 'I feel more comfortable now.'
+        audio = await backend.command(scope, uuid4().hex, 'voice.audio', {
+            **base, 'direction': 'user', 'sequence': 0, 'metadata': {'sampleRate': 16000}})
+        assert audio['objectKey'].startswith('trial/')
+        await backend.command(scope, uuid4().hex, 'voice.audio_stored', {**base, 'objectKey': audio['objectKey']})
+        end_id = uuid4().hex
+        end = await backend.command(scope, end_id, 'voice.end', {**base, 'reason': 'natural_goodbye'})
+        assert end['completed'] is True
+        assert await backend.command(scope, end_id, 'voice.end', {**base, 'reason': 'natural_goodbye'}) == end
+        with pytest.raises(BackendFailure, match='lesson_unavailable'):
+            await backend._request('POST', '/trial/access', '', json={
+                'initData': urlencode(fields), 'action': 'open', 'lessonId': lesson['id'], 'attemptId': uuid4().hex})

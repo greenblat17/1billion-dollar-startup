@@ -50,6 +50,10 @@ internal class FoundationService(val database: FoundationDatabase) : AutoCloseab
     }
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
+        "voice.heartbeat", "voice.append", "voice.audio", "voice.audio_stored", "voice.playback", "voice.end" -> TrialCommands().execute(connection, scope, action, args, now)
+        "trial.schedule_cancel" -> TrialSchedule().cancel(connection, scope, args, now)
+        "trial.schedule" -> TrialSchedule().save(connection, scope, args, now)
+        "trial.schedules" -> TrialSchedule().read(connection, scope)
         "retention.prune" -> maintenance.prune(connection, scope, now)
         "memory.reject" -> maintenance.rejectCandidate(connection, scope, args)
         "memory.forget" -> maintenance.forget(connection, scope, args, now)
@@ -109,8 +113,9 @@ internal class FoundationService(val database: FoundationDatabase) : AutoCloseab
             job.obj("input_refs").optionalText("sourceId")?.let { sourceMessage(connection, scope, it, now) }
         }
         val roadmap = connection.document("SELECT to_jsonb(v) FROM roadmap r JOIN roadmap_revision v ON v.roadmap_id=r.id AND v.revision=r.active_revision WHERE r.student_id=? AND v.status='active'", scope.studentId)
-        val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status='scheduled' ORDER BY created_at DESC LIMIT 1", scope.studentId)
+        val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress') ORDER BY created_at DESC LIMIT 1", scope.studentId)
         json("version" to 1, "student" to student, "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
+            "trialResult" to connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE student_id=? ORDER BY created_at DESC LIMIT 1", scope.studentId),
             "roadmap" to roadmap, "events" to JsonArray(events), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }

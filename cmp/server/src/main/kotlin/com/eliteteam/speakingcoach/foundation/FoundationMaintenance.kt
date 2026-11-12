@@ -8,6 +8,7 @@ internal class FoundationMaintenance {
     fun prune(connection: Connection, scope: ExecutionScope, now: Instant): JsonObject {
         requireRole(scope, "operator")
         val student = scope.studentId
+        connection.update("UPDATE trial_audio SET status='purge',metadata='{}' WHERE student_id=? AND expires_at<=? AND status<>'deleted'", student, now)
         val events = connection.update("UPDATE conversation_event SET body=NULL,metadata='{}' WHERE student_id=? AND expires_at<=? AND body IS NOT NULL", student, now)
         connection.update("UPDATE tutor_inbox SET response=NULL WHERE student_id=? AND expires_at<=?", student, now)
         connection.update("UPDATE foundation_operation SET result='{}' WHERE student_id=? AND expires_at<=?", student, now)
@@ -66,6 +67,8 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM tutor_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_telegram_card WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_event WHERE student_id=?", student)
+        connection.update("DELETE FROM trial_notice WHERE student_id=?", student)
+        connection.update("DELETE FROM trial_demo_receipt WHERE student_id=?", student)
         connection.update("DELETE FROM call_session WHERE student_id=?", student)
         connection.update("DELETE FROM schedule_exception WHERE student_id=?", student)
         connection.update("UPDATE lesson SET previous_lesson_id=NULL WHERE student_id=?", student)
@@ -117,6 +120,8 @@ internal class FoundationMaintenance {
     }
 
     private fun invalidateCopies(connection: Connection, student: String, now: Instant) {
+        connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
+        connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
         connection.update("UPDATE student SET data_epoch=data_epoch+1 WHERE id=?", student)
         connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_summary WHERE student_id=?", student)

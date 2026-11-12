@@ -590,3 +590,83 @@ GRADLE_USER_HOME=$HOME/.gradle scripts/test-foundation.sh
 Migration suite не пропускается молча при отсутствии Redis. Не передавать production URL.
 Модели и медиапровайдеры в этих тестах заменены детерминированными адаптерами.
 Локальные проверки не доказывают качество диалога, доставку Telegram, реальный voice transport или DEV readiness.
+
+## SP-02: Mini App и пробный голосовой урок
+
+Реализовано локально; trial включён в коде, отдельного feature flag нет. Этот раздел — инструкция для будущего включения,
+не подтверждение DEV readiness. В задаче SP-02 не выполнялись deploy, BotFather, платные запросы или отправка сообщений.
+
+| Компонент | Настройка |
+| --- | --- |
+| Ktor | `MINI_APP_URL=https://<public-host>/miniapp`; существующие Telegram bot token, AI URL/internal token и PostgreSQL |
+| AI | Существующие `GROQ_API_KEY`, `GROQ_BASE_URL`, `STT_MODEL`; `TRIAL_AUDIO_BUCKET` |
+| Kora | Существующие `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `KORA_MODEL`, `KORA_TTS_MODEL`, `KORA_TTS_VOICE`; голос не подменяется fallback |
+| Хранилище | AWS credential chain и region; опциональный `TRIAL_S3_ENDPOINT` для совместимого приватного S3 |
+| HTTPS edge | Пример [nginx](../../infra/miniapp/nginx.conf.example), только `/miniapp` и его подмаршруты |
+| Retention | Дополнительный [S3 lifecycle](../../infra/miniapp/audio-lifecycle.json), prefix `trial/` |
+
+Текущие defaults TTS: `google/gemini-3.1-flash-tts-preview`, `Leda`. Сохраняйте установленные Kora overrides.
+Наличие ключа не доказывает доступность модели и её потокового PCM-ответа. Настоящие провайдеры здесь не вызывались.
+
+Порядок включения оператором:
+
+1. Завершить согласованный SP-00 cutover и проверить оба shipping roots. Старые calls/Redis не подключать.
+2. Применить штатным запуском Flyway V39 на подготовленной базе. Не менять применённые миграции.
+3. Подготовить приватный bucket. AI нужны PutObject/GetObject/DeleteObject/DeleteObjectVersion и ListBucketVersions
+   только для выбранного bucket/prefix. Запретить публичный доступ. Проверьте поддержку version-list API у S3-совместимого сервиса.
+4. Настроить HTTPS origin и WebSocket proxy; сохранить закрытыми `/internal/*` и прямой AI port.
+   Настроить домен Telegram Mini App в BotFather. Это отдельное операторское действие.
+5. Установить переменные одновременно на AI/backend. `MINI_APP_URL` включает кнопки и TrialWorker;
+   Voice admission и инструменты расписания всегда подключены. Без STT key или audio bucket звонок возвращает `trial_not_configured`.
+6. Проверить реальный Telegram путь самостоятельно по матрице [плана](../plans/2026-11-11-sp02-trial-lesson.md#матрица-приёмки).
+   Проверки используют реальные модели и могут расходовать средства. Локальные тесты этого не делают.
+
+Старая placeholder-запись не становится executable сама: явно перенесите её через чат или создайте новую встречу.
+Для входа нужна согласованная executable trial и подписанное `initData`; первый вход доступен в её временном интервале.
+После начала урока reconnect доступен до завершения. Кнопка завершения останавливает микрофон и возвращает в Telegram.
+Первые 14 дней предварительного расписания отображаются как неподключаемые встречи. Demo-оплата не включает подписку.
+
+Аудио сохраняется сегментами PCM16 mono, user 16 kHz / assistant 24 kHz. API `audio` требует Telegram initData
+и owned lesson; выдаёт ссылки на 60 секунд. Playback metadata отличает сгенерированное аудио от подтверждённого воспроизведения.
+Фоновая очистка раз в минуту удаляет записи старше 30 дней и все версии объектов; сбой не отмечается как успешное удаление.
+Lifecycle — дополнительная страховка, не замена cleanup и проверке прав удаления. Сохраняемые учебные выводы отделены от raw audio.
+
+Для локальной проверки: Python 3.12+ из `ai-service/` — `python -m pytest`; из `cmp/` —
+`GRADLE_USER_HOME=$HOME/.gradle ./gradlew :server:test :server:buildFatJar detekt` с `TEST_POSTGRES_URL` отдельной тестовой базы.
+`scripts/test-foundation.sh` запускает настоящий Ktor HTTP harness и Python integration; задайте `FOUNDATION_TEST_PYTHON`
+и `SP00_TEST_PORT`, если стандартный Python/порт занят. Используйте тестовую базу, не DEV/PROD.
+В SP-02 проверено: 539 Python, 284 Kotlin (без skipped), 6 HTTP integration; buildFatJar/detekt и JS syntax прошли.
+
+Логи `trial_metric first_audio_ms` показывают серверное время до первого отправленного звука, а `trial_client_metric join`
+— клиентское подключение. Они не заменяют измерение реально слышимой задержки, эха и ложных перебиваний.
+Для приёмки пользователь проверяет длинные паузы, динамик/наушники, mute, End Call, background, reconnect,
+устные выводы и комфорт, затем Telegram-продолжение и demo-оплату. Живые результаты пока отсутствуют.
+
+STT SP-02 переиспользует `GroqSpeechToText` и прежние настройки Groq. `GroqTrialSTT` — только адаптер
+входящего PCM: локальный WebRTC VAD, ограниченные WAV-фрагменты и вызов существующего STT.
+`DEEPGRAM_API_KEY` для trial не требуется. Kora LLM/TTS остаются прежними. Новые STT credentials не нужны.
+
+### DEV HTTPS edge SP-02 — проверено 2026-11-11
+
+По поручению пользователя настроен адрес:
+`https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp`.
+Использован существующий Caddy на DEV AI, без перезапуска AI/backend или voice-lab.
+Отдельный hostname сохраняет авторизацию voice-lab. Caddy выпустил публично доверенный сертификат.
+[Конфигурация маршрута](../../infra/miniapp/Caddyfile.dev.example) добавлена в
+`/opt/speaky-voice-lab/Caddyfile`; reverse_proxy поддерживает WebSocket Upgrade.
+
+Контейнер `speaky-voice-lab-proxy-1` подключён к внешней Docker-сети `speaking-coach`.
+В `/opt/speaky-voice-lab/compose.yaml` для `proxy` сохранены обе сети: `default` и `speaking-coach`,
+последняя объявлена `external: true`. Это сохраняет доступ к `ai-service:8090` после пересоздания proxy.
+Порт AI и его firewall не менялись. Публичны только `/miniapp` и `/miniapp/*`; остальные пути дают 404.
+
+Проверены `docker compose config --quiet`, `caddy validate`, reload и внешний HTTPS без отключения TLS-проверки:
+`/miniapp` → 401 от текущего AI; `/internal/foundation/tutor/turn` → 404;
+старый voice-lab → 401 (его защита осталась). HTTP 401 Mini App — не успешная поставка SP-02:
+обновлённое приложение ещё не развёрнуто. WebSocket handshake 101 и голосовой звонок пока не проверены.
+
+Резервные копии Caddyfile/compose находятся на AI-хосте:
+`/opt/speaky-voice-lab/backups/sp02-proxy-20261111T092612Z/`.
+Для будущей поставки задать `MINI_APP_URL` указанным HTTPS URL в DEV backend env/CI secret.
+Значение в env/секретах в этой задаче не менялось. BotFather не настраивался.
+Тестовый hostname использует sslip.io; для постоянного продукта нужен собственный домен.

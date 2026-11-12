@@ -22,6 +22,7 @@ fun main() {
     val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
         routing {
             foundationRoutes(service, token)
+            trialRoutes(service, token, "123:sp02-local-only")
             legacyFoundationRoutes(service, token)
             get("/test/health") { call.respondText("ok") }
             post("/test/import-tutor") {

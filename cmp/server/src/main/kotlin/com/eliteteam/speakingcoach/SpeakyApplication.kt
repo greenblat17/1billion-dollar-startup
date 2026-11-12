@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.server.engine.connector
 import com.eliteteam.speakingcoach.ai.TutorClient
+import com.eliteteam.speakingcoach.foundation.trialRoutes
 import com.eliteteam.speakingcoach.foundation.FoundationChat
 import com.eliteteam.speakingcoach.foundation.FoundationWorker
 import com.eliteteam.speakingcoach.foundation.HttpLearningComputer
@@ -59,7 +60,15 @@ internal fun Application.speakyModule(config: AppConfig) {
     val tutor = TutorClient(config.aiServiceBaseUrl, http, config.aiInternalToken).apply { this.foundation = FoundationChat(foundation) }
     FoundationWorker(foundation, HttpLearningComputer(http, config.aiServiceBaseUrl, config.aiInternalToken)).launch(scope)
     monitor.subscribe(ApplicationStopped) { scope.cancel(); http.close() }
-    routing { get("/health") { call.respondText("ok") } }
+    routing {
+        get("/health") { call.respondText("ok") }
+        trialRoutes(foundation, config.aiInternalToken, config.telegramBotToken ?: "")
+    }
+    val miniUrl = System.getenv("MINI_APP_URL")?.trim().orEmpty()
+    if (miniUrl.startsWith("https://") && !config.telegramBotToken.isNullOrBlank()) {
+        com.eliteteam.speakingcoach.foundation.TrialWorker(foundation, http, config.aiServiceBaseUrl,
+            config.aiInternalToken, config.telegramBotToken, miniUrl).launch(scope)
+    }
     if (config.usesWebhook) {
         val bot = runBlocking { buildSpeakyTelegram(requireNotNull(config.telegramBotToken), tutor, scope) }
         routing {

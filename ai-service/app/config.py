@@ -69,6 +69,8 @@ class Settings:
     kora_h_allowlist: str = ""
     foundation_backend_url: str | None = None
     foundation_backend_ca_file: str | None = None
+    trial_audio_bucket: str | None = None
+    trial_s3_endpoint: str | None = None
 
     @staticmethod
     def from_env() -> Settings:
@@ -92,6 +94,8 @@ class Settings:
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
             foundation_backend_url=_env("FOUNDATION_BACKEND_URL"),
             foundation_backend_ca_file=_env("FOUNDATION_BACKEND_CA_FILE"),
+            trial_audio_bucket=_env("TRIAL_AUDIO_BUCKET"),
+            trial_s3_endpoint=_env("TRIAL_S3_ENDPOINT"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
             notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
             onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL", "openai/gpt-4o-mini"),

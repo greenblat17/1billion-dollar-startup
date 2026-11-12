@@ -17,7 +17,7 @@ internal class LessonManagement {
         ZoneId.of(args.text("timezone"))
         if (kind !in setOf("trial", "regular") || mode !in setOf("placeholder", "executable") || duration !in 1..60) reject("invalid_lesson")
         if (scope.role == "text") {
-            if (kind != "trial" || mode != "placeholder" || duration != 15L) reject("not_permitted")
+            if (kind != "trial" || duration != 15L) reject("not_permitted")
             evidence(connection, scope, args, now)
             if (args.optionalText("timing") != "now" && starts <= now) reject("time_in_past")
         }
@@ -29,16 +29,25 @@ internal class LessonManagement {
             val existing = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE schedule_id=? AND occurrence_key=?", schedule, occurrence)
             if (existing != null) return existing
         }
-        if (kind == "trial" && connection.document(
-                "SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress')", scope.studentId,
-            ) != null
-        ) reject("active_booking_exists")
+        var previousLesson: String? = null
+        if (kind == "trial") {
+            val active = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress')", scope.studentId)
+            if (active != null) {
+                val last = connection.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", active.text("id"))
+                if (active.text("status") != "in_progress" || last?.optionalText("end_reason") != "technical_disconnect" || last.text("status") == "connected") reject("active_booking_exists")
+                previousLesson = active.text("id")
+                connection.update("UPDATE lesson SET status='completed',ended_early=TRUE,outcome_reason='technical_failure_rebooked',version=version+1 WHERE id=?", previousLesson)
+                connection.enqueueEvaluation(scope.studentId, previousLesson, now)
+                connection.update("UPDATE trial_notice SET status='cancelled' WHERE lesson_id=? AND status IN ('pending','generating','ready')", previousLesson)
+            }
+        }
         val id = newId()
         connection.update(
             """INSERT INTO lesson(id,student_id,kind,starts_at,duration_minutes,timezone,launch_mode,schedule_id,occurrence_key,timing)
                VALUES (?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
             occurrence, args.optionalText("timing") ?: "scheduled",
         )
+        if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
         if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "$id:initial", id,
             json("goalRevision" to connection.goalRevision(scope.studentId), "learningRevision" to connection.learningRevision(scope.studentId)), now)
         return connection.lesson(scope, id)
@@ -46,7 +55,7 @@ internal class LessonManagement {
 
     fun change(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant, cancel: Boolean): JsonObject {
         requireRole(scope, "text", "operator")
-        args.only("lessonId", "expectedVersion", "startsAt", "timezone", "sourceId", "evidence", "timing")
+        args.only("lessonId", "expectedVersion", "startsAt", "timezone", "sourceId", "evidence", "timing", "launchMode")
         val lesson = connection.lesson(scope, args.text("lessonId"))
         if (scope.role == "text") {
             evidence(connection, scope, args, now)
@@ -62,6 +71,11 @@ internal class LessonManagement {
             val starts = if (immediate) now else Instant.parse(args.text("startsAt"))
             ZoneId.of(args.text("timezone"))
             if (!immediate && starts <= now) reject("time_in_past")
+            val mode = args.optionalText("launchMode") ?: lesson.text("launch_mode")
+            if (mode !in setOf("placeholder", "executable")) reject("invalid_lesson")
+            connection.update("UPDATE lesson SET launch_mode=? WHERE id=?", mode, lesson.text("id"))
+            if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "${lesson.text("id")}:reschedule:${lesson.number("version")}", lesson.text("id"),
+                json("goalRevision" to connection.goalRevision(scope.studentId), "learningRevision" to connection.learningRevision(scope.studentId)), now)
             connection.update("UPDATE lesson SET starts_at=?,timezone=?,timing=?,version=version+1,updated_at=? WHERE id=?",
                 starts, args.text("timezone"), if (immediate) "now" else "scheduled", now, lesson.text("id"))
         }
@@ -99,6 +113,7 @@ internal class LessonManagement {
         val lesson = connection.lesson(scope, args.text("lessonId"))
         val session = connection.document("SELECT to_jsonb(c) FROM call_session c WHERE student_id=? AND lesson_id=? AND id=?",
             scope.studentId, lesson.text("id"), args.text("callSessionId")) ?: reject("not_owned")
+        if (scope.role == "voice" && session.optionalText("scope_digest") != null) connection.activeTrial(scope, args, now)
         if (args.text("role") !in setOf("user", "assistant")) reject("invalid_role")
         val conversation = connection.conversation(scope.studentId, "lesson:${lesson.text("id")}")
         val source = "${session.text("id")}:${args.text("sourceId")}"

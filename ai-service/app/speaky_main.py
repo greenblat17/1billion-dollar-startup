@@ -1,5 +1,6 @@
 """Speaky composition root. Legacy app.main is retained but never constructed here."""
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+import asyncio
 from secrets import compare_digest
 import ssl
 
@@ -18,7 +19,11 @@ from app.learning_engine import LearningEngine, PersonalCandidateExtractor
 from app.llm import OpenAiChatModel
 from app.logging_setup import configure_process_logging
 from app.provider_call_log import configure_user_id_hash_key
-from app.tutor import TutorModel
+from app.trial_policy import TrialPlanner, TrialAnalyzer
+from app.trial_audio import TrialAudioStore
+from app.trial_api import install_trial_api
+from app.trial_tools import TrialTutorModel
+from app.stt import GroqSpeechToText
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -34,27 +39,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         backend_tls.load_verify_locations(cafile=settings.foundation_backend_ca_file)
     http = httpx.AsyncClient(timeout=30, verify=backend_tls)
     model_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0)
+    groq_client = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url, max_retries=0) if settings.groq_api_key else None
+    speech = GroqSpeechToText(groq_client, settings.stt_model, settings.ffmpeg_bin,
+                             requires_wav=settings.stt_model.startswith("assemblyai/")) if groq_client else None
     backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, http)
     contexts = ContextBuilder(backend)
-    tutor = FoundationTutor(backend, TutorModel(OpenAiChatModel(model_client, settings.kora_model)), contexts)
+    voice_model = OpenAiChatModel(model_client, settings.kora_model)
+    tutor = FoundationTutor(backend, TrialTutorModel(voice_model), contexts)
     extractor = PersonalCandidateExtractor(LearnerModel(OpenAiChatModel(model_client, settings.llm_model),
                                                       person_memory_model=settings.person_memory_model))
-    learning = LearningEngine(backend, contexts, extractor=extractor)
+    learning = LearningEngine(backend, contexts, extractor=extractor, planner=TrialPlanner(), analyzer=TrialAnalyzer(voice_model))
+    audio_store = TrialAudioStore(settings.trial_audio_bucket, settings.trial_s3_endpoint) if settings.trial_audio_bucket else None
 
     @asynccontextmanager
     async def lifespan(_app):
+        cleanup = asyncio.create_task(audio_store.cleanup(backend)) if audio_store else None
         try:
             yield
         finally:
+            if cleanup:
+                cleanup.cancel()
+                with suppress(asyncio.CancelledError):
+                    await cleanup
             await http.aclose()
             await model_client.close()
+            if groq_client:
+                await groq_client.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
 
     @app.middleware('http')
     async def authenticate(request: Request, call_next):
-        if request.url.path != '/health':
+        if request.url.path != '/health' and not (request.url.path == '/miniapp' or request.url.path.startswith('/miniapp/')):
             provided = request.headers.get('X-Internal-Token', '')
             if not compare_digest(provided.encode(), settings.ai_internal_token.encode()):
                 return JSONResponse({'detail': 'unauthorized'}, status_code=401)
@@ -65,4 +82,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {'status': 'ok', 'runtime': 'speaky'}
 
     install_foundation_api(app, tutor, learning)
+    install_trial_api(app, backend, contexts, voice_model, model_client, settings, audio_store, speech)
     return app

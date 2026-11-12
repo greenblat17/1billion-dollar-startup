@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник **реализованной архитектуры SP-00**: компоненты, данные, потоки и причины решений.
+Единственный справочник **реализованной архитектуры SP-00/SP-02**: компоненты, данные, потоки и причины решений.
 Он описывает код рабочего дерева. Серверный cutover, DEV/PROD и живая приёмка не выполнены.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -144,3 +144,31 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 Она не описывает текущий runtime. [План SP-00](ai_docs/plans/2026-11-10-sp00-foundation.md) фиксирует объём задачи,
 [статус](ai_docs/status.md) — доказательства проверок и ограничения.
 Архитектурные изменения следует отражать здесь, не создавать параллельную system map.
+
+## SP-02: пробный голосовой урок
+
+Mini App — отдельные статические HTML/CSS/JS в `ai-service/app/miniapp`, не CMP-прототип.
+Публичный HTTPS edge открывает только `/miniapp`, его assets/API и `/miniapp/voice` WebSocket.
+`trial_api.py` передаёт подписанное Telegram initData в Ktor `TrialRoutes`; клиент не задаёт Student.
+`TelegramMiniAuth` проверяет подпись, свежесть и identity. `TrialAccess` выдаёт ограниченный lesson scope,
+защищает время/ownership/epoch и единственный активный Call Session. Lease обновляется heartbeat;
+отключение освобождает транспорт, но in_progress Lesson остаётся доступным для возврата без временного окна.
+
+`TrialSession` соединяет существующий GroqSpeechToText (файловый STT), существующую Kora LLM и Kora TTS через OpenRouter.
+PCM16 mono: вход 16 kHz, выход 24 kHz. Web Audio/AudioWorklet управляет микрофоном и очередью воспроизведения.
+LLM выбирает продолжение/ожидание/естественное завершение; VAD endpoint сам не задаёт учебную реакцию.
+Подтверждённая локальным VAD речевая активность отменяет генерацию и воспроизведение. Браузер подтверждает услышанные предложения;
+прерванные предложения не записываются как полностью услышанные. Завершение прощания — после playback ack.
+
+`TrialCommands` хранит события в общей history, завершает урок идемпотентно, ставит evaluation и notice.
+`TrialPlanner` делает briefing, `TrialAnalyzer` — качественные наблюдения с источниками, без roadmap/числового экзамена.
+`TrialWorker` отправляет контекстный follow-up через durable outbox; проверяет reconnect, новые сообщения и epoch.
+Неопределённую Telegram-доставку не повторяет вслепую. Реальная работа отправки в этой задаче не запускалась.
+
+V39 добавляет lease/scope к Call Session, `trial_audio`, `trial_notice`, `trial_demo_receipt`.
+Аудио лежит в приватном S3; метаданные и ownership — в PostgreSQL. Ссылки действуют 60 секунд;
+cleanup удаляет исходное аудио, все версии объектов и transcript metadata через 30 дней или после удаления данных.
+Учебные выводы хранятся отдельно по foundation retention. `TrialSchedule` сохраняет предварительное расписание
+и 14 дней неисполняемых regular placeholders. Demo-оплата не вызывает реальные payment/entitlement операции.
+Legacy calls/Redis не используются. Конфигурация и включение описаны в
+[operations](ai_docs/integrations/operations.md#sp-02-mini-app-и-пробный-голосовой-урок).

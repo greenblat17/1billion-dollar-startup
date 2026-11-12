@@ -11,7 +11,16 @@ import anyio
 from app.context_builder import ContextBuilder
 from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import SYSTEM, TutorRequest
-from app.tutor_tools import MODELS, booking_label, resolve_time
+from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
+from app.trial_policy import TEXT_CAPABILITIES
+from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule
+
+
+def booking_label(booking):
+    text = legacy_booking_label(booking)
+    if booking and booking.get("launchMode") == "executable":
+        text = text.replace("Запуск урока пока недоступен.", "")
+    return text
 
 
 def booking_projection(lesson: dict | None) -> dict | None:
@@ -19,7 +28,7 @@ def booking_projection(lesson: dict | None) -> dict | None:
         return None
     return dict(id=lesson['id'], learnerId=lesson['student_id'], status=lesson['status'],
                 startsAtUtc=lesson['starts_at'], timezone=lesson['timezone'], version=lesson['version'],
-                durationMinutes=lesson['duration_minutes'], timing=lesson.get('timing', 'scheduled'))
+                durationMinutes=lesson['duration_minutes'], timing=lesson.get('timing', 'scheduled'), launchMode=lesson.get('launch_mode', 'placeholder'))
 
 
 class FoundationTutor:
@@ -38,6 +47,7 @@ class FoundationTutor:
         context = await self.contexts.build(scope, 'text')
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'system', 'content': context.instructions('text')}]
+        messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
         if start:
             messages.append({'role': 'user', 'content': 'Начать или продолжить наше общение.'})
@@ -90,6 +100,12 @@ class FoundationTutor:
 
     async def execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         try:
+            if name in ('save_preliminary_schedule', 'get_preliminary_schedules', 'cancel_preliminary_schedule'):
+                if name == 'get_preliminary_schedules':
+                    return await self.backend.command(scope, uuid4().hex, 'trial.schedules', {})
+                schedule = (CancelPreliminarySchedule if name == 'cancel_preliminary_schedule' else PreliminarySchedule).model_validate(arguments)
+                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                return await self.backend.command(scope, identity, 'trial.schedule_cancel' if name == 'cancel_preliminary_schedule' else 'trial.schedule', {'sourceId': source['id'], **schedule.model_dump()})
             if name not in MODELS:
                 raise ValueError('unknown_tool')
             args = MODELS[name].model_validate(arguments)
@@ -124,9 +140,10 @@ class FoundationTutor:
                 command.update(startsAt=starts, timezone=zone, timing=timing)
                 if name == 'create_trial_booking':
                     action = 'lesson.create'
-                    command.update(kind='trial', launchMode='placeholder', durationMinutes=15, timing=timing)
+                    command.update(kind='trial', launchMode='executable', durationMinutes=15, timing=timing)
                 else:
                     action = 'lesson.reschedule'
+                    command['launchMode'] = 'executable'
             lesson = await self.backend.command(scope, identity, action, command)
             booking = booking_projection(lesson)
             return {'ok': True, 'booking': booking, 'confirmation': booking_label(booking)}
