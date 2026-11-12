@@ -31,7 +31,8 @@ class ContextBuilder:
         self.history_budget = history_budget
         self.memory_budget = memory_budget
 
-    async def build(self, scope: str, purpose: str, lesson_id: str | None = None) -> TutorContext:
+    async def build(self, scope: str, purpose: str, lesson_id: str | None = None, *,
+                    exclude_event_id: str | None = None) -> TutorContext:
         snapshot = await self.backend.snapshot(scope, purpose, lesson_id)
         if snapshot.get('version') != 1:
             raise ValueError('unsupported_context_version')
@@ -66,6 +67,8 @@ class ContextBuilder:
         sources = []
         budget = self.history_budget
         for event in reversed(snapshot.get('events', [])):
+            if exclude_event_id is not None and event['id'] == exclude_event_id:
+                continue
             body = event.get('body')
             if not isinstance(body, str):
                 continue

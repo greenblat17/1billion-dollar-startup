@@ -24,12 +24,14 @@ def records(caplog):
 
 
 @pytest.mark.asyncio
-async def test_rejected_evidence_logs_stage_and_code_without_changing_tool_result(caplog):
+async def test_rejected_evidence_logs_stage_and_code_with_recovery_guidance(caplog):
     caplog.set_level('INFO', logger='app.tutor_diagnostics')
     t = tutor()
     result = await t.execute('SECRET_SCOPE', 'PRIVATE_REQUEST', {'id': 'PRIVATE_ID', 'body': '/start'},
                              'create_trial_booking', booking_args())
-    assert result == {'ok': False, 'error': 'invalid_evidence'}
+    assert result['ok'] is False
+    assert result['error'] == 'invalid_evidence'
+    assert 'not a server outage' in result['guidance']
     rejected = next(r for r in records(caplog) if r['outcome'] == 'rejected')
     assert rejected['tool'] == 'create_trial_booking'
     assert rejected['stage'] == 'validate_evidence'

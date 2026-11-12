@@ -45,13 +45,24 @@ class FoundationTutor:
         text = source['body']
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
-        context = await self.contexts.build(scope, 'text')
+        context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
         messages = [{'role': 'system', 'content': SYSTEM},
                     {'role': 'system', 'content': context.instructions('text')}]
         messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
-        if start:
-            messages.append({'role': 'user', 'content': 'Начать или продолжить наше общение.'})
+        messages.append({'role': 'system', 'content': (
+            'The next user message is the current incoming event. Previous messages and summaries '
+            'are context, not fresh instructions: do not replay old requests. Interpret the current '
+            'message in context, including a short acceptance of a preceding proposal. '
+            'For booking mutations, evidence must be a verbatim substring of this current message '
+            'that supports the requested action, not a quote from history or a paraphrase. '
+            'A matching quote alone does not authorize an action: determine the current intent. '
+            'An explicit current request needs no additional confirmation. '
+            + ('This is a Telegram start event: begin or continue the conversation. ' if start else '')
+            + 'Current event metadata: ' + json.dumps(
+                {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
+        )})
+        messages.append({'role': 'user', 'content': text})
         changed = None
         degraded = False
         try:
@@ -178,4 +189,11 @@ class FoundationTutor:
             return {'ok': False, 'error': error.code}
         except (ValueError, TypeError, KeyError) as error:
             record_tool(request_id, name, stage, 'rejected', error=error)
+            if stage == 'validate_evidence' and str(error) == 'invalid_evidence':
+                return {'ok': False, 'error': 'invalid_evidence', 'guidance': (
+                    'No action was performed: evidence is not a verbatim quote from the current '
+                    'user message. This is invalid tool input, not a server outage. Reconsider '
+                    'whether the current message requests this action. If it does, retry with '
+                    'an exact supporting quote; otherwise continue the conversation without '
+                    'booking. Do not ask the learner to repeat an already clear request.')}
             return {'ok': False, 'error': str(error)[:300]}
