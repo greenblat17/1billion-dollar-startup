@@ -15,7 +15,9 @@ const errors={too_early:'Встреча ещё не началась. Верни
 function renderMicrophone(){
  $('mute').setAttribute('aria-pressed',String(muted));
  $('mute').setAttribute('aria-label',muted?'Включить микрофон':'Выключить микрофон');
- $('mic-status').textContent=muted?'Микрофон выключен — Саша вас не слышит':'Микрофон включён';
+ $('mic-action').textContent=muted?'Включить':'Выключить';
+ $('mic-status').dataset.muted=String(muted);
+ $('mic-status').textContent=$('mute').disabled?'Подключаем микрофон…':muted?'Микрофон выключен — Саша вас не слышит':'Микрофон включён — можно говорить';
 }
 function view(id){for(const name of ['call','lobby','error'])$(name).hidden=name!==id;}
 function send(data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(data));}
@@ -41,11 +43,13 @@ async function list(){
  }catch(error){failure(error.message);}}
 async function connect(){
  attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
+ $('mute').disabled=true;
  const joining=performance.now();capturedFrames=0;sentFrames=0;closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent='Подключаемся…';renderMicrophone();
  try{
   if(!tg?.initData)throw Error('invalid_telegram_auth');
   diagnosticStage='microphone';
   mic=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+  mic.getAudioTracks().forEach(track=>{track.enabled=true;});
   diagnosticStage='audio_context';ctx=new AudioContext();diagnosticStage='worklet';await ctx.audioWorklet.addModule('/miniapp/assets/capture.js');await ctx.resume();
   if(ctx.state!=='running'){
    $('notice').replaceChildren();const button=document.createElement('button');button.textContent='Включить звук';$('notice').append(button);
@@ -60,6 +64,7 @@ async function connect(){
    if(typeof event.data!=='string'){play(event.data);return;}
    const message=JSON.parse(event.data);
    if(message.type==='connected'){
+    $('mute').disabled=false;renderMicrophone();
     send({type:'metric',name:'join',milliseconds:performance.now()-joining});$('notice').hidden=true;started=Date.now();ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
     const source=ctx.createMediaStreamSource(mic);worklet=new AudioWorkletNode(ctx,'capture');source.connect(worklet);const silent=ctx.createGain();silent.gain.value=0;worklet.connect(silent).connect(ctx.destination);
     worklet.port.onmessage=e=>{capturedFrames++;if(ws.readyState===WebSocket.OPEN&&!muted){if(ws.bufferedAmount>128000){diagnosticStage='buffer';failure('buffer_overflow');return;}ws.send(e.data);sentFrames++;}};
