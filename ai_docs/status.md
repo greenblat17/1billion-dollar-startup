@@ -52,7 +52,9 @@ Readiness: оба контейнера работают без рестарто�
 После поставки проверены хеш модуля, health 200, TLS/auth к backend и чтение S3; рестартов/startup errors нет.
 Backend и frontend остаются на `175f5f5`. Пользователь провёл звонок: 7 first_audio замеров, среднее 1057 ms, диапазон 890–1269 ms.
 Это commit→планирование playback, без ожидания определения конца фразы.
-Подготовлено ускорение semantic VAD low→medium и раздельные серверные latency timings; поставка ожидается.
+Semantic VAD low→medium и раздельные серверные latency timings поставлены на DEV, AI `214b44d`:
+[run 43234153691](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43234153691).
+Readiness и совпадение хеша runtime подтверждены; влияние на задержку и перебивания ожидает нового звонка.
 Платные smoke/benchmark не запускались; пользователь проводит живую проверку самостоятельно.
 PROD/merge не выполнялись.
 
