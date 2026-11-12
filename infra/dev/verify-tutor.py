@@ -91,6 +91,11 @@ print('trial_audio_credentials_and_bucket_read=passed; write_and_erasure=unverif
         if result.returncode:
             raise RuntimeError('ai_backend_or_trial_readiness_failed')
         return
+    if '--mock-billing' in sys.argv:
+        expected = {'SPEAKY_BILLING_PROVIDER': 'mock', 'SPEAKY_BILLING_AMOUNT': '100',
+                    'SPEAKY_BILLING_CURRENCY': 'TEST', 'SPEAKY_BILLING_PERIOD_DAYS': '1'}
+        assert all(env.get(key) == value for key, value in expected.items()), 'mock_billing_not_configured'
+        print('mock_billing_config=passed; real_charges=disabled')
     tls = ssl.create_default_context(cafile='/opt/speaking-coach/tls.crt')
     tls.check_hostname = False  # Trust the deployed certificate itself for the loopback health probe.
     print('cmp_health_status=', request('https://127.0.0.1:' + env.get('SERVER_PORT', '443') + '/health', context=tls)[0])

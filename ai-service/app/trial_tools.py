@@ -1,5 +1,6 @@
 """Native tools for preliminary scheduling. No payment or entitlement mutation."""
 from typing import Literal
+from app.subscription_tools import SUBSCRIPTION_TOOLS
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -120,4 +121,4 @@ class TrialTutorModel:
             if function['name'] == 'create_trial_booking':
                 function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. A technical failure may be rebooked with preserved context.'
             tools.append({'type': 'function', 'function': function})
-        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS)
+        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS)

@@ -15,6 +15,10 @@ on:
         description: mini-app frontend
         type: boolean
         default: true
+      billing_mock:
+        description: Enable SP-05 mock billing on DEV (100 TEST per day, no real charges)
+        type: boolean
+        default: false
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -126,6 +130,7 @@ jobs:
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
       destination: dev
+      billing_mock: ${{ inputs.billing_mock }}
     secrets: inherit
 
   deploy-ai:
@@ -206,6 +211,8 @@ jobs:
         run: |
           set -euo pipefail
           smoke_flag=""
+          billing_flag=""
+          if [ "${{ inputs.billing_mock }}" = true ]; then billing_flag="--mock-billing"; fi
           for component in ai cmp; do
             if [ "$component" = ai ]; then
               target_host="$AI_HOST"; target_user="$AI_USER"; key_body="$AI_KEY"
@@ -218,5 +225,5 @@ jobs:
             printf '%s\n' "$key_body" > "$key"
             ssh -i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
               -o HostKeyAlias="speaky-dev-$component" -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
-              "$target_user@$target_host" "python3 - $component $GITHUB_SHA $smoke_flag" < infra/dev/verify-tutor.py
+              "$target_user@$target_host" "python3 - $component $GITHUB_SHA $smoke_flag $billing_flag" < infra/dev/verify-tutor.py
           done

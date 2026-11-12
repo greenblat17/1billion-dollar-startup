@@ -9,8 +9,9 @@ internal class TrialAccess(private val service: FoundationService) {
     suspend fun access(args: JsonObject, botToken: String): JsonObject {
         val subject = telegramMiniSubject(args.text("initData"), botToken, service.database.clock.instant())
         val student = service.identity.resolve("telegram", subject)
-        return service.database.transaction { c, now ->
+        return service.database.transaction { c, _ ->
             c.lockStudent(student)
+            val now = service.database.clock.instant()
             val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", student) { it.getLong(1) }.single()
             when (args.text("action")) {
                 "list" -> json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? ORDER BY starts_at DESC LIMIT 40", student)),
@@ -42,6 +43,12 @@ internal class TrialAccess(private val service: FoundationService) {
         if (now < start) reject("too_early")
         if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(lesson.number("duration_minutes") * 60)) reject("lesson_expired")
         if (lesson.text("kind") == "regular" && lesson.number("duration_minutes") !in 15..60) reject("invalid_lesson")
+        val entitlement = if (lesson.text("kind") == "regular") {
+            val previous = lesson.optionalText("admission_entitlement_id")
+            if (lesson.text("status") == "in_progress" && previous != null) {
+                c.document("SELECT to_jsonb(e) FROM entitlement e WHERE id=? AND student_id=?", previous, student) ?: reject("subscription_required")
+            } else c.activeEntitlement(student, now) ?: reject("subscription_required")
+        } else null
         val briefing = if (lesson.text("kind") == "trial") {
             json("kind" to "trial", "objective" to "Diagnose and demonstrate through a natural conversation; oral feedback and comfort self-report.")
         } else if (lesson.text("status") == "in_progress") {
@@ -62,6 +69,7 @@ internal class TrialAccess(private val service: FoundationService) {
         c.update("INSERT INTO execution_scope(token_digest,student_id,role,lesson_id,data_epoch,expires_at) VALUES (?,?,'voice',?,?,?)", digest(token), student, lesson.text("id"), epoch, now.plusSeconds(120))
         c.update("INSERT INTO call_session(id,student_id,lesson_id,attempt_id,status,started_at,lease_until,scope_digest) VALUES (?,?,?,?,'connected',?,?,?)",
             id, student, lesson.text("id"), attempt, now, now.plusSeconds(45), digest(token))
+        if (entitlement != null) c.update("UPDATE lesson SET admission_entitlement_id=? WHERE id=?", entitlement.text("id"), lesson.text("id"))
         c.update("UPDATE lesson SET status='in_progress',execution_snapshot=COALESCE(execution_snapshot,?::jsonb),version=version+1 WHERE id=?", briefing, lesson.text("id"))
         c.update("UPDATE trial_notice SET status='cancelled' WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")))

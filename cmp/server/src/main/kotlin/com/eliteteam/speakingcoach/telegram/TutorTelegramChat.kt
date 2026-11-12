@@ -87,6 +87,12 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                 }
                 client.delivered(TutorDelivery(sessionId, requestId, replyMessageId = lastMessageId))
             }
+            client.foundation?.beginPayment(sessionId, requestId)?.let { payment ->
+                val id = payment.getValue("id").jsonPrimitive.content
+                bot.execute(TutorCardRequest(requireNotNull(telegramChatNumber(message.chat.id)),
+                    payment.getValue("terms").jsonPrimitive.content, mockPaymentMarkup(id)))
+                client.foundation?.paymentDelivered(sessionId, id)
+            }
             response.booking?.let { booking ->
                 if (!client.beginDelivery(TutorDelivery(sessionId, requestId, bookingId = booking.id, version = booking.version))) return@let
                 val chatId = telegramChatNumber(message.chat.id) ?: return@let

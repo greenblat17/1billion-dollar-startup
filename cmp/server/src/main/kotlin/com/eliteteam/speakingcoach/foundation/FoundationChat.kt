@@ -7,6 +7,27 @@ import java.time.Instant
 
 /** Trusted Telegram adapter. Model requests cannot choose the student or issue capabilities. */
 internal class FoundationChat(private val service: FoundationService) {
+    suspend fun beginPayment(session: String, request: String): kotlinx.serialization.json.JsonObject? {
+        val student = student(session)
+        return service.database.transaction { c, now ->
+            c.lockStudent(student)
+            val p = c.document("""SELECT to_jsonb(p) FROM billing_checkout p JOIN foundation_operation o ON o.result->>'id'=p.id
+                WHERE p.student_id=? AND o.student_id=p.student_id AND o.request_id=? AND o.action='subscription.checkout'
+                AND p.status='pending' AND p.expires_at>? AND p.delivery_status='pending'
+                AND p.data_epoch=(SELECT data_epoch FROM student WHERE id=p.student_id AND deleted_at IS NULL) LIMIT 1""", student, request, now)
+                ?: return@transaction null
+            c.update("UPDATE billing_checkout SET delivery_status='unknown' WHERE id=?", p.text("id"))
+            service.billing.projection(p)
+        }
+    }
+
+    suspend fun paymentDelivered(session: String, checkout: String) {
+        val student = student(session)
+        service.database.transaction { c, _ ->
+            c.update("UPDATE billing_checkout SET delivery_status='sent' WHERE id=? AND student_id=?", checkout, student)
+        }
+    }
+
     suspend fun completeIntake(chatId: Long, messageId: Long) { service.telegramIntake.complete(chatId, messageId) }
 
     suspend fun beginDelivery(delivery: TutorDelivery): Boolean {

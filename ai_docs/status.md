@@ -22,6 +22,20 @@
 - SP-03 и SP-04 объединены в родительской ветке из отдельных worktree без текстовых конфликтов.
   Совместная локальная проверка PostgreSQL/lifecycle прошла; живая приёмка ещё не выполнена.
 
+## SP-05: подписка с mock-провайдером
+
+Локально добавлены Telegram payment card с условиями до оплаты, native subscription tools,
+V41 checkout/events поверх Subscription/receipt/entitlement, успешный/неуспешный mock-платёж,
+идемпотентность, автоматическое тестовое продление и отмена автопродления.
+Regular admission требует активный entitlement; начатый оплаченный урок сохраняет reconnect
+после истечения. Trial бесплатен; Schedule и будущие Lesson сохраняются.
+Тариф обязателен в конфигурации, коммерческие условия пока не выбраны. Реальных списаний нет.
+Локальные проверки SP-05: Python **631 passed**; после правки trial follow-up — ещё 25 целевых тестов.
+Kotlin **282 unit + 53 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
+Mini App: 5 тестов, включая сборку; добавлен только текст отказа subscription_required, нового UI нет.
+61 локальная ссылка и git diff --check прошли. Реальные Telegram/LLM и платёжная приёмка не запускались.
+[Контракт и ограничения SP-05](plans/2026-11-12-sp05-subscription.md). На DEV не поставлен.
+
 ## Проверки объединённой версии
 
 - Python: **628 passed**, одно dependency deprecation warning.
@@ -54,7 +68,7 @@ SeaweedFS на DEV: приватный `speaky-trial-audio-dev`, сеть `speak
 30-дневная очистка приложения сохранена. Архив-before-forward добавляет задержку в обе стороны.
 Открыты живые проверки: полный trial/regular, RU/EN, паузы и перебивания, speaker/headphones,
 reconnect, завершение, сохранность контекста/аудио, reminders/followup и 60-минутная смена транспорта.
-Настоящая оплата/подписка, полный roadmap не реализованы; demo receipt не даёт entitlement.
+Настоящий платёжный провайдер и полный roadmap не реализованы; старый demo receipt не даёт entitlement.
 PROD и merge main не выполнялись. Платные прогоны и реальные сообщения в интеграции SP-03/SP-04 не выполнялись.
 
 [Архитектура](../architecture.md) · [Эксплуатация](integrations/operations.md) ·

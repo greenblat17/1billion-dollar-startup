@@ -71,7 +71,9 @@ internal fun Route.installSpeakingCoachWebhook(
     audit: InteractionAudit? = null,
     operationalMetrics: TelegramOperationalMetrics,
     textIntake: com.eliteteam.speakingcoach.foundation.TelegramTextIntake? = null,
+    paymentHandler: (suspend (kotlinx.serialization.json.JsonObject) -> Boolean)? = null,
 ) {
+    require(secret.isNotBlank()) { "Telegram webhook secret required" }
     val transformer = webhookScope.updateHandlerWithMediaGroupsAdaptation(
         behaviourContext.asUpdateReceiver,
     )
@@ -79,7 +81,7 @@ internal fun Route.installSpeakingCoachWebhook(
         transformer(telegramUpdateJson.decodeFromString(UpdateDeserializationStrategy, envelope.toString()))
     }
     post {
-        if (call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER) != secret) {
+        if (!java.security.MessageDigest.isEqual(call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER).orEmpty().toByteArray(), secret.toByteArray())) {
             log.warn("Rejected Telegram webhook")
             call.respond(HttpStatusCode.Forbidden)
             return@post
@@ -93,6 +95,10 @@ internal fun Route.installSpeakingCoachWebhook(
                 raw,
             )
             val envelope = telegramUpdateJson.parseToJsonElement(raw).jsonObject
+            if (paymentHandler?.invoke(envelope) == true) {
+                call.respond(HttpStatusCode.OK)
+                return@post
+            }
             val durableText = textIntake?.accept(envelope) == true
             val freshAudit = audit?.recordInbound(envelope) != false
             if (durableText || !freshAudit) {

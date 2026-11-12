@@ -273,6 +273,11 @@ class TrialIntegrationTestSchedule {
         error("Scheduled lesson preparation was not claimed")
     }
 
+    private suspend fun grantAccess(s: FoundationService, student: String, now: Instant) {
+        s.op(s.identity.issue(student, "operator"), "access.confirm_payment", json("provider" to "test", "externalId" to newId(),
+            "validFrom" to now.toString(), "validUntil" to now.plusSeconds(86400).toString()))
+    }
+
     @Test fun agreedSchedulePreparesAdmitsAndReadsNextMeetingThroughVoiceScope() = runTest {
         store { s, clock ->
             val student = s.identity.resolve("telegram", "100")
@@ -287,6 +292,7 @@ class TrialIntegrationTestSchedule {
             assertEquals(14, lessons.size)
             val first = lessons.first()
             clock.value = Instant.parse(first.text("starts_at"))
+            grantAccess(s, student, clock.value)
             assertEquals("plan_not_ready", assertFailsWith<FoundationFailure> { open(s, "100", first.text("id"), clock.value) }.code)
             prepareScheduledLesson(s, student, first.text("id"))
             val admitted = open(s, "100", first.text("id"), clock.value)
@@ -309,7 +315,7 @@ class TrialIntegrationTestSchedule {
             assertEquals(kotlinx.serialization.json.JsonNull, s.op(voiceScope, "lesson.next", json())["lesson"])
             s.database.transaction { c, _ ->
                 assertEquals("in_progress", c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", first.text("id"))!!.text("status"))
-                assertEquals(0L, c.rows("SELECT count(*) FROM entitlement") { it.getLong(1) }.single())
+                assertEquals(1L, c.rows("SELECT count(*) FROM entitlement") { it.getLong(1) }.single())
             }
         }
     }
@@ -320,6 +326,7 @@ class TrialIntegrationTestSchedule {
                 val (initialScope, schedule) = agree(s, clock)
                 val first = s.op(initialScope, "lesson.next", json()).obj("lesson")
                 clock.value = Instant.parse(first.text("starts_at"))
+                grantAccess(s, schedule.text("student_id"), clock.value)
                 prepareScheduledLesson(s, schedule.text("student_id"), first.text("id"))
                 val operator = s.identity.issue(schedule.text("student_id"), "operator")
                 val barrier = java.util.concurrent.CyclicBarrier(2)
@@ -353,6 +360,7 @@ class TrialIntegrationTestSchedule {
             val (scope, schedule) = agree(s, clock)
             val first = s.op(scope, "lesson.next", json()).obj("lesson")
             clock.value = Instant.parse(first.text("starts_at"))
+            grantAccess(s, schedule.text("student_id"), clock.value)
             prepareScheduledLesson(s, schedule.text("student_id"), first.text("id"))
             val admitted = open(s, "100", first.text("id"), clock.value)
             s.op(admitted.text("scope"), "voice.end", json("lessonId" to first.text("id"),
