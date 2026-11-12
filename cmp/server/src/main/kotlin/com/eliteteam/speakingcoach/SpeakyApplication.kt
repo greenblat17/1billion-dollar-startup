@@ -58,6 +58,7 @@ internal fun Application.speakyModule(config: AppConfig) {
     val http = speakingCoachAiHttpClient()
     val scope = newTelegramWebhookScope()
     val tutor = TutorClient(config.aiServiceBaseUrl, http, config.aiInternalToken).apply { this.foundation = FoundationChat(foundation) }
+    com.eliteteam.speakingcoach.foundation.MockPaymentAdapter(foundation).launch(scope)
     FoundationWorker(foundation, HttpLearningComputer(http, config.aiServiceBaseUrl, config.aiInternalToken)).launch(scope)
     monitor.subscribe(ApplicationStopped) { scope.cancel(); http.close() }
     routing {
@@ -74,7 +75,7 @@ internal fun Application.speakyModule(config: AppConfig) {
         routing {
             route("/telegram/webhook") {
                 installSpeakingCoachWebhook(requireNotNull(config.telegramWebhookSecret), bot, scope,
-                    operationalMetrics = TelegramOperationalMetrics(), textIntake = foundation.telegramIntake)
+                    operationalMetrics = TelegramOperationalMetrics(), textIntake = foundation.telegramIntake, paymentHandler = com.eliteteam.speakingcoach.telegram.MockBillingTelegram(foundation, bot)::handle)
             }
         }
         runBlocking {

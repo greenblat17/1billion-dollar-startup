@@ -15,6 +15,7 @@ from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resol
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
 from app.tutor_diagnostics import record_tool
+from app.subscription_tools import SUBSCRIPTION_MODELS
 
 
 def booking_label(booking):
@@ -65,12 +66,14 @@ class FoundationTutor:
         messages.append({'role': 'user', 'content': text})
         changed = None
         schedule_committed = False
+        payment_committed = False
         degraded = False
         try:
             committed = claim.get('committed', [])
             if committed:
                 bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
                 schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
+                payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
                 raise RuntimeError('recovering_committed_operation')
             with anyio.fail_after(55):
@@ -90,6 +93,8 @@ class FoundationTutor:
                         function = call['function']
                         arguments = json.loads(function['arguments'])
                         result = await self.execute(scope, request.requestId, source, function['name'], arguments)
+                        if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
+                            payment_committed = True
                         if function['name'] in SCHEDULE_MODELS and result.get('ok'):
                             schedule_committed = True
                         if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
@@ -104,7 +109,14 @@ class FoundationTutor:
         except Exception as error:
             record_tool(request.requestId, '', 'turn', 'degraded', error=error)
             degraded = True
-            reply = booking_label(changed) if changed else ('Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».' if schedule_committed else 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.')
+            if payment_committed:
+                reply = 'Запрос по подписке сохранён. Тестовая оплата не списывает деньги; статус можно уточнить здесь.'
+            elif changed:
+                reply = booking_label(changed)
+            elif schedule_committed:
+                reply = 'Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».'
+            else:
+                reply = 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
             'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded,
         })
@@ -129,6 +141,18 @@ class FoundationTutor:
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         stage = 'validate_arguments'
         try:
+            if name == 'get_subscription':
+                if arguments:
+                    raise ValueError('unexpected_arguments')
+                return await self.backend.command(scope, uuid4().hex, 'subscription.get', {})
+            if name in SUBSCRIPTION_MODELS:
+                model, action = SUBSCRIPTION_MODELS[name]
+                args = model.model_validate(arguments)
+                if args.evidence not in source['body']:
+                    raise ValueError('invalid_evidence')
+                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                result = await self.backend.command(scope, identity, action, {'sourceId': source['id'], **args.model_dump()})
+                return {'ok': True, 'result': result}
             if name in ('get_schedules', 'get_lessons'):
                 if arguments:
                     raise ValueError('unexpected_arguments')

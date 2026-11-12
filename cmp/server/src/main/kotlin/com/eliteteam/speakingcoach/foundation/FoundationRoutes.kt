@@ -23,7 +23,7 @@ import kotlinx.serialization.json.jsonObject
 internal fun Application.installFoundation(databaseUrl: String?, internalToken: String): FoundationService? {
     if (databaseUrl.isNullOrBlank()) return null
     require(internalToken.isNotBlank()) { "AI_INTERNAL_TOKEN required for foundation" }
-    val service = FoundationService(FoundationDatabase(databaseUrl))
+    val service = FoundationService(FoundationDatabase(databaseUrl), BillingConfig.fromEnvironment())
     val imported = kotlinx.coroutines.runBlocking {
         service.database.transaction(readOnly = true) { connection, _ ->
             connection.document("SELECT to_jsonb(c) FROM foundation_cutover c WHERE singleton=TRUE") != null

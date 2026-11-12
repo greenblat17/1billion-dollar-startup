@@ -59,6 +59,8 @@ class TrialIntegrationTest {
 
     private suspend fun regular(s: FoundationService, clock: TestClock, duration: Int = 30): JsonObject {
         val student = s.identity.resolve("telegram", "100")
+        s.op(s.identity.issue(student, "operator"), "access.confirm_payment", json("provider" to "test", "externalId" to newId(),
+            "validFrom" to clock.value.toString(), "validUntil" to clock.value.plusSeconds(86400).toString()))
         return s.op(s.identity.issue(student, "operator"), "lesson.create", json("kind" to "regular", "launchMode" to "executable",
             "startsAt" to clock.value.toString(), "timezone" to "UTC", "durationMinutes" to duration))
     }

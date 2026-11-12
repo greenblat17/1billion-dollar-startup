@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник **реализованной архитектуры SP-00–SP-04**: компоненты, данные, потоки и причины решений.
+Единственный справочник **реализованной архитектуры SP-00–SP-05**: компоненты, данные, потоки и причины решений.
 Он описывает код рабочего дерева. SP-03/SP-04 объединены и поставлены на DEV; живая приёмка остаётся открытой.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -236,3 +236,21 @@ V40 добавляет `schedule_time_issue` и `trial_notice.lesson_version`.
 
 Контракты и ограничения: [SP-03](ai_docs/plans/2026-11-12-sp03-regular-lessons.md),
 [SP-04](ai_docs/plans/2026-11-12-sp04-scheduling.md).
+
+
+## Подписка SP-05
+
+`SubscriptionBilling` использует существующие subscription/payment_receipt/entitlement.
+V41 добавляет сроки и автопродление подписки, immutable checkout terms, billing_event и ссылку
+первого admission на entitlement. Native `subscription.get/checkout/cancel_renewal` сохраняют
+scope/evidence/version/receipt контракты; read исключён из recovery мутаций.
+FoundationChat отправляет backend-карточку с условиями до оплаты через прежний Telegram adapter.
+LLM получает актуальное состояние через ContextBuilder, но не подтверждает оплату.
+
+Единственный текущий провайдер — opt-in mock: защищённый Telegram callback проверяет owner,
+затем атомарно сохраняет событие, receipt и период доступа. `MockPaymentAdapter` использует
+тот же путь при автоматическом тестовом продлении. Student lock и уникальные event/charge IDs
+сохраняют идемпотентность. Неизвестная доставка карточки не повторяется автоматически.
+Regular `TrialAccess.open` проверяет entitlement, фиксирует его для начатого Lesson и разрешает
+его reconnect после истечения. Trial не требует подписки; Schedule/Lesson не отменяются.
+Настоящая платёжная интеграция и live acceptance не выполнены; [контракт SP-05](ai_docs/plans/2026-11-12-sp05-subscription.md).

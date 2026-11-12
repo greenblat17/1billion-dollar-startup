@@ -75,6 +75,8 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM lesson WHERE student_id=?", student)
         connection.update("DELETE FROM schedule_time_issue WHERE student_id=?", student)
         connection.update("DELETE FROM schedule WHERE student_id=?", student)
+        connection.update("DELETE FROM billing_event WHERE student_id=?", student)
+        connection.update("DELETE FROM billing_checkout WHERE student_id=?", student)
         connection.update("DELETE FROM entitlement WHERE student_id=?", student)
         connection.update("DELETE FROM payment_receipt WHERE student_id=?", student)
         connection.update("DELETE FROM subscription WHERE student_id=?", student)

@@ -96,6 +96,7 @@ class ContextBuilder:
             'goal': snapshot.get('goal'), 'facts': selected, 'roadmap': roadmap,
             'observations': observations,
             'trialResult': snapshot.get('trialResult'),
+            'billing': snapshot.get('billing'),
             'lesson': snapshot.get('lesson'), 'booking': snapshot.get('booking'),
             'preparation': snapshot.get('preparation'),
             'sourceEvents': ([snapshot['workSource']] if snapshot.get('workSource') else list(reversed(sources))) if purpose == 'learning' else [],
