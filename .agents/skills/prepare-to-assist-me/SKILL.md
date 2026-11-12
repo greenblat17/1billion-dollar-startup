@@ -23,11 +23,11 @@ Follow the status page to the current plan when the task concerns ongoing work.
 Read the matching technical reference rather than every integration document:
 
 - Text tutor, Telegram routing, tools and trial: `ai_docs/integrations/tutor-chat.md`.
-- Calls, clips, memory, corrections and reviews: `ai_docs/integrations/voice-and-reviews.md`.
-- Vocabulary Builder and reminders: `ai_docs/integrations/practice.md`.
-- Events, cohorts and metrics: `ai_docs/integrations/analytics.md`.
+- Legacy calls, clips, memory, corrections and reviews: `ai_docs/integrations/voice-and-reviews.md`.
+- Legacy Vocabulary Builder and reminders: `ai_docs/integrations/practice.md`.
+- Legacy events, cohorts and metrics: `ai_docs/integrations/analytics.md`.
 - Local commands, env, CI, deploy and monitoring: `ai_docs/integrations/operations.md`.
-- Existing CMP client API: `ai_docs/integrations/mobile-api.md`.
+- Legacy CMP client API: `ai_docs/integrations/mobile-api.md`.
 
 ## Verify against the working tree
 
@@ -35,10 +35,11 @@ Check git status first and preserve other work. Read source under `src/` and `ai
 
 - Ktor entrypoint: `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/Application.kt` calls `SpeakyApplication.kt` in that package.
 - Python shipping composition: `ai-service/app/speaky_main.py`; `app/main.py` is preserved legacy.
-- Baseline tutor behavior: `ai-service/app/tutor.py`, `tutor_tools.py`, `tutor_store.py`.
-- Existing voice path: `ai-service/app/pipeline.py`, `llm.py`, `dialogue.py`.
+- Active tutor: `ai-service/app/foundation_tutor.py`, `trial_tools.py`, `memory_tools.py`, `subscription_tools.py`; `tutor.py` supplies relationship policy. `tutor_store.py` is legacy/import only.
+- Active voice: `ai-service/app/trial_api.py`, `trial_realtime.py`, `trial_audio.py`; frontend in `mini-app/src/`. `pipeline.py` and `dialogue.py` belong to legacy clips/calls.
+- Learning and memory: `learning_engine.py`, `regular_lesson.py`, `roadmap.py`, `context_builder.py`, `memory_context.py`; authoritative operations live in Ktor foundation.
 - Foundation adapters and storage ownership: follow `architecture.md` and verify actual composition-root wiring; use `ai_docs/status.md` and the plan acceptance matrix for test evidence.
-- CMP client: `cmp/app/shared/`; its prototype is distinct from the planned lesson Mini App.
+- CMP client: `cmp/app/shared/`; its prototype is distinct from the standalone lesson/progress Mini App in `mini-app/`.
 
 Speaky's product direction is a continuing relationship with Sasha, with Kora H's character.
 Do not infer deployment, shared memory or migration completion from a plan, a class name or a passing unit test.

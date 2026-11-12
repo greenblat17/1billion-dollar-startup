@@ -1,6 +1,6 @@
 # SP-04: расписание и общий контракт SP-03/SP-04
 
-База: `0f93ee5506b540c6eb5d9a3cf150b19dfc377800`. Локальная реализация, без поставки.
+Контракт расписания, интегрированный с SP-03. Поставка и проверки — в [status.md](../status.md).
 
 ## Общий технический контракт
 
@@ -64,80 +64,23 @@ V40 также добавляет lesson_version к trial_notice; retention/dele
 Граница отправки — фиксация unknown до HTTP: уже начатый внешний запрос нельзя отозвать.
 Подтверждённая отправка после удаления/forget не воссоздаёт историю ученика.
 
-## Владение файлами
+## Реализация и проверка
 
-SP-04: TrialSchedule, LessonManagement, TrialWorker, новые scheduling helpers/tests,
-FoundationService additions, ConversationRuns recovery, FoundationMaintenance deletion,
-все общие миграции, foundation_tutor/trial_tools text tools,
-этот план. SP-03: TrialAccess, TrialCommands, preparation/LearningState,
-voice/context/Realtime/Mini App. trial_policy разделяется по блокам: TEXT_CAPABILITIES
-у SP-04; SP-03 добавляет regular_lesson.py и правит trial_api/speaky_main. Общий status.md объединяет родитель.
+Native tools: save/get/cancel_schedule, get_lessons, create_extra_lesson,
+reschedule/cancel_lesson и resolve_schedule_time. Text policy рекомендует семь занятий в неделю,
+уважает меньшую частоту и не создаёт анкету. Read receipts не считаются мутациями при recovery.
 
-## Проверки и границы
+При явном `reschedule_lesson` tool передаёт `launchMode=executable`: выбранный старый placeholder
+становится реальным уроком с тем же ID. Остальные вхождения не активируются.
+Регрессия now/after покрывает оба исходных launch_mode; это не массовая миграция placeholders.
 
-План: timezone/DST, повторная генерация, перенос/отмена, reminder dedup,
-неявка и cancellation/admission race; Python tools, Kotlin и docs diff.
-Demo receipt не даёт entitlement. Здесь нет настоящего платежа или проверки подписки.
-Не включать legacy. Платные запросы и реальные Telegram отправки не разрешены.
+Локальные сценарии: timezone/DST gap/fold и смена UTC-offset, повтор горизонта,
+исключения отменённых/перенесённых встреч, изменение частоты/времени/длительности,
+DST pending→resolved, reminder/no-show, unknown delivery, перенос во время генерации,
+удаление/forget и конкурентный admission/cancel с regular preparation gate.
+Хранилище и HTTP boundary настоящие; модели и Telegram подставные.
 
-## Реализация и интеграционный отчёт
-
-Ветка `bb/sp-04-thr_kyizndwu3s`, отдельный worktree `thr_kyizndwu3s-1`.
-Технический контракт согласован непосредственно с `thr_7a53d5zxxe` (SP-03).
-Согласованные данные и пороги: backend остаётся источником истины; SP-03 не требует
-добавочных миграций; начало/конец и reconnect используют прежний lifecycle.
-
-Native tools доступны модели через TrialTutorModel: save/get/cancel_schedule,
-get_lessons, create_extra_lesson, reschedule/cancel_lesson, resolve_schedule_time.
-Text policy рекомендует 7 занятий, уважает меньшую частоту и не создаёт анкету.
-Новые команды используют current source evidence, scope, версию и operation receipt.
-Read receipts исключены из recovery мутаций; после сбоя подтверждается уже сохранённая
-операция без повторного создания. Регулярный Lesson не получает подпись «пробный».
-
-Интегрировать совместно с SP-03: его TrialAccess допускает regular по готовому плану,
-TrialCommands различает окончания, trial_api умеет reminder/invitation и regular early exit,
-regular_lesson/context и Mini App используют фактический Lesson. В этой ветке admission
-regular намеренно не включён отдельно от SP-03. До объединения веток запускать новый
-текстовый контракт в DEV нельзя. Ветка не поставлена.
-
-Локальные проверки:
-- Python: 595 passed; одно существующее dependency deprecation warning.
-- Kotlin: 281 unit + 37 PostgreSQL integration; failures/errors/skipped: 0.
-  `:server:buildFatJar detekt` и `git diff --check` прошли.
-- Новые PostgreSQL проверки: DST gap/fold и смена UTC-offset, повтор горизонта,
-  отменённые/перенесённые tombstones, изменение частоты/времени/длительности,
-  DST pending→resolved и однократная отправка/удаление уточнения, reminder/no_show,
-  неизвестная доставка, перенос во время генерации, конкурентные admission/cancel.
-- Конкурентный admission/cancel использует общий существующий trial admission path;
-  такую же гонку с regular preparation gate проверить после объединения SP-03/SP-04.
-- Mock HTTP исключает реальные Telegram и модельные запросы. PostgreSQL отдельный,
-  loopback 56484, тесты создают и удаляют изолированные схемы.
-- Первый интеграционный запуск использовал занятый порт и получил ошибки подключения;
-  исправлен адрес БД. Итоговые результаты относятся к повторному успешному прогону.
-
-Ограничения: естественность диалога, настоящая доставка, WebView/голос и совместная
-DEV-приёмка не проверены. Telegram exactly-once не обещается. Неразрешённая DST-дата
-остаётся pending, не получает выдуманного времени или штрафного missed.
-Настоящих payment/entitlement операций, legacy wiring, secrets и realtime transport
-изменений здесь нет. Push/PR/deploy/merge не выполнялись.
-
-### Предлагаемый текст для общего status.md
-
-> SP-04 локально реализует согласование и изменение регулярного расписания через
-> LLM native tools: дни, timezone, локальное время, 15–60 минут и первая дата.
-> Backend создаёт реальные Lesson на 14-дневном горизонте, сохраняет разовые
-> переносы/отмены, версии и receipts. DST требует явного уточнения; фоновое вхождение
-> не теряется. Напоминания, приглашения и no-show защищены от повторов и устаревшей
-> доставки. Demo-оплата не создаёт подписку. Работа regular voice/admission требует
-> совместной интеграции SP-03; DEV и живая приёмка открыты.
-
-### Предлагаемое дополнение architecture.md после интеграции
-
-> TrialSchedule сохраняет единый Schedule: schedule.agree создаёт executable regular
-> Lesson, trial.schedule оставляет прежний preliminary режим. TrialWorker продлевает
-> горизонт под lockStudent, затем обслуживает versioned notices и lifecycle.
-> V40 хранит schedule_time_issue для DST и lesson_version для уведомлений.
-> LessonManagement исполняет text mutations; lesson.next возвращает backend-встречу
-> для устного завершения. Read receipts не считаются сохранёнными мутациями диалога.
-
-При явном `reschedule_lesson` tool передаёт `launchMode=executable`: выбранный старый placeholder становится реальным уроком с тем же ID. Остальные вхождения не активируются. DEV-логи 2026-11-12 подтвердили прежний отказ `not_permitted` в `LessonManagement.change`; регрессия покрывает now/after для обоих исходных launch_mode.
+Естественность scheduling-диалога и доставка требуют отдельной живой приёмки.
+Неопределённая DST-дата остаётся pending, без выдуманного UTC или штрафного missed.
+Demo receipt не даёт entitlement; реальный admission использует [SP-05](2026-11-12-sp05-subscription.md).
+Результаты и ограничения общей проверки — в [статусе](../status.md).

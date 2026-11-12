@@ -27,6 +27,7 @@
 
 - `cmp/server/` — Ktor foundation, PostgreSQL, Telegram и jobs; карта исходников — в architecture.md.
 - `ai-service/app/` — FoundationTutor, ContextBuilder и LearningEngine; `tutor_store.py` сохранён для legacy/import.
+- `mini-app/` — самостоятельный Telegram frontend: уроки и My Progress.
 - Shipping roots: `SpeakyApplication.kt` (через `Application.kt`) и `ai-service/app/speaky_main.py`; `app/main.py` сохранён как legacy.
 - `cmp/app/` — CMP-прототип Android/iOS/Desktop, не готовый Mini App; `cmp/core/` — общий Kotlin.
 - `infra/` и `.github/workflows/` — поставка; команды и конфигурация — в [operations](ai_docs/integrations/operations.md).
@@ -38,12 +39,11 @@
 - Backend-проверки: `pytest`; Kotlin: `./gradlew :server:test :server:buildFatJar detekt`.
 - Для docs-only проверяй ссылки, пути и `git diff --check`; runtime-тесты не нужны.
 - Разделяй локальные тесты, DEV readiness и живую приёмку; CI не доказывает качество диалога.
-- Новое поведение модели и Telegram UX ещё не принято; платные прогоны после HTTP 402 не повторяй без поручения.
+- Границы живой приёмки смотри в status.md; платные прогоны после HTTP 402 не повторяй без поручения.
 - Не раскрывай секреты, не переписывай Flyway и не удаляй данные при deploy; импорт/cutover проверяй отдельно.
 - Commit/push, merge, деплой и сообщения пользователям выполняй только в разрешённом объёме.
 
 ## CMP и skills
-
 - Используй применимые skills из `.agents/skills/`: `cmp-*`, `compose-*`, `kmp-libraries-expert`; версии библиотек сверяй через klibs.
 - Работай с исходниками, не `bin/` и `build/`; UI: MVVM/UDF, Navigation 3, Koin; ресурсы — в `composeResources`.
 - Compose/Koin/Ktor в shared остаются `implementation`; нужные host-зависимости добавляй в host, не через `api`.

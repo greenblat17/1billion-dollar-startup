@@ -1,11 +1,14 @@
 # Запуск, конфигурация и наблюдаемость
 
-Контракты базовой поставки SP-01 и сохранённого legacy-кода. Новый фундамент SP-00 использует PostgreSQL;
-legacy сохраняется отдельно, без переноса его Redis-хранилищ и без обязательного подключения старых функций к новому runtime.
-Готовность изоляции и переключения текущего чата проверяется по [статусу](../status.md).
-Описание legacy API ниже не означает, что эти маршруты доступны в новом runtime.
+Runbook активного Speaky runtime SP-00–SP-08. Поставка и открытая приёмка — в [статусе](../status.md).
+Legacy env, dashboards и старый аудит явно отмечены; их наличие в коде не означает подключение к shipping roots.
+Секреты и пользовательские данные не копировать в документацию, логи или CI artifacts.
 
 - [SP-00: новый runtime и перенос текущего чата](#sp-00-новый-runtime-и-перенос-текущего-чата)
+- [SP-02: Realtime и архив](#sp-02-mini-app-и-пробный-голосовой-урок)
+- [Самостоятельный frontend](#самостоятельный-mini-app-frontend)
+- [SP-05: mock подписка](#sp-05-тестовая-подписка)
+- [SP-06–SP-08: jobs, память и прогресс](#sp-06sp-08-jobs-память-и-прогресс)
 - [Run locally, env, CI](#run-locally-env-ci)
 - [Переменные окружения Speaky](#переменные-окружения-speaky)
 - [Выкладка и восстановление](#выкладка-и-восстановление)
@@ -16,11 +19,11 @@ legacy сохраняется отдельно, без переноса его R
 
 ## Run locally, env, CI
 
-> Текущий продукт: [SP-01](tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей). Локальные тесты, DEV readiness и живая приёмка — разные проверки. Метрики и reminders ниже относятся к сохранённому голосовому пути, не к trial-записям.
+> Активный Telegram-контракт: [tutor-chat](tutor-chat.md). Локальные тесты, DEV readiness и живая приёмка — разные проверки. Метрики и reminders ниже относятся к сохранённому голосовому пути, не к trial-записям.
 
 ### Env (names only)
 
-Configuration names, purpose and defaults: [`operations.md`](operations.md#переменные-окружения-speaky). Template: `.env.example`. Values stay out of docs.
+Configuration names, purpose and defaults: [`operations.md`](operations.md#переменные-окружения-speaky). Legacy template: `.env.example`; active additions are documented below. Values stay out of docs.
 
 Ktor webhook TLS keystore password in code is the literal `"ktor"` (not a user secret).
 
@@ -63,13 +66,13 @@ Telegram **cannot** use local HTTP polling; webhook needs public HTTPS + cert.
 
 - `.github/workflows/cmp.yml` — detekt, Android/Desktop/iOS packages, `:server:test` + `buildFatJar`. **Деплоя нет.** Client packages bake `SPEAKING_COACH_API_BASE_URL=https://$DEV_CMP_SERVER_HOST` (PRs/feature; `PROD_CMP_SERVER_HOST` on `main`). Tests do not need the URL.
 - `.github/workflows/ai-service.yml` — pytest, upload app. **Деплоя нет.** Redis не трогает.
-- `.github/workflows/redeploy.yml` — **Redeploy DEV** (`workflow_dispatch`, `DEV_*`). Галки `cmp-server` / `ai-server` (обе default on). Выключенная — job skipped, workflow зелёный.
-- `.github/workflows/redeploy-prod.yml` — **Redeploy PROD**, те же галки, secrets `PROD_*`. Ветка не выбирает хост: с `main` и с PR запуск одинаковый. Deployments: environment `deploy-dev` / `deploy-prod`, без approve. Concurrency на хост (`ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`), `cancel-in-progress: false`.
+- `.github/workflows/redeploy.yml` — **Redeploy DEV** (`workflow_dispatch`, `DEV_*`). Inputs `cmp_server`, `ai_server`, `mini_app` (все default on); `billing_mock` и `tutor_smoke` — opt-in. Выключенная — job skipped, workflow зелёный.
+- `.github/workflows/redeploy-prod.yml` — **Redeploy PROD**, только backend/AI, secrets `PROD_*`. Ветка задаёт код, workflow destination задаёт хост. Deployments: environment `deploy-dev` / `deploy-prod`; актуальные approval rules проверять отдельно. Concurrency на хост (`ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`), `cancel-in-progress: false`.
 - `.github/actions/setup-cmp` — Zulu JDK 21, Gradle cache.
 
 Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
-### STT / TTS implementation notes
+### Legacy STT / TTS implementation notes
 
 - STT: Groq `verbose_json` + word timestamps; `no_speech` if empty text or `no_speech_prob >= 0.8`; retry via wav 16 kHz (`stt.py`, `audio.py`).
 - TTS: OpenRouter/OpenAI speech API; `instructions` only if model starts with `openai/`; then `to_ogg_opus`.
@@ -86,7 +89,7 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 Каталог ниже включает настройки сохранённого legacy/deploy кода. Для нового startup обязательные параметры перечислены в разделе SP-00; GROQ_API_KEY и Redis ему не нужны. Здесь имена, роль и вид значения. Сами секреты, пароли, токены и строки `GROQ_BASE_URL` / `OPENAI_BASE_URL` с хостов сюда не копируются.
 
-Шаблон имён: [`.env.example`](../../.env.example). Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`. Выкат: `.github/workflows/deploy-cmp-server.yml`, `deploy-ai-server.yml`.
+Legacy-шаблон имён: [`.env.example`](../../.env.example); он не перечисляет все новые foundation/Realtime/billing параметры, которые приведены ниже. Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`. Выкат: `.github/workflows/deploy-cmp-server.yml`, `deploy-ai-server.yml`.
 
 Каталог описывает назначение настроек; наличие и значения в живых окружениях здесь не утверждаются.
 
@@ -131,7 +134,8 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 ### CMP: `/opt/speaking-coach/.env`
 
-Пустая строка для процесса равна отсутствию ключа.
+Пустая строка для процесса равна отсутствию ключа. Таблица включает legacy/deploy настройки:
+JWT, metrics, audit и load-test routes не подключены к Speaky root; наличие env не включает их.
 
 | Ключ | Что задаёт | Что в значении | Если ключа нет |
 | --- | --- | --- | --- |
@@ -139,12 +143,12 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 | `TELEGRAM_WEBHOOK_URL` | режим вебхука | публичный HTTPS URL, который зовёт Telegram | режим без вебхука |
 | `TELEGRAM_WEBHOOK_SECRET` | проверка заголовка и `setWebhook` | общий секрет с Telegram | при заданном URL процесс не стартует |
 | `AI_SERVICE_BASE_URL` | куда Ktor шлёт tutor и voice запросы | URL ai-service | `http://127.0.0.1:8090` |
-| `AI_INTERNAL_TOKEN` | заголовок `X-Internal-Token` на `/v1/*` и `/internal/*` | общий секрет с AI-хостом | при вебхуке процесс не стартует |
+| `AI_INTERNAL_TOKEN` | `X-Internal-Token` на внутренних foundation API | общий секрет с AI-хостом | Speaky backend не стартует |
 | `SERVER_PORT` | порт Ktor; выкат требует число | номер порта | `8080`; скрипт мониторинга подставляет `443` |
 | `TLS_CERT_PATH` | сертификат вебхука | путь к PEM на хосте | `/opt/speaking-coach/tls.crt` |
 | `TLS_KEY_PATH` | ключ вебхука | путь к PEM на хосте | `/opt/speaking-coach/tls.key` |
 | `JWT_SECRET` | HMAC Bearer для CMP-клиента | секрет подписи | маршруты `/v1/auth` не ставятся |
-| `DATABASE_URL` | пользователи, сессии, журнал в Postgres | JDBC URL, пароль базы внутри строки | при токене бота процесс не стартует |
+| `DATABASE_URL` | PostgreSQL foundation | JDBC URL, пароль базы внутри строки | Speaky backend не стартует |
 | `POSTGRES_USER` | роль при первом создании контейнера Postgres | имя роли | скрипт берёт `speaking` |
 | `POSTGRES_PASSWORD` | пароль той роли | пароль | скрипт не создаёт контейнер Postgres |
 | `POSTGRES_DB` | имя базы при создании контейнера | имя базы | скрипт берёт `speaking_coach` |
@@ -161,9 +165,10 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 Токен бота требует `TELEGRAM_WEBHOOK_URL` и `DATABASE_URL`. URL вебхука требует `TELEGRAM_WEBHOOK_SECRET` и `AI_INTERNAL_TOKEN`.
 
-### AI: `/opt/ai-service/.env`
+### AI: legacy voice env
 
-Старт ai-service требует `GROQ_API_KEY`, `OPENAI_API_KEY` и `AI_INTERNAL_TOKEN`. `TTS_PROVIDER` бывает только `openrouter` или `deepgram`.
+Следующая таблица описывает сохранённый `app.main`, не shipping `app.speaky_main`. Активные настройки — в разделах SP-00 и SP-02.
+Старт legacy требует `GROQ_API_KEY`, `OPENAI_API_KEY` и `AI_INTERNAL_TOKEN`. `TTS_PROVIDER` бывает только `openrouter` или `deepgram`.
 
 | Ключ | Что задаёт | Что в значении | Если ключа нет |
 | --- | --- | --- | --- |
@@ -210,7 +215,7 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 Для `STT_MODEL=assemblyai/universal-3-5-pro` через OpenRouter задайте `GROQ_BASE_URL=https://openrouter.ai/api/v1` и ключ OpenRouter в исторически названном `GROQ_API_KEY`. Код переводит входящий Telegram OGG в WAV до первого STT-запроса; для Groq остаётся прежняя отправка исходного файла с переводом в WAV только после HTTP 400. Изменение требует перевыката AI-сервиса; одной смены `.env` для этого поведения недостаточно.
 
-`TTS_PROVIDER` на обоих хостах в итоге `openrouter`: на PROD ключа нет, и срабатывает дефолт. `DEEPGRAM_API_KEY` есть только на DEV и в этом режиме не используется. Живая озвучка — `x-ai/grok-voice-tts-1.0`, это не дефолт кода `hexgrad/kokoro-82m`.
+Наличие этих переменных на DEV/PROD здесь не утверждается. Realtime не использует legacy STT/TTS provider config.
 
 
 ### Не в этих блобах
@@ -218,10 +223,10 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 | Имя | Где живёт | Что в значении |
 | --- | --- | --- |
 | `SPEAKING_COACH_API_BASE_URL` | клиент CMP: env или `cmp/client.local.properties` (`speakingCoach.apiBaseUrl`) | базовый URL Ktor; CI подставляет `https://` и хост из `DEV_CMP_SERVER_HOST` / `PROD_CMP_SERVER_HOST` |
-| `TEST_POSTGRES_URL` | только локальные тесты Ktor | JDBC URL тестовой базы; пусто — тест пропускается |
+| `TEST_POSTGRES_URL` | отдельный PostgreSQL integration target | JDBC URL тестовой базы; отсутствие в этом target — ошибка |
 | `cmp` файл `8090.allow` | `/opt/ai-service/8090.allow`, не ключ `.env` | список адресов, которым скрипт оставляет доступ к опубликованному порту AI |
 
-### Конфигурация SP-01
+### Legacy-конфигурация первоначального SP-01
 
 `main.py` создаёт voice pipeline при запуске всего приложения, поэтому требуются `GROQ_API_KEY`,
 `OPENAI_API_KEY` и `AI_INTERNAL_TOKEN`, даже для текстового tutor-чата.
@@ -232,50 +237,31 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 Доступ к текстовому tutor runtime не проверяет voice allowlist. В deploy workflow `KORA_H_ALLOWLIST`
 для старых голосовых возможностей допускает числовой список или `*`; пустой список выключает их флаг.
 `ONBOARDING_REVIEW_MODEL` и fallback не управляют моделью Саши.
-Текущий [контракт SP-01](tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей) и [история DEV](../status.md) отделены от каталога env.
+Активный root использует `OpenAiChatModel` с `KORA_MODEL` для FoundationTutor, selector и learning;
+не запускает старый voice pipeline и не требует `GROQ_API_KEY`/Redis. [Текущий контракт](tutor-chat.md).
 
 ## Monitoring
 
-Status: `/admin/metrics` is the product analytics home; the former draft summary is at `/admin/metrics/details`. The operator page is `/admin/monitoring`. Definitions for the new home are in [analytics.md](analytics.md#главная-страница-аналитики-adminmetrics).
+Legacy dashboards и Redis metrics ниже не подключены к Speaky shipping roots.
+Наличие инфраструктуры Grafana/Alloy не означает, что новый runtime экспортирует прежние продуктовые серии.
+Для активного пути используйте health/readiness, foundation diagnostics и runtime logs.
 
-`/admin/monitoring` is Ktor HTML on the CMP host. It reads `GET /internal/metrics` from ai-service. The `v2` object is the client cut. Telegram, Android, iOS, and desktop are separate columns. A session without `android`, `ios`, or `desktop` is `unknown`. There is no combined mobile total and no ruble-per-turn card. Empty provider money is a dash.
 
-The public TLS connector does not serve `/admin/monitoring`. Ktor listens for it on `127.0.0.1` and `MONITORING_PORT` (default 8081). Every route is hidden from OpenAPI. There is no `MONITORING_PASSWORD`. `METRICS_PASSWORD` still guards the draft.
+Legacy `/admin/metrics` и `/admin/metrics/details` — продуктовые отчёты;
+`/admin/monitoring` — операторская страница. Определения событий, знаменателей, когорт,
+retention, speech-time и стоимости — в [analytics.md](analytics.md), без повторного каталога здесь.
 
-Grafana is the outside HTTPS door, on port 8443, with anonymous access off and one admin login. Nginx checks `GET /api/user` and then proxies `/admin/monitoring` to the localhost Ktor port. Prometheus and the blackbox exporter stay on localhost. Blackbox probes `/health` every 15 seconds. Prometheus scrapes `metrics:v2` every 15 seconds and sends `AI_INTERNAL_TOKEN` as `Authorization: Bearer`. The service accepts that header on internal routes as well as `X-Internal-Token`. Its TSDB retention is 185 days, configured in `infra/monitoring/deploy-remote.sh`; there is no smaller size-based retention limit. The persistent Docker volume survives monitoring container recreation, but older deleted samples cannot be recovered and the host needs enough free disk space. Day metrics are not stored in Prometheus as a second database; the scrape is the chart history. `speaking_llm_requests` is the day's LLM call count from Redis `metrics:v2:day:*` (`llm|*|calls`). STT and TTS calls are not included. The scrape also emits the previous 14 Moscow days so Grafana has history immediately after deploy; earlier history accumulates only after scraping.
-The older `/admin/metrics` navigation links to **История** on the same host's Grafana HTTPS port `8443`. Its metrics login does not authorize history access; Grafana asks the operator to sign in when needed.
+Ktor monitoring connector слушает `127.0.0.1:MONITORING_PORT` (8081); публичный TLS его не отдаёт.
+Grafana/nginx служат внешним входом через аутентификацию Grafana; metrics cookie не авторизует Grafana.
+Prometheus/blackbox остаются на loopback, интервал scrape/probe — 15 секунд.
+TSDB retention — 185 дней в `infra/monitoring/deploy-remote.sh`; persistent volume переживает рестарт,
+но не восстанавливает уже удалённые samples. Следить за диском.
 
-The **Speaky** Grafana dashboard filters existing product series to `client="telegram"`. The provider-call graphs are an explicit exception: they count STT, LLM and TTS attempts from all real traffic, plus all outbound Telegram Bot API calls from CMP. It omits the shared availability panel and the link to the all-client operator page. Collection and the separate `/admin/monitoring` page still retain the other clients.
-
-The spend panel converts stored micro-USD into USD in its Prometheus query and formats the result as dollars with six decimal places.
-
-The errors panel uses the Telegram DAU series as a zero fallback because `speaking_errors` has no series until an error occurs. It shows zero while Prometheus receives Telegram metrics; if the scrape is unavailable, it still shows `No data`.
-
-The scaling row uses the existing blackbox `/health` probes, `up` for the AI and Ktor metrics jobs, and the age of the latest Telegram DAU sample. Freshness means a successful scrape, not a recent user action. Ktor exposes `/internal/telegram-metrics/prometheus` only on its localhost `MONITORING_PORT`; Prometheus scrapes it every 15 seconds. AI metrics use the same 15-second scrape. Ktor and AI stage counters are process-local monotonic counters; Prometheus preserves their history across process restarts.
-
-The TPM graph sums input and output LLM tokens added over the previous 60 seconds for Telegram. The source is daily monotonic gauges, so the 15-second scrape makes short-window counts approximate. The TPS graph is output generation throughput: it divides completion tokens by provider-reported generation seconds for Telegram LLM requests completed over the previous 60 seconds. OpenRouter returns `openrouter_metadata.generation_time` (milliseconds) when the request opts into `X-OpenRouter-Metadata: enabled`; no follow-up HTTP request is needed. Requests with missing or invalid generation time are excluded from both sides of the TPS ratio. The TPS series starts after the version with this instrumentation is deployed; it has no historical backfill.
-
-The `Входящие запросы Telegram · RPS` graph uses `sum(rate(telegram_webhook_requests_total{client="telegram"}[5m]))`. The counter increments once for each HTTP webhook request with a valid Telegram secret header, before decoding the update. It includes duplicate updates and malformed payloads, but excludes unauthenticated requests, health checks, metrics scrapes, and AI internal calls. The graph is requests per second averaged over five minutes, with a 15-second Prometheus scrape; short bursts may be smoothed. The counter starts at zero after a Ktor restart, and a missing scrape is not treated as zero traffic. It is displayed next to the cumulative voice-user number in the `Трафик Telegram` row.
-
-For Telegram voice replies, `telegram_voice_response_duration_seconds` measures from Ktor accepting the update to Telegram acknowledging the final voice or text. `telegram_voice_queue_wait_seconds` adds the waits in `TelegramChatActions` and `SessionClipQueue`. Histograms include only successfully delivered responses; p50 and p95 use the past 15 minutes. The dashboard displays the response sample count separately. `telegram_voice_requests_total` also counts failed and queue-full outcomes, including failures before STT.
-
-`speaking_stage_attempts_total` counts one logical operation after internal retries for STT, LLM, TTS, and reply delivery. LLM includes reply, notes, and onboarding operations; these are stage-level rates, not the percentage of user turns that failed. A no-speech clarification is a successful STT operation. The Grafana failure share is `failure / (success + failure)` for each stage over 15 minutes and has no value when the stage had no attempts. The 5- and 15-minute failure panels use these monotonic counters. The older `speaking_errors` panel remains a daily breakdown and is not an exhaustive HTTP or log error count.
-
-`speaking_provider_calls_total{type,result}` separately counts each external STT, LLM, TTS, or Telegram API attempt, including failed and cancelled attempts and explicit retries. AI's three types exclude flagged load tests. CMP's `telegram_api` type covers every outbound Bot API request, including file downloads, chat actions, callbacks and setup calls. Grafana shows four separate graphs and one sum as calls per minute averaged over five minutes. The sum spans both Prometheus scrape jobs; each request is counted by its owning service once. These process-local counters start at deployment; Prometheus preserves scraped history across restarts. The counters do not depend on logs reaching Loki.
-
-`speaking_review_verification_total{flow,outcome}` counts one final correction check per assessment with at least one saved correction candidate. `flow` is `onboarding` or `call`; `outcome` is `success`, `partial`, `timeout`, `error`, or `cancelled`. Candidates are checked in groups of five, with at most three concurrent requests inside the shared 10-second deadline. A successful group can supply examples even if another group fails or times out. `partial` means some groups failed and none timed out; `timeout` includes checks that returned some verified examples before the deadline. A completed assessment with no candidates does not attempt verification and is absent from the denominator. `speaking_review_verification_duration_seconds` is a histogram of the same assessments, including partial results and timeouts. The Grafana row shows 24-hour assessment counts by outcome, timeout share (`timeout / all attempts`) by flow, and p50/p95 duration of fully successful checks. The successful latency plot excludes partial results and timeouts; read it together with the outcome counts. No candidates, transcripts, or identifiers appear as metric labels. These process-local metrics start when the instrumented AI service is deployed, with no historical backfill; Prometheus retains scraped samples across restarts.
-
-The `Стоимость голосового обмена` row divides provider-reported STT/LLM/TTS costs during Telegram clip jobs by successfully delivered voice replies to recognized incoming clips. It also shows the share of provider calls with a known price. The daily chart samples trailing 24-hour windows at one-day intervals. See `analytics.md` for the exact denominator and missing-price limits.
-
-`Ходов на активного пользователя сегодня` divides today's completed Telegram turns by today's Telegram DAU, only when DAU is positive. `Действия за день` remains a daily action count. D1 cohort retention is calculated from activation and daily user events on `/admin/metrics/streaks`, not from Grafana's 24-hour time series.
-
-New counters use the Redis prefix `metrics:v2` on the AI host. Old `metrics:day` and `metrics:dau` are left as they are and are not shown as a client column. Money is OpenRouter `usage.cost` and TTS `total_cost`, stored as micro-units plus currency. Realtime usage is tokens from `response.done`. Groq stays seconds. A missing cost increments the call count only.
-
-The CMP app sends `platform` on `POST /v1/sessions`. Telegram action names are posted to `POST /internal/metrics/action`. Journal text and voice objects are not in this cut.
-
-The operator page also shows a cumulative Telegram voice journey, stored in Redis under `metrics:v2:telegram:journey`. `Только Start, без ГС` counts users with a recorded `/start` and no recorded incoming voice. The other cards count distinct users who sent at least 1, 3, 5, 10, or 20 Telegram voice messages; these thresholds overlap. The event is counted when Ktor receives the message, including one that is later rejected by the queue or fails processing. Ktor supplies the Telegram message ID to `/internal/metrics/action`; the AI service deduplicates the same ID per chat with a seven-day receipt. The per-user voice count and aggregate milestone counters have no TTL. The first event date is shown on the page. The at-least-one voice count is backfilled from each Telegram chat’s legacy `metrics:funnel:user:*` `activated_day`, starting 2026-09-24; it is unioned with journey users without double counting. On the checked PROD data, this was 78 distinct chats: 52 already in the journey and 26 additional legacy-only chats. Counts for 3/5/10/20 voices and Start still begin on 2026-10-06 because old per-chat voice counts cannot be reconstructed reliably. Grafana shows the at-least-one count as a single current value, `speaking_telegram_voice_users`; the other journey cards remain on the operator page. This metric counts unique Telegram chat IDs, so a group chat counts once.
-
-The legacy `/admin/metrics/details` **Чаты** table includes users recorded by `/start` even when they have zero completed turns. `Только /start` means the legacy funnel has a start but no incoming voice and no completed turn; a voice without a completed turn is labeled `Без завершённых ходов`. The table shows at most 200 chats by last recorded turn or first start, with username/name from the latest Telegram profile. Existing start-only users are indexed from the retained Redis funnel records on the first snapshot after an AI service restart; their start time is known only to the Moscow day, while newly recorded starts have an exact timestamp. The index preserves a later completed-turn timestamp. This table is available only through the existing metrics session and does not change the aggregate monitoring journey or its history boundary.
+Legacy AI scrape читает `metrics:v2`; daily gauges и процессные monotonic counters имеют разные границы истории.
+Свежий scrape не доказывает новую активность ученика. Отсутствующая цена/серия не является нулём.
+Provider counters считают фактические попытки, включая cancelled/retry, отдельно от успешных ходов.
+Realtime usage читать по `response.done` и runtime diagnostics; старые STT/LLM/TTS графики его не включают.
+Смена runtime требует проверить scrape endpoints и alerts, а не считать старые панели работающими по факту deploy.
 
 ### Историческая проверка dashboard
 
@@ -284,9 +270,9 @@ The legacy `/admin/metrics/details` **Чаты** table includes users recorded b
 
 ## Логи вызовов LLM, STT, TTS и Telegram API
 
-Статус: реализовано в коде; выкат и проверка появления записей на DEV остаются отдельными действиями.
+Доставка логов зависит от конфигурации Alloy/Loki; проверять появление записей отдельно от успешного deploy.
 
-AI-сервис пишет одну строку `provider_call` в stdout для **каждой фактической попытки** HTTP-вызова LLM, STT или TTS. CMP пишет строку того же формата для каждого исходящего вызова Telegram Bot API через `TelegramBot.execute`: отправка и редактирование сообщений, загрузка файлов, ответы на кнопки, индикаторы и служебные вызовы. Если запрос повторён после ошибки, в журнале остаются обе попытки. CMP-логи собирает локальный Alloy в Loki на CMP-сервере. AI-записи уходят в Loki через Alloy только там, где настроен `LOKI_PUSH_URL` или сохранён `monitoring/loki.url`; на PROD AI в деплое 14 октября 2026 отправка логов была отключена из-за отсутствия адреса. Отдельная база не добавляется.
+AI-сервис пишет одну строку `provider_call` в stdout для **каждой фактической попытки** HTTP-вызова LLM, STT или TTS. CMP пишет строку того же формата для каждого исходящего вызова Telegram Bot API через `TelegramBot.execute`: отправка и редактирование сообщений, загрузка файлов, ответы на кнопки, индикаторы и служебные вызовы. Если запрос повторён после ошибки, в журнале остаются обе попытки. CMP-логи собирает локальный Alloy в Loki на CMP-сервере. AI-записи уходят в Loki через Alloy только там, где настроен `LOKI_PUSH_URL` или сохранён `monitoring/loki.url`. Отдельная база не добавляется.
 
 Операционный счётчик `speaking_provider_calls_total{type,result}` считает каждую попытку независимо от доставки логов: `type` — `stt`, `llm`, `tts` или `telegram_api`, `result` — `success`, `error` или `cancelled`. AI экспортирует первые три типа через `/internal/metrics/prometheus`; CMP экспортирует Telegram API через `/internal/telegram-metrics/prometheus`. Оба endpoint уже опрашивает Prometheus. Счётчики хранятся в памяти соответствующих процессов и обнуляются при рестарте, а Prometheus сохраняет собранную историю. Нагрузочные запросы с `X-Speaky-Load-Test: 1` в AI-счётчик не входят, хотя остаются в логах. Тесты через CMP не обращаются к Telegram API. Исторические вызовы до выката счётчиков не восстанавливаются.
 
@@ -299,6 +285,10 @@ Grafana Speaky показывает пять графиков: STT, LLM, TTS, Te
 Запись не содержит исходный ID, аудио, текст реплики, запрос к модели, ответ или API-ключ. Прежние продуктовые агрегаты `metrics:*` и `metrics:v2:*` не меняются. Срок хранения Loki — 30 дней по действующей настройке. Старые записи не дополняются задним числом. Объединённый OpenAI Realtime вызов не раскладывается на отдельные STT/LLM/TTS попытки: эти внутренние операции провайдера не видны AI-сервису как отдельные HTTP-запросы.
 
 ## PROD Telegram alerts
+
+Сохранённая инфраструктура alerts, не доказательство текущего PROD. Метрики/аудит старого
+голосового пути требуют legacy endpoints; они не становятся метриками нового репетитора автоматически.
+
 
 Status: prepared, not deployed. The recipient is the private chat of @alexgusev93 with @speaky_alerts_bot. A direct Bot API test message reached that chat on 2026-10-30. This proves the bot-to-chat path, not Grafana alert delivery.
 
@@ -330,46 +320,30 @@ The bot sends one warning when the observed balance first falls below $5. It sen
 
 ## Выкладка и восстановление
 
-Ниже сохранена схема поставки SP-01. Новый shipping graph SP-00 запускает Speaky roots без Redis; его cutover описан отдельно в разделе SP-00. Эта схема не описывает переключение на SP-00.
+Shipping roots: `SpeakyApplication.kt`, `app.speaky_main:create_app` и `mini-app/dist`.
+Обычный deploy не повторяет offline TutorStore import и не удаляет legacy Redis/PG данные.
 
-### Что крутится на машине
+### Что поставляют скрипты
 
-Четыре основных Docker-контейнера (мониторинг разворачивается отдельно). **Prod** может использовать один сервер (Ktor host-сеть + AI/Redis на той же машине). **DEV** — два независимых VPS: так моделируем прод, где Ktor и AI **не** обязаны быть у одного провайдера и без LAN датацентра.
+| Компонент | Назначение |
+| --- | --- |
+| `speaking-coach` | Ktor foundation/webhook, host network, порт `SERVER_PORT`, PostgreSQL по `DATABASE_URL` |
+| `postgres` | PostgreSQL 16, loopback:5432, persistent volume `speaking-coach-postgres` |
+| `ai-service` | FastAPI и Realtime relay, Docker network `speaking-coach`, host port `AI_SERVICE_PORT` → 8090 |
+| `mini-app` | nginx:8080 в `speaking-coach`, без публичного порта и env secrets; DEV edge обслуживает HTTPS |
+| S3 | Приватный архив; DEV storage runbook — [infra/storage](../../infra/storage/README.md) |
 
-| Контейнер | Образ | Сеть | Назначение |
-| --- | --- | --- | --- |
-| `speaking-coach` | `speaking-coach:local` | **host** | Ktor, порт из `SERVER_PORT` в `.env` (обычно 443), Telegram webhook |
-| `postgres` | `postgres:16-alpine` | loopback | пользователи app API, **127.0.0.1:5432**, volume `speaking-coach-postgres` (хост Ktor) |
-| `ai-service` | `ai-service:local` | `speaking-coach` | FastAPI, порт **8090** на всех интерфейсах |
-| `redis` | `redis:7-alpine` | `speaking-coach` | диалог, **127.0.0.1:6379**, volume `speaking-coach-redis` |
+Сохранённый `redis` и его volume не требуются новому runtime, но не удаляются при deploy.
+Мониторинг и S3 — отдельная инфраструктура. Схема описывает код поставки, не инвентаризацию живых хостов.
 
-Ktor смотрит на ai-service через `AI_SERVICE_BASE_URL` — адрес, который виден **с машины Ktor** (публичный IP/DNS другого провайдера), не `127.0.0.1` и не VPC Timeweb. Хост-порт FastAPI — `AI_SERVICE_PORT` в `.env` на AI (по умолчанию 8090); скрипт делает `-p $AI_SERVICE_PORT:8090`. В URL Ktor тот же порт. Docker публикует его на всех интерфейсах, а `restrict-8090.sh` режет чужие source в `DOCKER-USER` / `INPUT`: пускает loopback и адреса из `/opt/ai-service/8090.allow`. Без файла снаружи порт закрыт. Общий LAN между хостами не делаем: он не переживёт разъезд по провайдерам. Позже вместо голого HTTP — TLS или туннель (WireGuard и т.п.). Redis остаётся на AI-хосте, наружу и на Ktor не публикуем. `REDIS_URL=redis://redis:6379/0`.
+Ktor использует доступный с его машины `AI_SERVICE_BASE_URL`; AI использует `FOUNDATION_BACKEND_URL`.
+Не подставлять loopback другого хоста. `restrict-8090.sh` ограничивает опубликованный AI port
+адресами из `/opt/ai-service/8090.allow`; файл с разрешёнными адресами не генерируется CI.
+TLS и CA trust проверяются без отключения проверки сертификата.
 
-На диске:
-
-- `/opt/speaking-coach/` — fat JAR, `Dockerfile.runtime`, `deploy-remote.sh`, `.env`, **`tls.crt` / `tls.key` (кладёт человек, CI их не генерирует)**
-- `/opt/ai-service/` — `app/`, Dockerfile, requirements, deploy-скрипты, `.env`, **`8090.allow` (кладёт человек: IPv4 Ktor, по одному в строке; CI не пишет)**
-
-Рестарт `ai-service` **не** должен `docker rm redis`. Скрипт `infra/redis/deploy-remote.sh` если контейнер `redis` уже есть — только `start` + connect к сети, volume не трогает.
-Рестарт `speaking-coach` **не** должен `docker rm postgres`. Скрипт `infra/postgres/deploy-remote.sh` создаёт контейнер, если его нет; иначе `start`. Без `POSTGRES_PASSWORD` в `.env` Postgres не поднимается (бот без app API).
-
-```mermaid
-flowchart LR
-  redeploy[Redeploy]
-  ktor[speaking_coach]
-  postgres[(postgres)]
-  ai[ai_service]
-  redis[(redis)]
-  tls[tls_on_disk]
-  redeploy -->|cmp-server| ktor
-  redeploy -->|ai-server| ai
-  ai -->|redis_if_missing| redis
-  ktor -->|postgres_if_missing| postgres
-  ktor --> ai
-  tls --> ktor
-```
-
-**Имена:** семейство хостов — `cmp-server` и `ai-server` (галки Redeploy DEV / Redeploy PROD). SSH и `.env` — repo secrets `DEV_*` или `PROD_*`. Каталог и Docker-имя AI остаются `ai-service`. URL в Ktor — ключ `AI_SERVICE_BASE_URL` внутри блоба `.env`, не отдельный secret.
+На диске Ktor: `/opt/speaking-coach/` (fat JAR, runtime Dockerfile, `.env`, `tls.crt`, `tls.key`).
+AI: `/opt/ai-service/` (runtime, `.env`, `8090.allow`, backend CA при необходимости).
+Не удалять контейнеры хранилищ/volumes при рестарте приложений. Не запускать старый Redis deploy как условие Speaky startup.
 
 ### Тесты авто, выкат только Redeploy
 
@@ -380,40 +354,35 @@ flowchart LR
 - [`.github/workflows/redeploy.yml`](../../.github/workflows/redeploy.yml) — **Redeploy DEV**, `destination: dev`, secrets `DEV_*`
 - [`.github/workflows/redeploy-prod.yml`](../../.github/workflows/redeploy-prod.yml) — **Redeploy PROD**, `destination: prod`, secrets `PROD_*`
 
-У каждого две галки `cmp-server` и `ai-server` (обе default on). Снятая галка = job skipped, workflow зелёный. Обе сняты = fail до SSH. С `main` и с PR выкат один и тот же, его запускают эти два workflow. В Deployments попадают только `deploy-prod` и `deploy-dev` (имя environment у deploy-джобы, без required reviewers). Секреты — repository Actions secrets, не Environment secrets.
+DEV: `cmp_server`, `ai_server`, `mini_app`; PROD: backend/AI без отдельного Mini App workflow.
+Отключённая компонента даёт skipped; общий success не доказывает её поставку.
+Выбранный git ref задаёт код, workflow destination — окружение. Проверять оба до запуска.
+Секреты — repository Actions secrets; фактические права/approval проверять на GitHub при поставке.
 
 Concurrency: `ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`, `cancel-in-progress: false` (очередь, не cancelled).
 
 Имена DEV/PROD secrets и состав env приведены в [каталоге конфигурации](#переменные-окружения-speaky).
 
-Для прямого Deepgram добавьте `TTS_PROVIDER=deepgram` и `DEEPGRAM_API_KEY` в AI env соответствующего окружения. `TTS_SPEED` по умолчанию равен `0.9` (слегка замедленная речь Aura-2); `TTS_SPEED=1.0` возвращает обычную скорость после нового деплоя AI. Первый AI-деплой можно сделать с `TTS_OUTPUT_FORMAT=ogg`: контракт для старого Ktor сохранится. Чтобы убрать ffmpeg, сначала разверните новый `cmp-server`, принимающий `audio/mpeg`, затем установите `TTS_OUTPUT_FORMAT=mp3` и разверните `ai-server`. Откат: `TTS_PROVIDER=openrouter` и повторный деплой AI; Ktor продолжит принимать OGG. Не кладите значение ключа в документацию или репозиторий.
-
-Пустой блоб — fail на раннере до SSH. TLS на DEV кладёт человек.
-
-CMP Android / iOS / Desktop на сервер не едут. Jobs ai-service в памяти при рестарте пропадают; Redis-диалоги остаются.
+Пустой env blob останавливает поставку до SSH. TLS/CA и import marker должны быть готовы до старта.
+CMP Android/iOS/Desktop не поставляются как Mini App. Foundation jobs и receipts долговечны в PostgreSQL;
+provider-сессия и непереданные браузерные буферы при рестарте не сохраняются.
 
 Если Docker Hub отвечает `429 Too Many Requests` при проверке базового образа, DEV/PROD deploy-скрипты могут собрать новую версию из локального `ai-service:local` или `speaking-coach:local`. Контейнеры заменяются только после успешной сборки. Для AI запасной путь разрешён лишь при точном совпадении `requirements.txt` с установленным образом; он заменяет каталог `app` целиком. Если локального образа нет или зависимости изменились, деплой завершается ошибкой без замены работающего контейнера. Такой путь нужен для кратковременного лимита Docker Hub и не скрывает другие ошибки сборки.
 
-### Ручной деплой (если файлы уже на хосте)
+### Ручной деплой
 
-Положить `.env`, вызвать скрипт. Env на хост не передаём.
+При отдельно разрешённой ручной поставке используйте `infra/server/deploy-remote.sh`,
+`infra/ai-service/deploy-remote.sh` и `infra/miniapp/deploy-remote.sh` с согласованными артефактами.
+Сначала проверить backup, schema, import marker, CA и совместимость всех трёх компонентов.
+Обычный рестарт не должен создавать пустую замену БД или переписывать источник конфигурации.
 
-```bash
-bash /opt/speaking-coach/deploy-postgres.sh
-bash /opt/speaking-coach/deploy-remote.sh
-bash /opt/ai-service/deploy-redis.sh
-bash /opt/ai-service/deploy-remote.sh
-```
-
-Проверка: `docker ps` — четыре имени выше; с хоста Ktor `curl -k https://127.0.0.1/health`; с хоста AI или с Ktor `curl http://<ai-server>:8090/health`.
-
-### Проверка DEV после SP-01
+### Проверка DEV
 
 Redeploy DEV поддерживает `verify_only`: он проверяет без пересборки и рестарта.
-`verification_ref` — ревизия проверяющего скрипта, а не доказательство ревизии работающего приложения.
+Readiness использует скрипт выбранного ref и expected SHA; отдельно сверять ревизию каждого артефакта.
 SSH использует сохранённые host keys из `infra/dev/known_hosts`.
 Workflow сравнивает digest артефактов, проверяет контейнеры, startup markers, AI/CMP health,
-CMP→AI auth и learner context. Предыдущие image IDs записываются до замены контейнеров.
+CMP→AI auth и foundation context. Предыдущие image IDs записываются до замены контейнеров.
 
 Опциональный `tutor_smoke` вызывает платную модель. Он не является обычной health-проверкой;
 в документационной задаче его не запускают. На degraded-ответе smoke останавливается без ретраев.
@@ -425,7 +394,7 @@ CMP→AI auth и learner context. Предыдущие image IDs записыв�
 `usesWebhook` определяется непустым TELEGRAM_WEBHOOK_URL; token без webhook URL отклоняется конфигурацией.
 Webhook использует SSL connector на SERVER_PORT и PEM tls.crt/tls.key. Локальный HTTP-режим нужен для health/API.
 `GET /health` открыт. Clip API не является публичным proxy Ktor; внутренние запросы защищены токеном.
-`SessionClipQueue` допускает три клипа на session вместе с обрабатываемым; лишние получают QueueFull.
+Только в legacy: `SessionClipQueue` допускает три клипа на session вместе с обрабатываемым; лишние получают QueueFull.
 `HttpClipClient` ждёт job до 90 с с polling 1.5 с. Старый JobStore — in-process, TTL по умолчанию 600 с.
 
 Технические логи не содержат текста ученика и секретов. Файлы app.log на обоих хостах
@@ -434,6 +403,10 @@ Alloy AI отправляет stdout в Loki Ktor; адрес — LOKI_PUSH_URL 
 Пользовательские реплики и аудио доступны только через закрытую историю, не через обычные технические логи.
 
 ## История взаимодействий и аудит
+
+Этот раздел описывает legacy audit storage/API. Активная история принадлежит PostgreSQL foundation,
+а голосовой архив — [SP-02](#архив-и-восстановление); старые audit routes не монтируются.
+
 
 Это контракт сохранённого Telegram audit. Durable inbox нового tutor описан отдельно в [плане SP-00](../plans/2026-11-10-sp00-foundation.md).
 
@@ -469,18 +442,18 @@ attempt_id используется в полях логов, а не как Lok
 
 ## SP-00: новый runtime и перенос текущего чата
 
-Статус: инструкции к локально проверенному коду. DEV/PROD переключение не выполнено.
+Процедура первоначального cutover; текущая поставка — только в [status.md](../status.md).
 Legacy calls, Vocabulary Builder, reminders и dashboards сохранены в исходниках, но новый runtime их не запускает.
 Redis и его серверные данные не удалять. Перенос этих legacy namespaces отменён.
 
 ### Composition roots и конфигурация
 
 - Kotlin `Application.kt` запускает `SpeakyApplication.kt`: foundation, durable private-text webhook, worker и `/health`.
-- AI Docker запускает `app.speaky_main:create_app`: `/health`, `/internal/foundation/tutor/turn`, `/internal/foundation/compute`.
+- AI Docker запускает `app.speaky_main:create_app`: health, tutor/compute, Mini App API/diagnostics и Realtime WebSocket; UI раздаёт frontend.
 - Backend требует `DATABASE_URL`, общий `AI_INTERNAL_TOKEN`, `AI_SERVICE_BASE_URL`; webhook требует прежние Telegram/TLS настройки.
 - AI требует `FOUNDATION_BACKEND_URL`, тот же `AI_INTERNAL_TOKEN`, `OPENAI_API_KEY`; model/base URL настройки сохраняются.
 - `FOUNDATION_BACKEND_URL` должен быть доступен из AI-контейнера. Loopback мониторинга backend доступен только в его сетевом namespace.
-- Для DEV адрес — `https://72.56.85.251:443`, без API path. При самоподписанном TLS сертификат CMP копируется через проверенный SSH в `/opt/ai-service/foundation-backend-ca.pem` на AI. Deploy монтирует его read-only и задаёт `FOUNDATION_BACKEND_CA_FILE`; Python добавляет его к системным CA только для backend HTTP-клиента. Проверка hostname/TLS остаётся включённой. При смене сертификата обновить этот файл до redeploy.
+- Адрес backend — origin без API path; клиент сам добавляет `/internal/foundation/v1`. При самоподписанном TLS сертификат CMP копируется через проверенный SSH в `/opt/ai-service/foundation-backend-ca.pem` на AI. Deploy монтирует его read-only и задаёт `FOUNDATION_BACKEND_CA_FILE`; Python добавляет его к системным CA только для backend HTTP-клиента. Проверка hostname/TLS остаётся включённой. При смене сертификата обновить этот файл до redeploy.
 - `requirements.txt` не содержит Redis. Только offline export и сохранённый legacy используют `requirements-legacy.txt`.
 - Старый `app.main` не запускать одновременно с новым текстовым путём. Автоматического возврата к Redis при ошибке нет.
 - Старые PG adapters и промежуточные legacy-таблицы не зарегистрированы в новом runtime. Их перенос не является условием запуска.
@@ -536,12 +509,15 @@ GRADLE_USER_HOME=$HOME/.gradle ./gradlew :server:foundationMaintenance \
   --args='retry-job STUDENT_ID JOB_ID'
 ```
 
-Диагностика показывает состояние/ошибки без вывода сырой переписки. Retry проверяет состояние и deadline.
+Диагностика показывает состояние/ошибки без сырой переписки. CLI при запуске инициализирует
+FoundationDatabase/Flyway и выдаёт operator scope; для строго read-only доступа использовать
+диагностические HTTP endpoints с существующим scope. Retry проверяет состояние и deadline.
 Lease/fence блокируют старый worker после повторного claim; invalid source/epoch нельзя обойти повтором.
 `delivery_unknown` нельзя повторять автоматически: сначала установить внешний исход доставки.
 Для Telegram reply неизвестная доставка также не означает «не отправлено».
-Production lesson analyzer/planner, календарный materializer и reminder sender пока не подключены:
-контракты и test adapters работают, production handler возвращает unavailable, без фиктивного успеха.
+Shipping LearningEngine выполняет lesson.evaluate, roadmap.prepare и lesson.prepare.
+Расписание/напоминания исполняет TrialWorker; старые foundation job kinds `schedule.materialize`
+и `notification.reminder` без зарегистрированного business handler возвращают `handler_unavailable`.
 При отсутствии нужной evaluation/актуального Lesson Plan admission блокируется. Платёжные сроки и grace автоматически не выводятся.
 
 ### Удаление и восстановление backup
@@ -593,7 +569,8 @@ Migration suite не пропускается молча при отсутств
 
 ## SP-02: Mini App и пробный голосовой урок
 
-Trial включён без feature flag. Голосовой путь — OpenAI Realtime; текстовый tutor/analyzer остаются на своих моделях.
+Trial routes зарегистрированы без feature flag; голос требует Realtime key и audio store.
+Голосовой путь — OpenAI Realtime; текстовый tutor/analyzer используют отдельный model client.
 Текущая поставка — в [статусе](../status.md). Существующий DEV SeaweedFS/bucket/сеть не пересоздавать.
 
 | Компонент | Конфигурация |
@@ -614,8 +591,9 @@ ChatGPT subscription не заменяет API key и разрешение ра�
 
 1. Получить отдельное разрешение на commit/push/DEV и платные вызовы. При необходимости принять новый ключ через secrets skill.
    Не читать и не переносить существующие секреты в чат; не менять SeaweedFS credentials без причины.
-2. Установить realtime env в AI через существующий защищённый механизм. Backend schema не меняется;
-   новый backend нужен для пагинации аудиоархива. `verify-tutor.py` проверяет наличие ключа и S3 list versions без вызова модели.
+2. Установить realtime env в AI через существующий защищённый механизм. Проверить миграции выбранной
+   ревизии (текущий код — до V44); не считать прежний Realtime-переход доказательством готовности схемы.
+   `verify-tutor.py` проверяет наличие ключа и S3 list versions без вызова модели.
 3. Поставить backend, AI и `mini-app` согласованной ревизии. Клиент передаёт `protocol=realtime-pcm-v1`;
    старый frontend отклоняется до admission. В окне смешанных версий звонки не принимать; открыть Mini App заново.
 4. Проверить HTTPS/WSS edge, readiness и release SHA. Зелёная readiness не проверяет голос.
@@ -651,7 +629,7 @@ End button не равен technical_disconnect; оба сохраняют во�
 Регулярный голосовой урок и исполняемое расписание поставляются совместно: backend с V40,
 AI с regular planner/policy и scheduling tools, Mini App с поддержкой executable regular.
 Старые preliminary placeholders не активируются автоматически; требуется новое явное
-согласование расписания. Demo-оплата не включает подписку и не является проверкой доступа.
+согласование расписания либо явный перенос выбранной старой встречи. Demo-оплата не включает подписку и не является проверкой доступа.
 Новых provider credentials не добавлено; используется существующий Realtime/LLM/S3.
 
 До поставки проверить объединённые PostgreSQL-тесты: schedule.agree, подготовку плана,
@@ -670,30 +648,14 @@ Provider errors проходят безопасный formatter; сообщен�
 Живая приёмка: несколько RU/EN обменов, паузы, настоящий barge-in, динамик/наушники, mute/reconnect/end,
 контекст в Telegram, полный архив, p50/p95 первого слышимого звука и стоимость примерно 15 минут.
 
-### DEV HTTPS edge SP-02 — проверено 2026-11-11
+### DEV HTTPS edge
 
-По поручению пользователя настроен адрес:
-`https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp`.
-Использован существующий Caddy на DEV AI, без перезапуска AI/backend или voice-lab.
-Отдельный hostname сохраняет авторизацию voice-lab. Caddy выпустил публично доверенный сертификат.
-[Конфигурация маршрута](../../infra/miniapp/Caddyfile.dev.example) добавлена в
-`/opt/speaky-voice-lab/Caddyfile`; reverse_proxy поддерживает WebSocket Upgrade.
-
-Контейнер `speaky-voice-lab-proxy-1` подключён к внешней Docker-сети `speaking-coach`.
-В `/opt/speaky-voice-lab/compose.yaml` для `proxy` сохранены обе сети: `default` и `speaking-coach`,
-последняя объявлена `external: true`. Это сохраняет доступ к `ai-service:8090` после пересоздания proxy.
-Порт AI и его firewall не менялись. Публичны только `/miniapp` и `/miniapp/*`; остальные пути дают 404.
-
-Проверены `docker compose config --quiet`, `caddy validate`, reload и внешний HTTPS без отключения TLS-проверки:
-`/miniapp` → 401 от текущего AI; `/internal/foundation/tutor/turn` → 404;
-старый voice-lab → 401 (его защита осталась). HTTP 401 Mini App — не успешная поставка SP-02:
-обновлённое приложение ещё не развёрнуто. WebSocket handshake 101 и голосовой звонок пока не проверены.
-
-Резервные копии Caddyfile/compose находятся на AI-хосте:
-`/opt/speaky-voice-lab/backups/sp02-proxy-20261111T092612Z/`.
-Для будущей поставки задать `MINI_APP_URL` указанным HTTPS URL в DEV backend env/CI secret.
-Значение в env/секретах в этой задаче не менялось. BotFather не настраивался.
-Тестовый hostname использует sslip.io; для постоянного продукта нужен собственный домен.
+Шаблон маршрута — [Caddyfile.dev.example](../../infra/miniapp/Caddyfile.dev.example),
+установка — `infra/miniapp/install-edge.py`. Public `MINI_APP_URL` должен вести на `/miniapp`:
+HTML/assets → frontend, API/diagnostics/voice → AI. Остальные internal paths наружу не открывать.
+Проверять доверенный TLS, WebSocket Upgrade и сохранность чужих vhosts/auth после изменения edge.
+Исторический 401 до установки frontend не является успешной проверкой текущего Mini App.
+Тестовый sslip.io hostname не заменяет выбор постоянного домена.
 
 ### Разделение Kotlin-проверок SP-02
 
@@ -792,3 +754,85 @@ refunds и reconciliation требуют следующей реализации
 синтетические `100 TEST / 1 сутки` только в staging `.env`, не меняет GitHub secrets
 и проверяет конфигурацию после рестарта. PROD запрещён этой опцией. Последующий deploy
 без опции снова использует env secret; для продолжения DEV-теста передавайте опцию явно.
+
+
+## SP-06–SP-08: jobs, память и прогресс
+
+### Конфигурация и миграции
+
+Новых provider secrets нет. Text/selector/analyzer/roadmap/lesson planner используют общий
+`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `KORA_MODEL`; Realtime использует отдельный ключ SP-02.
+`MINI_APP_URL` на backend должен быть HTTPS: он включает TrialWorker и Telegram Web App кнопки.
+При отсутствии URL нет My Progress keyboard и worker уведомлений, даже если frontend собран.
+Нельзя проверять память/прогресс только через наличие ключа или `/health`.
+
+| Миграция | Изменение |
+| --- | --- |
+| V39 | Голосовые leases/scopes, audio metadata, notices, отдельный demo receipt |
+| V40 | DST issues и версии уведомлений |
+| V41 | Mock checkout/events, периоды подписки и привязка admission к entitlement |
+| V42 | Сохранённый result roadmap job, включая keep/insufficient evidence |
+| V43 | mention policy, срок актуальности фактов, review спорных observations |
+| V44 | Evidence metadata и versioned progress_review |
+
+Flyway применяет миграции при создании FoundationDatabase. До поставки проверить backup,
+версию схемы и совместимость backend/AI/frontend. При checksum/validate ошибке остановиться:
+не редактировать применённую SQL, не делать repair/clean или удаление данных ради зелёного старта.
+Откат приложения не откатывает миграции. Старый binary допустим только после проверки совместимости;
+восстановление backup требует актуального внешнего deletion ledger до запуска writers.
+
+### Learning jobs и ошибки
+
+Начать с диагностического чтения через `/diagnostics` и `/jobs` с уже выданным operator scope; смотреть kind/status,
+attempts, error_code, input_refs, deadline, lease/fence и актуальность источников.
+HTTP `/jobs` и `/diagnostics` требуют service token и operator scope. CLI `diagnostics STUDENT_ID`
+из раздела SP-00 создаёт scope и инициализирует FoundationDatabase/Flyway: он не является строго read-only
+операцией на уровне БД. Не запускать его против сервера в задаче с разрешением только на чтение.
+Сопоставить job_id/trace_id в `foundation_job_failed` и `foundation_failed`.
+Не печатать snapshot, evidence quotes, initData или scopes при диагностике.
+
+Цепочка: lesson.evaluate → roadmap.prepare → lesson.prepare. Apply перепроверяет epoch,
+источники и версии цели/памяти/roadmap; stale result не должен переписывать новые данные.
+AI compute ограничен 120 секундами, HTTP — 140, worker — 150; renewal lease/scope каждые 20 секунд.
+Эти пределы заданы кодом, отдельного env для их настройки нет.
+
+| Наблюдение | Значение и действие |
+| --- | --- |
+| analysis_not_ready / roadmap_not_ready / plan_not_ready | Проверить фактическую задачу и зависимости; отсутствие job не выдавать за подготовку |
+| analysis_failed / roadmap_failed / plan_failed | Terminal failure виден в admission и lesson.list; найти failed job, не обещать бесконечное ожидание |
+| insufficient_evidence | Успешный review с нехваткой данных, не техническая ошибка; не выдумывать результат и не повторять платный вызов автоматически |
+| budget_exhausted / HTTP 402 | Остановить платные повторы; retry только по отдельному поручению после устранения причины |
+| provider_timeout / provider_error | Проверить provider logs и latency по trace; не обходить retries/deadlines ручной записью статуса |
+| source_expired / stale_job | Исходные данные или версии больше не пригодны; retry не отменяет эти проверки |
+| handler_unavailable | Проверить kind и shipping wiring; старые business job contracts не равны TrialWorker |
+| delivery_unknown | Сначала установить внешний исход отправки; слепой retry может дублировать сообщение |
+
+`retry-job STUDENT_ID JOB_ID` — мутация, может запустить платную модель. Выполнять только в разрешённом
+объёме после проверки причины, deadline и источников; это не часть read-only диагностики.
+Старые successful analyses не создают roadmap job автоматически при deploy. Нет общего backfill;
+разовый запуск одному ученику не исправляет остальных. Просмотр My Progress jobs не создаёт.
+
+### Память и My Progress
+
+Текст и голос используют одни memory tools. Голосовые мутации требуют ID уже сохранённого транскрипта.
+`context_only` запрещает упоминание, но допускает подготовку; обычная правка не снимает запрет.
+Forget очищает производные копии, отзывает epoch/активный контекст и закрывает Realtime с сообщением;
+незавершённый урок возвращается на подготовку. Не восстанавливать старый execution snapshot вручную.
+
+`POST /miniapp/api`, `action=progress`, подписанное initData → backend projection.
+Без Lesson, entitlement, микрофона, WebSocket или paid compute. `?view=progress`/start_param `progress`
+открывают экран; Telegram-кнопка появляется со следующим ответом, не массовой рассылкой.
+Проверять различие no_roadmap, preparing, insufficient_evidence, error и ready.
+Fluency остаётся без достоверной оценки; Confidence требует self-report. Старые данные
+не получают mastery задним числом. Review/смена transcript revision отзывают подтверждение навыка.
+
+### Приёмка после разрешённой поставки
+
+1. Проверить применённые V42–V44, release SHA трёх компонентов и отдельную readiness.
+2. Проверить анализ → roadmap → подготовку реальной встречи; отдельно проверить отсутствие старого job и terminal failure.
+3. Проверить общий факт в Telegram/голосе, исправление во время анализа, закрытую тему, спор и забывание.
+4. Проверить My Progress в Telegram WebView: пустые/ошибочные состояния, цель, этапы, перепроверку и возврат к уроку.
+5. Отдельно оценить смысл рубрик, самостоятельность, перенос навыков, уместность памяти и latency selector.
+
+Локальные fixtures и DOM-тесты не заменяют живую модельную, педагогическую или визуальную приёмку.
+Наличие workflow success не доказывает текущую серверную ревизию или выполнение этих сценариев.

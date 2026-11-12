@@ -1,188 +1,60 @@
 # Состояние Speaky
 
-Срез: 2026-11-12. Локальная реализация, DEV и живая приёмка — разные стадии.
+Срез документации: 2026-11-13. База функционального кода: `dev` **fce9b627ffc936eaa2107d72ac452985f3612e2a**.
+Реализация, workflow поставки и живая приёмка — разные доказательства.
 
-Локальное исправление Telegram-форматирования: ответы и follow-up преобразуют жирные заголовки
-и code в `entities`, сохраняя разметку при разбиении длинных сообщений и emoji.
-Проверено: 8 целевых Kotlin-тестов, buildFatJar, detekt и diff-check. Исправление ещё не поставлено;
-реальная Telegram-отправка не проверялась. [Контракт](integrations/tutor-chat.md#реализованный-путь).
+## Реализовано в коде
 
-## Реализовано локально
+| Область | Доступное поведение |
+| --- | --- |
+| SP-00 | PostgreSQL foundation, единый профиль/контекст, scopes, версии, receipts, jobs и удаление; legacy изолирован |
+| SP-01 | Постоянный Telegram-диалог, native tools, trial create/read/reschedule/cancel/rebook; жирный текст и code через entities |
+| SP-02 | Отдельный Mini App, Realtime/Marin, trial, reconnect, playback/truncation, S3-архив и Telegram follow-up |
+| SP-03/04 | Подготовка и проведение regular 15–60 минут, согласование расписания, переносы/отмены, DST-уточнения, reminders и no-show |
+| SP-05 | Opt-in mock checkout, тестовое продление, отмена автопродления, entitlement gate для regular; trial бесплатен |
+| SP-06 | Roadmap после анализа, адаптация по источникам, подготовка следующего урока, явные terminal failures |
+| SP-07 | Общая память text/voice/learning, выборка, запреты упоминания, спорные наблюдения, забывание с отзывом контекста |
+| SP-08 | Качественный прогресс по свидетельствам и My Progress без звонка, микрофона или подписки |
 
-- SP-00: PostgreSQL foundation, общий профиль/память/ContextBuilder, Lesson/Call Session,
-  scopes, epoch, версии, receipts и фоновые задачи. Legacy изолирован.
-- SP-01: постоянный Telegram-диалог и native booking/memory tools.
-- SP-02: отдельный Mini App, OpenAI Realtime/Marin через серверный WebSocket relay,
-  trial, reconnect, playback/truncation, S3-архив и Telegram followup.
-- SP-03: подготовка regular-плана моделью (цель, тема, стратегия), admission 15–60 минут
-  по актуальному плану и завершённым прошлым анализам, Guided Conversation и устный feedback.
-  Reconnect сохраняет план и исходный конец; следующая встреча читается из backend.
-  Для длинного урока есть смена provider-сессии после 50 минут в безопасной паузе.
-- SP-04: согласование расписания через LLM tools, реальные встречи на 14-дневном горизонте,
-  разовые встречи, переносы/отмены, напоминания и неявки. DST требует уточнения без потери вхождения.
-  V40 добавляет DST issues и версии уведомлений. Старые placeholders не активируются автоматически.
-- Локальное исправление переноса: regular tools передают `now`/`after`, время вычисляет backend
-  при сохранении; повтор receipt не сдвигает урок. Активный prompt отделён от legacy-ограничений
-  и требует выполнять однозначный перенос без второго подтверждения. Исправление времени поставлено; активация выбранного старого placeholder при явном переносе также поставлена.
-- SP-03 и SP-04 объединены в родительской ветке из отдельных worktree без текстовых конфликтов.
-  Совместная локальная проверка PostgreSQL/lifecycle прошла; живая приёмка ещё не выполнена.
+Контракты и исходники: [архитектура](../architecture.md), [карта планов и справочников](README.md).
+CMP Android/iOS/Desktop остаётся отдельным прототипом; его API не подключён к shipping runtime.
 
-## SP-05: подписка с mock-провайдером
+## Поставка и проверки
 
-Локально добавлены Telegram payment card с условиями до оплаты, native subscription tools,
-V41 checkout/events поверх Subscription/receipt/entitlement, успешный/неуспешный mock-платёж,
-идемпотентность, автоматическое тестовое продление и отмена автопродления.
-Regular admission требует активный entitlement; начатый оплаченный урок сохраняет reconnect
-после истечения. Trial бесплатен; Schedule и будущие Lesson сохраняются.
-Тариф обязателен в конфигурации, коммерческие условия пока не выбраны. Реальных списаний нет.
-Локальные проверки SP-05: Python **631 passed**; после правки trial follow-up — ещё 25 целевых тестов.
-Kotlin **282 unit + 53 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
-Mini App: 5 тестов, включая сборку; добавлен только текст отказа subscription_required, нового UI нет.
-61 локальная ссылка и git diff --check прошли. Реальные Telegram/LLM и платёжная приёмка не запускались.
-[Контракт и ограничения SP-05](plans/2026-11-12-sp05-subscription.md). На DEV не поставлен.
+- GitHub проверен read-only 2026-11-13. Последний **Redeploy DEV** —
+  [43295801220](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43295801220),
+  `4a08369daf6008dd42945a8140a03d6e84960ca9`: backend, AI, Mini App и readiness — success.
+  Он включает SP-05/06/07 и Telegram entities. Это workflow evidence, не проверка текущего сервера.
+- SP-08 входит в `dev` (`fce9b62`), но более новая поставка DEV не найдена.
+  Текущий PROD этим срезом не проверялся.
+- На `fce9b62` AI service, CMP и Mini App checks — success. **Foundation integration — failure**:
+  [43304873405](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43304873405),
+  57 тестов, один сбой `realBackupRestoreReplaysDeletionLedgerBeforeServingContext`
+  (`IllegalStateException`, `FoundationIntegrationTest.kt:164`). Причина здесь не установлена.
+- Последний сохранённый локальный результат SP-08: 652 Python, 288 Kotlin unit,
+  57 PostgreSQL integration, 27 HTTP integration, 7 Mini App — passed; fatJar/detekt/build прошли.
+  Первый Kotlin-прогон имел таймауты, последовательный повтор прошёл. Python имеет dependency warning.
+  Это прежние результаты, в документационной задаче runtime-тесты не повторялись.
+  HTTP использовал настоящий Python → Ktor → PostgreSQL; модели, Realtime/S3 и доставки — подставные.
+  UI проверялся через подставной DOM, без визуальной приёмки.
 
-## Проверки объединённой версии
+## Открытые ограничения и приёмка
 
-- Python: **628 passed**, одно dependency deprecation warning.
-- Frontend: **5 passed**, syntax/build прошли.
-- Kotlin: **281 unit + 46 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
-- Проверены schedule.agree → job claim/apply → regular admission → voice-scoped lesson.next,
-  гонка admission/cancel (4 повтора) и подавление пустого regular followup без Telegram-отправки.
-- Проверены 205 локальных ссылок в объединении; ссылки изменённых документов и git diff --check прошли.
-- Для локального исправления now/after проверены задержка 35 секунд, неизменность времени при receipt replay,
-  отклонение прошлого scheduled-времени и конфликтующих аргументов, отсутствие legacy-запрета в активном prompt.
-  Прямой перенос проверен scripted model adapter в исходном ходе; живая LLM-проверка ещё не выполнена.
-- Модели, Realtime, S3 и Telegram в локальных тестах подставные. Это не доказательство живого качества урока.
+- Настоящий billing provider не реализован; коммерческие условия не выбраны. Mock не списывает деньги.
+  Старый demo receipt не даёт entitlement.
+- Старые успешные анализы не создают roadmap автоматически при deploy. Для одного ученика ранее
+  выполнен разовый запуск: job succeeded, active revision 1, пять этапов и десять источников.
+  Это частичное доказательство работы pipeline, не общий backfill или исправление старых данных.
+- Fluency не имеет достоверной оценки. Confidence требует self-report; время и число уроков не доказывают освоение.
+- Живая педагогическая приёмка диалога, regular, расписания, памяти и переноса навыков не доказана.
+  Ранее пользователь положительно оценил разговор и объяснение маршрута; это не полная приёмка.
+- Визуальная проверка My Progress и Telegram WebView открыта: прежние browser checks были заблокированы
+  `EATTESTATIONVERIFY` и недоступным Computer Use host. Build не заменяет визуальную проверку.
+- Нужны живые проверки пауз/barge-in, RU/EN, speaker/headphones, reconnect/end, сохранности контекста,
+  reminders/follow-up и смены транспорта в 60-минутном уроке. Замер 1057 ms на семи ответах до смены VAD
+  измерял commit → планирование playback, а не весь конец речи → слышимый звук.
+- S3 backup/lifecycle и восстановление требуют отдельного подтверждения; наличие записанного аудио
+  и 30-дневная очистка приложения не доказывают disaster recovery.
 
-## DEV и ограничения
-
-SP-03/SP-04 поставлены на DEV из зависимого [PR #53](https://github.com/greenblat17/1billion-dollar-startup/pull/53)
-(base — ветка PR #52), runtime `c052dd9`: backend, AI и отдельный Mini App.
-[Redeploy DEV 43255766656](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43255766656)
-завершился success, включая общую readiness-проверку. Платные smoke-вызовы выключены.
-Полного CI перед поставкой не ожидали по прямому поручению пользователя;
-встроенные тесты и проверки deploy прошли. Исправлены стартовая гонка frontend CI и
-установка PostgreSQL-клиента на обновлённом runner. Живой regular-урок ещё не проверен.
-Пользователь оценил разговор как достаточно хороший для проверки полного trial.
-Полная педагогическая приёмка SP-02, SP-03 и естественного scheduling-диалога SP-04 остаётся открытой.
-Замер 1057 ms (7 ответов) относился к commit→планированию playback до изменения VAD;
-он не включает всё ожидание конца речи и не доказывает фактическую слышимость.
-
-SeaweedFS на DEV: приватный `speaky-trial-audio-dev`, сеть `speaky-storage`.
-Запись аудио подтверждалась прежними звонками. Backup и S3 lifecycle ещё требуют проверки;
-30-дневная очистка приложения сохранена. Архив-before-forward добавляет задержку в обе стороны.
-Открыты живые проверки: полный trial/regular, RU/EN, паузы и перебивания, speaker/headphones,
-reconnect, завершение, сохранность контекста/аудио, reminders/followup и 60-минутная смена транспорта.
-Настоящий платёжный провайдер не реализован; SP-06 roadmap есть локально, но не поставлен; старый demo receipt не даёт entitlement.
-PROD и merge main не выполнялись. Платные прогоны и реальные сообщения в интеграции SP-03/SP-04 не выполнялись.
-
-[Архитектура](../architecture.md) · [Эксплуатация](integrations/operations.md) ·
-[SP-03](plans/2026-11-12-sp03-regular-lessons.md) · [SP-04](plans/2026-11-12-sp04-scheduling.md)
-
-## SP-06: roadmap и подготовка уроков
-
-Локально добавлен model-backed `roadmap.prepare` поверх прежних Roadmap/revisions и job claim/apply.
-Первый маршрут сразу используется после trial по уже согласованной цели — выбор пользователя.
-Адаптация меняет тактику/порядок при новых наблюдениях из нескольких уроков; сохраняет outcomes.
-Нет новых шкал, обещаний сроков уровня, критериев завершения этапов или экрана My Progress.
-
-Planner SP03 использует roadmap и актуальную память в прежнем LessonPlan objective/topic/strategy.
-Сохранены источники, версии, receipts, frozen plan, бесплатный trial и subscription admission SP05.
-Исправление факта/цели и перенос отзывают устаревшую будущую подготовку. Text/Voice/Learning
-получают общий контекст; устная следующая тема берётся только из готового плана реальной встречи.
-Telegram объясняет сохранённый маршрут; trial follow-up ограниченно ждёт learning jobs и честно
-обрабатывает недостаток данных или ошибку. V42 сохраняет результаты roadmap review.
-
-Проверки SP-06: Python **638 passed**, затем 27 целевых после уточнения prompt;
-Kotlin **282 unit + 55 PostgreSQL integration**, failures/errors/skipped = 0;
-Python → HTTP Ktor → PG **10 passed**, включая четыре SP06 lifecycle сценария.
-Mini App **5 passed**, syntax/build, fatJar и detekt прошли. 47 локальных ссылок и git diff --check прошли.
-65-секундный compute прошёл с реальным renewal lease и одной попыткой. Проверены bound scope,
-повторы receipts, stale/foreign sources, изменения цели/памяти, перенос во время compute,
-frozen plan/reconnect, next topic/null, insufficient evidence, terminal failures и bounded follow-up.
-PostgreSQL изолирован на loopback:56506; модели, голос и Telegram в проверках подставные.
-Это не живая педагогическая приёмка. Единственное Python warning — dependency deprecation.
-[Контракт и границы SP-06](plans/2026-11-12-sp06-roadmap.md).
-База `c21ff97` совпадала с remote dev при старте и содержит SP05 #55.
-SP06 `92562e8` поставлен на DEV: [Redeploy 43289994535](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43289994535)
-успешен, включая readiness. По поручению пользователя выполнена одна реальная подготовка roadmap
-для его существующих данных: job succeeded с первой попытки, revision 1 active, 5 этапов и 10 источников.
-Скриншот подтверждает объяснение сохранённого маршрута в Telegram; полная педагогическая приёмка остаётся открытой.
-Выявлен пробел: завершённые до SP06 анализы не запускают roadmap автоматически при deploy;
-отсутствующая задача может ошибочно описываться моделью как «готовится». Автоматическое восстановление не добавлено.
-
-## Инцидент learning jobs
-
-Strict JSON schemas и отсутствие общего default 500 токенов уже были в базовой dev.
-Остаток подтверждён кодом: worker прерывал compute через 45 секунд. SP-06 локально добавляет
-пределы AI/HTTP/worker 120/140/150 секунд и renewal lease/scope каждые 20 секунд.
-Terminal failures теперь возвращают analysis_failed/roadmap_failed/plan_failed вместо бесконечного «позже».
-Read-only проверка DEV: у проверенного ученика все четыре анализа trial и один regular успешны;
-сохраняются две старые failed lesson.prepare с provider_error. Они здесь не перезапускались.
-
-
-## SP-07: личная и учебная память
-
-Реализован поверх SP06 `92562e8`; ветка SP07 — `bb/sp-06-thr_3w8tuby5wz`. На DEV/PROD не поставлен.
-Сохранены четыре уровня: онтология, долговременная память, динамический контекст и краткосрочная история.
-V43 добавляет ограничения упоминания/сроки актуальности фактов и review спорных учебных наблюдений.
-Общие native tools доступны Telegram и Realtime: поиск, сохранение/исправление, обсуждение кандидата,
-подтверждение/отказ, закрытая тема, спорный вывод и забывание. Голос пишет по ID сохранённого транскрипта.
-
-После trial/regular анализируются доступные события урока по частям; сохраняются прямые личные сведения,
-скрытые кандидаты AI и учебные наблюдения. Источники/версии защищают от чужих и поздних записей.
-Повторяемость опирается на semantic key и уникальные уроки/источники, без новой шкалы mastery.
-MemorySelector выбирает релевантные записи; Core и запреты упоминания сохраняются независимо от выбора.
-Пагинация позволяет читать дополнительную память; кандидаты доступны только отдельному обсуждению.
-
-Забывание сохраняет консервативную очистку raw history и производных копий SP00, поддерживает атомарный
-список фактов и отзывает активные контексты. В голосе соединение закрывается с сообщением Mini App;
-незавершённый урок требует новой подготовки. Остальные исправления не меняют frozen plan начатого урока.
-Новый прямой рассказ после удаления создаёт свежую запись, не возвращая удалённые сведения.
-
-Проверки: **647 Python**, **282 Kotlin unit**, **57 PostgreSQL integration**, **14 HTTP integration**,
-**5 Mini App** — passed, failures/errors/skipped = 0 для Kotlin/PG. FatJar, detekt, JS syntax/build и
-`git diff --check` прошли. Python сохраняет одно dependency deprecation warning.
-HTTP использует реальные Python adapters → Ktor → изолированный PostgreSQL на loopback:55447;
-подставлены только модели, Telegram/Realtime/S3. Проверены исправления во время анализа,
-кандидаты вне обычного контекста, closed topic, disputed review, frozen plan, deletion/replay,
-новый рассказ после удаления, атомарный rollback нескольких удалений и длинный урок.
-
-Живая приёмка не выполнена. Смысловое качество извлечения/semantic keys, уместность инициативы,
-соблюдение запретов моделью и задержка дополнительного selector-вызова требуют отдельной проверки.
-Выборка имеет явные лимиты и fallback Core при обычном сбое; после 402 нет повторного платного вызова.
-Платные вызовы, реальные сообщения и deploy в SP07 не выполнялись.
-[План и согласованные решения SP-07](plans/2026-11-12-sp07-memory.md).
-
-## SP-08: оценка и просмотр прогресса
-
-Локально реализован на базе `62ebf89` (`origin/dev` при старте, merge SP06/SP07 #56),
-ветка `bb/sp-08-thr_waz6sb6sir`. Пользователь согласовал качественные измерения без баллов,
-завершение по независимой практике с переносом навыка и перепроверку после уточнения источников.
-
-Прежние `lesson.evaluate`/`roadmap.prepare` сохраняют структурированные итоги, evidence metadata,
-качественную динамику и историю решений V44. Backend проверяет ownership, источники, версии,
-разные уроки/ситуации, помощь, self-report, повторы и противоречия. Адаптация сохраняет смысл этапов;
-спор/смена транскрипта снимает актуальное подтверждение, forgetting очищает производные данные.
-Fluency явно остаётся без достоверной оценки; числа/сроки освоения не вводились.
-
-Telegram My Progress открывает самостоятельный экран Mini App через initData auth, без урока,
-микрофона и подписки. Цель, текущий/завершённые/предстоящие этапы и перепроверка используют одну
-backend-проекцию с контекстом репетитора. Отсутствующий roadmap job не изображается подготовкой.
-Старые данные совместимы, автоматического backfill/платного анализа при просмотре нет.
-Кнопка появится после следующего обычного ответа бота, если настроен HTTPS MINI_APP_URL.
-
-Проверки: Python **652 passed**, Kotlin **288 unit + 57 PostgreSQL integration**,
-HTTP Python → Ktor → PostgreSQL **27 passed** (SP00/SP06/SP07/SP08), Mini App **7 passed**.
-Путь analysis → evidence → progress → API → production UI-функция проверен с реальным HTTP-ответом
-и подставным DOM; это функциональная, не визуальная проверка. Модели и внешние доставки подставные.
-FatJar, detekt, JS syntax/build и diff-check прошли. Python сохраняет dependency deprecation warning.
-Первый Kotlin-прогон прервался с таймаутами; последовательный повтор прошёл без failures/errors/skipped.
-
-**Визуальная приёмка не выполнена:** изолированный browser-automation не прошёл проверку npm
-attestation (`EATTESTATIONVERIFY`); Computer Use сообщил о недоступном browser host.
-Личный профиль Chrome для проверки не использован. Нужны визуальная проверка экрана и Telegram
-WebView, затем отдельная живая педагогическая приёмка рубрик, переноса навыков и формулировок.
-Пользователь поручил прямой push в `dev` без PR. Deploy DEV/PROD, платные модели и реальные
-сообщения не выполнялись; локальные проверки не означают приёмку или поставку на окружение.
-[Контракт SP-08 и ограничения](plans/2026-11-12-sp08-progress.md).
+Платные прогоны после HTTP 402 не повторять без поручения. Порядок проверок и диагностики —
+в [operations](integrations/operations.md); новый deploy и реальные сообщения этой задачей не выполнялись.

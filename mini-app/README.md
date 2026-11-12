@@ -30,3 +30,5 @@ WebSocket и создания Lesson. `POST /miniapp/api` с `action=progress` �
 Состояния: ready, no_roadmap, preparing, insufficient_evidence, error; этапы completed/current/
 upcoming/needs_review. Кнопка Telegram появляется со следующим обычным ответом репетитора.
 Просмотр не запускает восстановление старых roadmap jobs или платные вызовы.
+
+Контракт урока и прогресса — в [архитектуре](../architecture.md), поставка и визуальная приёмка — только в [статусе](../ai_docs/status.md).

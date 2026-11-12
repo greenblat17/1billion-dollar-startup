@@ -1,7 +1,7 @@
 # SP-05: подписка и оплата
 
-Дата: 2026-11-12. База: `24d8280d56f8b290eb5605bde3e79bf82153f6a5` (`origin/dev`).
-Ветка: `bb/sp-05-thr_7ddy6kq2pr`; будущий PR — в `dev`. Push/PR/DEV deploy поручены пользователем; merge не поручен.
+Согласованные решения и контракт этапа. Текущая реализация — в [архитектуре](../../architecture.md),
+поставка, результаты проверок и ограничения — в [status.md](../status.md).
 
 ## Согласованный объём
 
@@ -47,26 +47,21 @@ Student lock сериализует оплату/продление/отмену
 Отправка карточки фиксирует unknown до внешнего запроса: неопределённая Telegram-доставка
 не повторяется вслепую. Exactly-once Telegram не обещается.
 
-## До настоящей оплаты и DEV
+## До настоящей оплаты
 
 Выбрать и согласовать денежные условия, проверить API выбранного провайдера, реализовать
 подпись/аутентификацию, provider event timestamps, refunds/reconciliation и retry policy.
-Для цифровых услуг внутри Telegram официальные
-[правила](https://core.telegram.org/bots/payments-stars) требуют Stars (`XTR`).
-Текущий mock не претендует на обход этого правила и денег не принимает.
-Перед DEV: миграция V41, явная тестовая конфигурация и отдельное разрешение на deploy.
+При выборе реального provider сверить [правила Telegram](https://core.telegram.org/bots/payments-stars).
+Текущий mock не принимает деньги и не доказывает готовность коммерческой интеграции.
+Конфигурация mock и миграция V41 описаны в [operations](../integrations/operations.md#sp-05-тестовая-подписка).
 Живой Telegram/LLM-путь и реальная платёжная приёмка остаются отдельными проверками.
-Worker timeout, восстановление learning jobs и чужие изменения родителя в задачу не входят.
+Восстановление learning jobs описано отдельно в operations.
 
-## Проверки
+## Проверки и границы
 
-- Python: 631 passed; после последней правки follow-up — 25 целевых passed.
-- Kotlin: 282 unit + 53 PostgreSQL integration, failures/errors/skipped = 0; fatJar/detekt passed.
-- Проверены callback owner, amount/currency, stale epoch, expiry, disabled config, duplicate/concurrent success,
-  отказ и новая попытка, одна автопролонгация при гонке, failed renewal, отмена автопродления,
-  платный regular/free trial, reconnect после expiry, запрет LLM подтверждать оплату, delivery claim и deletion.
-- HTTP test проверяет отказ без webhook secret, dispatch с правильным секретом и 500 при ошибке handler.
-  Telegram client подставной. Модельные вызовы, реальные списания и отправки ученикам не выполнялись.
-- Mini App: 5 passed, включая сборку; менялся только текст subscription_required.
-- PostgreSQL: отдельная локальная БД на loopback:56505, только синтетические данные, schema per test.
-- 61 локальная ссылка, git diff --check passed. Live acceptance и deploy не выполнены.
+Локальные тесты покрывают callback owner, amount/currency, stale epoch, expiry, disabled config,
+duplicate/concurrent success, отказ и новую попытку, одну автопролонгацию при гонке, failed renewal,
+отмену автопродления, платный regular/free trial, reconnect после expiry, запрет LLM подтверждать оплату,
+delivery claim и deletion. HTTP-тесты проверяют webhook secret, dispatch и отказ handler.
+PostgreSQL и операции настоящие; Telegram/model boundaries подставные.
+Результаты общей проверки — в status.md, не доказательство реальной оплаты или живой доставки.

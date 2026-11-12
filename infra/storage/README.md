@@ -35,17 +35,17 @@ cross-bucket rejection and denial of public ACL changes. Synthetic test data is 
 Versioning is not enabled; these checks cover the null version, not multiple historical versions.
 Container health is a process check, not proof of bucket permissions.
 
-## Remaining integration
+## Application integration and limits
 
-The current approved scope creates storage, bucket and application credentials only.
-AI still needs the private Docker network and the values from `secrets/ai.env` in its durable deployment configuration.
-The local AI deploy script now adds the `speaky-storage` network when the env contains exactly
-`TRIAL_S3_ENDPOINT=http://speaky-storage:8333`; it checks that network before replacing AI.
-This deploy-script change is not yet shipped. A temporary helper on both networks verified S3 DNS/auth and a default route.
-Update the GitHub source of its env too; changing only the host `.env` would be lost on redeploy.
-Use the newly created bucket name when applying the application configuration.
-Do not expose internal endpoints through downloadable presigned URLs: browser downloads need a deliberate HTTPS endpoint/proxy design.
-Retention/lifecycle, backups and a live voice/reconnect check remain separate work. No application redeploy or PROD change is part of this setup.
+`infra/ai-service/deploy-remote.sh` attaches `speaky-storage` when
+`TRIAL_S3_ENDPOINT=http://speaky-storage:8333`; it checks the network before replacing AI.
+Apply application credentials through the protected deployment source, not only the host `.env`.
+Do not recreate the bucket or rotate credentials during ordinary application deployment.
+Current delivery evidence lives only in [status](../../ai_docs/status.md).
+
+Internal S3 endpoints are not browser download URLs. Presigned downloads need a reachable,
+authorized endpoint/proxy design. The app's 30-day cleanup does not prove S3 lifecycle or backup recovery.
+Validate retention, backup/restore and live voice/reconnect separately; this runbook is not evidence they passed.
 
 References: [SeaweedFS S3 credentials](https://github.com/seaweedfs/seaweedfs/wiki/S3-Credentials),
 [release 4.53](https://github.com/seaweedfs/seaweedfs/releases/tag/4.53).

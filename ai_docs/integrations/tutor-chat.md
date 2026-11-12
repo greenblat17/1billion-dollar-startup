@@ -1,9 +1,8 @@
 # Текстовый репетитор и Telegram
 
-Контракты базовой поставки SP-01 и сохранённого legacy-кода. Новый фундамент SP-00 использует PostgreSQL;
-legacy сохраняется отдельно, без переноса его Redis-хранилищ и без обязательного подключения старых функций к новому runtime.
-Готовность изоляции и переключения текущего чата проверяется по [статусу](../status.md).
-Описание legacy API ниже не означает, что эти маршруты доступны в новом runtime.
+Активный путь — `SpeakyApplication.kt` → PostgreSQL foundation → `app.speaky_main`.
+Продуктовые правила знакомства — в [SP-01](../plans/2026-11-09-sp01-text-onboarding.md),
+поставка и приёмка — только в [статусе](../status.md).
 
 - [SP-01: постоянный текстовый чат с Сашей](#sp-01-постоянный-текстовый-чат-с-сашей)
 - [Telegram: текущая маршрутизация](#telegram-текущая-маршрутизация)
@@ -11,196 +10,122 @@ legacy сохраняется отдельно, без переноса его R
 
 ## SP-01: постоянный текстовый чат с Сашей
 
-Реализация развёрнута на DEV; живая диалоговая приёмка остаётся открытой. Контракт: [утверждённый план](../plans/2026-11-09-sp01-text-onboarding.md).
-Полная [v0.5](../product/2026-11-08-ai-tutor-experience-v0.5.md) остаётся направлением будущего продукта.
-
 ### Реализованный путь
 
-Ответы Саши и follow-up после урока преобразуют `**жирный**`, inline code и fenced code
-в Telegram `entities`. Остальная разметка остаётся текстом; HTML/Markdown parse mode не включён.
-Длинные ответы делятся после преобразования, с сохранением UTF-16 offsets и целых surrogate pairs.
-Контракт Telegram: [MessageEntity](https://core.telegram.org/bots/api#messageentity).
-Поставка исправления форматирования указана в status.md.
-
 ```text
-Telegram /start, /onboarding, свободный текст
-  → TutorClient → /internal/tutor/start|turn
-  → TutorRuntime → native LLM function calls → проверка → TutorStore
-  → LLM получает фактический результат → русский ответ
-  → Telegram reply + карточка только при изменении встречи
+Private Telegram text → durable inbox → FoundationChat / conversation run
+  → /internal/foundation/tutor/turn → ContextBuilder → FoundationTutor / native tools
+  → scoped backend commands → PostgreSQL receipt → reply / delivery receipt
 ```
 
-С Redis один conversation ID переживает знакомство, запись, отказ, отмену, повторный `/start` и рестарт. In-memory store рестарт не переживает.
-Никакой обязательной анкеты или терминального состояния чата нет. Приветствие генерирует модель.
-Личность выделена из Kora в `kora_personality.py`; исходный free-call prompt собирается с тем же текстом личности.
-Чат использует настроенную модель Kora H, а при отсутствии отдельного Kora model adapter — общий LLM с той же личностью.
-Текст любого языка передаётся модели; отвечает Саша по-русски. Голос в обычном чате не запускает STT/TTS.
-Явно открытые прежние calls и Vocabulary Builder сохраняют свои обработчики и голосовые возможности.
-Их наличие не превращает trial-заглушку в реальный звонок.
+Один Student, общая память, цель и история обслуживают Telegram, голосовые уроки и learning.
+Повторный `/start`, запись, отказ и отмена не сбрасывают отношения с репетитором.
+Нет обязательной анкеты, keyword routing или терминального состояния чата.
+Саша отвечает по-русски; обычные голосовые сообщения не запускают STT/TTS.
+Личность задают `kora_personality.py` и `RELATIONSHIP_POLICY`; доступные действия — `TEXT_CAPABILITIES`.
+Shipping root использует `TrialTutorModel(OpenAiChatModel(..., KORA_MODEL))`, без voice allowlist.
 
-### API и данные
+ContextBuilder получает актуальный snapshot из backend, выбирает память и ограниченную историю.
+Core и запреты упоминания сохраняются независимо от relevance-выборки. Подробный контракт
+происхождения, retention и forget находится в [архитектуре](../../architecture.md#память-репетитора-sp-07)
+и [SP-07](../plans/2026-11-12-sp07-memory.md); отдельного Redis-профиля активного чата нет.
 
-Все маршруты защищены существующим `X-Internal-Token` middleware.
+### API и надёжность
 
-- `POST /internal/tutor/start`, `POST /internal/tutor/turn`: `sessionId`, `requestId`, `text`, `receivedAt` (Unix seconds).
-  Telegram adapter передаёт исходное `message.date`, не время ответа LLM.
-- Ответ: `conversationId`, `reply`, `booking`, `bookingText`, `degraded`, `replyMessageId`, `cardMessageId`.
-  `booking` отсутствует на обычных ходах; карточка не повторяется автоматически.
-- `POST /internal/tutor/delivery`: подтверждает отправленный reply/card, сохраняет Telegram message ID и версию встречи.
-- `GET /internal/learners/{sessionId}/context`: Personal/Learning context нового текстового чата, сводка, trial preference и текущая встреча.
-  Маршрут читает только TutorStore. Calls читают LearnerStore (`learner:`); синхронизации нет. Общий профиль отложен, lesson runtime не реализован.
-- `GET /internal/tutor/analytics?since=...&until=...`: когорта по времени начала знакомства, конверсия,
-  активные записи, переносы, отмены, повторные записи, предложения, ошибки и доставленные requests.
-  Чтение learner context само по себе не начинает знакомство. Перенос не увеличивает конверсию.
+Ktor вызывает `POST /internal/foundation/tutor/turn` с `TutorRequest` и backend execution scope.
+Время источника — исходное `message.date`; авторитетный текст берётся из сохранённого backend input.
+AI вызывает `/internal/foundation/v1/commands`, `/snapshot`, `/operations/{id}`.
+Внутренние запросы используют `X-Internal-Token`, scoped операции — также `X-Execution-Scope`.
+Модель не выбирает Student или scope. Карта API и владельцев — в [архитектуре](../../architecture.md#внутренние-api-и-доверие).
 
-Namespace: `tutor:v1:{stable sessionId}`. Используется существующий Redis connection; без Redis — локальный memory store.
-Personal Memory, Learning Memory, история фактов, история встреч и стадия знакомства — отдельные поля одного learner aggregate.
-Операция сохраняет before/result/request identity вместе со встречей и событием в одной Redis transaction.
-Redis lock сериализует ход, CAS revision защищает от записи worker после истечения lease.
-Дубликат request использует сохранённый ответ. Дубликат tool arguments в том же request использует сохранённый результат.
-После падения финального LLM-вызова возвращается достоверный технический fallback по сохранённой встрече.
-Поздний повтор старого request показывает актуальную версию встречи, а не устаревшее подтверждение.
-
-История модели: до 40 сообщений, максимум 24 000 символов; профиль выбирает до 20 фактов каждого типа,
-приоритет у цели, трудностей, уровня, текущего пояса и фактов по текущей теме. Сводка обновляется через context tool.
-Сырые реплики, request/response receipts и сводка подчиняются прежним семи дням хранения; есть периодическая очистка.
-Подтверждённые факты с источником, история исправлений и встречи сохраняются независимо от окна диалога.
-Самооценка не превращается в измеренный уровень.
+Backend проверяет ownership, evidence, epoch, версии, состояние и idempotency.
+Lease/fence сериализуют ходы; повтор request/operation использует сохранённый результат.
+После сбоя финального model call ответ опирается на committed операции, без повторной мутации.
+Storage uncertainty остаётся ошибкой, а не вымышленным успехом или переходом на memory store.
+Ограничение model/tool loop: 55 секунд, до шести rounds и пяти calls за round.
+Это не предел всей сборки контекста: MemorySelector вызывается до этого цикла.
 
 ### Инструменты и время
 
-Пять настоящих native tools: `get_trial_booking`, `create_trial_booking`, `reschedule_trial_booking`,
-`cancel_trial_booking`, `update_learner_context`. JSON Schema строгие; сервер повторно проверяет типы и enum.
-Модель не задаёт владельца встречи. Проверяются ID, version, активный статус, источник фактов в текущем сообщении,
-точная дата, IANA/UTC offset, будущее время и DST. Есть режимы now/local/shift_minutes/same_time_on_date.
-Одна активная запись на learner; перенос сохраняет ID, повторная запись после отмены связывается с предыдущей.
-Прошедшая заглушка не становится missed/completed. Пробная встреча — около 15 минут, без слотов занятости AI.
-
-Разбор естественного намерения, городов и относительных дат выполняет модель по исходному времени сообщения.
-Код не маршрутизирует беседу по ключевым словам. Семантическую правильность такого разбора нужно проверять живой моделью.
-Предел одного model/tool цикла — 55 секунд, до 6 model rounds и до 5 tool calls на round.
-Сбой не создаёт фиктивного успешного результата.
-
-### Telegram-карточка
-
-Код сериализует `disabled: {}` у InlineKeyboardButton; основание исходной реализации:
-[официальный контракт](https://core.telegram.org/bots/api#inlinekeyboardbutton).
-У установленного tgbotapi 36.1.0 этого типа нет. `TutorCardRequest` использует штатный `SimpleRequest`
-с точной сериализацией поля `disabled`; URL, callback_data и web_app отсутствуют.
-В payload кнопки «Открыть урок» нет действия. Принятие payload и отображение в живом Telegram ещё не проверены.
-
-ID карточки сохраняется в AI store. Перенос и отмена редактируют прежнюю карточку, включая рестарт Ktor.
-Если Telegram запрещает редактирование, отправляется актуальная карточка. При отмене клавиатура пуста.
-`message is not modified` считается успешным повтором. Ошибка доставки не отменяет сохранённую встречу.
-При неопределённом сетевом исходе Telegram send/receipt остаётся стандартное окно возможного дубля сообщения;
-повторное выполнение booking tool при этом исключается.
-
-### Удалённый путь и совместимость
-
-Удалены voice onboarding service, begin/checkpoint/results, его clip job поля/DTO, warmup/STT/TTS orchestration,
-onboarding mode prompts, callbacks, call gate, автоматическое приглашение и subscription preview.
-Старые onboarding state/actions/legacy-invitation endpoints отсутствуют; campaign claim/report больше не доступны. `GET /internal/campaign/legacy-onboarding` сохранён для исторического отчёта (может актуализировать excluded statuses, но не отправляет сообщения).
-Старые onboarding followups не отправляются; явные reminder-функции независимых возможностей сохранены.
-
-Общие зависимости вынесены в `LearnerStore`, `LearnerModel`, `review_content.py`, `review_score.py`, `ReviewMessages.kt`.
-Calls/reviews/vocabulary/person memory переподключены к ним. Исторические assessment/learner ключи читаются;
-миграции, исторические данные и аналитические отчёты не переписаны. Переноса пользователей нет.
-Имена существующих `ONBOARDING_REVIEW_MODEL`/fallback env сохранены для совместимости конфигурации обычных reviews.
-
-### Карта кода
-
-| Ответственность | Источник |
+| Назначение | Native tools / контракт |
 | --- | --- |
-| Prompt, native tool loop, fallback | [tutor.py](../../ai-service/app/tutor.py) |
-| Схемы, intent, время, операции | [tutor_tools.py](../../ai-service/app/tutor_tools.py) |
-| Redis, CAS, receipts, retention, analytics | [tutor_store.py](../../ai-service/app/tutor_store.py) |
-| Wiring и HTTP routes | [main.py](../../ai-service/app/main.py) |
-| Личность | [kora_personality.py](../../ai-service/app/kora_personality.py) |
-| Профиль существующих звонков | [learner_store.py](../../ai-service/app/learner_store.py) |
-| Ktor DTO и HTTP | [TutorClient.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/ai/TutorClient.kt) |
-| Ответ, typing, карточка и receipts | [TutorTelegramChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTelegramChat.kt) |
-| Приоритет команд и независимых функций | [TelegramHandlers.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TelegramHandlers.kt) |
+| Trial | `get_trial_booking`, `create_trial_booking`, `reschedule_trial_booking`, `cancel_trial_booking` |
+| Профиль | `update_learner_context`; цель, self-report и observations различаются |
+| Расписание | `save_schedule`, `get_schedules`, `cancel_schedule`, `resolve_schedule_time`, `get_lessons`, `create_extra_lesson`, `reschedule_lesson`, `cancel_lesson`; [SP-04](../plans/2026-11-12-sp04-scheduling.md) |
+| Подписка | `get_subscription`, `request_subscription_payment`, `cancel_subscription_renewal`; [SP-05](../plans/2026-11-12-sp05-subscription.md) |
+| Память | `search_memory`, `discuss_memory`, `record_memory`, `set_memory_policy`, `review_observation`, `confirm_memory`, `reject_memory`, `forget_memory`; [SP-07](../plans/2026-11-12-sp07-memory.md) |
 
-Обычный текст попадает к Саше после обработчиков явных команд, активного Vocabulary Builder,
-выбора ситуации и ввода времени `/remind`. Эти существующие функции не стали tools репетитора.
+Схемы строгие; backend повторно проверяет аргументы и источник текущего поручения.
+Ясный запрос выполняется без второго подтверждения или обязательного заполнения профиля.
+Модель понимает относительную дату/город; код проверяет время и DST. Семантическая правильность
+разбора требует живой проверки. Для regular `now`/`after` instant вычисляет backend при первой
+записи; receipt replay не сдвигает время. Для trial сохраняются режимы времени `tutor_tools.py`.
 
-### Проверка
+Новая trial-запись создаёт executable Lesson. Перенос сохраняет ID; отмена сохраняет историю.
+Старые placeholders не активируются массово: новое согласование расписания либо явный перенос
+выбранной встречи создают доступный для admission путь. Само истечение времени не доказывает,
+что ученик прошёл урок. Доступ проверяет backend, не Telegram-кнопка.
 
-[Состояние и журнал доказательств](../status.md): автоматические тесты, частичные модельные пробы,
-DEV и открытая приёмка. Эти результаты не являются проверкой текущего PROD.
+### Telegram-карточки и форматирование
+
+«Открыть урок» получает `web_app` URL с Lesson ID, когда задан HTTPS `MINI_APP_URL`.
+Без URL остаётся disabled-кнопка; это ошибка/неполнота конфигурации, а не описание возможностей Mini App.
+Перенос/отмена обновляют сохранённую карточку; ошибка редактирования не отменяет бизнес-операцию.
+`message is not modified` считается успешным повтором. Обычная реплика не повторяет карточку записи.
+
+My Progress — постоянная reply keyboard со следующим обычным ответом, если задан HTTPS `MINI_APP_URL`.
+Она открывает `?view=progress`; чтение не требует урока или entitlement и не запускает learning jobs.
+Mock checkout отправляет отдельную backend-карточку с условиями до тестового платежа;
+LLM не подтверждает оплату. Реальный платёжный provider не подключён.
+
+Ответы и follow-up преобразуют `**жирный**`, inline code и fenced code в Telegram `entities`.
+Остальная разметка остаётся текстом; parse mode не включён. Длинный ответ делится после
+преобразования с корректными UTF-16 offsets и целыми surrogate pairs.
+
+Delivery claim фиксируется до внешнего вызова. Unknown не повторяется автоматически;
+Telegram не предоставляет общей гарантии exactly-once. Карточка имеет fallback на новую отправку
+при ошибке редактирования, поэтому отсутствие дублей при сетевой неопределённости не обещается.
+Исход доставки reply/card/payment и бизнес-операция — разные факты.
 
 ## Telegram: текущая маршрутизация
 
-Источник — [TelegramHandlers.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TelegramHandlers.kt).
-[SP-01](tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей) — основной текстовый путь. Существующие voice-функции описаны отдельно.
-
-### Команды и сообщения
-
-| Вход | Обработчик |
+| Вход | Активный обработчик |
 | --- | --- |
-| `/start`, `/onboarding`, включая `/start@bot` и payload | Начать/продолжить постоянный чат Саши; память и trial сохраняются |
-| Обычный текст | TutorRuntime после обработчиков явных независимых функций |
-| Голос в обычном чате | Игнорируется; STT/TTS не запускаются |
-| Голос в открытом call | Старый clip pipeline |
-| `/words` и активный Vocabulary Builder | Собственный текстовый/голосовой workflow |
-| `Start call`, выбор ситуации | Независимый call; старый onboarding/score/goal gate удалён |
-| `/profile`, `/streak`, `/voice`, `/speed`, `/remind` | Сохранённые обработчики прежних возможностей |
-| Текст при ожидающем `/remind` | Разбор времени напоминания; не trial timezone |
-| Другой контент | Игнорируется |
+| Private `/start`, `/onboarding` | Начать/продолжить того же репетитора |
+| Другой private text, включая прежние команды | Обычный tutor turn; legacy command handlers не подключены |
+| Голос, другой нетекстовый контент, group chat | Не входит в текстовый путь |
+| Mock payment callback | Проверка webhook secret, private sender/owner, затем SubscriptionBilling |
+| Web App | Отдельная проверка подписанного initData через TelegramMiniAuth |
 
-Саша отвечает по-русски, показывает `typing`, убирает старую reply-клавиатуру.
-Trial-карточка формируется из сохранённой встречи. В её payload нет URL/callback/web_app;
-отображение неактивной кнопки живым Telegram ещё не принято. Детали delivery — в контракте SP-01.
-`/onboarding` больше не открывает voice assessment. Старые onboarding callbacks не поддерживают прежний путь.
+Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`; private-text input сохраняется **до** HTTP ACK.
+Успешный ACK не означает готовый ответ. Ошибку хода может восстановить durable intake.
+Во время генерации показывается `typing`. Bot setup регистрирует `/start`.
+Напоминания, приглашения, no-show и follow-up обслуживает активный `TrialWorker`, а не legacy scheduler.
+Условия запуска worker и диагностика находятся в [operations](operations.md).
 
-### Webhook и голосовая доставка
+### Карта кода
 
-Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`; неверный секрет даёт 403.
-После принятия update возвращается 200. Ошибка последующей обработки не заставляет Telegram повторить уже подтверждённый update.
-`RedactingKSLog` скрывает bot token и URL с токеном. Для voice queue — один обработчик на session и максимум три клипа.
-`HttpClipClient` опрашивает job каждые 1.5 секунды до 90 секунд.
-В открытом call бот показывает `record_voice`, перед карточкой исправления — `typing`, затем снова `record_voice`.
-Для файла больше 20 MB или ошибки `file is too big` просит короткие части; повтор того же файла не предлагает.
-Session ID связывается с Telegram chat; TutorStore и LearnerStore используют его независимо.
+Пути Kotlin относительны к `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/`.
 
+| Ответственность | Источник |
+| --- | --- |
+| Shipping wiring | `SpeakyApplication.kt`; `ai-service/app/speaky_main.py` |
+| Inbox, runs, dispatch | `foundation/TelegramTextIntake.kt`, `ConversationRuns.kt`, `FoundationChat.kt`; `ai/TutorClient.kt` |
+| Telegram / карточки / entities | `telegram/SpeakyTelegram.kt`, `TutorTelegramChat.kt`, `TutorTextFormatting.kt`, `MockBillingTelegram.kt` |
+| Модель и tools | `ai-service/app/foundation_tutor.py`, `trial_tools.py`, `memory_tools.py`, `subscription_tools.py` |
+| Контекст | `ai-service/app/context_builder.py`, `memory_context.py`, `memory_policy.py` |
+| Backend API и операции | `foundation/FoundationRoutes.kt`, `FoundationService.kt`, `LessonManagement.kt`, `MemoryOperations.kt` |
 
 ## Совместимость сохранённых систем
 
-SP-01 заменил voice onboarding постоянным текстовым чатом. [Текущий контракт](tutor-chat.md#sp-01-постоянный-текстовый-чат-с-сашей)
-и [статус](../status.md) важнее ранних продуктовых планов.
+`app.main`, Redis `TutorStore`, `LearnerStore`, `TelegramHandlers.kt`, calls/reviews/vocabulary,
+старые reminders, dashboards и CMP app API сохранены, но shipping roots их не монтируют.
+`/internal/tutor/start|turn|delivery`, `/internal/learners/{sessionId}/context` и старые analytics endpoints
+относятся к этому legacy root. Они не описывают текущий PostgreSQL-контракт.
 
-### Что удалено из пользовательского пути
-
-Нет приглашения Let’s chat, голосовых порогов 30/120 секунд, onboarding begin/checkpoint/results,
-цепочки выбора daily goal после знакомства, старого call gate, campaign claim/report и subscription preview.
-`/start` и `/onboarding` теперь продолжают один tutor conversation, а не сбрасывают attempt.
-Урок не запускается; старые цены превью не определяют будущую подписку.
-
-`GET /internal/campaign/legacy-onboarding` оставлен для просмотра статуса старой кампании.
-Внутри `campaign_status` может помечать ещё не отправленных получателей `skipped_completed` по старым assessment.
-Это не endpoint отправки: campaign runner в Ktor равен `null`. Исторические `pending`/`uncertain` не доказывают доставку.
-
-### Что сохраняется
-
-- `LearnerStore`, `LearnerModel`, `review_content.py`, `review_score.py` обслуживают calls, reviews и vocabulary.
-- Исторические `onboarding:*`, `assessment:*`, `practice-goal:*`, `learner:*`, campaign и PostgreSQL-таблицы читаются для совместимости.
-  Применённые Flyway-миграции не переписываются. Удаление документов не удаляет данные.
-- Оценки старых reviews используют CEFR/band/position/shade; это не пять показателей нового продукта.
-  [Profile](voice-and-reviews.md#telegram-progress-profile), [коррекции](voice-and-reviews.md#коррекции-речи-в-сохранённых-calls) и
-  [workflow оценки](voice-and-reviews.md#vocabulary-assessment-workflow) описывают сохранившуюся часть.
-- В `Application.kt` followup stages старого onboarding получают `retired`, soft nudge для onboarding — `false`.
-  Ветка `practice`, настроенный `/remind` и soft nudge открытого call остаются.
-  SP-01 не добавляет напоминания о trial. Нельзя считать весь старый scheduler отключённым.
-- [Onboarding analytics](analytics.md#onboarding-analytics) и отчёты reminders сохраняют старые когорты,
-  стадии и delivery outcomes. Они не становятся аналитикой Саши автоматически.
-- `ONBOARDING_REVIEW_MODEL` и fallback env сохраняют имена для review-совместимости.
-- Прототип CMP использует собственный app API и WebRTC. Его макеты Releva сохраняются как материалы прототипа,
-  а не как дизайн будущего Mini App.
-
-### Проверки удалённого onboarding
-
-Для сохранения границы доказательств: voice onboarding 2026-09-28 имел 95 Python tests и Kotlin tests;
-conservative screening — 118 Python tests и Kotlin test/detekt; token-limit revision 2026-10-08 — 297 Python tests.
-Incomplete nudge 2026-10-06 проходил Kotlin/detekt и PostgreSQL integration test.
-Модельная точность, новая переписка Саши и текущие окружения этими проверками не подтверждаются.
-Полные результаты прежних реализаций остаются в Git на коммите `60d4085`.
+Импортирован только прежний TutorStore по [cutover runbook](operations.md#offline-tutorstore-cutover).
+`learner:`, `assessment:`, practice/campaign namespaces не объединены с новым профилем.
+Сохранение файлов не доказывает активную маршрутизацию; старый voice onboarding не возвращается.
+Legacy-контракты: [голос/review](voice-and-reviews.md), [практика](practice.md),
+[аналитика](analytics.md), [CMP API](mobile-api.md). Прежние результаты проверок доступны в Git;
+они не доказывают новый Telegram UX или текущее состояние PROD.

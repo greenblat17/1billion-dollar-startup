@@ -8,6 +8,8 @@ Telegram служит перепиской; приложение в целево
 | Вопрос | Документ |
 | --- | --- |
 | Для кого продукт, кто такой Саша, какова целевая модель | [Продукт](product/2026-11-08-ai-tutor-experience-v0.5.md) |
+| Общий фундамент и исходная матрица проверок | [SP-00](plans/2026-11-10-sp00-foundation.md) |
+| Как проходит пробный голосовой урок | [SP-02](plans/2026-11-11-sp02-trial-lesson.md) |
 | Как знакомиться, отвечать и управлять trial без анкеты | [Путь и поведение SP-01](plans/2026-11-09-sp01-text-onboarding.md) |
 | Как проводятся регулярные уроки | [SP-03](plans/2026-11-12-sp03-regular-lessons.md) |
 | Как репетитор запоминает, уточняет и использует сведения об ученике | [SP-07](plans/2026-11-12-sp07-memory.md) |
@@ -15,7 +17,7 @@ Telegram служит перепиской; приложение в целево
 | Как создаются персональный маршрут и планы уроков | [SP-06](plans/2026-11-12-sp06-roadmap.md) |
 | Как работают подписка, тестовая оплата и доступ | [SP-05](plans/2026-11-12-sp05-subscription.md) |
 | Как согласуются расписание, переносы и напоминания | [SP-04](plans/2026-11-12-sp04-scheduling.md) |
-| Какие компоненты работают и почему устроены так | [Архитектура SP-00 и причины решений](../architecture.md) |
+| Какие компоненты работают и почему устроены так | [Реализованная архитектура и причины решений](../architecture.md) |
 | Что реализовано, что отложено и что проверено | [Статус и доказательства](status.md) |
 | Визуальный стиль Mini App и макет звонка | [Стайлгайд и HTML-макеты](design/README.md) |
 | Как запустить и проверить локально | [Запуск и CI](integrations/operations.md#run-locally-env-ci) |
@@ -24,19 +26,19 @@ Telegram служит перепиской; приложение в целево
 [Продуктовая v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md) — полная концепция, сохранённая без изменений.
 Поздние уточнения диалога в SP-01 имеют приоритет над ранними сценариями; готовность функций описывает только status.md.
 [Исходная архитектура v1](architecture/speaky-mvp-high-level-architecture-v1.md) — целевой контракт MVP, не описание текущего runtime.
-Текущий согласованный объём — [план SP-00](plans/2026-11-10-sp00-foundation.md),
-результаты локальных проверок и ограничения — [статус](status.md).
+Планы SP-00–SP-08 сохраняют согласованные решения и границы каждого этапа.
+Ограничения ранних этапов не отменяют последующие реализации; текущая готовность — только в [статусе](status.md).
 
 ## Шесть технических справочников
 
 | Документ | Содержание |
 | --- | --- |
 | [Чат и Telegram](integrations/tutor-chat.md) | SP-01 tools, trial, routing, delivery и совместимость |
-| [Голос и review](integrations/voice-and-reviews.md) | Clip API, calls, память, коррекции, оценки и feedback |
-| [Практика](integrations/practice.md) | Vocabulary Builder, reminders, streak и HTTP-операции |
-| [Аналитика](integrations/analytics.md) | События, dashboards, знаменатели, когорты и стоимость |
+| [Голос и review (legacy)](integrations/voice-and-reviews.md) | Сохранённые Clip API, calls, коррекции и оценки; активный Realtime — в архитектуре и SP-02/03 |
+| [Практика (legacy)](integrations/practice.md) | Vocabulary Builder, reminders, streak и HTTP-операции |
+| [Аналитика (legacy)](integrations/analytics.md) | События, dashboards, знаменатели, когорты и стоимость |
 | [Эксплуатация](integrations/operations.md) | Запуск, CI, env, мониторинг, provider logs и alerts |
-| [CMP API](integrations/mobile-api.md) | Auth, Home, WebRTC, sessions и review существующего приложения |
+| [CMP API (legacy)](integrations/mobile-api.md) | Auth, Home, WebRTC, sessions и review существующего приложения |
 
 Внутри каждого файла есть оглавление. Старые voice-метрики не измеряют конверсию нового чата.
 CMP остаётся отдельным прототипом: [клиент, WebRTC и API](integrations/mobile-api.md).

@@ -1,7 +1,7 @@
 # Архитектура Speaky
 
 Единственный справочник **реализованной архитектуры SP-00–SP-08**: компоненты, данные, потоки и причины решений.
-Он описывает код рабочего дерева. SP-03/SP-04 объединены и поставлены на DEV; живая приёмка остаётся открытой.
+Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
 
@@ -14,9 +14,14 @@ flowchart LR
   ktor -->|tutor turn / compute| ai[FastAPI: speaky_main]
   ai -->|scoped commands / snapshots| ktor
   ai <--> llm[LLM provider]
+  tg -->|открывает| mini[Mini App: nginx / Web Audio]
+  mini <-->|HTTPS API / WSS PCM| ai
+  ai <-->|speech-to-speech| rt[OpenAI Realtime]
+  ai -->|archive before forwarding| s3[(Private S3)]
 ```
 
-Два процесса: Ktor и FastAPI. Foundation, Text Tutor, Context Builder и Learning Engine — модули этих процессов.
+Три поставляемых компонента: Ktor, FastAPI и отдельный статический Mini App frontend.
+Foundation, Text Tutor, Context Builder и Learning Engine — модули backend/AI.
 Отдельных сервисов для каждого логического блока нет. Redis не входит в новый runtime.
 
 | Компонент | Ответственность |
@@ -35,7 +40,8 @@ flowchart LR
   [`SpeakyApplication.kt`](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt).
   Он подключает foundation, worker, `/health` и Telegram webhook при соответствующей конфигурации.
 - AI Docker запускает [`app.speaky_main:create_app`](ai-service/app/speaky_main.py).
-  Этот root создаёт FoundationClient, ContextBuilder, FoundationTutor и LearningEngine.
+  Этот root создаёт FoundationClient, ContextBuilder с MemorySelector, FoundationTutor, LearningEngine и Realtime routes.
+- Frontend собирается из [`mini-app/src/`](mini-app/src/) и раздаётся отдельным nginx-контейнером.
 - Ktor требует PostgreSQL и завершённый import marker. Без marker новый backend не стартует.
   Это защищает существующий чат от случайного запуска с пустым профилем.
 
@@ -59,7 +65,7 @@ flowchart LR
 
 Общий профиль принадлежит Ktor/PostgreSQL. Python не поддерживает вторую изменяемую копию профиля.
 Text, Voice и Learning используют одну идентичность и проекции одного состояния через ContextBuilder.
-Эта связь реализована и проверена локально; готового голосового урока из неё не следует.
+Голосовой runtime использует этот контекст после admission; качество передачи контекста требует живой приёмки.
 
 - Заявленные пользователем факты, самооценка и учебные observations разделены.
   Observations сохраняют источник, версию анализа и неопределённость.
@@ -80,7 +86,8 @@ FoundationJobs хранит очередь в PostgreSQL. Worker получае�
 Просроченный worker не может перезаписать актуальное состояние. Retry и диагностика доступны оператору.
 
 Lesson/Call Session, Schedule, entitlement, Roadmap, Plan/Evaluation имеют backend-модель и операции.
-LessonVoice получает общий контекст только после backend admission. Отсутствующий или устаревший обязательный план блокирует вход.
+Realtime получает общий контекст только после backend admission. Для regular отсутствующий или устаревший
+обязательный план блокирует первый вход; trial admission использует встроенный briefing.
 
 Shipping root использует `LessonPlanner` из `regular_lesson.py`: модель готовит для regular
 отдельные objective/topic/strategy; trial сохраняет briefing. Backend применяет план с проверкой
@@ -140,7 +147,10 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 | Общая память и контекст | `foundation/StructuredMemory.kt`, `ConversationHistory.kt`, `TutorContextOperations.kt`; `ai-service/app/context_builder.py` |
 | Фоновые вычисления | `foundation/FoundationJobs.kt`, `FoundationWorker.kt`, `BackgroundContracts.kt`; `ai-service/app/learning_engine.py`, `lesson_voice.py` |
 | Импорт, очистка и восстановление | `foundation/TutorStateImport.kt`, `FoundationImportCli.kt`, `FoundationMaintenance.kt`, `FoundationMaintenanceCli.kt`; `ai-service/scripts/export_tutor_state.py` |
-| Клиент и поставка | `cmp/app/`, `infra/`, `.github/workflows/` |
+| Голос и frontend | `foundation/TrialAccess.kt`, `TrialCommands.kt`; `ai-service/app/trial_api.py`, `trial_realtime.py`, `trial_audio.py`; `mini-app/src/` |
+| Roadmap, память и прогресс | `foundation/RoadmapPreparation.kt`, `MemoryOperations.kt`, `LessonMemory.kt`, `LearningProgress.kt`; `ai-service/app/roadmap.py`, `memory_context.py`, `memory_tools.py` |
+| Подписка и расписание | `foundation/SubscriptionBilling.kt`, `TrialSchedule.kt`, `TrialWorker.kt`; `ai-service/app/subscription_tools.py`, `trial_tools.py` |
+| Прототип и поставка | `cmp/app/`, `infra/`, `.github/workflows/` |
 
 [Исходная архитектура MVP v1](ai_docs/architecture/speaky-mvp-high-level-architecture-v1.md) задаёт целевые обязанности будущего MVP.
 Она не описывает текущий runtime. [План SP-00](ai_docs/plans/2026-11-10-sp00-foundation.md) фиксирует объём задачи,
@@ -149,196 +159,93 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 
 ## SP-02: пробный голосовой урок
 
-Mini App — самостоятельный frontend в `mini-app/src`, со своей сборкой, CI и DEV deploy.
-Контейнер `mini-app` раздаёт `mini-app/dist` через nginx; AI не содержит UI. CMP-прототип остаётся в `cmp/app`.
-Публичный HTTPS edge открывает только `/miniapp`, его assets/API и `/miniapp/voice` WebSocket.
-`trial_api.py` передаёт подписанное Telegram initData в Ktor `TrialRoutes`; клиент не задаёт Student.
-`TelegramMiniAuth` проверяет подпись, свежесть и identity. `TrialAccess` выдаёт ограниченный lesson scope,
-защищает время/ownership/epoch и единственный активный Call Session. Lease обновляется heartbeat;
-отключение освобождает транспорт, но in_progress Lesson остаётся доступным для возврата без временного окна.
+Самостоятельный `mini-app/src` собирается в nginx frontend; AI не раздаёт UI. `trial_api.py`
+проверяет подписанное Telegram initData через Ktor `TrialAccess`. Backend владеет Lesson,
+Call Session, scope и admission. Browser не получает provider key или право выполнить tool.
 
-`RealtimeTrialSession` в `trial_realtime.py` соединяет браузер с OpenAI Realtime `gpt-realtime-2.1`, голос Marin.
-Педагогика и характер Kora H остаются в `REALTIME_VOICE_POLICY`; ContextBuilder передаёт общую память
-и историю прежних эпизодов. Старые `TrialSession`/STT/TTS сохранены для регрессий, но shipping root их не создаёт.
+`RealtimeTrialSession` в `trial_realtime.py` соединяет Web Audio с OpenAI Realtime
+(`gpt-realtime-2.1`, Marin) через серверный WebSocket relay. Relay архивирует оба PCM-потока
+в private S3 и подтверждает metadata в PostgreSQL **до** пересылки. Direct browser→provider
+не выбран: серверный архив через sideband не подтверждён, а browser upload может потеряться
+при закрытии WebView. Дополнительные S3/DB операции и RTT требуют живого замера.
 
-```mermaid
-flowchart LR
-  M[Mini App / Web Audio] <-->|WSS PCM 24 kHz| A[AI Realtime relay]
-  A <-->|WSS speech-to-speech| O[OpenAI Realtime]
-  A -->|archive before forwarding| S[Private S3 / 30 days]
-  A <-->|scope / events / lease| K[Ktor foundation]
-  K --> P[(PostgreSQL)]
-```
+`semantic_vad` использует `eagerness=medium`. Speech-start останавливает playback; сервер
+согласует `conversation.item.truncate` с ограниченным playback report. Отчёт клиента не
+доказывает, что ученик услышал звук. Входной ASR transcript служит истории и анализу,
+не генерации ответа. Модель получает `finish_after_reply` и memory tools SP-07.
 
-WebRTC рассмотрен первым. Direct browser→provider не выбран: серверный архив обоих потоков через sideband
-не подтверждён, а browser upload не гарантирует сохранность при закрытии WebView. Relay получает оба потока,
-сохраняет PCM в S3 и подтверждает metadata в PostgreSQL **до** пересылки. Вход группируется по 100 ms;
-выход сохраняется по provider delta. Цена решения — дополнительные RTT и много небольших объектов/операций.
-Это проверяемый компромисс, не обещание более низкой latency. Сбой архива закрывает эпизод как технический.
-После crash возможны reserved-объекты и потеря ещё не переданных буферов; уже пересланное аудио имеет stored receipt.
-Backup/долговечность диска остаются отдельными эксплуатационными гарантиями.
+`TrialCommands` сохраняет события, завершает урок и ставит evaluation/notice. `TrialPlanner`
+даёт briefing, `TrialAnalyzer` анализирует разговор, `TrialWorker` обслуживает follow-up.
+V39 добавляет voice lease/scope, audio metadata и demo receipt. Аудио удаляется через 30 дней;
+backup и S3 lifecycle остаются отдельными гарантиями. Reconnect открывает новый provider session
+в том же Lesson. Ограничение одного транспорта — 50 минут; оно не означает завершение Lesson.
+Старые `TrialSession`/STT/TTS не создаются shipping root.
 
-`semantic_vad` с `eagerness=low` определяет ход. Provider speech-start останавливает browser playback;
-сервер ждёт bounded playback report и подтверждение `conversation.item.truncate` перед новым ответом.
-При отсутствии отчёта история консервативна: truncate до 0, без полного текста. Отчёт клиента не доказывает,
-что человек услышал звук. Полный assistant transcript сохраняется только после audio.done и полного playback report;
-для частичного звука сохраняется маркер неопределённости. Входная ASR транскрипция идёт параллельно и нужна
-для history/analyzer, не для генерации ответа. Provider event_id/item_id и tool call_id дедуплицируются.
-
-Модель получает только `finish_after_reply`: подготовить последнюю реплику. Урок завершается после её архива,
-provider response.done, playback report и ожидаемых входных транскриптов. Клиент не получает ключ, scope,
-право изменять provider session или выполнять tools. End button и disconnect различаются; heartbeat проверяет
-серверный lease/epoch. Reconnect открывает новый provider session в прежнем Lesson с сохранённым контекстом.
-Mute завершает уже начатую фразу; микрофон включён при каждом подключении. Лимит транспорта 50 минут
-освобождает ресурсы как technical_disconnect, не отмечает урок пройденным. Плановое завершение около 15 минут —
-инструкция модели и мягкое напоминание; обычный урок не обрывается таймером.
-
-`TrialCommands` хранит события в общей history, завершает урок идемпотентно, ставит evaluation и notice.
-`TrialPlanner` делает briefing, `TrialAnalyzer` — качественные наблюдения с источниками, без roadmap/числового экзамена.
-`TrialWorker` отправляет контекстный follow-up через durable outbox; проверяет reconnect, новые сообщения и epoch.
-Неопределённую Telegram-доставку не повторяет вслепую. Реальная работа отправки в этой задаче не запускалась.
-
-V39 добавляет lease/scope к Call Session, `trial_audio`, `trial_notice`, `trial_demo_receipt`.
-Аудио лежит в приватном S3; метаданные и ownership — в PostgreSQL. Ссылки действуют 60 секунд;
-cleanup удаляет исходное аудио, все версии объектов и transcript metadata через 30 дней или после удаления данных.
-Учебные выводы хранятся отдельно по foundation retention. `TrialSchedule` сохраняет предварительное расписание
-и 14 дней неисполняемых regular placeholders. Demo-оплата не вызывает реальные payment/entitlement операции.
-Legacy calls/Redis не используются. Конфигурация и включение описаны в
-[operations](ai_docs/integrations/operations.md#sp-02-mini-app-и-пробный-голосовой-урок).
+Контракт ученика и живая матрица приёмки — [SP-02](ai_docs/plans/2026-11-11-sp02-trial-lesson.md).
+Конфигурация, архив и диагностика — [operations](ai_docs/integrations/operations.md#sp-02-mini-app-и-пробный-голосовой-урок).
 
 ## Регулярные уроки и расписание SP-03/SP-04
 
-`schedule.agree` сохраняет явно согласованные дни, локальное время, IANA timezone,
-длительность 15–60 минут и первую дату. Создаёт executable regular Lesson на 14-дневном
-горизонте; worker продлевает его. Старый `trial.schedule` остаётся предварительным:
-существующие placeholders не активируются без нового согласования.
-Переносы и отмены сохраняют occurrence key и исключения, поэтому материализация не воскрешает их.
-Все изменения и admission сериализованы `lockStudent`; версии и receipts защищают повторы.
-`lesson.next` возвращает собственную будущую исполняемую встречу, исключая текущую, либо null.
-Read receipts не участвуют в восстановлении мутаций диалога.
+`TrialSchedule.schedule.agree` сохраняет согласованную серию и материализует executable regular
+Lesson на 14-дневном горизонте. `TrialWorker` продлевает горизонт, отправляет уведомления
+и фиксирует no-show. Перенос/отмена оставляют occurrence exception, чтобы worker не воссоздал
+встречу. `LessonManagement` исполняет команды под `lockStudent`, с версиями и receipts.
+V40 хранит DST issues и версии уведомлений. Старые placeholders не активируются автоматически;
+явный перенос выбранного placeholder может сделать именно его executable.
 
-Первый вход в regular требует актуального готового плана, завершённых прошлых анализов
-и времени между началом и плановым концом. Admission фиксирует execution_snapshot.
-Reconnect сохраняет принятый план, историю и исходное время окончания. Голосовые инструкции
-задают Guided Conversation и устное завершение с feedback; дату следующего занятия читает backend.
-После 50 минут provider-сессия меняется в безопасной паузе через освобождение транспорта
-и повторный admission; бесшовность 60-минутного звонка требует живой проверки.
-Обычное завершение regular не отправляет trial followup; ранний выход может вызвать один
-контекстный вопрос. Пустой ответ AI подавляет уведомление.
+`LessonPlanner` готовит regular objective/topic/strategy из общего контекста. Первый admission
+требует актуального плана и завершённых прошлых анализов; он сохраняет execution_snapshot.
+Reconnect использует этот снимок и исходное время конца. После 50 минут provider session
+меняется в безопасной паузе; бесшовность требует живой проверки. `lesson.next` читает только
+сохранённую будущую встречу. Завершение regular не создаёт trial follow-up.
 
-V40 добавляет `schedule_time_issue` и `trial_notice.lesson_version`.
-При DST gap/fold согласование требует уточнения; позднее неоднозначное вхождение сохраняется
-как pending с одним запросом уточнить время. Оно не пропускается и не получает случайный UTC.
-`schedule.resolve_time` задаёт явно согласованное время этого вхождения.
-Уведомления учитывают версии, перенос, reconnect и неопределённую доставку; exactly-once Telegram не обещается.
-Напоминание доступно за 15 минут, приглашение — в первые 5 минут, затем no-show сообщение.
-Неначатый урок становится missed в плановый конец, без штрафа.
-
-Контракты и ограничения: [SP-03](ai_docs/plans/2026-11-12-sp03-regular-lessons.md),
-[SP-04](ai_docs/plans/2026-11-12-sp04-scheduling.md).
-
+Детальные операции, время, DST и проверка доставки — в [SP-03](ai_docs/plans/2026-11-12-sp03-regular-lessons.md)
+и [SP-04](ai_docs/plans/2026-11-12-sp04-scheduling.md).
 
 ## Подписка SP-05
 
-`SubscriptionBilling` использует существующие subscription/payment_receipt/entitlement.
-V41 добавляет сроки и автопродление подписки, immutable checkout terms, billing_event и ссылку
-первого admission на entitlement. Native `subscription.get/checkout/cancel_renewal` сохраняют
-scope/evidence/version/receipt контракты; read исключён из recovery мутаций.
-FoundationChat отправляет backend-карточку с условиями до оплаты через прежний Telegram adapter.
-LLM получает актуальное состояние через ContextBuilder, но не подтверждает оплату.
-
-Единственный текущий провайдер — opt-in mock: защищённый Telegram callback проверяет owner,
-затем атомарно сохраняет событие, receipt и период доступа. `MockPaymentAdapter` использует
-тот же путь при автоматическом тестовом продлении. Student lock и уникальные event/charge IDs
-сохраняют идемпотентность. Неизвестная доставка карточки не повторяется автоматически.
-Regular `TrialAccess.open` проверяет entitlement, фиксирует его для начатого Lesson и разрешает
-его reconnect после истечения. Trial не требует подписки; Schedule/Lesson не отменяются.
-Настоящая платёжная интеграция и live acceptance не выполнены; [контракт SP-05](ai_docs/plans/2026-11-12-sp05-subscription.md).
+`SubscriptionBilling` владеет subscription, receipt и entitlement в PostgreSQL. V41 добавляет
+checkout terms и billing events. FoundationChat отправляет карточку из backend-условий;
+LLM не подтверждает оплату. Настроенный opt-in mock обрабатывает Telegram callback через
+`MockBillingTelegram` и `MockPaymentAdapter`. `TrialAccess` проверяет entitlement при первом
+regular admission и сохраняет его для reconnect. Trial остаётся бесплатным.
+Реального provider нет. Договорённости, идемпотентность и границы mock — в
+[SP-05](ai_docs/plans/2026-11-12-sp05-subscription.md); конфигурация — в [operations](ai_docs/integrations/operations.md#sp-05-тестовая-подписка).
 
 ## Roadmap и подготовка SP-06
 
-`roadmap.prepare` дополняет прежний FoundationJobs/LearningEngine. После trial evaluation и
-изменения наблюдений/памяти backend ставит versioned job; `RoadmapPlanner` вычисляет содержание
-вне транзакции. `RoadmapPreparation` проверяет версии/источники и вызывает прежний `LearningState.roadmap`.
-Первый маршрут сразу активен по согласованной цели. Адаптация сохраняет outcomes и требует
-новых подтверждающих источников из нескольких уроков; это не автоматическая оценка mastery.
-V42 сохраняет review result в foundation_job; forget/delete очищают его вместе с остальными копиями.
+`roadmap.prepare` использует FoundationJobs/LearningEngine. `RoadmapPlanner` вычисляет вне
+транзакции, `RoadmapPreparation` проверяет источники и версии перед применением.
+ContextBuilder передаёт одну актуальную проекцию text/voice/learning; существующий SP-03 planner
+сохраняет roadmap revision в плане. Первый admission фиксирует execution_snapshot, а новая цель,
+исправление памяти и перенос отзывают будущую подготовку. V42 сохраняет результат review в job.
 
-ContextBuilder передаёт одну актуальную проекцию Text/Voice/Learning. Planner SP03 использует
-roadmap и память; новый pipeline планирования уроков не создаётся. Plan хранит roadmap revision,
-job — lesson/goal/learning/roadmap versions. Исправления памяти и перенос отзывают будущую подготовку;
-первый admission фиксирует execution_snapshot, reconnect его сохраняет.
-`lesson.next.preparedTopic` относится только к следующей реальной встрече с актуальным планом.
-Telegram объясняет сохранённый маршрут; trial follow-up ограниченно ждёт learning jobs.
-
-Terminal preparation failures передаются в admission/Mini App и lesson.list. AI compute имеет
-120-секундный предел, HTTP 140, worker 150; worker продлевает lease каждые 20 секунд.
-Платные retry после budget exhaustion не запускаются. Старые DEV jobs не восстанавливаются автоматически.
-[Контракт и границы SP-06](ai_docs/plans/2026-11-12-sp06-roadmap.md).
-
+Ошибки анализа, roadmap и плана доступны admission/Mini App и `lesson.list`. Завершённые до SP-06
+анализы не получают roadmap job автоматически при deploy. Команды диагностики и retry — в
+[operations](ai_docs/integrations/operations.md#sp-06sp-08-jobs-память-и-прогресс).
+Правила активации и адаптации — в [SP-06](ai_docs/plans/2026-11-12-sp06-roadmap.md).
 
 ## Память репетитора SP-07
 
-Четыре уровня — роли общей системы, не четыре хранилища: онтология Student/Goal/Lesson/
-Memory/Source; долговременные personal/learning записи; динамический Core/Session/On-demand;
-краткосрочные события разговора и эпизоды Lesson. Владельцы Schedule/Subscription/Roadmap не меняются.
+`MemoryOperations` в PostgreSQL владеет scoped facts, candidates и disputed observations.
+V43 добавляет ограничения упоминания и сроки актуальности. Native memory tools общие для
+Telegram и Realtime; голос использует источник только после durable append транскрипта.
+`TrialAnalyzer` анализирует доступные части trial/regular; `LessonMemory` проверяет источники
+и версии. `MemorySelector` выбирает bounded контекст; Core и запреты сохраняются вне выборки.
 
-V43 добавляет `mention_policy`, `valid_until` и `memory_observation_review`. `MemoryOperations`
-предоставляет scoped search, отдельный поиск candidates для обсуждения, ограничения упоминания,
-оспаривание наблюдений и пользовательское забывание. Native tools общие для Telegram и Realtime;
-голос получает sourceId только после durable append транскрипта. Проверяются ownership, evidence,
-версии и порядок источников между каналами. Повторные операции используют receipts.
-
-`TrialAnalyzer` анализирует trial/regular по частям (до 40 событий/100000 символов на часть),
-включая ранние реплики и контекст ответов репетитора. Backend выдаёт до 1000 событий анализа;
-превышение явно блокирует анализ, вместо молчаливой потери начала урока. Результат содержит
-учебные наблюдения, прямые личные факты и скрытые личные candidates. `LessonMemory` проверяет
-принадлежность источников уроку; поздний анализ не перезаписывает новые исправления.
-Цель и self-assessment анализатор не изменяет. Цитаты personal evidence не копируются в Evaluation.
-Повторяемость показывается по semantic key и уникальным источникам/урокам; это не оценка mastery.
-Спорный вывод сохраняет объяснение ученика, а planner получает правило сначала перепроверить его.
-
-`MemorySelector` использует ту же модельную инфраструктуру: bounded каталог (120 фактов/200 наблюдений),
-задача и недавний контекст → проверенные индексы выбранных записей. Core и ограничения упоминания
-сохраняются независимо от выборки. Результат сообщает о неполноте; дополнительное чтение имеет
-пагинацию по 20 записей и исключает candidates. При ошибке selector остаётся Core с явной отметкой;
-402 передаётся вызывающему коду без повторного платного вызова. Embeddings не добавлены.
-
-Единая `MEMORY_POLICY` применяется в text/voice/planner/roadmap. Значимое событие можно ненавязчиво
-вспомнить, включая чувствительную тему; личную догадку обсуждают только при естественном поводе.
-`context_only` допускает подготовку, но запрещает прямое упоминание и очевидную утечку через пример.
-Обычная правка факта не снимает запрет. Истёкшие факты исключаются из обычной выборки.
-
-Forget использует прежнее консервативное очищение истории и производных копий SP00. Несколько
-выбранных фактов удаляются атомарно. Epoch отзывает активные контексты; Telegram получает сохранённое
-подтверждение, voice закрывает provider и показывает сообщение в Mini App. Незавершённый урок
-возвращается на подготовку; удалённый execution snapshot не используется. Это исключение из frozen
-plan необходимо для удаления данных. Другие исправления сохраняют план уже начатого урока.
-Новый прямой рассказ после удаления может создать свежую запись, не восстанавливая прежний текст.
-
-[План, решения и границы SP-07](ai_docs/plans/2026-11-12-sp07-memory.md).
-
+Forget очищает производные копии и отзывает epoch. Voice закрывает provider session,
+а незавершённый урок возвращается на подготовку без удалённого execution_snapshot.
+Четыре уровня памяти и пользовательские правила — в [SP-07](ai_docs/plans/2026-11-12-sp07-memory.md).
+Лимиты, ошибки и recovery — в [operations](ai_docs/integrations/operations.md#sp-06sp-08-jobs-память-и-прогресс).
 
 ## Прогресс SP-08
 
-Послезанятийный TrialAnalyzer остаётся общим для trial/regular: новые наблюдения содержат
-тип свидетельства, успешность, помощь и речевую ситуацию; notes описывают темы, навык,
-сильные стороны, трудности, фидбек и рекомендации. Backend проверяет источники урока и цитаты;
-цитаты evidence не копируются в долговременную оценку. Старые evaluations остаются совместимыми.
+Общий `TrialAnalyzer` добавляет evidence metadata к observations. `RoadmapPlanner` оценивает
+качественную динамику в том же `roadmap.prepare`; `LearningProgress` сверяет актуальные
+источники вне relevance-выборки. V44 хранит metadata и versioned `progress_review`.
+Смена transcript/review revision отзывает подтверждение, forget удаляет производные результаты.
 
-Существующий `roadmap.prepare` также оценивает качественную динамику пяти измерений и перенос
-навыков этапов. `LearningProgress` читает канонические observations вне relevance-выборки;
-неполнота блокирует подтверждение. V44 добавляет metadata и `progress_review` с версиями
-и ссылками на observations. Повтор не добавляет доказательств. Проверки SP06 защищают поздний apply.
-
-Backend вычисляет completed/current/upcoming/needs_review по сохранённым решениям и актуальным
-источникам. Смена transcript revision и review SP07 отзывает подтверждение. Новое подтверждение
-требует практики после уточнения; забывание очищает производные записи. Адаптация сохраняет
-id/outcome и достижения; смена цели отделяет старый маршрут. Fluency пока всегда имеет недостаток
-достоверных данных; Confidence требует self-report. Смысловой перенос оценивает модель,
-а не количество уроков. Контракт и границы — [SP-08](ai_docs/plans/2026-11-12-sp08-progress.md).
-
-Одна проекция читается ContextBuilder и `TrialAccess` action=progress через прежнюю initData auth.
-Просмотр не требует Lesson/entitlement и не запускает jobs. Telegram reply keyboard My Progress
-открывает `mini-app/?view=progress`; новый экран использует Warm Editorial. UI показывает цель
-и этапы без пяти числовых графиков; пустое состояние не выдаёт отсутствие job за подготовку.
+Одна backend-проекция доступна ContextBuilder и Mini App `action=progress` после Telegram
+initData auth. Просмотр не запускает Lesson, entitlement или jobs. Telegram My Progress открывает
+`MINI_APP_URL` с `?view=progress`. Критерии навыка, ограничения Fluency и UX — в
+[SP-08](ai_docs/plans/2026-11-12-sp08-progress.md).
