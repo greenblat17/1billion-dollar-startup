@@ -728,3 +728,21 @@ Caddy направляет HTML/assets в mini-app, а `/miniapp/api`, `/miniapp
 Откат UI — запуск frontend workflow на предыдущем git ref; откат edge — сохранённый Caddyfile.before-mini-app-*.
 Frontend workflow использует существующие DEV_AI_SERVER_HOST/USER/SSH_KEY только для доставки.
 PROD frontend ещё требует отдельной схемы поставки; этот workflow работает только с DEV.
+
+
+### Realtime latency diagnostics
+
+Semantic VAD использует `eagerness=medium` (раньше low). Проверять паузы ученика и ложные перебивания при живой приёмке.
+`trial_realtime_first_audio` содержит `turn_id` и `item_id`, а также миллисекунды:
+- `stop_to_commit_ms`: между обработкой provider speech_stopped и committed.
+- `commit_to_request_ms`: ожидание разрешения следующего ответа сервером.
+- `request_to_audio_ms`: от response.create до обработки первого audio delta; включает сеть и очередь обработчика, не чистое время модели.
+- `first_chunk_archive_ms`: сохранение первого фрагмента до отправки браузеру.
+- `commit_to_forward_ms`: весь серверный интервал от committed до отправки первого звука.
+
+Для приветствия отсутствующие этапы равны null; не включать его в среднее ответов на реплики.
+`trial_audio_state.archive` раз в клиентский ping содержит count/mean_ms/max_ms архивных операций по направлению за интервал.
+`trial_turn_stopped.provider_audio_end_ms` — позиция конца речи на шкале аудио провайдера, не wall-clock timestamp.
+Клиентская `first_audio` по-прежнему измеряет receipt user_turn_complete→запланированный playback.
+Эти значения не измеряют акустическое последнее слово→слышимый звук и не должны складываться между разными часами.
+Серверное архивирование до пересылки сохранено; изменение eagerness не ослабляет гарантии архива.

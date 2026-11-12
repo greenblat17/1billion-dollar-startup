@@ -27,7 +27,7 @@ Reconnect сохраняет Lesson и контекст; mute/end/disconnect р�
 Исправлен найденный тестами FrozenInstanceError, который скрывал исходный отказ foundation.
 
 Проверки текущего дерева:
-- Python: **586 passed**, одно dependency deprecation warning.
+- Python: **587 passed**, одно dependency deprecation warning.
 - Kotlin: **281 unit + 27 PostgreSQL integration**, без failed/skipped; fatJar/detekt прошли.
 - Python→Ktor→PostgreSQL HTTP: **6 passed**; исправлена устаревшая подмена TutorModel в тесте.
 - Frontend: **4 tests passed**, syntax/build прошли; проверены микрофон, reconnect, PCM и playback при сетевых паузах.
@@ -50,7 +50,9 @@ Readiness: оба контейнера работают без рестарто�
 регрессионный тест проверяет join/first_audio/barge_in и последующее штатное завершение.
 Исправление AI `0971b8e` поставлено на DEV: [run 43231990816](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43231990816).
 После поставки проверены хеш модуля, health 200, TLS/auth к backend и чтение S3; рестартов/startup errors нет.
-Backend и frontend остаются на `175f5f5`. Повторная пользовательская проверка звонка ожидается.
+Backend и frontend остаются на `175f5f5`. Пользователь провёл звонок: 7 first_audio замеров, среднее 1057 ms, диапазон 890–1269 ms.
+Это commit→планирование playback, без ожидания определения конца фразы.
+Подготовлено ускорение semantic VAD low→medium и раздельные серверные latency timings; поставка ожидается.
 Платные smoke/benchmark не запускались; пользователь проводит живую проверку самостоятельно.
 PROD/merge не выполнялись.
 

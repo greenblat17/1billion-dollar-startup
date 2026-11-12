@@ -67,14 +67,24 @@ class RealtimeTrialSession(TrialJournal):
         self.received_bytes = 0
         self.sent_hint = False
         self.provider = None
+        self.turn_stopped_at = None
+        self.pending_timing = None
+        self.response_timing = {}
+        self.archive_timings = {}
         self.lock = asyncio.Lock()
 
     async def send(self, payload):
         await asyncio.wait_for(self.provider.send(json.dumps(payload)), 10)
 
     async def record(self, direction, audio, metadata=None):
+        started = time.monotonic()
         await super().record(direction, audio, {'sampleRate': 24000, 'transport': 'openai_realtime',
                                                 **(metadata or {})})
+        duration = (time.monotonic() - started) * 1000
+        stats = self.archive_timings.setdefault(direction, {'count': 0, 'total_ms': 0, 'max_ms': 0})
+        stats['count'] += 1
+        stats['total_ms'] += duration
+        stats['max_ms'] = max(stats['max_ms'], duration)
 
     async def configure(self):
         context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
@@ -90,7 +100,7 @@ class RealtimeTrialSession(TrialJournal):
             'audio': {'input': {'format': {'type': 'audio/pcm', 'rate': 24000},
                                 'noise_reduction': {'type': 'near_field'},
                                 'transcription': {'model': 'gpt-4o-mini-transcribe'},
-                                'turn_detection': {'type': 'semantic_vad', 'eagerness': 'low',
+                                'turn_detection': {'type': 'semantic_vad', 'eagerness': 'medium',
                                                    'create_response': False, 'interrupt_response': True}},
                       'output': {'format': {'type': 'audio/pcm', 'rate': 24000},
                                  'voice': self.settings.trial_realtime_voice}},
@@ -118,6 +128,8 @@ class RealtimeTrialSession(TrialJournal):
         if self.truncations or any(not item['settled'] for item in self.items.values()):
             return  # Truncation and history must settle before the next response.
         response = {} if instructions is None else {'instructions': instructions}
+        self.response_timing = {**(self.pending_timing or {}), 'requested_at': time.monotonic()}
+        self.pending_timing = None
         self.response_active, self.want_response = True, False
         await self.send({'type': 'response.create', 'response': response})
 
@@ -208,14 +220,20 @@ class RealtimeTrialSession(TrialJournal):
             self.speaking, self.mute_committed = True, False
             await self.commit_muted_speech()
             self.last_user_turn = time.monotonic()
+            self.turn_stopped_at = None
             await self.interrupt()
         elif kind == 'input_audio_buffer.speech_stopped':
             self.speaking = False
+            self.turn_stopped_at = time.monotonic()
+            event('trial_turn_stopped', item_id=message.get('item_id'),
+                  provider_audio_end_ms=message.get('audio_end_ms'))
         elif kind == 'conversation.item.truncated':
             self.truncations.pop(message['item_id'], None)
             await self.maybe_respond()
         elif kind == 'input_audio_buffer.committed':
             self.speaking = False
+            self.pending_timing = {'turn_id': message['item_id'], 'committed_at': time.monotonic(),
+                                   'stopped_at': self.turn_stopped_at}
             if message['item_id'] not in self.transcribed:
                 self.pending_inputs.add(message['item_id'])
             await self.socket.send_json({'type': 'user_turn_complete'})
@@ -242,7 +260,7 @@ class RealtimeTrialSession(TrialJournal):
             key = message['item']['id']
             self.items.setdefault(key, dict(bytes=0, text=None, done=False, settled=False, cancelled=False,
                                             finish=self.finish_next, content_index=0, sent_at=time.monotonic(),
-                                            interrupt_at=None, report=None))
+                                            interrupt_at=None, report=None, timing=dict(self.response_timing)))
             self.finish_next = False
         elif kind == 'response.output_audio.delta':
             key = message['item_id']
@@ -253,13 +271,22 @@ class RealtimeTrialSession(TrialJournal):
             if len(data) % 2 or item['bytes'] + len(data) > 6_000_000:
                 raise ValueError('invalid_realtime_audio')
             item['content_index'] = message['content_index']
+            first_received_at = time.monotonic()
             # Durable archive BEFORE browser playback; no independent browser recording upload.
             await self.record('assistant', data, {'utteranceId': key, 'offsetBytes': item['bytes'],
                                                  'playbackEvidence': 'unconfirmed'})
             if item['bytes'] == 0:
                 item['sent_at'] = time.monotonic()
                 await self.socket.send_json({'type': 'audio_start', 'id': key, 'sampleRate': 24000})
-                event('trial_realtime_first_audio', elapsed_ms=int((time.monotonic()-self.last_user_turn)*1000))
+                timing = item['timing']
+                def elapsed(start, end):
+                    return None if start is None else max(0, round((end - start) * 1000))
+                event('trial_realtime_first_audio', item_id=key, turn_id=timing.get('turn_id'),
+                      stop_to_commit_ms=elapsed(timing.get('stopped_at'), timing.get('committed_at', first_received_at)),
+                      commit_to_request_ms=elapsed(timing.get('committed_at'), timing.get('requested_at', first_received_at)),
+                      request_to_audio_ms=elapsed(timing.get('requested_at'), first_received_at),
+                      first_chunk_archive_ms=elapsed(first_received_at, item['sent_at']),
+                      commit_to_forward_ms=elapsed(timing.get('committed_at'), item['sent_at']))
             item['bytes'] += len(data)
             await self.socket.send_bytes(data)
         elif kind == 'response.output_audio.done':
@@ -362,7 +389,11 @@ class RealtimeTrialSession(TrialJournal):
             for key in ('muted', 'trackEnabled', 'trackMuted', 'trackEnded', 'contextRunning', 'pageHidden'):
                 if type(client.get(key)) is bool:
                     safe[key] = client[key]
-        event('trial_audio_state', client=safe, muted=self.muted, received_bytes=self.received_bytes,
+        archive = {direction: {'count': stats['count'], 'mean_ms': round(stats['total_ms'] / stats['count']),
+                               'max_ms': round(stats['max_ms'])}
+                   for direction, stats in self.archive_timings.items()}
+        self.archive_timings.clear()
+        event('trial_audio_state', archive=archive, client=safe, muted=self.muted, received_bytes=self.received_bytes,
               response_running=self.response_active, pending_playback=sum(not i['settled'] for i in self.items.values()))
 
     async def listen(self):

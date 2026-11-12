@@ -272,7 +272,9 @@ async def test_configuration_has_no_provider_key_and_reconnect_uses_new_scope():
     assert 'private-scope' not in json.dumps(s.provider.sent)
     assert 'test-never-live' not in json.dumps(s.provider.sent)
     s.contexts.build.assert_awaited_once_with('private-scope', 'voice', 'lesson')
-    assert s.provider.sent[0]['session']['audio']['input']['turn_detection']['create_response'] is False
+    detection = s.provider.sent[0]['session']['audio']['input']['turn_detection']
+    assert detection['create_response'] is False
+    assert detection['eagerness'] == 'medium'
 
 
 @pytest.mark.asyncio
@@ -336,3 +338,31 @@ async def test_handshake_402_is_not_retried_and_logs_safe_provider_reason(monkey
     assert 'insufficient_quota' in caplog.text and '402' in caplog.text
     assert 'sk-secret-example' not in caplog.text
     assert 'test-never-live' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_latency_stages_use_matching_turn_and_measure_archive(monkeypatch, caplog):
+    s = session()
+    clock = [100.0]
+    monkeypatch.setattr('app.trial_realtime.time', SimpleNamespace(monotonic=lambda: clock[0]))
+    with caplog.at_level('INFO', logger='app.diagnostics'):
+        await s.provider_event({'type': 'input_audio_buffer.speech_stopped', 'item_id': 'user1', 'audio_end_ms': 500})
+        clock[0] = 100.1
+        await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'user1'})
+        clock[0] = 100.4
+        async def slow_archive(*args):
+            clock[0] += 0.2
+        s.store.put.side_effect = slow_archive
+        await output(s)
+        s.log_audio_state({})
+        s.log_audio_state({})  # Empty interval is valid.
+    events = [json.loads(r.message.split('runtime_event ', 1)[1]) for r in caplog.records]
+    latency = next(r for r in events if r['event'] == 'trial_realtime_first_audio')
+    assert latency['turn_id'] == 'user1'
+    assert latency['stop_to_commit_ms'] == 100
+    assert latency['commit_to_request_ms'] == 0
+    assert latency['request_to_audio_ms'] == 300
+    assert latency['first_chunk_archive_ms'] == 200
+    assert latency['commit_to_forward_ms'] == 500
+    archive = [r['archive'] for r in events if r['event'] == 'trial_audio_state']
+    assert archive == [{'assistant': {'count': 1, 'mean_ms': 200, 'max_ms': 200}}, {}]
