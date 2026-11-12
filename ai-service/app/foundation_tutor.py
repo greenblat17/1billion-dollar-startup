@@ -9,6 +9,7 @@ from uuid import uuid4
 import anyio
 
 from app.context_builder import ContextBuilder
+from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import RELATIONSHIP_POLICY, TutorRequest
 from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
@@ -67,12 +68,14 @@ class FoundationTutor:
         changed = None
         schedule_committed = False
         payment_committed = False
+        memory_committed = False
         degraded = False
         try:
             committed = claim.get('committed', [])
             if committed:
                 bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
                 schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
+                memory_committed = any(operation["action"].startswith("memory.") or operation["action"] == "tutor.update_context" for operation in committed)
                 payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
                 raise RuntimeError('recovering_committed_operation')
@@ -93,6 +96,11 @@ class FoundationTutor:
                         function = call['function']
                         arguments = json.loads(function['arguments'])
                         result = await self.execute(scope, request.requestId, source, function['name'], arguments)
+                        if result.get('contextRevoked'):
+                            return dict(conversationId=result['conversationId'], reply=result['reply'],
+                                        booking=None, bookingText=None, degraded=False)
+                        if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
+                            memory_committed = True
                         if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
                             payment_committed = True
                         if function['name'] in SCHEDULE_MODELS and result.get('ok'):
@@ -115,6 +123,8 @@ class FoundationTutor:
                 reply = booking_label(changed)
             elif schedule_committed:
                 reply = 'Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».'
+            elif memory_committed:
+                reply = 'Изменения памяти сохранены. Продолжим разговор с нового сообщения.'
             else:
                 reply = 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
@@ -141,6 +151,8 @@ class FoundationTutor:
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         stage = 'validate_arguments'
         try:
+            if name in MEMORY_MODELS:
+                return await execute_memory(self.backend, scope, request_id, source, name, arguments)
             if name == 'get_subscription':
                 if arguments:
                     raise ValueError('unexpected_arguments')

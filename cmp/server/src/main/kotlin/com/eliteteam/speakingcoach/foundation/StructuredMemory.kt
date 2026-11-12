@@ -36,12 +36,15 @@ internal class StructuredMemory {
             scope.studentId, category, key,
         )
         val revision = old?.number("revision") ?: 0
-        if (args.number("expectedVersion") != revision) reject("version_conflict")
+        if (!memoryVersionMatches(old, args.number("expectedVersion"), source, now)) reject("version_conflict")
+        val oldSource = old?.optionalText("source_event_id")?.let { id -> connection.document(
+            "SELECT to_jsonb(e) FROM conversation_event e WHERE id=?", id) }
+        if (oldSource != null && sourceIsNewer(oldSource, source)) reject("stale_source")
         connection.update(
             """INSERT INTO memory_fact(student_id,category,fact_key,value,kind,source_event_id,revision,forgotten_at,updated_at)
                VALUES (?,?,?,?,?,?,?,NULL,?) ON CONFLICT(student_id,category,fact_key)
                DO UPDATE SET value=EXCLUDED.value,kind=EXCLUDED.kind,source_event_id=EXCLUDED.source_event_id,
-               revision=EXCLUDED.revision,forgotten_at=NULL,updated_at=EXCLUDED.updated_at""",
+               revision=EXCLUDED.revision,forgotten_at=NULL,valid_until=NULL,updated_at=EXCLUDED.updated_at""",
             scope.studentId, category, key, value, kind, source.text("id"), revision + 1, now,
         )
         if (old?.optionalText("value") != value) connection.invalidatePreparation(scope.studentId, now)
@@ -53,7 +56,7 @@ internal class StructuredMemory {
         args.only("sourceId", "key", "value")
         val source = sourceMessage(connection, scope, args.text("sourceId"), now)
         val key = args.text("key")
-        if (!key.matches(Regex("[a-z][a-z_]{0,49}")) || args.text("value").length > 1000) reject("invalid_candidate")
+        if (key in setOf("goal", "goals", "self_assessment", "confidence", "level") || !key.matches(Regex("[a-z][a-z_]{0,49}")) || args.text("value").length > 1000) reject("invalid_candidate")
         val forgotten = connection.document(
             "SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category='personal' AND fact_key=? AND forgotten_at IS NOT NULL",
             scope.studentId, key,
@@ -74,7 +77,7 @@ internal class StructuredMemory {
     }
 
     fun confirm(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
-        requireRole(scope, "text", "operator")
+        requireRole(scope, "text", "voice", "operator")
         args.only("candidateId", "expectedVersion", "sourceId", "evidence")
         val source = sourceMessage(connection, scope, args.text("sourceId"), now)
         if (args.text("evidence").isBlank() || !source.text("body").contains(args.text("evidence"))) reject("invalid_evidence")
@@ -129,3 +132,18 @@ internal fun Connection.planInputs(student: String, lesson: String): JsonObject 
     "roadmapRevision" to roadmapRevision(student), "lessonVersion" to
         rows("SELECT version FROM lesson WHERE id=? AND student_id=?", lesson, student) { it.getLong(1) }.single(),
 )
+
+
+internal fun sourceIsNewer(left: JsonObject, right: JsonObject): Boolean {
+    val leftTime = Instant.parse(left.text("occurred_at"))
+    val rightTime = Instant.parse(right.text("occurred_at"))
+    return leftTime > rightTime || (leftTime == rightTime && left.text("conversation_id") == right.text("conversation_id") &&
+        left.number("sequence") > right.number("sequence"))
+}
+
+
+internal fun memoryVersionMatches(old: JsonObject?, expected: Long, source: JsonObject, now: Instant): Boolean {
+    if ((old?.number("revision") ?: 0) == expected) return true
+    val resetAt = old?.optionalText("forgotten_at") ?: old?.optionalText("valid_until")?.takeIf { Instant.parse(it) <= now }
+    return resetAt != null && expected == 0L && Instant.parse(source.text("received_at")) > Instant.parse(resetAt)
+}

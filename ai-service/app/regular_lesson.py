@@ -2,6 +2,7 @@
 import json
 
 from app.kora_personality import PERSONALITY
+from app.memory_policy import MEMORY_POLICY
 from app.learning_results import LessonPlan
 from app.trial_policy import TrialPlanner
 
@@ -48,7 +49,7 @@ class LessonPlanner:
             return await TrialPlanner().prepare(context, inputs)
         # The backend fences goal/learning revisions and previous evaluations at apply/admission.
         result = json.loads(await self.model.complete_json(
-            'Prepare one regular Guided Conversation lesson. Return exactly three nonempty '
+            MEMORY_POLICY + '\nPrepare one regular Guided Conversation lesson. Return exactly three nonempty '
             'strings: objective, topic, strategy (each <=3000 characters). Select one concrete '
             'speaking objective within the stated goal, separate from an interesting topic. '
             'Follow the current roadmap steps and goal. If no route exists or evidence is insufficient, '

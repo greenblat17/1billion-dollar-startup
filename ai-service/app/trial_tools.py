@@ -110,6 +110,9 @@ SCHEDULE_TOOLS += [{'type': 'function', 'function': {'name': name, 'description'
                               ('get_lessons', 'Read real upcoming/current lessons, ids and versions; do not guess next meeting.')]]
 
 
+from app.memory_tools import MEMORY_TOOLS
+
+
 class TrialTutorModel:
     def __init__(self, llm):
         self.llm = llm
@@ -121,4 +124,4 @@ class TrialTutorModel:
             if function['name'] == 'create_trial_booking':
                 function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. A technical failure may be rebooked with preserved context.'
             tools.append({'type': 'function', 'function': function})
-        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS)
+        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)

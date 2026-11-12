@@ -40,4 +40,10 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(vm.runInContext('started',context),originalStarted);
  assert.equal(element('mute')['aria-pressed'],'false');
  assert.equal(element('mic-action').textContent,'Выключить');
+ await sockets.at(-1).onmessage({data:JSON.stringify({type:'ended',reason:'memory_forgotten'})});
+ assert.equal(track.stopped,true);
+ assert.equal(sockets.length,2);
+ assert.equal(element('error-title').textContent,'Память обновлена');
+ assert.equal(element('retry').hidden,true);
+ assert.equal(vm.runInContext('closing',context),true);
 });

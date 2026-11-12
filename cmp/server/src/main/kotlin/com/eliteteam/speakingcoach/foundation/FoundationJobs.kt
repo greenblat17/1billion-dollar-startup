@@ -140,7 +140,7 @@ internal class FoundationJobs {
     }
 
     private fun evaluate(connection: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
-        result.only("status", "observations")
+        result.only("status", "observations", "facts", "candidates")
         if (result.text("status") !in setOf("evaluated", "insufficient_evidence")) reject("invalid_result")
         val lesson = connection.lesson(scope, lessonId)
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
@@ -158,7 +158,7 @@ internal class FoundationJobs {
         connection.update(
             """INSERT INTO lesson_evaluation(student_id,lesson_id,source_revision,analyzer_version,result,created_at)
                VALUES (?,?,?,?,?::jsonb,?) ON CONFLICT DO NOTHING""", scope.studentId, lessonId, inputs.number("transcriptRevision"),
-            inputs.text("analyzerVersion"), result, now,
+            inputs.text("analyzerVersion"), JsonObject(result - "facts" - "candidates"), now,
         )
         observations.forEach { item ->
             val observation = item.jsonObject
@@ -169,7 +169,9 @@ internal class FoundationJobs {
                 observation.text("dimension"), observation.text("content"), observation.text("uncertainty"), observation.text("sourceId"), now,
             )
         }
-        // Evaluation has no permission to write the goal, profile or self-report fields.
+        // Personal direct reports only; evaluation never changes the goal or learning self-assessment.
+        LessonMemory().apply(connection, scope, lessonId, result, now)
+        // Evaluation has no permission to write the goal or learning self-report fields.
         connection.invalidatePreparation(scope.studentId, now)
         return true
     }

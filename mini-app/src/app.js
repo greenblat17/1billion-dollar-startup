@@ -77,6 +77,7 @@ async function connect(continueFrom=0){
    else if(message.type==='interrupt'){stopAudio();}
    else if(message.type==='error'){failure(message.code,message.errorId);}
    else if(message.type==='reconnect'){const callStarted=started;closing=true;cleanup();await connect(callStarted);}
+   else if(message.type==='ended'&&message.reason==='memory_forgotten'){closing=true;cleanup();view('error');$('error-title').textContent='Память обновлена';$('error-text').textContent='Сведения удалены. Напишите Саше в Telegram, чтобы продолжить.';$('retry').hidden=true;}
    else if(message.type==='finished'){closing=true;cleanup();tg.close();}
    }catch(error){diagnosticStage='playback';reportFailure(error.name);failure('connection_lost');}
   };

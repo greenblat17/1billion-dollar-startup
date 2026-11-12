@@ -50,6 +50,66 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun memoryPoliciesDeletionAndFreshReportsPreserveTheInterviewContract() = runTest {
+        withStore { service ->
+            val student = service.identity.resolve("telegram", "700701")
+            val operator = service.identity.issue(student, "operator")
+            val first = service.history.accept(student, "memory-first", "I am a designer", Instant.now(), false)
+            val sourceId = first.text("event_id")
+            service.op(operator, "memory.record", json("sourceId" to sourceId, "evidence" to "designer",
+                "category" to "personal", "key" to "work", "value" to "designer", "kind" to "user_report", "expectedVersion" to 0))
+            val restricted = service.history.accept(student, "memory-restrict", "Do not discuss my work", Instant.now(), false)
+            service.op(operator, "memory.policy", json("sourceId" to restricted.text("event_id"), "evidence" to "Do not discuss my work",
+                "category" to "personal", "key" to "work", "expectedVersion" to 1, "mentionPolicy" to "context_only", "validUntil" to null))
+            val found = service.op(operator, "memory.search", json("query" to "design", "offset" to 0))["facts"]!!.jsonArray.single().jsonObject
+            assertEquals("context_only", found.text("mention_policy"))
+            assertEquals(2L, found.number("revision"))
+            service.op(operator, "memory.propose", json("sourceId" to sourceId, "key" to "enjoys_design", "value" to "enjoys design"))
+            assertEquals(1, service.op(operator, "memory.discuss", json("query" to "design", "offset" to 0))["candidates"]!!.jsonArray.size)
+            assertEquals(1, service.snapshot(operator, "text")["facts"]!!.jsonArray.size)
+            assertEquals("invalid_query", assertFailsWith<FoundationFailure> {
+                service.op(operator, "memory.discuss", json("query" to "", "offset" to 0))
+            }.code)
+            val request = "memory-forget"
+            val forgotten = service.history.accept(student, request, "Forget my work", Instant.now(), false)
+            // Earlier synthetic inputs are operator fixtures, not actual queued chat turns.
+            service.database.transaction { c, _ -> c.update("UPDATE tutor_inbox SET status='ready' WHERE student_id=? AND request_id<>?", student, request) }
+            val text = service.identity.issue(student, "text", request)
+            service.op(text, "run.claim", json())
+            val result = service.op(text, "memory.forget_requested", json("sourceId" to forgotten.text("event_id"), "evidence" to "Forget my work",
+                "category" to "personal", "key" to "work", "expectedVersion" to 2))
+            assertEquals("true", result.text("contextRevoked"))
+            assertFailsWith<FoundationFailure> { service.snapshot(operator, "text") }
+            val fresh = service.identity.issue(student, "operator")
+            assertTrue(service.snapshot(fresh, "text")["facts"]!!.jsonArray.isEmpty())
+            service.database.transaction(readOnly = true) { c, _ ->
+                assertEquals("ready", c.document("SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=?", student, request)!!.text("status"))
+                assertEquals(0L, c.rows("SELECT count(*) FROM conversation_event WHERE student_id=? AND body IS NOT NULL", student) { it.getLong(1) }.single())
+            }
+            val newSource = service.history.accept(student, "new-report", "I am a teacher now", Instant.now(), false)
+            service.op(fresh, "memory.record", json("sourceId" to newSource.text("event_id"), "evidence" to "teacher",
+                "category" to "personal", "key" to "work", "value" to "teacher", "kind" to "user_report", "expectedVersion" to 3))
+            assertEquals("teacher", service.snapshot(fresh, "text")["facts"]!!.jsonArray.single().jsonObject.text("value"))
+        }
+    }
+
+    @Test
+    fun delayedFactCannotOverwriteANewerSourceEvenWithCurrentVersion() = runTest {
+        withStore { service ->
+            val student = service.identity.resolve("telegram", "700702")
+            val operator = service.identity.issue(student, "operator")
+            val old = service.history.accept(student, "old", "designer", Instant.now(), false)
+            val fresh = service.history.accept(student, "fresh", "teacher", Instant.now(), false)
+            service.op(operator, "memory.record", json("sourceId" to fresh.text("event_id"), "evidence" to "teacher",
+                "category" to "personal", "key" to "work", "value" to "teacher", "kind" to "user_report", "expectedVersion" to 0))
+            assertEquals("stale_source", assertFailsWith<FoundationFailure> {
+                service.op(operator, "memory.record", json("sourceId" to old.text("event_id"), "evidence" to "designer",
+                    "category" to "personal", "key" to "work", "value" to "designer", "kind" to "user_report", "expectedVersion" to 1))
+            }.code)
+        }
+    }
+
+    @Test
     fun cutoverRejectsCorruptManifestAndCompletesOnlyAfterAllTutorImports() = runTest {
         withStore { service ->
             val state = json("learnerId" to "tg-100090", "conversationId" to "import-cutover-test", "revision" to 3,

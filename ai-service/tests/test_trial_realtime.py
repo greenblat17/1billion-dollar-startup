@@ -366,3 +366,40 @@ async def test_latency_stages_use_matching_turn_and_measure_archive(monkeypatch,
     assert latency['commit_to_forward_ms'] == 500
     archive = [r['archive'] for r in events if r['event'] == 'trial_audio_state']
     assert archive == [{'assistant': {'count': 1, 'mean_ms': 200, 'max_ms': 200}}, {}]
+
+
+@pytest.mark.asyncio
+async def test_memory_tool_uses_saved_transcript_source_and_rejects_forged_source():
+    s = session()
+    s.backend.command.return_value = {'eventId': 'saved-user-event'}
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'speech', 'transcript': 'I am a designer'})
+    assert s.memory_sources['saved-user-event']['body'] == 'I am a designer'
+    assert 'saved-user-event' in str(sent(s))
+    s.backend.command.reset_mock()
+    args = dict(sourceId='forged', category='personal', key='work', expectedVersion=0,
+                value='designer', kind='user_report', evidence='designer')
+    await s.tool({'name': 'record_memory', 'call_id': 'bad', 'arguments': json.dumps(args)})
+    s.backend.command.assert_not_awaited()
+    args['sourceId'] = 'saved-user-event'
+    s.backend.command.return_value = {'revision': 1}
+    await s.tool({'name': 'record_memory', 'call_id': 'good', 'arguments': json.dumps(args)})
+    assert s.backend.command.call_args.args[2] == 'memory.record'
+    assert s.backend.command.call_args.args[3]['sourceId'] == 'saved-user-event'
+    await s.tool({'name': 'record_memory', 'call_id': 'good', 'arguments': json.dumps(args)})
+    s.backend.command.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_forgetting_revokes_voice_context_and_discards_unpersisted_audio():
+    s = session()
+    s.provider.close = AsyncMock()
+    s.memory_sources['source'] = {'id': 'source', 'body': 'Forget work'}
+    s.input_buffer.extend(b'private audio')
+    s.backend.command.return_value = {'contextRevoked': True, 'reply': 'Deleted'}
+    await s.tool({'name': 'forget_memory', 'call_id': 'forget', 'arguments': json.dumps(dict(
+        sourceId='source', targets=[dict(category='personal', key='work', expectedVersion=1)], evidence='Forget work'))})
+    assert s.ended and not s.want_response
+    assert not s.input_buffer and not s.memory_sources
+    s.provider.close.assert_awaited_once()
+    assert s.socket.send_json.call_args.args[0]['reason'] == 'memory_forgotten'

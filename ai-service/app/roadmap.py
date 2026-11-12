@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field
 
 from app.learning_results import LearningResult
+from app.memory_policy import MEMORY_POLICY
 
 
 class RoadmapStep(LearningResult):
@@ -26,7 +27,7 @@ class RoadmapPlanner:
 
     async def prepare(self, context, inputs):
         result = RoadmapResult.model_validate_json(await self.model.complete_json(
-            'Prepare or review the personal speaking roadmap after trial, using only supplied data. '
+            MEMORY_POLICY + '\nPrepare or review the personal speaking roadmap after trial, using only supplied data. '
             'Return decision=revise, keep, or insufficient_evidence, reason, steps, sourceIds. '
             'Write clear Russian for the learner: connect the stated long-term goal and current barrier '
             'to a flexible sequence of skills/stages over future weeks. Steps contain stable id, outcome '

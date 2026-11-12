@@ -13,6 +13,7 @@ from app.diagnostics import diagnostic_context, event, identifier
 from uuid import uuid4
 from app.config import Settings
 from app.context_builder import ContextBuilder
+from app.memory_context import MemorySelector
 from app.foundation_api import install_foundation_api
 from app.foundation_client import FoundationClient
 from app.foundation_tutor import FoundationTutor
@@ -43,8 +44,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     http = httpx.AsyncClient(timeout=30, verify=backend_tls)
     model_client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0)
     backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, http)
-    contexts = ContextBuilder(backend)
     voice_model = OpenAiChatModel(model_client, settings.kora_model)
+    contexts = ContextBuilder(backend, selector=MemorySelector(voice_model))
     tutor = FoundationTutor(backend, TrialTutorModel(voice_model), contexts)
     extractor = PersonalCandidateExtractor(LearnerModel(OpenAiChatModel(model_client, settings.llm_model),
                                                       person_memory_model=settings.person_memory_model))
