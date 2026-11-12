@@ -16,17 +16,23 @@
 - SP-04: согласование расписания через LLM tools, реальные встречи на 14-дневном горизонте,
   разовые встречи, переносы/отмены, напоминания и неявки. DST требует уточнения без потери вхождения.
   V40 добавляет DST issues и версии уведомлений. Старые placeholders не активируются автоматически.
+- Локальное исправление переноса: regular tools передают `now`/`after`, время вычисляет backend
+  при сохранении; повтор receipt не сдвигает урок. Активный prompt отделён от legacy-ограничений
+  и требует выполнять однозначный перенос без второго подтверждения. Это исправление ещё не поставлено.
 - SP-03 и SP-04 объединены в родительской ветке из отдельных worktree без текстовых конфликтов.
   Совместная локальная проверка PostgreSQL/lifecycle прошла; живая приёмка ещё не выполнена.
 
 ## Проверки объединённой версии
 
-- Python: **615 passed**, одно dependency deprecation warning.
+- Python: **625 passed**, одно dependency deprecation warning.
 - Frontend: **5 passed**, syntax/build прошли.
-- Kotlin: **281 unit + 45 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
+- Kotlin: **281 unit + 46 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
 - Проверены schedule.agree → job claim/apply → regular admission → voice-scoped lesson.next,
   гонка admission/cancel (4 повтора) и подавление пустого regular followup без Telegram-отправки.
-- Проверены 205 локальных ссылок; git diff --check прошёл.
+- Проверены 205 локальных ссылок в объединении; ссылки изменённых документов и git diff --check прошли.
+- Для локального исправления now/after проверены задержка 35 секунд, неизменность времени при receipt replay,
+  отклонение прошлого scheduled-времени и конфликтующих аргументов, отсутствие legacy-запрета в активном prompt.
+  Прямой перенос проверен scripted model adapter в исходном ходе; живая LLM-проверка ещё не выполнена.
 - Модели, Realtime, S3 и Telegram в локальных тестах подставные. Это не доказательство живого качества урока.
 
 ## DEV и ограничения

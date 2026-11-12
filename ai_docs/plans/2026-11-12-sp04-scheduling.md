@@ -24,7 +24,14 @@ operationId/action/args; повтор operationId с тем же input возв�
   `lesson.get`: lessonId → полный существующий Lesson с ownership.
   `lesson.next`: {} → lesson/null, ближайший будущий scheduled executable regular,
   исключая scope.lessonId. Не создаёт обещанную встречу при отсутствии записи.
-- `lesson.reschedule`: lessonId/expectedVersion/startsAt/timezone/sourceId/evidence;
+- `lesson.reschedule`: lessonId/expectedVersion/timezone/sourceId/evidence и выбор времени:
+  `timing=now`, `startsAt=null`, `delayMinutes=null` — время транзакции backend;
+  `timing=after`, `startsAt=null`, `delayMinutes=1..525600` — минуты от времени транзакции;
+  `timing=scheduled`, startsAt (ISO с offset), `delayMinutes=null` — согласованный instant.
+  Эти же режимы поддерживает `lesson.create`; старые backend clients без timing используют scheduled.
+  Trial clients с timing=now сохраняют совместимость. Receipt фиксирует время после первой записи,
+  повтор не пересчитывает now/after. Прошедший scheduled instant по-прежнему отклоняется.
+  Native tools regular требуют все три поля выбора, не вычисляют now по часам модели.
   `lesson.cancel`: lessonId/expectedVersion/sourceId/evidence. Только scheduled.
   Сохраняют occurrenceKey и exception, чтобы materializer не воскресил отмену/перенос.
 - Admission остаётся `TrialAccess action=open`: существующий executable Lesson;

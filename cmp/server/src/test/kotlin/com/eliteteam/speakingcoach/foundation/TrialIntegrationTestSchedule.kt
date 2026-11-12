@@ -377,4 +377,45 @@ class TrialIntegrationTestSchedule {
         }
     }
 
+    @Test fun regularMoveNowAndAfterResolveAtCommitAndReplayDoesNotMoveAgain() = runTest {
+        for (timing in listOf("now", "after")) store { s, clock ->
+            val (operator, schedule) = agree(s, clock)
+            val first = s.op(operator, "lesson.next", json()).obj("lesson")
+            val previousRequest = s.database.transaction { c, _ ->
+                c.rows("SELECT request_id FROM tutor_inbox WHERE student_id=? AND status='pending'", schedule.text("student_id")) { it.getString(1) }.single()
+            }
+            val previousScope = s.identity.issue(schedule.text("student_id"), "text", request = previousRequest)
+            s.op(previousScope, "run.claim", json())
+            s.op(previousScope, "run.complete", json("reply" to "Расписание сохранено.", "bookingId" to null, "degraded" to false))
+            val request = newId()
+            val source = s.history.accept(schedule.text("student_id"), request, "Перенеси этот урок на сейчас", clock.value, false)
+            val textScope = s.identity.issue(schedule.text("student_id"), "text", request = request)
+            s.op(textScope, "run.claim", json())
+            // Model/network latency must not turn a relative request into a past timestamp.
+            clock.value = clock.value.plusSeconds(35)
+            val committedAt = clock.value
+            val args = json("lessonId" to first.text("id"), "expectedVersion" to 1, "timing" to timing,
+                "startsAt" to null, "delayMinutes" to if (timing == "after") 5 else null, "timezone" to "UTC",
+                "sourceId" to source.text("event_id"), "evidence" to "Перенеси")
+            val moved = s.op(textScope, "lesson.reschedule", args, "relative-move")
+            assertEquals(committedAt.plusSeconds(if (timing == "after") 300 else 0), Instant.parse(moved.text("starts_at")))
+            assertEquals(first.text("id"), moved.text("id"))
+            assertEquals(first.text("occurrence_key"), moved.text("occurrence_key"))
+            assertEquals(2L, moved.number("version"))
+            clock.value = clock.value.plusSeconds(7)
+            assertEquals(moved, s.op(textScope, "lesson.reschedule", args, "relative-move"))
+            assertEquals("time_in_past", assertFailsWith<FoundationFailure> {
+                s.op(textScope, "lesson.reschedule", JsonObject(args + json("expectedVersion" to 2,
+                    "timing" to "scheduled", "startsAt" to committedAt.minusSeconds(1).toString(), "delayMinutes" to null)))
+            }.code)
+            assertEquals("invalid_delay", assertFailsWith<FoundationFailure> {
+                s.op(textScope, "lesson.reschedule", JsonObject(args + json("expectedVersion" to 2, "timing" to "after", "delayMinutes" to 0)))
+            }.code)
+            s.database.transaction { c, _ ->
+                assertEquals(14L, c.rows("SELECT count(*) FROM lesson WHERE schedule_id=?", schedule.text("id")) { it.getLong(1) }.single())
+                assertEquals(1L, c.rows("SELECT count(*) FROM schedule_exception WHERE lesson_id=?", first.text("id")) { it.getLong(1) }.single())
+            }
+        }
+    }
+
 }

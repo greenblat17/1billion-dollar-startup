@@ -1,5 +1,7 @@
 """Native tools for preliminary scheduling. No payment or entitlement mutation."""
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.tutor_tools import TOOLS
 
@@ -36,21 +38,35 @@ TRIAL_TOOLS = [
 ]
 
 
-class RegularLesson(BaseModel):
+class LessonTime(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
+    timing: Literal['scheduled', 'now', 'after'] = Field(description='now: start immediately; after: N minutes from server commit; scheduled: agreed absolute instant')
+    startsAt: str | None = Field(description='ISO instant with offset for scheduled only; null for now/after')
+    delayMinutes: int | None = Field(ge=1, le=525600, description='Minutes from server commit for after only; null otherwise')
+    timezone: str = Field(description='Agreed IANA timezone; reuse the existing lesson timezone when moving to now/after')
+
+    @model_validator(mode='after')
+    def validate_time_choice(self):
+        if self.timing == 'scheduled':
+            valid = bool(self.startsAt) and self.delayMinutes is None
+        elif self.timing == 'now':
+            valid = self.startsAt is None and self.delayMinutes is None
+        else:
+            valid = self.startsAt is None and self.delayMinutes is not None
+        if not valid:
+            raise ValueError('invalid_time_choice')
+        return self
+
+
+class RegularLesson(LessonTime):
     evidence: str = Field(min_length=1, max_length=2000)
-    startsAt: str = Field(description='Agreed ISO instant including UTC offset; never guess a DST offset')
-    timezone: str
     durationMinutes: int = Field(ge=15, le=60)
 
 
-class MoveLesson(BaseModel):
-    model_config = ConfigDict(extra='forbid', strict=True)
+class MoveLesson(LessonTime):
     evidence: str = Field(min_length=1, max_length=2000)
     lessonId: str
     expectedVersion: int = Field(ge=1)
-    startsAt: str
-    timezone: str
 
 
 class CancelLesson(BaseModel):
@@ -81,7 +97,7 @@ SCHEDULE_DESCRIPTIONS = {
     'save_schedule': 'Save or change the explicitly agreed recurring schedule: weekdays, local time, IANA timezone, duration 15–60, first date. Creates real regular lessons. Recommend 7/week but respect fewer. Read current schedule and version before changing. No payment or subscription claim.',
     'cancel_schedule': 'Cancel the recurring agreement only on an explicit request, preserving started lessons.',
     'create_extra_lesson': 'Create one real additional or one-off regular lesson ONLY on explicit agreement. Never infer one-off from a recurring request.',
-    'reschedule_lesson': 'Move one scheduled lesson, keeping the recurring agreement unchanged. Read lessonId/version first.',
+    'reschedule_lesson': 'Move one scheduled lesson on a clear request without a second confirmation. Keep the recurring agreement unchanged. Read lessonId/version/timezone first. Use timing=now for right now, timing=after with delayMinutes for minutes from now; startsAt=null in both modes. Never invent a current timestamp.',
     'cancel_lesson': 'Cancel just one scheduled lesson. Read lessonId/version first. Do not cancel the recurring agreement.',
     'resolve_schedule_time': 'Resolve a pending DST occurrence with an explicitly agreed alternative local time. Read timeIssues from get_schedules. Does not change other dates.',
 }

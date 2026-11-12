@@ -10,7 +10,7 @@ import anyio
 
 from app.context_builder import ContextBuilder
 from app.foundation_client import BackendFailure, FoundationClient
-from app.tutor import SYSTEM, TutorRequest
+from app.tutor import RELATIONSHIP_POLICY, TutorRequest
 from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
@@ -46,7 +46,7 @@ class FoundationTutor:
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
-        messages = [{'role': 'system', 'content': SYSTEM},
+        messages = [{'role': 'system', 'content': RELATIONSHIP_POLICY},
                     {'role': 'system', 'content': context.instructions('text')}]
         messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
