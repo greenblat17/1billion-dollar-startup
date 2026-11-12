@@ -670,3 +670,10 @@ STT SP-02 переиспользует `GroqSpeechToText` и прежние на
 Для будущей поставки задать `MINI_APP_URL` указанным HTTPS URL в DEV backend env/CI secret.
 Значение в env/секретах в этой задаче не менялось. BotFather не настраивался.
 Тестовый hostname использует sslip.io; для постоянного продукта нужен собственный домен.
+
+### Разделение Kotlin-проверок SP-02
+
+`:server:test` запускает обычные тесты без PostgreSQL. `FoundationIntegrationTest` и `TrialIntegrationTest`
+запускаются только через `:server:foundationIntegrationTest` с обязательным `TEST_POSTGRES_URL`.
+Их выполняет workflow Foundation integration и `scripts/test-foundation.sh`; отсутствие базы там остаётся ошибкой.
+Это исправляет падение шести trial-тестов при package-server в Redeploy DEV run 43196289189.

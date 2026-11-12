@@ -46,16 +46,18 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
-// This suite must use a real database. Missing configuration is a test failure, not a skip.
+// PostgreSQL suites run only in foundationIntegrationTest. Missing DB configuration there is a failure, not a skip.
 tasks.test {
     exclude("**/FoundationIntegrationTest*")
+    exclude("**/TrialIntegrationTest*")
 }
 val foundationIntegrationTest by tasks.registering(Test::class) {
-    description = "Run SP-00 integration contracts against real PostgreSQL"
+    description = "Run foundation and trial integration contracts against real PostgreSQL"
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
     include("**/FoundationIntegrationTest*")
+    include("**/TrialIntegrationTest*")
     outputs.upToDateWhen { false }
 }
 
