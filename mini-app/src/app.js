@@ -12,6 +12,11 @@ function reportFailure(code,closeCode){
 let capturedFrames=0,sentFrames=0;
 const playing=new Map();
 const errors={too_early:'Встреча ещё не началась. Вернитесь в согласованное время.',lesson_expired:'Время этой встречи прошло. Напишите Саше, чтобы договориться заново.',lesson_unavailable:'Эта встреча недоступна для звонка. Проверьте договорённость в Telegram.',active_episode:'Звонок уже открыт на другом устройстве. Завершите его там или дождитесь восстановления связи.',telegram_auth_expired:'Откройте Mini App заново из Telegram.',invalid_telegram_auth:'Откройте встречу из Telegram.',trial_not_configured:'Подключение к урокам пока недоступно.',voice_unavailable:'Не удалось получить голосовой ответ. Попробуйте подключиться снова.',connection_lost:'Связь прервалась. Можно вернуться в тот же урок.'};
+function renderMicrophone(){
+ $('mute').setAttribute('aria-pressed',String(muted));
+ $('mute').setAttribute('aria-label',muted?'Включить микрофон':'Выключить микрофон');
+ $('mic-status').textContent=muted?'Микрофон выключен — Саша вас не слышит':'Микрофон включён';
+}
 function view(id){for(const name of ['call','lobby','error'])$(name).hidden=name!==id;}
 function send(data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(data));}
 function stopAudio(report=true){
@@ -36,7 +41,7 @@ async function list(){
  }catch(error){failure(error.message);}}
 async function connect(){
  attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
- const joining=performance.now();capturedFrames=0;sentFrames=0;closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent='Подключаемся…';$('mute').setAttribute('aria-pressed','false');
+ const joining=performance.now();capturedFrames=0;sentFrames=0;closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent='Подключаемся…';renderMicrophone();
  try{
   if(!tg?.initData)throw Error('invalid_telegram_auth');
   diagnosticStage='microphone';
@@ -74,7 +79,7 @@ function play(bytes){
  const pcm=new DataView(data.buffer,data.byteOffset,data.length);const buffer=ctx.createBuffer(1,data.length/2,24000);const out=buffer.getChannelData(0);for(let i=0;i<out.length;i++)out[i]=pcm.getInt16(i*2,true)/32768;
  const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);cursor=Math.max(cursor,ctx.currentTime+.02);source.start(cursor);cursor+=buffer.duration;playing.get(current).sources.push(source);
 }
-$('mute').onclick=()=>{muted=!muted;mic?.getAudioTracks().forEach(t=>t.enabled=!muted);worklet?.port.postMessage({muted});send({type:'mute',value:muted});$('mute').setAttribute('aria-pressed',String(muted));$('mute').setAttribute('aria-label',muted?'Включить микрофон':'Выключить микрофон');};
+$('mute').onclick=()=>{muted=!muted;mic?.getAudioTracks().forEach(t=>t.enabled=!muted);worklet?.port.postMessage({muted});send({type:'mute',value:muted});renderMicrophone();};
 $('end').onclick=leave;$('return').onclick=()=>tg?.close();$('back').onclick=()=>tg?.close();$('retry').onclick=()=>{closing=false;lessonId?connect():list();};
 window.addEventListener('pagehide',()=>{closing=true;cleanup();});
 lessonId?connect():list();
