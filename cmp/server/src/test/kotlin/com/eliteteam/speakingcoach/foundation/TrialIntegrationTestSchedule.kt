@@ -259,4 +259,122 @@ class TrialIntegrationTestSchedule {
         }
     }
 
+    /** Exercises real job claim/apply and PostgreSQL validation with a fixed test planner result. */
+    private suspend fun prepareScheduledLesson(s: FoundationService, student: String, lessonId: String) {
+        val operator = s.identity.issue(student, "operator")
+        repeat(14) {
+            val job = s.op(operator, "job.claim", json("kind" to "lesson.prepare")).obj("job")
+            val result = s.op(s.identity.issueJob(job), "job.apply", json("jobId" to job.text("id"),
+                "fence" to job.number("fence"), "result" to json("objective" to "Explain preferences with reasons",
+                    "topic" to "Weekend plans", "strategy" to "Explore a choice, recap and invite feedback")))
+            assertEquals("succeeded", result.text("status"))
+            if (job.text("target_id") == lessonId) return
+        }
+        error("Scheduled lesson preparation was not claimed")
+    }
+
+    @Test fun agreedSchedulePreparesAdmitsAndReadsNextMeetingThroughVoiceScope() = runTest {
+        store { s, clock ->
+            val student = s.identity.resolve("telegram", "100")
+            val request = newId()
+            val source = s.history.accept(student, request, "Да, каждый день в 14:00 UTC по 30 минут с 11 ноября", clock.value, false)
+            val textScope = s.identity.issue(student, "text", request = request)
+            s.op(textScope, "run.claim", json())
+            val agreement = s.op(textScope, "schedule.agree", json("sourceId" to source.text("event_id"), "evidence" to "Да, каждый день",
+                "timezone" to "UTC", "startDate" to "2026-11-11", "localTime" to "14:00",
+                "weekdays" to JsonArray((1..7).map { JsonPrimitive(it) }), "durationMinutes" to 30))
+            val lessons = s.op(textScope, "lesson.list", json())["lessons"]!!.jsonArray.map { it.jsonObject }
+            assertEquals(14, lessons.size)
+            val first = lessons.first()
+            clock.value = Instant.parse(first.text("starts_at"))
+            assertEquals("plan_not_ready", assertFailsWith<FoundationFailure> { open(s, "100", first.text("id"), clock.value) }.code)
+            prepareScheduledLesson(s, student, first.text("id"))
+            val admitted = open(s, "100", first.text("id"), clock.value)
+            assertEquals("in_progress", admitted.obj("lesson").text("status"))
+            assertEquals("Explain preferences with reasons", admitted.obj("lesson").obj("execution_snapshot").obj("plan").obj("content").text("objective"))
+            val voiceScope = admitted.text("scope")
+            assertEquals(lessons[1].text("id"), s.op(voiceScope, "lesson.next", json()).obj("lesson").text("id"))
+            assertEquals("not_permitted", assertFailsWith<FoundationFailure> {
+                s.op(voiceScope, "lesson.cancel", json("lessonId" to first.text("id"), "expectedVersion" to 2))
+            }.code)
+            val operator = s.identity.issue(student, "operator")
+            s.op(operator, "lesson.cancel", json("lessonId" to lessons[1].text("id"), "expectedVersion" to 1))
+            assertEquals(lessons[2].text("id"), s.op(voiceScope, "lesson.next", json()).obj("lesson").text("id"))
+            val cancelSource = s.history.accept(student, newId(), "Отмени дальнейшее расписание", clock.value, false)
+            s.op(operator, "trial.schedule_cancel", json("scheduleId" to agreement.obj("schedule").text("id"), "expectedVersion" to 1,
+                "sourceId" to cancelSource.text("event_id"), "evidence" to "Отмени"))
+            val otherStudent = s.identity.resolve("telegram", "200")
+            s.op(s.identity.issue(otherStudent, "operator"), "lesson.create", json("kind" to "regular", "launchMode" to "executable",
+                "startsAt" to clock.value.plusSeconds(3600).toString(), "timezone" to "UTC", "durationMinutes" to 30))
+            assertEquals(kotlinx.serialization.json.JsonNull, s.op(voiceScope, "lesson.next", json())["lesson"])
+            s.database.transaction { c, _ ->
+                assertEquals("in_progress", c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", first.text("id"))!!.text("status"))
+                assertEquals(0L, c.rows("SELECT count(*) FROM entitlement") { it.getLong(1) }.single())
+            }
+        }
+    }
+
+    @Test fun preparedRegularAdmissionAndCancellationRaceHasExactlyOneWinner() = runTest {
+        repeat(4) {
+            store { s, clock ->
+                val (initialScope, schedule) = agree(s, clock)
+                val first = s.op(initialScope, "lesson.next", json()).obj("lesson")
+                clock.value = Instant.parse(first.text("starts_at"))
+                prepareScheduledLesson(s, schedule.text("student_id"), first.text("id"))
+                val operator = s.identity.issue(schedule.text("student_id"), "operator")
+                val barrier = java.util.concurrent.CyclicBarrier(2)
+                val outcomes = kotlinx.coroutines.coroutineScope {
+                    val cancel = async(kotlinx.coroutines.Dispatchers.IO) {
+                        barrier.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                        runCatching { s.op(operator, "lesson.cancel", json("lessonId" to first.text("id"), "expectedVersion" to 1)) }
+                    }
+                    val admit = async(kotlinx.coroutines.Dispatchers.IO) {
+                        barrier.await(10, java.util.concurrent.TimeUnit.SECONDS)
+                        runCatching { open(s, "100", first.text("id"), clock.value) }
+                    }
+                    cancel.await() to admit.await()
+                }
+                assertEquals(1, listOf(outcomes.first, outcomes.second).count { it.isSuccess })
+                val rejected = listOf(outcomes.first, outcomes.second).single { it.isFailure }.exceptionOrNull()
+                assertTrue(rejected is FoundationFailure)
+                assertTrue(rejected.code in setOf("version_conflict", "lesson_unavailable"))
+                s.database.transaction { c, _ ->
+                    val state = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", first.text("id"))!!
+                    assertEquals(if (outcomes.second.isSuccess) "in_progress" else "cancelled", state.text("status"))
+                    assertEquals(if (outcomes.second.isSuccess) 1L else 0L,
+                        c.rows("SELECT count(*) FROM call_session WHERE lesson_id=? AND status='connected'", first.text("id")) { it.getLong(1) }.single())
+                }
+            }
+        }
+    }
+
+    @Test fun emptyRegularEarlyExitFollowupIsSuppressedWithoutRetryOrTelegramSend() = runTest {
+        store { s, clock ->
+            val (scope, schedule) = agree(s, clock)
+            val first = s.op(scope, "lesson.next", json()).obj("lesson")
+            clock.value = Instant.parse(first.text("starts_at"))
+            prepareScheduledLesson(s, schedule.text("student_id"), first.text("id"))
+            val admitted = open(s, "100", first.text("id"), clock.value)
+            s.op(admitted.text("scope"), "voice.end", json("lessonId" to first.text("id"),
+                "callSessionId" to admitted.text("callSessionId"), "reason" to "end_button"))
+            clock.value = clock.value.plusSeconds(31)
+            var generated = 0
+            var sends = 0
+            val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+                if (request.url.host == "ai.test") { generated++; respond("{\"reply\":\"\"}") }
+                else { sends++; error("Suppressed followup must never reach Telegram") }
+            })
+            try {
+                val worker = TrialWorker(s, http, "https://ai.test", "test", bot, "https://mini.test")
+                repeat(2) { worker.tick() }
+                assertEquals(1, generated)
+                assertEquals(0, sends)
+                s.database.transaction { c, _ ->
+                    assertEquals("cancelled", c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE lesson_id=? AND kind='end_button'", first.text("id"))!!.text("status"))
+                    assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE lesson_id=? AND kind IN ('no_show','followup')", first.text("id")) { it.getLong(1) }.single())
+                }
+            } finally { http.close() }
+        }
+    }
+
 }
