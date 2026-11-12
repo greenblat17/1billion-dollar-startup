@@ -135,7 +135,8 @@ def test_websocket_routes_audio_and_finishes_after_ack_without_real_providers(mo
     install_trial_api(app, backend, SimpleNamespace(build=AsyncMock(return_value=context)), model, None,
                       settings, SimpleNamespace(put=AsyncMock(), delete=AsyncMock(), check_credentials=AsyncMock()), speech=object())
     with TestClient(app) as client:
-        assert client.get('/miniapp').status_code == 200
+        assert client.get('/miniapp').status_code == 404
+        assert client.get('/miniapp/assets/app.js').status_code == 404
         with client.websocket_connect('/miniapp/voice') as socket:
             socket.send_json({'initData': 'signed', 'lessonId': 'lesson', 'attemptId': 'attempt'})
             assert socket.receive_json()['type'] == 'connected'

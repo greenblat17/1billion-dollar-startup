@@ -4,30 +4,14 @@ from uuid import uuid4
 from app.diagnostics import diagnostic_context, event, identifier
 from contextlib import suppress
 import json
-from pathlib import Path
 
 from fastapi import Header, HTTPException, Request, WebSocket
-from fastapi.responses import FileResponse
 
 from app.foundation_client import BackendFailure
 from app.trial_providers import GroqTrialSTT, KoraTrialTTS
 from app.trial_session import TrialSession
 
-ASSETS = Path(__file__).parent / 'miniapp'
-
-
 def install_trial_api(app, backend, contexts, model, client, settings, audio_store, speech=None):
-    @app.get('/miniapp')
-    @app.get('/miniapp/')
-    async def miniapp():
-        return FileResponse(ASSETS / 'index.html', headers={'Cache-Control': 'no-store'})
-
-    @app.get('/miniapp/assets/{name}')
-    async def asset(name: str):
-        if name not in {'app.js', 'style.css', 'capture.js', 'avatar.jpg'}:
-            raise HTTPException(404)
-        return FileResponse(ASSETS / name)
-
     @app.post('/miniapp/api')
     async def action(request: Request):
         raw = await request.body()

@@ -147,7 +147,8 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 
 ## SP-02: пробный голосовой урок
 
-Mini App — отдельные статические HTML/CSS/JS в `ai-service/app/miniapp`, не CMP-прототип.
+Mini App — самостоятельный frontend в `mini-app/src`, со своей сборкой, CI и DEV deploy.
+Контейнер `mini-app` раздаёт `mini-app/dist` через nginx; AI не содержит UI. CMP-прототип остаётся в `cmp/app`.
 Публичный HTTPS edge открывает только `/miniapp`, его assets/API и `/miniapp/voice` WebSocket.
 `trial_api.py` передаёт подписанное Telegram initData в Ktor `TrialRoutes`; клиент не задаёт Student.
 `TelegramMiniAuth` проверяет подпись, свежесть и identity. `TrialAccess` выдаёт ограниченный lesson scope,

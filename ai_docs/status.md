@@ -32,6 +32,10 @@ AI env/сеть ещё не подключены, приложение не пе
 Python 558 passed; 7 TrialIntegrationTest на отдельном PostgreSQL passed, включая reconnect/ownership/fencing.
 Это не живая приёмка голоса. Для восстановления звонка требуется подключить созданное хранилище к AI.
 
+Mini App вынесен в `mini-app/src`, отдельный build/контейнер и DEV workflow; AI static routes удалены.
+Перенос подготовлен к поставке; DEV-миграция ещё не выполнена. Python 558 passed; frontend build/Node tests и 2 edge migration tests прошли.
+Локальный Docker CLI неисправен; проверка nginx-контейнера предусмотрена в CI и пока не подтверждена.
+
 [Логирование активного runtime](audits/2026-11-12-runtime-logging.md): добавлены причины отказов провайдеров,
 безопасные stack frames, trace_id между AI/backend, ID урока/эпизода, журнал streaming TTS,
 ошибки S3/Telegram/DB/jobs и диагностика Mini App. Локально: Python 555 passed; Kotlin 281 passed,

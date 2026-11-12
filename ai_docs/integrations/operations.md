@@ -701,3 +701,22 @@ docker logs --since 15m speaking-coach 2>&1 | rg 'runtime_event'
 `miniapp_failed` — клиентский отчёт с проверенной Telegram auth, но его code описывает наблюдение браузера,
 а не доказанную причину сервера. Он доставляется отдельно от WebSocket; при полном отсутствии сети доставка невозможна.
 Не включайте HTTP debug с заголовками/телами для расследования: initData, scopes и API keys не должны попадать в логи.
+
+
+## Самостоятельный Mini App frontend
+
+Исходники UI находятся в `mini-app/src`; сборка — `cd mini-app && npm test && npm run build` (Node 22+).
+`mini-app/dist` не входит в AI image. Отдельный контейнер `mini-app` раздаёт артефакт через nginx:8080
+в Docker network `speaking-coach`; наружу порт не публикуется, secrets в frontend отсутствуют.
+
+Workflow **Deploy Mini App DEV** обновляет только frontend. В **Redeploy DEV** появился `mini_app`;
+при совместной поставке frontend и переключение edge завершаются до обновления AI.
+Первая миграция обязательна до выкладки AI без static routes. Public URL и MINI_APP_URL не меняются.
+Caddy направляет HTML/assets в mini-app, а `/miniapp/api`, `/miniapp/diagnostics`, `/miniapp/voice` — в AI.
+`install-edge.py` проверяет конфигурацию и меняет только собственный DEV vhost, сохраняет backup и
+возвращает конфигурацию при ошибке reload. Остальные сайты и auth не изменяются.
+
+Версия UI: `docker exec mini-app cat /usr/share/nginx/html/version.json`.
+Откат UI — запуск frontend workflow на предыдущем git ref; откат edge — сохранённый Caddyfile.before-mini-app-*.
+Frontend workflow использует существующие DEV_AI_SERVER_HOST/USER/SSH_KEY только для доставки.
+PROD frontend ещё требует отдельной схемы поставки; этот workflow работает только с DEV.

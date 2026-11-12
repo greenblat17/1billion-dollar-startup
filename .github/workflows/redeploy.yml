@@ -11,6 +11,10 @@ on:
         description: ai-server
         type: boolean
         default: true
+      mini_app:
+        description: mini-app frontend
+        type: boolean
+        default: true
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -33,9 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.speech_time_benchmark != true && !inputs.verify_only }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && !inputs.verify_only }}
         run: |
-          echo "Enable cmp-server and/or ai-server" >&2
+          echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
 
   package-server:
@@ -106,6 +110,13 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  deploy-mini-app:
+    name: Deploy Mini App
+    needs: require-target
+    if: ${{ inputs.mini_app && !inputs.speech_time_benchmark && !inputs.verify_only }}
+    uses: ./.github/workflows/deploy-mini-app.yml
+    secrets: inherit
+
   deploy-server:
     name: Deploy cmp-server
     needs:
@@ -122,7 +133,8 @@ jobs:
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-ai.result == 'success' }}
+      - deploy-mini-app
+    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-ai.result == 'success' && (!inputs.mini_app || needs.deploy-mini-app.result == 'success') }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
