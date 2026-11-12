@@ -139,3 +139,5 @@ DEV-приёмка не проверены. Telegram exactly-once не обещ�
 > V40 хранит schedule_time_issue для DST и lesson_version для уведомлений.
 > LessonManagement исполняет text mutations; lesson.next возвращает backend-встречу
 > для устного завершения. Read receipts не считаются сохранёнными мутациями диалога.
+
+При явном `reschedule_lesson` tool передаёт `launchMode=executable`: выбранный старый placeholder становится реальным уроком с тем же ID. Остальные вхождения не активируются. DEV-логи 2026-11-12 подтвердили прежний отказ `not_permitted` в `LessonManagement.change`; регрессия покрывает now/after для обоих исходных launch_mode.

@@ -378,9 +378,12 @@ class TrialIntegrationTestSchedule {
     }
 
     @Test fun regularMoveNowAndAfterResolveAtCommitAndReplayDoesNotMoveAgain() = runTest {
-        for (timing in listOf("now", "after")) store { s, clock ->
+        for (timing in listOf("now", "after")) for (oldMode in listOf("placeholder", "executable")) store { s, clock ->
             val (operator, schedule) = agree(s, clock)
             val first = s.op(operator, "lesson.next", json()).obj("lesson")
+            s.database.transaction { c, _ ->
+                c.update("UPDATE lesson SET launch_mode=? WHERE id=?", oldMode, first.text("id"))
+            }
             val previousRequest = s.database.transaction { c, _ ->
                 c.rows("SELECT request_id FROM tutor_inbox WHERE student_id=? AND status='pending'", schedule.text("student_id")) { it.getString(1) }.single()
             }
@@ -394,11 +397,12 @@ class TrialIntegrationTestSchedule {
             // Model/network latency must not turn a relative request into a past timestamp.
             clock.value = clock.value.plusSeconds(35)
             val committedAt = clock.value
-            val args = json("lessonId" to first.text("id"), "expectedVersion" to 1, "timing" to timing,
+            val args = json("lessonId" to first.text("id"), "expectedVersion" to 1, "timing" to timing, "launchMode" to "executable",
                 "startsAt" to null, "delayMinutes" to if (timing == "after") 5 else null, "timezone" to "UTC",
                 "sourceId" to source.text("event_id"), "evidence" to "Перенеси")
             val moved = s.op(textScope, "lesson.reschedule", args, "relative-move")
             assertEquals(committedAt.plusSeconds(if (timing == "after") 300 else 0), Instant.parse(moved.text("starts_at")))
+            assertEquals("executable", moved.text("launch_mode"))
             assertEquals(first.text("id"), moved.text("id"))
             assertEquals(first.text("occurrence_key"), moved.text("occurrence_key"))
             assertEquals(2L, moved.number("version"))

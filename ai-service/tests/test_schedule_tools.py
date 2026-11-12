@@ -86,6 +86,7 @@ async def test_relative_intent_reaches_backend_without_model_timestamp(name, tim
     result = await agent.execute('scope', 'request', {'id': 'source', 'body': 'сейчас'}, name, args)
     assert result['ok']
     command = backend.command.call_args.args[3]
+    assert command['launchMode'] == 'executable'
     assert command['timing'] == timing
     assert command['startsAt'] is None
     assert command['delayMinutes'] == delay
@@ -114,10 +115,10 @@ async def test_scripted_direct_move_finishes_in_original_turn_with_current_polic
 
     text = 'окей погнали щас урок проведем вместо понедельника'
     source = {'id': 'source', 'body': text, 'occurred_at': '2026-11-12T15:45:00Z'}
-    lesson = {'id': 'monday', 'kind': 'regular', 'version': 1, 'timezone': 'Europe/Moscow'}
+    lesson = {'id': 'monday', 'kind': 'regular', 'version': 1, 'timezone': 'Europe/Moscow', 'launch_mode': 'placeholder'}
     command = AsyncMock(side_effect=[
         {'status': 'running', 'input': source}, {'lessons': [lesson]},
-        dict(lesson, version=2, starts_at='2026-11-12T15:45:20Z', timing='now'),
+        dict(lesson, version=2, launch_mode='executable', starts_at='2026-11-12T15:45:20Z', timing='now'),
         {'conversationId': 'chat', 'reply': 'Перенёс на сейчас.', 'degraded': False},
     ])
     def call(name, args):

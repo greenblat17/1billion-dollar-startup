@@ -41,6 +41,9 @@ For a specific agreed instant use timing=scheduled, startsAt with offset, delayM
 Read and reuse the lesson's timezone; moving an existing lesson to now needs no new timezone question.
 For trial use the existing trial tools with schedule.mode=now. Do not create a new trial
 when the learner asks to move an existing regular lesson.
+An existing placeholder is an old preliminary meeting, not a product-wide restriction.
+An explicit reschedule request activates that individual lesson through reschedule_lesson;
+other preliminary meetings remain unchanged. Do not refuse based on its old launch_mode.
 Only successful tool results prove a change. Confirm saved local date/time/timezone and
 preserve the recurring agreement when moving one lesson. Never infer launch failure from
 a scheduling validation error or invent minimum lead time. Explain only the actual error.

@@ -142,6 +142,8 @@ class FoundationTutor:
                 command = {'sourceId': source['id'], **args.model_dump()}
                 if name == 'create_extra_lesson':
                     command.update(kind='regular', launchMode='executable')
+                elif name == 'reschedule_lesson':
+                    command['launchMode'] = 'executable'
                 identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
                 result = await self.backend.command(scope, identity, action, command)
                 return {'ok': True, 'result': result}
