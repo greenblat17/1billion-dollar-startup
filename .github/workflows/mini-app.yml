@@ -23,7 +23,7 @@ jobs:
           docker build -t mini-app-test mini-app
           docker run -d --name mini-app-test -p 127.0.0.1:8088:8080 mini-app-test
           trap 'docker rm -f mini-app-test' EXIT
-          curl --retry 10 --retry-connrefused --retry-delay 1 -fsS http://127.0.0.1:8088/miniapp > /dev/null
+          curl --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 -fsS http://127.0.0.1:8088/miniapp > /dev/null
           curl -fsS http://127.0.0.1:8088/miniapp/assets/app.js > /dev/null
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/miniapp/voice)" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/miniapp/assets/missing.js)" = 404
