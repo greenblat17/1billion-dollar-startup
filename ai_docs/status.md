@@ -1,80 +1,71 @@
 # Состояние Speaky
 
-Срез: 2026-11-12. Локальная реализация, поставка и живая приёмка разделены ниже.
+Срез: 2026-11-12. Локальная реализация, DEV и живая приёмка — разные стадии.
 
-| Часть продукта | Состояние |
-| --- | --- |
-| Telegram-знакомство и trial booking tools | Реализованы; полная живая приёмка диалога открыта |
-| PostgreSQL foundation, общая память и ContextBuilder | Реализованы; Ktor владеет Student/Lesson/Call Session, scopes, epoch, версиями и receipts |
-| Mini App | Отдельный frontend `mini-app/`, контейнер и DEV workflow; AI содержит API/голосовой relay |
-| SP-02 Realtime | STT → LLM → TTS заменён на OpenAI `gpt-realtime-2.1`, согласованный Marin; поставлен на DEV, живая приёмка открыта |
-| Trial и продолжение | Diagnose + Demonstrate → Prescribe, устный feedback, вопрос о комфорте и Telegram follow-up; педагогика требует живой проверки |
-| Регулярные уроки/оплата | Предварительное расписание, встречи-заглушки и demo receipt; настоящая оплата и регулярный цикл остаются SP-03+ |
+## Реализовано локально
 
-## Локальная готовность Realtime
+- SP-00: PostgreSQL foundation, общий профиль/память/ContextBuilder, Lesson/Call Session,
+  scopes, epoch, версии, receipts и фоновые задачи. Legacy изолирован.
+- SP-01: постоянный Telegram-диалог и native booking/memory tools.
+- SP-02: отдельный Mini App, OpenAI Realtime/Marin через серверный WebSocket relay,
+  trial, reconnect, playback/truncation, S3-архив и Telegram followup.
+- SP-03: подготовка regular-плана моделью (цель, тема, стратегия), admission 15–60 минут
+  по актуальному плану и завершённым прошлым анализам, Guided Conversation и устный feedback.
+  Reconnect сохраняет план и исходный конец; следующая встреча читается из backend.
+  Для длинного урока есть смена provider-сессии после 50 минут в безопасной паузе.
+- SP-04: согласование расписания через LLM tools, реальные встречи на 14-дневном горизонте,
+  разовые встречи, переносы/отмены, напоминания и неявки. DST требует уточнения без потери вхождения.
+  V40 добавляет DST issues и версии уведомлений. Старые placeholders не активируются автоматически.
+- Локальное исправление переноса: regular tools передают `now`/`after`, время вычисляет backend
+  при сохранении; повтор receipt не сдвигает урок. Активный prompt отделён от legacy-ограничений
+  и требует выполнять однозначный перенос без второго подтверждения. Исправление времени поставлено; активация выбранного старого placeholder при явном переносе также поставлена.
+- SP-03 и SP-04 объединены в родительской ветке из отдельных worktree без текстовых конфликтов.
+  Совместная локальная проверка PostgreSQL/lifecycle прошла; живая приёмка ещё не выполнена.
 
-`RealtimeTrialSession` подключён к shipping root. Telegram/native tools, ownership/версии/idempotency,
-общий ContextBuilder и foundation lifecycle сохранены. Старые trial STT/TTS не создаются в новом runtime.
-WebRTC рассмотрен первым; выбран серверный WebSocket relay ради серверного архива обоих потоков.
-PCM16 mono 24 kHz сохраняется в S3 с PostgreSQL receipt до пересылки. Это добавляет RTT и небольшие объекты;
-влияние на задержку и нагрузку пока не измерено. Архив доступен постранично, без прежнего обрезания на 2000 objects.
+## Проверки объединённой версии
 
-Provider semantic VAD, interruption/truncation, дедупликация событий и server-owned finish tool реализованы.
-Playback отчёты ограничены сервером; сгенерированный текст не считается услышанным автоматически.
-Reconnect сохраняет Lesson и контекст; mute/end/disconnect разделены. Микрофон включён при подключении.
-Постоянный provider key остаётся на сервере. Смешанные версии frontend/AI отклоняются по протоколу.
-Сохранены безопасные provider errors/correlation IDs, usage и аудиодиагностика; 402/429 не ретраятся.
-Исправлен найденный тестами FrozenInstanceError, который скрывал исходный отказ foundation.
+- Python: **628 passed**, одно dependency deprecation warning.
+- Frontend: **5 passed**, syntax/build прошли.
+- Kotlin: **281 unit + 46 PostgreSQL integration**, failures/errors/skipped = 0; fatJar и detekt прошли.
+- Проверены schedule.agree → job claim/apply → regular admission → voice-scoped lesson.next,
+  гонка admission/cancel (4 повтора) и подавление пустого regular followup без Telegram-отправки.
+- Проверены 205 локальных ссылок в объединении; ссылки изменённых документов и git diff --check прошли.
+- Для локального исправления now/after проверены задержка 35 секунд, неизменность времени при receipt replay,
+  отклонение прошлого scheduled-времени и конфликтующих аргументов, отсутствие legacy-запрета в активном prompt.
+  Прямой перенос проверен scripted model adapter в исходном ходе; живая LLM-проверка ещё не выполнена.
+- Модели, Realtime, S3 и Telegram в локальных тестах подставные. Это не доказательство живого качества урока.
 
-Проверки текущего дерева:
-- Python: **587 passed**, одно dependency deprecation warning.
-- Kotlin: **281 unit + 27 PostgreSQL integration**, без failed/skipped; fatJar/detekt прошли.
-- Python→Ktor→PostgreSQL HTTP: **6 passed**; исправлена устаревшая подмена TutorModel в тесте.
-- Frontend: **4 tests passed**, syntax/build прошли; проверены микрофон, reconnect, PCM и playback при сетевых паузах.
-- PostgreSQL: отдельная локальная 14.10; пагинация проверена на 2105 synthetic segments с ownership.
+## DEV и ограничения
 
-Модели и S3 в новых runtime-тестах подставные. Эти результаты не доказывают live transport,
-качество речи, реальные S3 timings, эхо, Telegram WebView или стоимость trial.
+SP-03/SP-04 поставлены на DEV из зависимого [PR #53](https://github.com/greenblat17/1billion-dollar-startup/pull/53)
+(base — ветка PR #52), runtime `c052dd9`: backend, AI и отдельный Mini App.
+[Redeploy DEV 43255766656](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43255766656)
+завершился success, включая общую readiness-проверку. Платные smoke-вызовы выключены.
+Полного CI перед поставкой не ожидали по прямому поручению пользователя;
+встроенные тесты и проверки deploy прошли. Исправлены стартовая гонка frontend CI и
+установка PostgreSQL-клиента на обновлённом runner. Живой regular-урок ещё не проверен.
+Пользователь оценил разговор как достаточно хороший для проверки полного trial.
+Полная педагогическая приёмка SP-02, SP-03 и естественного scheduling-диалога SP-04 остаётся открытой.
+Замер 1057 ms (7 ответов) относился к commit→планированию playback до изменения VAD;
+он не включает всё ожидание конца речи и не доказывает фактическую слышимость.
 
-## Поставка и эксплуатация
+SeaweedFS на DEV: приватный `speaky-trial-audio-dev`, сеть `speaky-storage`.
+Запись аудио подтверждалась прежними звонками. Backup и S3 lifecycle ещё требуют проверки;
+30-дневная очистка приложения сохранена. Архив-before-forward добавляет задержку в обе стороны.
+Открыты живые проверки: полный trial/regular, RU/EN, паузы и перебивания, speaker/headphones,
+reconnect, завершение, сохранность контекста/аудио, reminders/followup и 60-минутная смена транспорта.
+Настоящая оплата/подписка, полный roadmap не реализованы; demo receipt не даёт entitlement.
+PROD и merge main не выполнялись. Платные прогоны и реальные сообщения в интеграции SP-03/SP-04 не выполнялись.
 
-По поручению пользователя ревизия `175f5f5` запушена и поставлена на DEV: backend, AI и Mini App.
-[Run 43230527834](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43230527834) завершился успешно.
-Readiness: оба контейнера работают без рестартов/OOM и startup errors; health 200,
-внутренние auth/scopes и AI→backend TLS проверены, S3 credentials/list versions доступны.
-Хеш Realtime-модуля внутри AI и frontend JS через публичный HTTPS совпадают с поставленной ревизией.
-В AI подтверждены модель `gpt-realtime-2.1`, голос `marin` и наличие `OPENAI_REALTIME_API_KEY` без раскрытия значения.
-Доступ аккаунта к модели, запись/удаление новых аудиообъектов и живой звонок этим не проверены.
-Первая пользовательская попытка выявила TypeError при записи метрики `join`: аргумент `name`
-конфликтовал с именем диагностического события и обрывал сессию. Поле переименовано в `metric`;
-регрессионный тест проверяет join/first_audio/barge_in и последующее штатное завершение.
-Исправление AI `0971b8e` поставлено на DEV: [run 43231990816](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43231990816).
-После поставки проверены хеш модуля, health 200, TLS/auth к backend и чтение S3; рестартов/startup errors нет.
-Backend и frontend остаются на `175f5f5`. Пользователь провёл звонок: 7 first_audio замеров, среднее 1057 ms, диапазон 890–1269 ms.
-Это commit→планирование playback, без ожидания определения конца фразы.
-Semantic VAD low→medium и раздельные серверные latency timings поставлены на DEV, AI `214b44d`:
-[run 43234153691](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43234153691).
-Readiness и совпадение хеша runtime подтверждены; влияние на задержку и перебивания ожидает нового звонка.
-Платные smoke/benchmark не запускались; пользователь проводит живую проверку самостоятельно.
-PROD/merge не выполнялись.
+[Архитектура](../architecture.md) · [Эксплуатация](integrations/operations.md) ·
+[SP-03](plans/2026-11-12-sp03-regular-lessons.md) · [SP-04](plans/2026-11-12-sp04-scheduling.md)
 
-DEV Mini App: `https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp`.
-По последним проверенным отчётам SeaweedFS работает: приватный `speaky-trial-audio-dev`, сеть `speaky-storage`,
-endpoint `http://speaky-storage:8333`; AI S3 операции подтверждены прежними звонками. Инфраструктура и ключи не менялись.
-Backup и S3 lifecycle ещё требуют проверки/настройки; 30-дневная очистка приложения сохранена.
+## Исправление формата learning-ответов
 
-Последний доказанный дефект прежнего тракта: безусловная отмена TTS по speech_start спустя 0.7–1.2 s.
-Эхо предполагалось, но не доказано. Realtime также может ложно реагировать на динамик; исправление эха не заявлено.
-Живая матрица: несколько RU/EN обменов, паузы, barge-in, динамик/наушники, mute/reconnect/end,
-сохранность контекста и полного аудио, Telegram follow-up, первый слышимый звук p50/p95 и стоимость trial.
-Heartbeat или один проигранный ответ не считаются приёмкой. Платных вызовов и сообщений пользователям не было.
-
-[План SP-02](plans/2026-11-11-sp02-trial-lesson.md), [архитектура](../architecture.md),
-[конфигурация и DEV-переход](integrations/operations.md#sp-02-mini-app-и-пробный-голосовой-урок),
-[аудит диагностики](audits/2026-11-12-runtime-logging.md).
-
-## Сохранённая заметка исходного SP-00
-
-Следующая заметка относится к прежней проверке SP-00/ревизии 42f492b, а не к текущему локальному прогону:
-
-Проверка AC/DoD: семь архитектурных критериев покрыты реализацией и локальными тестами. Полная приёмка остаётся открытой: [foundation CI 42894967776](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/42894967776) завершился до тестов — runner не нашёл `postgresql-client-16`. Удалённый integration pass для `42f492b` не подтверждён; остальные PR checks прошли.
+Локально убран общий default 500 токенов: без явного лимита параметр не отправляется провайдеру.
+Для lesson.evaluate и regular lesson.prepare заданы строгие JSON-схемы; OpenRouter должен поддерживать параметры формата.
+628 Python-тестов прошли, включая проверку отправляемых API-параметров; платная приёмка не запускалась.
+DEV: четыре старых evaluation jobs остаются failed (два JSONDecodeError, два CompletionTokenLimitError по Loki).
+Новый plan также упал при лимите 500; backend завершал ожидание раньше ответа AI.
+Восстановление jobs, согласование таймаутов и сообщение UI о failed вместо ожидания пока не выполнены.
+Этот deploy не снимает существующую блокировку analysis_not_ready автоматически.

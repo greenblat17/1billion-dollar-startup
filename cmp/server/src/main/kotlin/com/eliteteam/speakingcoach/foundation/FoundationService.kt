@@ -67,6 +67,11 @@ internal class FoundationService(val database: FoundationDatabase) : AutoCloseab
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
         "voice.heartbeat", "voice.append", "voice.audio", "voice.audio_stored", "voice.playback", "voice.end" -> TrialCommands().execute(connection, scope, action, args, now)
+        "schedule.agree" -> TrialSchedule().save(connection, scope, args, now, executable = true)
+        "schedule.resolve_time" -> TrialSchedule().resolve(connection, scope, args, now)
+        "lesson.get" -> connection.lesson(scope, args.text("lessonId"))
+        "lesson.list" -> lessons.list(connection, scope)
+        "lesson.next" -> json("lesson" to connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='regular' AND launch_mode='executable' AND status='scheduled' AND starts_at>? AND id IS DISTINCT FROM ? ORDER BY starts_at,id LIMIT 1", scope.studentId, now, scope.lessonId))
         "trial.schedule_cancel" -> TrialSchedule().cancel(connection, scope, args, now)
         "trial.schedule" -> TrialSchedule().save(connection, scope, args, now)
         "trial.schedules" -> TrialSchedule().read(connection, scope)

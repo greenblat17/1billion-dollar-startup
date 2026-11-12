@@ -645,6 +645,21 @@ End button не равен technical_disconnect; оба сохраняют во�
 ### Проверки и наблюдаемость
 
 Из `ai-service/`: `python -m pytest`. Из `mini-app/`: `npm test && npm run build` (Node 22+).
+
+### SP-03/SP-04: совместная поставка
+
+Регулярный голосовой урок и исполняемое расписание поставляются совместно: backend с V40,
+AI с regular planner/policy и scheduling tools, Mini App с поддержкой executable regular.
+Старые preliminary placeholders не активируются автоматически; требуется новое явное
+согласование расписания. Demo-оплата не включает подписку и не является проверкой доступа.
+Новых provider credentials не добавлено; используется существующий Realtime/LLM/S3.
+
+До поставки проверить объединённые PostgreSQL-тесты: schedule.agree, подготовку плана,
+voice-scoped lesson.next и гонку admission/cancel. После поставки проверить согласование
+через Telegram, перенос/отмену, вход по реальной встрече, урок, feedback и следующую встречу.
+Отдельно проверить длительный урок с автоматической сменой provider-сессии, напоминания,
+DST-уточнения и отсутствие повторной отправки. Локальные mock-тесты этого не доказывают.
+Текущая стадия поставки — в [status.md](../status.md).
 Из `cmp/`: `GRADLE_USER_HOME=$HOME/.gradle ./gradlew :server:test :server:buildFatJar detekt`.
 Отдельный PostgreSQL и `scripts/test-foundation.sh` проверяют ownership/fencing/retention/pagination и HTTP boundary.
 

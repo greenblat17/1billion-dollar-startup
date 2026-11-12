@@ -10,10 +10,10 @@ import anyio
 
 from app.context_builder import ContextBuilder
 from app.foundation_client import BackendFailure, FoundationClient
-from app.tutor import SYSTEM, TutorRequest
+from app.tutor import RELATIONSHIP_POLICY, TutorRequest
 from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
 from app.trial_policy import TEXT_CAPABILITIES
-from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule
+from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
 from app.tutor_diagnostics import record_tool
 
 
@@ -46,7 +46,7 @@ class FoundationTutor:
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
-        messages = [{'role': 'system', 'content': SYSTEM},
+        messages = [{'role': 'system', 'content': RELATIONSHIP_POLICY},
                     {'role': 'system', 'content': context.instructions('text')}]
         messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
@@ -64,11 +64,13 @@ class FoundationTutor:
         )})
         messages.append({'role': 'user', 'content': text})
         changed = None
+        schedule_committed = False
         degraded = False
         try:
             committed = claim.get('committed', [])
             if committed:
-                bookings = [operation['result'] for operation in committed if operation['action'].startswith('lesson.')]
+                bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
+                schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
                 raise RuntimeError('recovering_committed_operation')
             with anyio.fail_after(55):
@@ -88,6 +90,8 @@ class FoundationTutor:
                         function = call['function']
                         arguments = json.loads(function['arguments'])
                         result = await self.execute(scope, request.requestId, source, function['name'], arguments)
+                        if function['name'] in SCHEDULE_MODELS and result.get('ok'):
+                            schedule_committed = True
                         if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
                             changed = result['booking']
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
@@ -100,7 +104,7 @@ class FoundationTutor:
         except Exception as error:
             record_tool(request.requestId, '', 'turn', 'degraded', error=error)
             degraded = True
-            reply = booking_label(changed) if changed else 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
+            reply = booking_label(changed) if changed else ('Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».' if schedule_committed else 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.')
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
             'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded,
         })
@@ -125,6 +129,24 @@ class FoundationTutor:
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         stage = 'validate_arguments'
         try:
+            if name in ('get_schedules', 'get_lessons'):
+                if arguments:
+                    raise ValueError('unexpected_arguments')
+                return await self.backend.command(scope, uuid4().hex,
+                    'trial.schedules' if name == 'get_schedules' else 'lesson.list', {})
+            if name in SCHEDULE_MODELS:
+                model, action = SCHEDULE_MODELS[name]
+                args = model.model_validate(arguments)
+                if args.evidence not in source['body']:
+                    raise ValueError('invalid_evidence')
+                command = {'sourceId': source['id'], **args.model_dump()}
+                if name == 'create_extra_lesson':
+                    command.update(kind='regular', launchMode='executable')
+                elif name == 'reschedule_lesson':
+                    command['launchMode'] = 'executable'
+                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                result = await self.backend.command(scope, identity, action, command)
+                return {'ok': True, 'result': result}
             if name in ('save_preliminary_schedule', 'get_preliminary_schedules', 'cancel_preliminary_schedule'):
                 if name == 'get_preliminary_schedules':
                     return await self.backend.command(scope, uuid4().hex, 'trial.schedules', {})
@@ -186,6 +208,9 @@ class FoundationTutor:
             record_tool(request_id, name, stage, 'rejected', error=error)
             if error.status >= 500:
                 raise
+            if error.code.startswith('schedule_time_needs_clarification:'):
+                return {'ok': False, 'error': error.code, 'guidance':
+                    'No change committed. Explain that this local time is missing or occurs twice because clocks change. Ask for another local time for that date; do not guess UTC or claim a server outage.'}
             return {'ok': False, 'error': error.code}
         except (ValueError, TypeError, KeyError) as error:
             record_tool(request_id, name, stage, 'rejected', error=error)

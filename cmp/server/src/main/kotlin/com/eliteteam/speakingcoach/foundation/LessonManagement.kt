@@ -7,17 +7,23 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 internal class LessonManagement {
+    fun list(c: Connection, scope: ExecutionScope): JsonObject {
+        requireRole(scope, "text", "operator")
+        return json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND status IN ('scheduled','in_progress') ORDER BY starts_at LIMIT 40", scope.studentId)))
+    }
+
     fun create(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
         requireRole(scope, "text", "operator")
-        args.only("startsAt", "timezone", "durationMinutes", "kind", "launchMode", "sourceId", "evidence", "scheduleId", "occurrenceKey", "timing")
+        args.only("startsAt", "timezone", "durationMinutes", "kind", "launchMode", "sourceId", "evidence", "scheduleId", "occurrenceKey", "timing", "delayMinutes")
         val kind = args.text("kind")
         val mode = args.text("launchMode")
         val duration = args.number("durationMinutes")
-        val starts = if (args.optionalText("timing") == "now") now else Instant.parse(args.text("startsAt"))
+        val starts = lessonStart(args, now)
         ZoneId.of(args.text("timezone"))
+        if (kind == "regular" && duration !in 15..60) reject("invalid_lesson")
         if (kind !in setOf("trial", "regular") || mode !in setOf("placeholder", "executable") || duration !in 1..60) reject("invalid_lesson")
         if (scope.role == "text") {
-            if (kind != "trial" || duration != 15L) reject("not_permitted")
+            if ((kind == "trial" && duration != 15L) || (kind == "regular" && (duration !in 15..60 || mode != "executable"))) reject("not_permitted")
             evidence(connection, scope, args, now)
             if (args.optionalText("timing") != "now" && starts <= now) reject("time_in_past")
         }
@@ -45,7 +51,7 @@ internal class LessonManagement {
         connection.update(
             """INSERT INTO lesson(id,student_id,kind,starts_at,duration_minutes,timezone,launch_mode,schedule_id,occurrence_key,timing)
                VALUES (?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
-            occurrence, args.optionalText("timing") ?: "scheduled",
+            occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled",
         )
         if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
         if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "$id:initial", id,
@@ -55,11 +61,10 @@ internal class LessonManagement {
 
     fun change(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant, cancel: Boolean): JsonObject {
         requireRole(scope, "text", "operator")
-        args.only("lessonId", "expectedVersion", "startsAt", "timezone", "sourceId", "evidence", "timing", "launchMode")
+        args.only("lessonId", "expectedVersion", "startsAt", "timezone", "sourceId", "evidence", "timing", "launchMode", "delayMinutes")
         val lesson = connection.lesson(scope, args.text("lessonId"))
         if (scope.role == "text") {
             evidence(connection, scope, args, now)
-            if (lesson.text("kind") != "trial") reject("not_permitted")
         }
         if (lesson.number("version") != args.number("expectedVersion")) reject("version_conflict")
         if (lesson.text("status") != "scheduled") reject("invalid_state")
@@ -68,10 +73,11 @@ internal class LessonManagement {
             connection.update("UPDATE foundation_job SET status='cancelled' WHERE target_id=? AND status IN ('queued','running','retry_wait')", lesson.text("id"))
         } else {
             val immediate = args.optionalText("timing") == "now"
-            val starts = if (immediate) now else Instant.parse(args.text("startsAt"))
+            val starts = lessonStart(args, now)
             ZoneId.of(args.text("timezone"))
             if (!immediate && starts <= now) reject("time_in_past")
             val mode = args.optionalText("launchMode") ?: lesson.text("launch_mode")
+            if (scope.role == "text" && lesson.text("kind") == "regular" && mode != "executable") reject("not_permitted")
             if (mode !in setOf("placeholder", "executable")) reject("invalid_lesson")
             connection.update("UPDATE lesson SET launch_mode=? WHERE id=?", mode, lesson.text("id"))
             if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "${lesson.text("id")}:reschedule:${lesson.number("version")}", lesson.text("id"),
@@ -79,6 +85,7 @@ internal class LessonManagement {
             connection.update("UPDATE lesson SET starts_at=?,timezone=?,timing=?,version=version+1,updated_at=? WHERE id=?",
                 starts, args.text("timezone"), if (immediate) "now" else "scheduled", now, lesson.text("id"))
         }
+        connection.update("UPDATE trial_notice SET status='cancelled',fence=fence+1 WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
         if (lesson.optionalText("schedule_id") != null) connection.update(
             """INSERT INTO schedule_exception(student_id,schedule_id,occurrence_key,lesson_id,kind) VALUES (?,?,?,?,?)
                ON CONFLICT(schedule_id,occurrence_key) DO UPDATE SET kind=EXCLUDED.kind""", scope.studentId,
@@ -171,4 +178,26 @@ internal fun Connection.enqueueEvaluation(student: String, lesson: String, now: 
     val revision = rows("SELECT transcript_revision FROM lesson WHERE id=?", lesson) { it.getLong(1) }.single()
     enqueueJob(student, "lesson.evaluate", "$lesson:$revision:v1", lesson,
         json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to "v1"), now)
+}
+
+/** Relative intent is resolved once under the student lock; the receipt fixes it across retries. */
+internal fun lessonStart(args: JsonObject, now: Instant): Instant {
+    return when (args.optionalText("timing") ?: "scheduled") {
+        "now" -> {
+            if (args.optionalText("delayMinutes") != null) reject("invalid_time_choice")
+            // Existing trial clients also send startsAt; now remains authoritative.
+            now
+        }
+        "after" -> {
+            if (args.optionalText("startsAt") != null) reject("invalid_time_choice")
+            val minutes = args.number("delayMinutes")
+            if (minutes !in 1..525600) reject("invalid_delay")
+            now.plusSeconds(minutes * 60)
+        }
+        "scheduled" -> {
+            if (args.optionalText("delayMinutes") != null) reject("invalid_time_choice")
+            Instant.parse(args.text("startsAt"))
+        }
+        else -> reject("invalid_timing")
+    }
 }

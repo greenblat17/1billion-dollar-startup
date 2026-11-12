@@ -37,10 +37,20 @@ internal class TrialAccess(private val service: FoundationService) {
 
     private fun open(c: Connection, student: String, epoch: Long, args: JsonObject, now: Instant): JsonObject {
         val lesson = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
-        if (lesson.text("kind") != "trial" || lesson.text("launch_mode") != "executable" || lesson.text("status") !in setOf("scheduled", "in_progress")) reject("lesson_unavailable")
+        if (lesson.text("kind") !in setOf("trial", "regular") || lesson.text("launch_mode") != "executable" || lesson.text("status") !in setOf("scheduled", "in_progress")) reject("lesson_unavailable")
         val start = Instant.parse(lesson.text("starts_at"))
         if (now < start) reject("too_early")
         if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(lesson.number("duration_minutes") * 60)) reject("lesson_expired")
+        if (lesson.text("kind") == "regular" && lesson.number("duration_minutes") !in 15..60) reject("invalid_lesson")
+        val briefing = if (lesson.text("kind") == "trial") {
+            json("kind" to "trial", "objective" to "Diagnose and demonstrate through a natural conversation; oral feedback and comfort self-report.")
+        } else if (lesson.text("status") == "in_progress") {
+            lesson["execution_snapshot"] as? JsonObject ?: reject("not_ready")
+        } else {
+            val preparation = c.preparation(ExecutionScope(student, "voice", epoch), lesson.text("id"))
+            if (preparation.text("status") != "ready") reject(preparation.text("reason"))
+            preparation
+        }
         val attempt = args.text("attemptId")
         if (attempt.length !in 1..100) reject("invalid_attempt")
         // An expired transport is recoverable; its Lesson is not automatically completed.
@@ -52,7 +62,6 @@ internal class TrialAccess(private val service: FoundationService) {
         c.update("INSERT INTO execution_scope(token_digest,student_id,role,lesson_id,data_epoch,expires_at) VALUES (?,?,'voice',?,?,?)", digest(token), student, lesson.text("id"), epoch, now.plusSeconds(120))
         c.update("INSERT INTO call_session(id,student_id,lesson_id,attempt_id,status,started_at,lease_until,scope_digest) VALUES (?,?,?,?,'connected',?,?,?)",
             id, student, lesson.text("id"), attempt, now, now.plusSeconds(45), digest(token))
-        val briefing = json("kind" to "trial", "objective" to "Diagnose and demonstrate through a natural conversation; oral feedback and comfort self-report.")
         c.update("UPDATE lesson SET status='in_progress',execution_snapshot=COALESCE(execution_snapshot,?::jsonb),version=version+1 WHERE id=?", briefing, lesson.text("id"))
         c.update("UPDATE trial_notice SET status='cancelled' WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")))

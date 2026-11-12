@@ -73,6 +73,7 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM schedule_exception WHERE student_id=?", student)
         connection.update("UPDATE lesson SET previous_lesson_id=NULL WHERE student_id=?", student)
         connection.update("DELETE FROM lesson WHERE student_id=?", student)
+        connection.update("DELETE FROM schedule_time_issue WHERE student_id=?", student)
         connection.update("DELETE FROM schedule WHERE student_id=?", student)
         connection.update("DELETE FROM entitlement WHERE student_id=?", student)
         connection.update("DELETE FROM payment_receipt WHERE student_id=?", student)
@@ -121,6 +122,7 @@ internal class FoundationMaintenance {
 
     private fun invalidateCopies(connection: Connection, student: String, now: Instant) {
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
+        connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
         connection.update("UPDATE student SET data_epoch=data_epoch+1 WHERE id=?", student)
         connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)

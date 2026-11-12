@@ -43,7 +43,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r ai-service/requirements-dev.txt
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
       - run: scripts/test-foundation.sh
       - name: Start isolated migration source after Redis-free runtime checks
         run: docker run -d --rm --name foundation-import-redis -p 127.0.0.1:56379:6379 redis:7.2-alpine

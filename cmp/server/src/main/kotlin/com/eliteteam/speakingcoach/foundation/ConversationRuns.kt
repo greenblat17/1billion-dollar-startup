@@ -23,10 +23,10 @@ internal class ConversationRuns {
         connection.update("UPDATE execution_scope SET fence=? WHERE token_digest=?", claimed.number("fence"), scope.tokenDigest)
         val source = sourceMessage(connection, scope, claimed.text("event_id"), now)
         val committed = connection.documents("""SELECT jsonb_build_object('action',action,'result',result) FROM foundation_operation
-            WHERE student_id=? AND request_id=? AND role='text' AND action NOT IN ('run.claim','run.complete')
+            WHERE student_id=? AND request_id=? AND role='text' AND action NOT IN ('run.claim','run.complete','lesson.list','lesson.next','lesson.get','trial.schedules')
             AND expires_at>? ORDER BY created_at,operation_id""", scope.studentId, request, now)
         val recovered = committed.map { operation ->
-            if (operation.text("action").startsWith("lesson.")) {
+            if (operation.text("action") in setOf("lesson.create", "lesson.reschedule", "lesson.cancel")) {
                 json("action" to operation.text("action"), "result" to connection.lesson(scope, operation.obj("result").text("id")))
             } else operation
         }

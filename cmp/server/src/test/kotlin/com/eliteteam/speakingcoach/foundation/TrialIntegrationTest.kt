@@ -57,6 +57,104 @@ class TrialIntegrationTest {
     private suspend fun open(s: FoundationService, subject: String, id: String, now: Instant) = TrialAccess(s).access(
         json("action" to "open", "initData" to auth(subject, now), "lessonId" to id, "attemptId" to newId()), bot)
 
+    private suspend fun regular(s: FoundationService, clock: TestClock, duration: Int = 30): JsonObject {
+        val student = s.identity.resolve("telegram", "100")
+        return s.op(s.identity.issue(student, "operator"), "lesson.create", json("kind" to "regular", "launchMode" to "executable",
+            "startsAt" to clock.value.toString(), "timezone" to "UTC", "durationMinutes" to duration))
+    }
+    private suspend fun prepare(s: FoundationService, student: String) {
+        val operator = s.identity.issue(student, "operator")
+        val job = s.op(operator, "job.claim", json("kind" to "lesson.prepare")).obj("job")
+        s.op(operator, "job.apply", json("jobId" to job.text("id"), "fence" to job.number("fence"),
+            "result" to json("objective" to "Explain preferences with reasons", "topic" to "Hiking routes", "strategy" to "Discover interests, explore a choice, recap and ask feedback")))
+    }
+
+    @Test fun regularAdmissionRequiresCurrentPlanAndReconnectPreservesItAndHistory() = runTest {
+        store { s, clock ->
+            val l = regular(s, clock)
+            assertEquals("plan_not_ready", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            prepare(s, l.text("student_id"))
+            val a = open(s, "100", l.text("id"), clock.value)
+            val frozen = a.obj("lesson").obj("execution_snapshot")
+            assertEquals("Explain preferences with reasons", frozen.obj("plan").obj("content").text("objective"))
+            val args = json("lessonId" to l.text("id"), "callSessionId" to a.text("callSessionId"))
+            s.op(a.text("scope"), "voice.append", JsonObject(args + json("sourceId" to "first", "role" to "user", "body" to "I like quiet hiking trails", "occurredAt" to clock.value.toString())))
+            s.op(a.text("scope"), "voice.end", JsonObject(args + json("reason" to "technical_disconnect")))
+            clock.value = clock.value.plusSeconds(600)
+            val b = open(s, "100", l.text("id"), clock.value)
+            assertEquals(frozen, b.obj("lesson").obj("execution_snapshot"))
+            assertEquals(l.text("starts_at"), b.obj("lesson").text("starts_at"))
+            assertEquals("I like quiet hiking trails", s.snapshot(b.text("scope"), "voice", l.text("id"))["events"]!!.jsonArray.single().jsonObject.text("body"))
+            val end = json("lessonId" to l.text("id"), "callSessionId" to b.text("callSessionId"), "reason" to "natural_goodbye")
+            s.op(b.text("scope"), "voice.end", end, "regular-end")
+            s.op(b.text("scope"), "voice.end", end, "regular-end")
+            assertEquals("lesson_unavailable", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            s.database.transaction { c, _ ->
+                assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice") { it.getLong(1) }.single())
+                assertEquals(1L, c.rows("SELECT count(*) FROM foundation_job WHERE kind='lesson.evaluate'") { it.getLong(1) }.single())
+            }
+        }
+    }
+
+    @Test fun regularAdmissionAcceptsDurationBoundariesAndRejectsExpiredFirstJoin() = runTest {
+        for (duration in listOf(15, 60)) store { s, clock ->
+            val l = regular(s, clock, duration)
+            prepare(s, l.text("student_id"))
+            clock.value = clock.value.minusSeconds(1)
+            assertEquals("too_early", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            clock.value = clock.value.plusSeconds(duration * 60L + 1)
+            assertEquals("lesson_expired", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            clock.value = clock.value.minusSeconds(1)
+            assertEquals(duration.toLong(), open(s, "100", l.text("id"), clock.value).obj("lesson").number("duration_minutes"))
+        }
+    }
+
+    @Test fun regularDurationOutsideRangeCannotStart() = runTest {
+        for (duration in listOf(14, 61)) store { s, clock ->
+            assertEquals("invalid_lesson", assertFailsWith<FoundationFailure> {
+                val l = regular(s, clock, duration)
+                prepare(s, l.text("student_id"))
+                open(s, "100", l.text("id"), clock.value)
+            }.code)
+        }
+    }
+
+    @Test fun regularEarlyExitRemainsResumableAndOnlyEarlyExitQueuesOneQuestion() = runTest {
+        store { s, clock ->
+            val l = regular(s, clock)
+            prepare(s, l.text("student_id"))
+            val a = open(s, "100", l.text("id"), clock.value)
+            s.op(a.text("scope"), "voice.end", json("lessonId" to l.text("id"), "callSessionId" to a.text("callSessionId"), "reason" to "end_button"))
+            s.database.transaction { c, _ ->
+                assertEquals("in_progress", c.lesson(ExecutionScope(l.text("student_id"), "operator", 1), l.text("id")).text("status"))
+                assertEquals(1L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='end_button'") { it.getLong(1) }.single())
+            }
+            clock.value = clock.value.plusSeconds(28 * 60)
+            val b = open(s, "100", l.text("id"), clock.value)
+            s.op(b.text("scope"), "voice.end", json("lessonId" to l.text("id"), "callSessionId" to b.text("callSessionId"), "reason" to "end_button"))
+            s.database.transaction { c, _ ->
+                assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE status='pending'") { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM foundation_job WHERE kind='lesson.evaluate'") { it.getLong(1) }.single())
+            }
+        }
+    }
+
+    @Test fun regularAdmissionRejectsStalePlansAndPendingPreviousAnalysis() = runTest {
+        store { s, clock ->
+            val previous = lesson(s, "100", clock.value)
+            val a = open(s, "100", previous.text("id"), clock.value)
+            s.op(a.text("scope"), "voice.end", json("lessonId" to previous.text("id"), "callSessionId" to a.text("callSessionId"), "reason" to "natural_goodbye"))
+            val l = regular(s, clock)
+            assertEquals("analysis_not_ready", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+        }
+        store { s, clock ->
+            val l = regular(s, clock)
+            prepare(s, l.text("student_id"))
+            s.database.transaction { c, _ -> c.update("UPDATE lesson_plan SET status='stale' WHERE lesson_id=?", l.text("id")) }
+            assertEquals("plan_not_ready", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+        }
+    }
+
     @Test fun signatureRejectsTamperingDuplicateFieldsAndStaleAuth() {
         val now = Instant.parse("2026-11-11T10:00:00Z")
         assertEquals("100", telegramMiniSubject(auth("100", now), bot, now))
