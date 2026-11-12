@@ -148,6 +148,23 @@ async def test_browser_cannot_inject_provider_events_and_mute_flushes_tail():
     assert s.backend.command.call_args.args[3]['reason'] == 'end_button'
 
 
+@pytest.mark.asyncio
+async def test_browser_metrics_do_not_interrupt_session(caplog):
+    s = session()
+    s.socket.receive = AsyncMock(side_effect=[
+        *[{'type': 'websocket.receive', 'text': json.dumps({
+            'type': 'metric', 'name': name, 'milliseconds': 123,
+        })} for name in ('join', 'first_audio', 'barge_in')],
+        {'type': 'websocket.receive', 'text': json.dumps({'type': 'end'})},
+    ])
+    with caplog.at_level('INFO', logger='app.diagnostics'):
+        await s.receive()
+    assert s.ended
+    assert s.backend.command.call_args.args[3]['reason'] == 'end_button'
+    for name in ('join', 'first_audio', 'barge_in'):
+        assert f'"metric": "{name}"' in caplog.text
+
+
 class FakeProvider:
     def __init__(self):
         self.events = asyncio.Queue()

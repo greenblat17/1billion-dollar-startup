@@ -350,7 +350,7 @@ class RealtimeTrialSession(TrialJournal):
                     elif kind == 'metric':
                         value = control.get('milliseconds')
                         if control.get('name') in ('join', 'first_audio', 'barge_in') and type(value) in (int, float) and 0 <= value <= 300000:
-                            event('trial_client_metric', name=control['name'], milliseconds=int(value))
+                            event('trial_client_metric', metric=control['name'], milliseconds=int(value))
 
     def log_audio_state(self, client):
         safe = {}

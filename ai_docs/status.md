@@ -27,7 +27,7 @@ Reconnect сохраняет Lesson и контекст; mute/end/disconnect р�
 Исправлен найденный тестами FrozenInstanceError, который скрывал исходный отказ foundation.
 
 Проверки текущего дерева:
-- Python: **585 passed**, одно dependency deprecation warning.
+- Python: **586 passed**, одно dependency deprecation warning.
 - Kotlin: **281 unit + 27 PostgreSQL integration**, без failed/skipped; fatJar/detekt прошли.
 - Python→Ktor→PostgreSQL HTTP: **6 passed**; исправлена устаревшая подмена TutorModel в тесте.
 - Frontend: **4 tests passed**, syntax/build прошли; проверены микрофон, reconnect, PCM и playback при сетевых паузах.
@@ -45,6 +45,9 @@ Readiness: оба контейнера работают без рестарто�
 Хеш Realtime-модуля внутри AI и frontend JS через публичный HTTPS совпадают с поставленной ревизией.
 В AI подтверждены модель `gpt-realtime-2.1`, голос `marin` и наличие `OPENAI_REALTIME_API_KEY` без раскрытия значения.
 Доступ аккаунта к модели, запись/удаление новых аудиообъектов и живой звонок этим не проверены.
+Первая пользовательская попытка выявила TypeError при записи метрики `join`: аргумент `name`
+конфликтовал с именем диагностического события и обрывал сессию. Поле переименовано в `metric`;
+регрессионный тест проверяет join/first_audio/barge_in и последующее штатное завершение.
 Платные smoke/benchmark не запускались; пользователь проводит живую проверку самостоятельно.
 PROD/merge не выполнялись.
 
