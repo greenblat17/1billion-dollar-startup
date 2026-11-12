@@ -68,18 +68,46 @@ SeaweedFS на DEV: приватный `speaky-trial-audio-dev`, сеть `speak
 30-дневная очистка приложения сохранена. Архив-before-forward добавляет задержку в обе стороны.
 Открыты живые проверки: полный trial/regular, RU/EN, паузы и перебивания, speaker/headphones,
 reconnect, завершение, сохранность контекста/аудио, reminders/followup и 60-минутная смена транспорта.
-Настоящий платёжный провайдер и полный roadmap не реализованы; старый demo receipt не даёт entitlement.
+Настоящий платёжный провайдер не реализован; SP-06 roadmap есть локально, но не поставлен; старый demo receipt не даёт entitlement.
 PROD и merge main не выполнялись. Платные прогоны и реальные сообщения в интеграции SP-03/SP-04 не выполнялись.
 
 [Архитектура](../architecture.md) · [Эксплуатация](integrations/operations.md) ·
 [SP-03](plans/2026-11-12-sp03-regular-lessons.md) · [SP-04](plans/2026-11-12-sp04-scheduling.md)
 
-## Исправление формата learning-ответов
+## SP-06: roadmap и подготовка уроков
 
-Локально убран общий default 500 токенов: без явного лимита параметр не отправляется провайдеру.
-Для lesson.evaluate и regular lesson.prepare заданы строгие JSON-схемы; OpenRouter должен поддерживать параметры формата.
-628 Python-тестов прошли, включая проверку отправляемых API-параметров; платная приёмка не запускалась.
-DEV: четыре старых evaluation jobs остаются failed (два JSONDecodeError, два CompletionTokenLimitError по Loki).
-Новый plan также упал при лимите 500; backend завершал ожидание раньше ответа AI.
-Восстановление jobs, согласование таймаутов и сообщение UI о failed вместо ожидания пока не выполнены.
-Этот deploy не снимает существующую блокировку analysis_not_ready автоматически.
+Локально добавлен model-backed `roadmap.prepare` поверх прежних Roadmap/revisions и job claim/apply.
+Первый маршрут сразу используется после trial по уже согласованной цели — выбор пользователя.
+Адаптация меняет тактику/порядок при новых наблюдениях из нескольких уроков; сохраняет outcomes.
+Нет новых шкал, обещаний сроков уровня, критериев завершения этапов или экрана My Progress.
+
+Planner SP03 использует roadmap и актуальную память в прежнем LessonPlan objective/topic/strategy.
+Сохранены источники, версии, receipts, frozen plan, бесплатный trial и subscription admission SP05.
+Исправление факта/цели и перенос отзывают устаревшую будущую подготовку. Text/Voice/Learning
+получают общий контекст; устная следующая тема берётся только из готового плана реальной встречи.
+Telegram объясняет сохранённый маршрут; trial follow-up ограниченно ждёт learning jobs и честно
+обрабатывает недостаток данных или ошибку. V42 сохраняет результаты roadmap review.
+
+Проверки SP-06: Python **638 passed**, затем 27 целевых после уточнения prompt;
+Kotlin **282 unit + 55 PostgreSQL integration**, failures/errors/skipped = 0;
+Python → HTTP Ktor → PG **10 passed**, включая четыре SP06 lifecycle сценария.
+Mini App **5 passed**, syntax/build, fatJar и detekt прошли. 47 локальных ссылок и git diff --check прошли.
+65-секундный compute прошёл с реальным renewal lease и одной попыткой. Проверены bound scope,
+повторы receipts, stale/foreign sources, изменения цели/памяти, перенос во время compute,
+frozen plan/reconnect, next topic/null, insufficient evidence, terminal failures и bounded follow-up.
+PostgreSQL изолирован на loopback:56506; модели, голос и Telegram в проверках подставные.
+Это не живая педагогическая приёмка. Единственное Python warning — dependency deprecation.
+[Контракт и границы SP-06](plans/2026-11-12-sp06-roadmap.md).
+База `c21ff97` совпадала с remote dev при старте и содержит SP05 #55.
+Пользователь поручил PR в dev и Redeploy DEV из ветки SP-06. Поставка запускается; результат ещё не подтверждён.
+Платные smoke-вызовы выключены; живая педагогическая приёмка не выполнена.
+Для DEV нужны CI/readiness, V42 и отдельная диагностика старых failed jobs. Живая педагогическая приёмка остаётся открытой.
+
+## Инцидент learning jobs
+
+Strict JSON schemas и отсутствие общего default 500 токенов уже были в базовой dev.
+Остаток подтверждён кодом: worker прерывал compute через 45 секунд. SP-06 локально добавляет
+пределы AI/HTTP/worker 120/140/150 секунд и renewal lease/scope каждые 20 секунд.
+Terminal failures теперь возвращают analysis_failed/roadmap_failed/plan_failed вместо бесконечного «позже».
+DEV в этой задаче не проверялся: прежние failed jobs не восстановлены и могут продолжать блокировать admission.
+Локальные исправления не означают устранение инцидента на DEV.

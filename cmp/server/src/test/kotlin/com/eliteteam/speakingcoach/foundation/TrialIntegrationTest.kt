@@ -290,7 +290,7 @@ class TrialIntegrationTest {
             val l = lesson(s, "100", clock.value)
             val a = open(s, "100", l.text("id"), clock.value)
             s.op(a.text("scope"), "voice.end", json("lessonId" to l.text("id"), "callSessionId" to a.text("callSessionId"), "reason" to "natural_goodbye"))
-            clock.value = clock.value.plusSeconds(4)
+            clock.value = clock.value.plusSeconds(304)
             var telegramCalls = 0
             val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
                 if (request.url.host == "ai.test") respond("{\"reply\":\"Обсудим удобный формат?\"}", io.ktor.http.HttpStatusCode.OK)
@@ -303,6 +303,38 @@ class TrialIntegrationTest {
             assertEquals(1, telegramCalls)
             s.database.transaction { c, _ ->
                 assertEquals("unknown", c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE lesson_id=?", l.text("id"))!!.text("status"))
+            }
+        }
+    }
+
+    @Test fun trialFollowupWaitsForLearningAndStopsWaitingOnTerminalFailure() = runTest {
+        store { s, clock ->
+            val l = lesson(s, "100", clock.value)
+            val a = open(s, "100", l.text("id"), clock.value)
+            s.op(a.text("scope"), "voice.end", json("lessonId" to l.text("id"), "callSessionId" to a.text("callSessionId"), "reason" to "natural_goodbye"))
+            clock.value = clock.value.plusSeconds(4)
+            var generated = 0
+            var delivered = 0
+            val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+                if (request.url.host == "ai.test") {
+                    generated++
+                    respond("{\"reply\":\"Не удалось подготовить маршрут. Обсудим следующую встречу в чате.\"}", io.ktor.http.HttpStatusCode.OK)
+                } else {
+                    delivered++
+                    respond("{\"ok\":true}", io.ktor.http.HttpStatusCode.OK)
+                }
+            })
+            http.use {
+                val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
+                worker.tick()
+                assertEquals(0, generated)
+                val operator = s.identity.issue(l.text("student_id"), "operator")
+                val job = s.op(operator, "job.claim", json("kind" to "lesson.evaluate")).obj("job")
+                s.op(operator, "job.fail", json("jobId" to job.text("id"), "fence" to job.number("fence"), "code" to "invalid_result"))
+                worker.tick()
+                worker.tick()
+                assertEquals(1, generated)
+                assertEquals(1, delivered)
             }
         }
     }

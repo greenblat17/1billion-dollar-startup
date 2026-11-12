@@ -33,7 +33,12 @@ internal class TrialWorker(private val service: FoundationService, private val h
         sweep()
         clarifyTime()
         val notice = service.database.transaction { c, now ->
-            val row = c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE status IN ('pending','ready') AND due_at<=? ORDER BY due_at LIMIT 1", now) ?: return@transaction null
+            val row = c.document("""SELECT to_jsonb(n) FROM trial_notice n WHERE status IN ('pending','ready') AND due_at<=?
+                AND NOT (kind='followup' AND EXISTS (SELECT 1 FROM lesson l WHERE l.id=n.lesson_id AND n.due_at>?
+                    AND EXISTS (SELECT 1 FROM foundation_job j WHERE j.student_id=n.student_id
+                        AND j.status IN ('queued','running','retry_wait')
+                        AND (j.kind='roadmap.prepare' OR (j.kind='lesson.evaluate' AND j.target_id=l.id)))))
+                ORDER BY due_at LIMIT 1""", now, now.minusSeconds(300)) ?: return@transaction null
             c.lockStudent(row.text("student_id"))
             val current = c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE id=? AND status IN ('pending','ready') FOR UPDATE", row.text("id")) ?: return@transaction null
             val lesson = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", current.text("lesson_id"))

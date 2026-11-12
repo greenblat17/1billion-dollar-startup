@@ -55,7 +55,7 @@ class ContextBuilder:
         budget = self.memory_budget
         for observation in snapshot.get('observations', []):
             projected = {key: observation.get(key) for key in (
-                'dimension', 'content', 'uncertainty', 'source_event_id', 'occurred_at',
+                'lesson_id', 'dimension', 'content', 'uncertainty', 'source_event_id', 'occurred_at',
                 'source_content_expired', 'source_revision', 'analyzer_version')}
             size = len(json.dumps(projected, ensure_ascii=False))
             if size > budget:
@@ -89,13 +89,14 @@ class ContextBuilder:
                     break
                 steps.append(step)
                 budget -= size
-            roadmap = {'revision': source['revision'], 'goalRevision': source['goal_revision'], 'steps': steps}
+            roadmap = {'revision': source['revision'], 'goalRevision': source['goal_revision'], 'steps': steps, 'reason': source.get('reason'),
+                       'sources': source.get('content', {}).get('sources', [])}
         data = {
             'studentId': snapshot['student']['id'],
             'tutor': {'id': snapshot['student']['tutor_id'], 'version': snapshot['student']['tutor_version']},
             'goal': snapshot.get('goal'), 'facts': selected, 'roadmap': roadmap,
-            'observations': observations,
-            'trialResult': snapshot.get('trialResult'),
+            'observations': observations, 'roadmapPreparation': snapshot.get('roadmapPreparation'),
+            'trialResult': snapshot.get('trialResult'), 'lessonAnalysis': snapshot.get('lessonAnalysis'),
             'billing': snapshot.get('billing'),
             'lesson': snapshot.get('lesson'), 'booking': snapshot.get('booking'),
             'preparation': snapshot.get('preparation'),

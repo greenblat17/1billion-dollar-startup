@@ -431,6 +431,30 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun workerRenewsDuringAComputationLongerThanTheOriginalLease() = kotlinx.coroutines.runBlocking {
+        withStore { service ->
+            val student = service.identity.resolve("telegram", "6002")
+            val operator = service.identity.issue(student, "operator")
+            val lesson = service.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to Instant.now().toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            val worker = FoundationWorker(service, object : LearningComputer {
+                override suspend fun compute(scope: String, job: JsonObject): JsonObject {
+                    kotlinx.coroutines.delay(65_000)
+                    // The initial capability/lease expired at 60 seconds without actual worker renewal.
+                    service.snapshot(scope, "learning", lesson.text("id"))
+                    return json("objective" to "practice", "topic" to "work", "strategy" to "guided conversation")
+                }
+            })
+            assertTrue(worker.runOnce())
+            assertEquals("ready", service.snapshot(operator, "voice", lesson.text("id")).obj("preparation").text("status"))
+            service.database.transaction(readOnly = true) { c, _ ->
+                assertEquals(1L, c.rows("SELECT attempts FROM foundation_job WHERE target_id=?", lesson.text("id")) { it.getLong(1) }.single())
+                assertTrue(c.rows("SELECT count(*) FROM foundation_operation WHERE student_id=? AND action='job.renew'", student) { it.getLong(1) }.single() >= 2)
+            }
+        }
+    }
+
+    @Test
     fun telegramBridgePersistsInputAndDeliveryAndRejectsAGroupIdentity() = runTest {
         withStore { service ->
             val bridge = FoundationChat(service)

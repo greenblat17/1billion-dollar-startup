@@ -35,15 +35,18 @@ class PersonalCandidateExtractor:
 class LearningEngine:
     def __init__(self, backend: FoundationClient, contexts: ContextBuilder,
                  analyzer: LessonAnalyzer | None = None, planner: LessonPlanner | None = None,
-                 extractor: PersonalCandidateExtractor | None = None):
+                 extractor: PersonalCandidateExtractor | None = None, roadmap: LessonPlanner | None = None):
         self.backend, self.contexts = backend, contexts
         self.analyzer, self.planner = analyzer, planner
         self.extractor = extractor
+        self.roadmap = roadmap
 
     async def compute(self, scope: str, job: dict) -> dict:
         if job.get('schema_version') != 1:
             raise ValueError('unsupported_job_version')
         context = await self.contexts.build(scope, 'learning', job.get('target_id'))
+        if job['kind'] == 'roadmap.prepare' and self.roadmap is not None:
+            return await self.roadmap.prepare(context, job['input_refs'])
         if job['kind'] == 'memory.extract' and self.extractor is not None:
             return await self.extractor.extract(context, job['input_refs'])
         if job['kind'] == 'lesson.evaluate' and self.analyzer is not None:

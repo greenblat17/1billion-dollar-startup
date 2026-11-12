@@ -44,6 +44,7 @@ internal class StructuredMemory {
                revision=EXCLUDED.revision,forgotten_at=NULL,updated_at=EXCLUDED.updated_at""",
             scope.studentId, category, key, value, kind, source.text("id"), revision + 1, now,
         )
+        if (old?.optionalText("value") != value) connection.invalidatePreparation(scope.studentId, now)
         return json("revision" to revision + 1)
     }
 
@@ -95,6 +96,7 @@ internal class StructuredMemory {
             candidate.text("value"), source.text("id"), now,
         )
         connection.update("UPDATE memory_candidate SET status='confirmed',version=version+1 WHERE id=?", candidate.text("id"))
+        connection.invalidatePreparation(scope.studentId, now)
         return json("confirmed" to true)
     }
 }
@@ -107,13 +109,23 @@ internal fun Connection.learningRevision(student: String): Long = rows(
     "SELECT learning_revision FROM student WHERE id=?", student,
 ) { it.getLong(1) }.single()
 
-internal fun Connection.invalidatePreparation(student: String, now: Instant) {
+internal fun Connection.invalidatePreparation(student: String, now: Instant, reviewRoadmap: Boolean = true) {
     update("UPDATE student SET learning_revision=learning_revision+1 WHERE id=?", student)
     update("UPDATE foundation_job SET status='superseded' WHERE student_id=? AND kind='lesson.prepare' AND status IN ('queued','running','retry_wait')", student)
+    if (reviewRoadmap) {
+        update("UPDATE foundation_job SET status='superseded' WHERE student_id=? AND kind='roadmap.prepare' AND status IN ('queued','running','retry_wait')", student)
+        RoadmapPreparation().enqueue(this, student, now)
+    }
     rows("SELECT id FROM lesson WHERE student_id=? AND status='scheduled' AND launch_mode='executable'", student) {
         it.getString(1)
     }.forEach { lesson ->
         enqueueJob(student, "lesson.prepare", "$lesson:goal:${goalRevision(student)}:learning:${learningRevision(student)}", lesson,
-            json("goalRevision" to goalRevision(student), "learningRevision" to learningRevision(student)), now)
+            planInputs(student, lesson), now)
     }
 }
+
+internal fun Connection.planInputs(student: String, lesson: String): JsonObject = json(
+    "goalRevision" to goalRevision(student), "learningRevision" to learningRevision(student),
+    "roadmapRevision" to roadmapRevision(student), "lessonVersion" to
+        rows("SELECT version FROM lesson WHERE id=? AND student_id=?", lesson, student) { it.getLong(1) }.single(),
+)

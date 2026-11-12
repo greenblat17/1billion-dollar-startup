@@ -41,7 +41,7 @@ internal class LearningState {
 
     fun roadmap(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
         requireRole(scope, "operator", "learning")
-        args.only("goalRevision", "expectedRevision", "reason", "steps", "mode", "sourceId", "evidence")
+        args.only("goalRevision", "expectedRevision", "reason", "steps", "mode", "sourceId", "evidence", "sources")
         if (connection.goalRevision(scope.studentId) != args.number("goalRevision")) reject("version_conflict")
         var roadmap = connection.document("SELECT to_jsonb(r) FROM roadmap r WHERE student_id=?", scope.studentId)
         if (roadmap == null) {
@@ -52,7 +52,13 @@ internal class LearningState {
         if (args.number("expectedRevision") != previous) reject("version_conflict")
         if (args.text("reason").isBlank() || args.text("reason").length > 1000) reject("invalid_reason")
         val mode = args.text("mode")
-        if (mode !in setOf("propose", "adapt", "confirm")) reject("invalid_mode")
+        if (mode !in setOf("propose", "adapt", "confirm", "initialize")) reject("invalid_mode")
+        if (mode == "initialize") {
+            if (scope.jobId == null || connection.currentRoadmap(scope.studentId) != null) reject("not_permitted")
+            val job = connection.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=? AND kind='roadmap.prepare' AND status='running'", scope.jobId)
+                ?: reject("not_permitted")
+            if (job.number("fence") != scope.fence) reject("stale_job")
+        }
         if (mode == "confirm") {
             requireRole(scope, "operator")
             evidence(connection, scope, args, now)
@@ -76,7 +82,7 @@ internal class LearningState {
         val revision = connection.rows("SELECT COALESCE(max(revision),0)+1 FROM roadmap_revision WHERE roadmap_id=?", roadmap.text("id")) { it.getLong(1) }.single()
         val active = mode != "propose"
         connection.update("INSERT INTO roadmap_revision(student_id,roadmap_id,revision,goal_revision,content,reason,confirmed_source_id,status) VALUES (?,?,?,?,?::jsonb,?,?,?)",
-            scope.studentId, roadmap.text("id"), revision, args.number("goalRevision"), json("steps" to steps), args.text("reason"), args.optionalText("sourceId"), if (active) "active" else "proposed")
+            scope.studentId, roadmap.text("id"), revision, args.number("goalRevision"), json("steps" to steps, "sources" to args["sources"]), args.text("reason"), args.optionalText("sourceId"), if (active) "active" else "proposed")
         steps.forEachIndexed { index, step ->
             connection.update("INSERT INTO roadmap_step(roadmap_id,roadmap_revision,step_id,position,outcome) VALUES (?,?,?,?,?)",
                 roadmap.text("id"), revision, step.jsonObject.text("id"), index, step.jsonObject.text("outcome"))
@@ -85,7 +91,7 @@ internal class LearningState {
             connection.update("UPDATE roadmap_revision SET status='superseded' WHERE roadmap_id=? AND revision<>? AND status='active'", roadmap.text("id"), revision)
             connection.update("UPDATE roadmap SET active_revision=? WHERE id=?", revision, roadmap.text("id"))
             connection.update("UPDATE lesson_plan SET status='stale' WHERE student_id=?", scope.studentId)
-            connection.invalidatePreparation(scope.studentId, now)
+            connection.invalidatePreparation(scope.studentId, now, reviewRoadmap = false)
         }
         return json("id" to roadmap.text("id"), "revision" to revision, "status" to if (active) "active" else "proposed")
     }

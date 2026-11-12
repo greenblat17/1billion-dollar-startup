@@ -86,7 +86,7 @@ Shipping root использует `LessonPlanner` из `regular_lesson.py`: м�
 отдельные objective/topic/strategy; trial сохраняет briefing. Backend применяет план с проверкой
 версий и завершённости предыдущих анализов. Неверный ответ модели не заменяется фиктивным планом.
 `TrialAnalyzer` сохраняет качественные наблюдения с источниками. `TrialWorker` материализует
-расписание и отправляет уведомления через durable outbox. Настоящая оплата и полный roadmap не реализованы.
+расписание и отправляет уведомления через durable outbox. Настоящая оплата не реализована; персональный roadmap описан в SP-06 ниже.
 
 ## Внутренние API и доверие
 
@@ -254,3 +254,24 @@ LLM получает актуальное состояние через ContextB
 Regular `TrialAccess.open` проверяет entitlement, фиксирует его для начатого Lesson и разрешает
 его reconnect после истечения. Trial не требует подписки; Schedule/Lesson не отменяются.
 Настоящая платёжная интеграция и live acceptance не выполнены; [контракт SP-05](ai_docs/plans/2026-11-12-sp05-subscription.md).
+
+## Roadmap и подготовка SP-06
+
+`roadmap.prepare` дополняет прежний FoundationJobs/LearningEngine. После trial evaluation и
+изменения наблюдений/памяти backend ставит versioned job; `RoadmapPlanner` вычисляет содержание
+вне транзакции. `RoadmapPreparation` проверяет версии/источники и вызывает прежний `LearningState.roadmap`.
+Первый маршрут сразу активен по согласованной цели. Адаптация сохраняет outcomes и требует
+новых подтверждающих источников из нескольких уроков; это не автоматическая оценка mastery.
+V42 сохраняет review result в foundation_job; forget/delete очищают его вместе с остальными копиями.
+
+ContextBuilder передаёт одну актуальную проекцию Text/Voice/Learning. Planner SP03 использует
+roadmap и память; новый pipeline планирования уроков не создаётся. Plan хранит roadmap revision,
+job — lesson/goal/learning/roadmap versions. Исправления памяти и перенос отзывают будущую подготовку;
+первый admission фиксирует execution_snapshot, reconnect его сохраняет.
+`lesson.next.preparedTopic` относится только к следующей реальной встрече с актуальным планом.
+Telegram объясняет сохранённый маршрут; trial follow-up ограниченно ждёт learning jobs.
+
+Terminal preparation failures передаются в admission/Mini App и lesson.list. AI compute имеет
+120-секундный предел, HTTP 140, worker 150; worker продлевает lease каждые 20 секунд.
+Платные retry после budget exhaustion не запускаются. Старые DEV jobs не восстанавливаются автоматически.
+[Контракт и границы SP-06](ai_docs/plans/2026-11-12-sp06-roadmap.md).

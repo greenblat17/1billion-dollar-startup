@@ -75,7 +75,12 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "schedule.resolve_time" -> TrialSchedule().resolve(connection, scope, args, now)
         "lesson.get" -> connection.lesson(scope, args.text("lessonId"))
         "lesson.list" -> lessons.list(connection, scope)
-        "lesson.next" -> json("lesson" to connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='regular' AND launch_mode='executable' AND status='scheduled' AND starts_at>? AND id IS DISTINCT FROM ? ORDER BY starts_at,id LIMIT 1", scope.studentId, now, scope.lessonId))
+        "lesson.next" -> {
+            val next = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='regular' AND launch_mode='executable' AND status='scheduled' AND starts_at>? AND id IS DISTINCT FROM ? ORDER BY starts_at,id LIMIT 1", scope.studentId, now, scope.lessonId)
+            val prepared = next?.let { connection.preparation(scope.copy(lessonId = null), it.text("id")) }
+            json("lesson" to next?.let { JsonObject(it + json("preparedTopic" to
+                if (prepared?.text("status") == "ready") prepared.obj("plan").obj("content").text("topic") else null)) })
+        }
         "trial.schedule_cancel" -> TrialSchedule().cancel(connection, scope, args, now)
         "trial.schedule" -> TrialSchedule().save(connection, scope, args, now)
         "trial.schedules" -> TrialSchedule().read(connection, scope)
@@ -123,6 +128,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             WHERE f.student_id=? AND forgotten_at IS NULL AND value IS NOT NULL ORDER BY category,fact_key""", now, scope.studentId)
         val observations = connection.documents("""SELECT to_jsonb(o) || jsonb_build_object('source_content_expired',e.body IS NULL OR e.expires_at<=?, 'occurred_at',e.occurred_at)
             FROM memory_observation o LEFT JOIN conversation_event e ON e.id=o.source_event_id
+            JOIN lesson observed ON observed.id=o.lesson_id AND observed.transcript_revision=o.source_revision
             WHERE o.student_id=? ORDER BY e.occurred_at DESC,o.id LIMIT 40""", now, scope.studentId)
         val channel = if (lessonId != null) "lesson:$lessonId" else "telegram"
         val through = if (scope.role == "text" && scope.requestId != null) connection.rows(
@@ -137,12 +143,16 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             val job = connection.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=? AND student_id=?", jobId, scope.studentId) ?: reject("not_owned")
             job.obj("input_refs").optionalText("sourceId")?.let { sourceMessage(connection, scope, it, now) }
         }
-        val roadmap = connection.document("SELECT to_jsonb(v) FROM roadmap r JOIN roadmap_revision v ON v.roadmap_id=r.id AND v.revision=r.active_revision WHERE r.student_id=? AND v.status='active'", scope.studentId)
+        val roadmap = connection.currentRoadmap(scope.studentId)
         val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress') ORDER BY created_at DESC LIMIT 1", scope.studentId)
         json("version" to 1, "student" to student, "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
             "billing" to billing.read(connection, scope.studentId, now),
+            "lessonAnalysis" to lessonId?.let { connection.document("""SELECT jsonb_build_object('status',j.status,'error',j.error_code)
+                FROM foundation_job j JOIN lesson l ON l.id=j.target_id WHERE j.student_id=? AND l.id=?
+                AND j.kind='lesson.evaluate' AND (j.input_refs->>'transcriptRevision')::bigint=l.transcript_revision
+                ORDER BY j.created_at DESC LIMIT 1""", scope.studentId, it) },
             "trialResult" to connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE student_id=? ORDER BY created_at DESC LIMIT 1", scope.studentId),
-            "roadmap" to roadmap, "events" to JsonArray(events), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
+            "roadmap" to roadmap, "roadmapPreparation" to RoadmapPreparation().state(connection, scope.studentId), "events" to JsonArray(events), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }
 

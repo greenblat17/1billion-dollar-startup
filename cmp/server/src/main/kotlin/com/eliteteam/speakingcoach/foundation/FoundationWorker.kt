@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
 
+import io.ktor.client.plugins.timeout
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -25,6 +26,7 @@ internal interface LearningComputer {
 internal class HttpLearningComputer(private val http: HttpClient, private val root: String, private val serviceToken: String) : LearningComputer {
     override suspend fun compute(scope: String, job: JsonObject): JsonObject {
         val response = http.post("${root.trimEnd('/')}/internal/foundation/compute") {
+            timeout { requestTimeoutMillis = 140_000; socketTimeoutMillis = 140_000 }
             header("X-Internal-Token", serviceToken)
             header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(job.text("id")))
             header("X-Execution-Scope", scope)
@@ -36,7 +38,7 @@ internal class HttpLearningComputer(private val http: HttpClient, private val ro
         if (response.status.value == 400) reject("invalid_result")
         if (response.status.value == 503) {
             val detail = runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
-            reject(if (detail == "handler_unavailable") "handler_unavailable" else "provider_error")
+            reject(if (detail in setOf("handler_unavailable", "provider_timeout")) detail!! else "provider_error")
         }
         if (response.status.value !in 200..299) reject("provider_error")
         return foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject
@@ -90,11 +92,7 @@ internal class FoundationWorker(
             val execution = service.identity.issueJob(job)
             try {
                 val result = if (job.text("kind") == "retention.prune") json()
-                    else kotlinx.coroutines.withTimeout(45_000) {
-                        val handler = if (job.text("kind") in setOf("schedule.materialize", "notification.reminder"))
-                            businessHandlers[job.text("kind")] ?: reject("handler_unavailable") else computer
-                        handler.compute(execution, job)
-                    }
+                    else kotlinx.coroutines.withTimeout(150_000) { computeWithRenewal(execution, job) }
                 service.command(execution, json("version" to 1, "operationId" to "job:${job.text("id")}:${job.number("fence")}:apply",
                     "action" to "job.apply", "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"), "result" to result)))
             } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
@@ -104,14 +102,34 @@ internal class FoundationWorker(
             } catch (error: Exception) {
                 RuntimeDiagnostics.record("foundation_job_failed", "compute", error,
                     mapOf("job_id" to job.text("id"), "trace_id" to RuntimeDiagnostics.trace(job.text("id")), "attempt" to job.number("attempts").toString()))
-                val code = (error as? FoundationFailure)?.code?.takeIf {
-                    it in setOf("budget_exhausted", "handler_unavailable", "source_expired", "invalid_result")
-                } ?: "provider_error"
+                val failure = (error as? FoundationFailure)?.code
+                val code = when (failure) {
+                    "budget_exhausted", "handler_unavailable", "source_expired", "invalid_result", "provider_timeout" -> failure
+                    "invalid_evidence", "insufficient_evidence", "confirmation_required", "invalid_steps", "invalid_reason" -> "invalid_result"
+                    else -> "provider_error"
+                }
                 fail(execution, job, code)
             }
             return true
         }
         return false
+    }
+
+    private suspend fun computeWithRenewal(execution: String, job: JsonObject): JsonObject = kotlinx.coroutines.coroutineScope {
+        val renewal = launch {
+            while (isActive) {
+                delay(20_000)
+                service.command(execution, json("version" to 1, "operationId" to newId(), "action" to "job.renew",
+                    "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"))))
+            }
+        }
+        try {
+            val handler = if (job.text("kind") in setOf("schedule.materialize", "notification.reminder"))
+                businessHandlers[job.text("kind")] ?: reject("handler_unavailable") else computer
+            handler.compute(execution, job)
+        } finally {
+            renewal.cancel()
+        }
     }
 
     private suspend fun fail(scope: String, job: JsonObject, code: String) {
