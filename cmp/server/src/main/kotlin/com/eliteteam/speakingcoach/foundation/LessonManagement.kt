@@ -9,7 +9,9 @@ import kotlinx.serialization.json.JsonObject
 internal class LessonManagement {
     fun list(c: Connection, scope: ExecutionScope): JsonObject {
         requireRole(scope, "text", "operator")
-        return json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND status IN ('scheduled','in_progress') ORDER BY starts_at LIMIT 40", scope.studentId)))
+        val lessons = c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND status IN ('scheduled','in_progress') ORDER BY starts_at LIMIT 40", scope.studentId)
+        return json("lessons" to JsonArray(lessons.map { lesson -> JsonObject(lesson + json("preparation" to
+            if (lesson.text("status") == "in_progress") lesson["execution_snapshot"] else c.preparation(scope, lesson.text("id")))) }))
     }
 
     fun create(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
@@ -54,8 +56,10 @@ internal class LessonManagement {
             occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled",
         )
         if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
+        if (kind == "regular" && connection.currentRoadmap(scope.studentId) == null &&
+            RoadmapPreparation().state(connection, scope.studentId) == null) RoadmapPreparation().enqueue(connection, scope.studentId, now)
         if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "$id:initial", id,
-            json("goalRevision" to connection.goalRevision(scope.studentId), "learningRevision" to connection.learningRevision(scope.studentId)), now)
+            connection.planInputs(scope.studentId, id), now)
         return connection.lesson(scope, id)
     }
 
@@ -80,10 +84,12 @@ internal class LessonManagement {
             if (scope.role == "text" && lesson.text("kind") == "regular" && mode != "executable") reject("not_permitted")
             if (mode !in setOf("placeholder", "executable")) reject("invalid_lesson")
             connection.update("UPDATE lesson SET launch_mode=? WHERE id=?", mode, lesson.text("id"))
-            if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "${lesson.text("id")}:reschedule:${lesson.number("version")}", lesson.text("id"),
-                json("goalRevision" to connection.goalRevision(scope.studentId), "learningRevision" to connection.learningRevision(scope.studentId)), now)
+            connection.update("UPDATE foundation_job SET status='superseded' WHERE target_id=? AND kind='lesson.prepare' AND status IN ('queued','running','retry_wait')", lesson.text("id"))
+            connection.update("UPDATE lesson_plan SET status='stale' WHERE lesson_id=?", lesson.text("id"))
             connection.update("UPDATE lesson SET starts_at=?,timezone=?,timing=?,version=version+1,updated_at=? WHERE id=?",
                 starts, args.text("timezone"), if (immediate) "now" else "scheduled", now, lesson.text("id"))
+            if (mode == "executable") connection.enqueueJob(scope.studentId, "lesson.prepare", "${lesson.text("id")}:reschedule:${lesson.number("version")}", lesson.text("id"),
+                connection.planInputs(scope.studentId, lesson.text("id")), now)
         }
         connection.update("UPDATE trial_notice SET status='cancelled',fence=fence+1 WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
         if (lesson.optionalText("schedule_id") != null) connection.update(

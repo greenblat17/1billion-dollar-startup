@@ -82,6 +82,8 @@ internal fun sourceMessage(connection: Connection, scope: ExecutionScope, source
         """SELECT to_jsonb(e) FROM conversation_event e WHERE student_id=? AND id=? AND role='user'
            AND body IS NOT NULL AND expires_at>?""", scope.studentId, sourceId, now,
     ) ?: reject("source_expired")
+    if (scope.role == "voice" && (scope.lessonId == null || connection.document(
+            "SELECT to_jsonb(e) FROM lesson_event e WHERE lesson_id=? AND event_id=?", scope.lessonId, sourceId) == null)) reject("not_owned")
     if (scope.role == "text") {
         val input = connection.document(
             "SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=?",

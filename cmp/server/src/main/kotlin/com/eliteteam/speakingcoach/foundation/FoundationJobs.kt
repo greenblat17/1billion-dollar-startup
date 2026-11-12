@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("memory.extract", "lesson.evaluate", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -31,12 +31,21 @@ internal class FoundationJobs {
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
-               ORDER BY due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
+               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'roadmap.prepare' THEN 1 ELSE 2 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
         ) ?: return json("job" to null)
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
             connection.update("UPDATE foundation_job SET status='superseded' WHERE id=?", id)
             return json("job" to null)
+        }
+        if (selected.text("kind") == "lesson.prepare") {
+            val target = selected.text("target_id")
+            val roadmap = if (connection.lesson(scope, target).text("kind") == "regular") RoadmapPreparation().state(connection, scope.studentId) else null
+            if (connection.pendingEvaluations(scope.studentId, target).isNotEmpty() ||
+                roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed")) {
+                connection.update("UPDATE foundation_job SET due_at=? WHERE id=?", now.plusSeconds(5), id)
+                return json("job" to null)
+            }
         }
         if (selected.text("kind") == "notification.reminder") {
             val begun = connection.update("INSERT INTO reminder_delivery(job_id,student_id,lesson_id,lesson_version,outcome,attempted_at) VALUES (?,?,?,?,'unknown',?) ON CONFLICT(job_id) DO UPDATE SET outcome='unknown',attempted_at=EXCLUDED.attempted_at WHERE reminder_delivery.outcome='not_sent'",
@@ -87,6 +96,7 @@ internal class FoundationJobs {
         val inputs = job.obj("input_refs")
         val applied = when (job.text("kind")) {
             "schedule.materialize", "notification.reminder" -> BackgroundContracts().apply(connection, scope, job, result, now)
+            "roadmap.prepare" -> RoadmapPreparation().apply(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), inputs, result, now)
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
@@ -112,7 +122,8 @@ internal class FoundationJobs {
             else -> reject("handler_unavailable")
         }
         val status = if (applied) "succeeded" else "superseded"
-        connection.update("UPDATE foundation_job SET status=?,lease_until=NULL WHERE id=?", status, job.text("id"))
+        connection.update("UPDATE foundation_job SET status=?,lease_until=NULL,result=?::jsonb WHERE id=?", status,
+            if (job.text("kind") == "roadmap.prepare" && applied) result else null, job.text("id"))
         connection.update("UPDATE foundation_job_attempt SET finished_at=?,outcome=? WHERE job_id=? AND fence=?", now, status, job.text("id"), job.number("fence"))
         return json("status" to status)
     }
@@ -129,7 +140,7 @@ internal class FoundationJobs {
     }
 
     private fun evaluate(connection: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
-        result.only("status", "observations")
+        result.only("status", "observations", "facts", "candidates")
         if (result.text("status") !in setOf("evaluated", "insufficient_evidence")) reject("invalid_result")
         val lesson = connection.lesson(scope, lessonId)
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
@@ -147,7 +158,7 @@ internal class FoundationJobs {
         connection.update(
             """INSERT INTO lesson_evaluation(student_id,lesson_id,source_revision,analyzer_version,result,created_at)
                VALUES (?,?,?,?,?::jsonb,?) ON CONFLICT DO NOTHING""", scope.studentId, lessonId, inputs.number("transcriptRevision"),
-            inputs.text("analyzerVersion"), result, now,
+            inputs.text("analyzerVersion"), JsonObject(result - "facts" - "candidates"), now,
         )
         observations.forEach { item ->
             val observation = item.jsonObject
@@ -158,7 +169,9 @@ internal class FoundationJobs {
                 observation.text("dimension"), observation.text("content"), observation.text("uncertainty"), observation.text("sourceId"), now,
             )
         }
-        // Evaluation has no permission to write the goal, profile or self-report fields.
+        // Personal direct reports only; evaluation never changes the goal or learning self-assessment.
+        LessonMemory().apply(connection, scope, lessonId, result, now)
+        // Evaluation has no permission to write the goal or learning self-report fields.
         connection.invalidatePreparation(scope.studentId, now)
         return true
     }
@@ -167,8 +180,12 @@ internal class FoundationJobs {
         result.only("objective", "topic", "strategy")
         listOf("objective", "topic", "strategy").forEach { if (result.text(it).isBlank() || result.text(it).length > 3000) reject("invalid_result") }
         val lesson = connection.lesson(scope, lessonId)
-        if (lesson.text("status") != "scheduled" || inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
+        if (inputs.optionalText("lessonVersion")?.toLong()?.let { it != lesson.number("version") } == true ||
+            inputs.optionalText("roadmapRevision")?.toLong()?.let { it != connection.roadmapRevision(scope.studentId) } == true ||
+            lesson.text("status") != "scheduled" || inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
             inputs.number("learningRevision") != connection.learningRevision(scope.studentId)) return false
+        val roadmap = if (lesson.text("kind") == "regular") RoadmapPreparation().state(connection, scope.studentId) else null
+        if (roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed")) reject("roadmap_not_ready")
         val missing = connection.pendingEvaluations(scope.studentId, lessonId)
         if (missing.isNotEmpty()) reject("analysis_not_ready")
         val revision = connection.rows("SELECT COALESCE(max(revision),0)+1 FROM lesson_plan WHERE lesson_id=?", lessonId) { it.getLong(1) }.single()
@@ -178,8 +195,8 @@ internal class FoundationJobs {
         )
         connection.update("UPDATE lesson_plan SET status='stale' WHERE lesson_id=?", lessonId)
         connection.update(
-            """INSERT INTO lesson_plan(student_id,lesson_id,revision,goal_revision,learning_revision,evaluation_refs,status,content,created_at)
-               VALUES (?,?,?,?,?,?::jsonb,'ready',?::jsonb,?)""", scope.studentId, lessonId, revision, inputs.number("goalRevision"), inputs.number("learningRevision"), JsonArray(evaluations), result, now,
+            """INSERT INTO lesson_plan(student_id,lesson_id,revision,goal_revision,learning_revision,roadmap_revision,evaluation_refs,status,content,created_at)
+               VALUES (?,?,?,?,?,?,?::jsonb,'ready',?::jsonb,?)""", scope.studentId, lessonId, revision, inputs.number("goalRevision"), inputs.number("learningRevision"), connection.roadmapRevision(scope.studentId), JsonArray(evaluations), result, now,
         )
         return true
     }
@@ -196,8 +213,26 @@ internal fun Connection.preparation(scope: ExecutionScope, lessonId: String): Js
     val lesson = lesson(scope, lessonId)
     if (lesson.text("launch_mode") == "placeholder") return json("status" to "blocked", "reason" to "placeholder")
     val pending = pendingEvaluations(scope.studentId, lessonId)
-    if (pending.isNotEmpty()) return json("status" to "blocked", "reason" to "analysis_not_ready", "lessons" to JsonArray(pending.map { kotlinx.serialization.json.JsonPrimitive(it) }))
-    val plan = document("SELECT to_jsonb(p) FROM lesson_plan p WHERE lesson_id=? AND status='ready' AND goal_revision=? AND learning_revision=? ORDER BY revision DESC LIMIT 1",
-        lessonId, goalRevision(scope.studentId), learningRevision(scope.studentId))
-    return if (plan != null) json("status" to "ready", "plan" to plan) else json("status" to "blocked", "reason" to "plan_not_ready")
+    if (pending.isNotEmpty()) {
+        val failed = pending.any { id -> document("""SELECT to_jsonb(j) FROM foundation_job j JOIN lesson l ON l.id=j.target_id
+            WHERE j.student_id=? AND j.target_id=? AND j.kind='lesson.evaluate' AND j.status='failed'
+            AND (j.input_refs->>'transcriptRevision')::bigint=l.transcript_revision LIMIT 1""", scope.studentId, id) != null }
+        return json("status" to if (failed) "failed" else "blocked", "reason" to if (failed) "analysis_failed" else "analysis_not_ready",
+            "lessons" to JsonArray(pending.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+    }
+    if (lesson.text("kind") == "regular") {
+        val roadmap = RoadmapPreparation().state(this, scope.studentId)
+        if (roadmap?.optionalText("status") == "failed") return json("status" to "failed", "reason" to "roadmap_failed")
+        if (roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait")) return json("status" to "blocked", "reason" to "plan_not_ready")
+    }
+    val plan = document("SELECT to_jsonb(p) FROM lesson_plan p WHERE lesson_id=? AND status='ready' AND goal_revision=? AND learning_revision=? AND COALESCE(roadmap_revision,0)=? ORDER BY revision DESC LIMIT 1",
+        lessonId, goalRevision(scope.studentId), learningRevision(scope.studentId), roadmapRevision(scope.studentId))
+    if (plan != null) return json("status" to "ready", "plan" to plan)
+    val failed = document("""SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND target_id=?
+        AND kind='lesson.prepare' AND status='failed' AND (input_refs->>'goalRevision')::bigint=?
+        AND (input_refs->>'learningRevision')::bigint=? AND ((input_refs->>'lessonVersion') IS NULL
+        OR (input_refs->>'lessonVersion')::bigint=?) ORDER BY created_at DESC LIMIT 1""",
+        scope.studentId, lessonId, goalRevision(scope.studentId), learningRevision(scope.studentId), lesson.number("version"))
+    return if (failed != null) json("status" to "failed", "reason" to "plan_failed")
+        else json("status" to "blocked", "reason" to "plan_not_ready")
 }

@@ -1,4 +1,6 @@
 """Foundation AI endpoints installed with explicitly injected dependencies."""
+import asyncio
+
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from app.diagnostics import event
@@ -24,10 +26,13 @@ def install_foundation_api(app: FastAPI, tutor: FoundationTutor, learning: Learn
         if not isinstance(job, dict):
             raise HTTPException(400, detail='invalid_job')
         try:
-            return await learning.compute(x_execution_scope, job)
+            async with asyncio.timeout(120):
+                return await learning.compute(x_execution_scope, job)
         except BackendFailure as error:
             event('foundation_failed', error=error, stage='backend')
             raise HTTPException(error.status, detail=error.code) from None
+        except TimeoutError:
+            raise HTTPException(503, detail='provider_timeout') from None
         except ValueError as error:
             event('foundation_failed', error=error, stage='compute_validation')
             if str(error) == 'handler_unavailable':

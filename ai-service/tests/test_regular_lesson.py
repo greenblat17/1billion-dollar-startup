@@ -71,7 +71,7 @@ async def test_regular_configuration_uses_admitted_plan_memory_and_actual_next_m
     assert data['nextLesson'] is None
     assert 'not yet\navailable' not in config['instructions']
     assert config['audio']['output']['voice'] == 'marin'
-    assert [t['name'] for t in config['tools']] == ['finish_after_reply']
+    assert {t['name'] for t in config['tools']} == {'finish_after_reply', 'search_memory', 'discuss_memory', 'record_memory', 'set_memory_policy', 'review_observation', 'confirm_memory', 'reject_memory', 'forget_memory'}
 
 
 @pytest.mark.asyncio

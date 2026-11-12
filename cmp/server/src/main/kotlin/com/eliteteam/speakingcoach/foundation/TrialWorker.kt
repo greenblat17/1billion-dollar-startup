@@ -1,6 +1,9 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.telegram.TutorTextRequest
+import com.eliteteam.speakingcoach.telegram.tutorTextParts
+import kotlinx.serialization.encodeToString
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.post
@@ -33,7 +36,12 @@ internal class TrialWorker(private val service: FoundationService, private val h
         sweep()
         clarifyTime()
         val notice = service.database.transaction { c, now ->
-            val row = c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE status IN ('pending','ready') AND due_at<=? ORDER BY due_at LIMIT 1", now) ?: return@transaction null
+            val row = c.document("""SELECT to_jsonb(n) FROM trial_notice n WHERE status IN ('pending','ready') AND due_at<=?
+                AND NOT (kind='followup' AND EXISTS (SELECT 1 FROM lesson l WHERE l.id=n.lesson_id AND n.due_at>?
+                    AND EXISTS (SELECT 1 FROM foundation_job j WHERE j.student_id=n.student_id
+                        AND j.status IN ('queued','running','retry_wait')
+                        AND (j.kind='roadmap.prepare' OR (j.kind='lesson.evaluate' AND j.target_id=l.id)))))
+                ORDER BY due_at LIMIT 1""", now, now.minusSeconds(300)) ?: return@transaction null
             c.lockStudent(row.text("student_id"))
             val current = c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE id=? AND status IN ('pending','ready') FOR UPDATE", row.text("id")) ?: return@transaction null
             val lesson = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", current.text("lesson_id"))
@@ -78,15 +86,21 @@ internal class TrialWorker(private val service: FoundationService, private val h
         } ?: return
         val markup = json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
             json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
-        val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
-            contentType(ContentType.Application.Json); setBody(json("chat_id" to subject, "text" to reply, "reply_markup" to markup).toString())
+        for (part in tutorTextParts(reply)) {
+            val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
+                contentType(ContentType.Application.Json)
+                setBody(foundationJson.encodeToString(TutorTextRequest(subject.toLong(), part.text, part.entities, markup)))
+            }
+            val sentBody = sent.bodyAsText()
+            val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
+            if (!ok) {
+                RuntimeDiagnostics.record("trial_delivery_failed", "telegram_response", extra = mapOf(
+                    "notice_id" to notice.text("id"), "http_status" to sent.status.value.toString(),
+                    "trace_id" to RuntimeDiagnostics.trace(notice.text("id")), "outcome" to "unknown") + RuntimeDiagnostics.httpFields(sent.status.value, sentBody))
+                return
+            }
         }
-        val sentBody = sent.bodyAsText()
-        val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
-        if (!ok) RuntimeDiagnostics.record("trial_delivery_failed", "telegram_response", extra = mapOf(
-            "notice_id" to notice.text("id"), "http_status" to sent.status.value.toString(),
-            "trace_id" to RuntimeDiagnostics.trace(notice.text("id")), "outcome" to "unknown") + RuntimeDiagnostics.httpFields(sent.status.value, sentBody))
-        if (ok) service.database.transaction { c, now ->
+        service.database.transaction { c, now ->
             c.lockStudent(student)
             val updated = c.update("UPDATE trial_notice SET status='sent' WHERE id=? AND status='unknown' AND fence=? AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)", notice.text("id"), notice.number("fence"), student)
             if (updated == 0) return@transaction

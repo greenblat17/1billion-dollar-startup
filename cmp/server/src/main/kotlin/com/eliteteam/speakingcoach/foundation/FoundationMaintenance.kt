@@ -20,7 +20,7 @@ internal class FoundationMaintenance {
     }
 
     fun rejectCandidate(connection: Connection, scope: ExecutionScope, args: JsonObject): JsonObject {
-        requireRole(scope, "text", "operator")
+        requireRole(scope, "text", "voice", "operator")
         args.only("candidateId", "expectedVersion")
         val updated = connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND id=? AND version=? AND status='pending'",
             scope.studentId, args.text("candidateId"), args.number("expectedVersion"))
@@ -53,6 +53,7 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now)
+        connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
         connection.update("DELETE FROM memory_candidate WHERE student_id=?", student)
         connection.update("DELETE FROM memory_fact_history WHERE student_id=?", student)
@@ -96,7 +97,7 @@ internal class FoundationMaintenance {
         if (job.optionalText("error_code") == "delivery_unknown") reject("delivery_reconciliation_required")
         if (job.number("data_epoch") != scope.epoch || Instant.parse(job.text("deadline")) <= now) reject("source_expired")
         val inputs = job.obj("input_refs")
-        if (job.text("kind") == "lesson.prepare" && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
+        if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
                 inputs.number("learningRevision") != connection.learningRevision(scope.studentId))) reject("stale_job")
         if (job.text("kind") == "lesson.evaluate" && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
         connection.update("UPDATE foundation_job SET status='queued',due_at=?,max_attempts=attempts+3,error_code=NULL WHERE id=?", now, job.text("id"))
@@ -116,6 +117,7 @@ internal class FoundationMaintenance {
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
         // Observations and roadmap prose can paraphrase a forgotten fact without a complete source graph.
+        connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
         connection.update("UPDATE roadmap_revision SET content='{}',reason='',confirmed_source_id=NULL,status='superseded' WHERE student_id=?", student)
         connection.update("DELETE FROM roadmap_step WHERE roadmap_id IN (SELECT id FROM roadmap WHERE student_id=?)", student)
@@ -127,7 +129,7 @@ internal class FoundationMaintenance {
         connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
         connection.update("UPDATE student SET data_epoch=data_epoch+1 WHERE id=?", student)
-        connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
+        connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',result=NULL,error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_summary WHERE student_id=?", student)
         connection.update("UPDATE foundation_operation SET result='{}',expires_at=? WHERE student_id=?", now, student)
         connection.update("UPDATE tutor_inbox SET response=NULL,status='failed',lease_until=NULL WHERE student_id=?", student)

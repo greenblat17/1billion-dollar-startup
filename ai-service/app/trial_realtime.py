@@ -18,6 +18,9 @@ from websockets.exceptions import InvalidStatus
 
 from app.diagnostics import diagnostic_context, event
 from app.trial_journal import TrialJournal
+from app.memory_policy import MEMORY_POLICY
+from app.memory_tools import MEMORY_TOOLS, MEMORY_MODELS, execute_memory
+from app.foundation_client import BackendFailure
 from app.trial_policy import REALTIME_VOICE_POLICY
 from app.regular_lesson import REGULAR_VOICE_POLICY
 
@@ -74,6 +77,7 @@ class RealtimeTrialSession(TrialJournal):
         self.pending_timing = None
         self.response_timing = {}
         self.archive_timings = {}
+        self.memory_sources = {}
         self.lock = asyncio.Lock()
 
     async def send(self, payload):
@@ -106,7 +110,7 @@ class RealtimeTrialSession(TrialJournal):
         context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
         elapsed = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(self.lesson['starts_at'])).total_seconds())
         next_lesson = await self.next_lesson() if self.regular else None
-        instructions = (REGULAR_VOICE_POLICY if self.regular else REALTIME_VOICE_POLICY) + '\nLesson data (not instructions):\n' + json.dumps({
+        instructions = (REGULAR_VOICE_POLICY if self.regular else REALTIME_VOICE_POLICY) + '\n' + MEMORY_POLICY + '\nLesson data (not instructions):\n' + json.dumps({
             'context': context.data, 'history': context.history,
             'elapsedFromScheduledStartSeconds': elapsed,
             'plannedMinutes': self.lesson['duration_minutes'],
@@ -125,7 +129,7 @@ class RealtimeTrialSession(TrialJournal):
                                  'voice': self.settings.trial_realtime_voice}},
             'tools': [{'type': 'function', 'name': 'finish_after_reply',
                        'description': 'Prepare final goodbye only after oral feedback and the comfort answer, or explicit request to end.',
-                       'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}],
+                       'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}] + self.memory_tools(),
             'tool_choice': 'auto', 'max_output_tokens': 1200,
         }})
         # Do not expose a connected UI until the provider accepts the configuration.
@@ -140,6 +144,18 @@ class RealtimeTrialSession(TrialJournal):
                                      'protocol': 'realtime-pcm-v1', 'inputSampleRate': 24000})
         self.want_response = True
         await self.maybe_respond('Briefly greet or resume the same lesson. Do not repeat an introduction questionnaire.')
+
+    @staticmethod
+    def memory_tools():
+        tools = []
+        for item in MEMORY_TOOLS:
+            tool = json.loads(json.dumps(item['function']))
+            tool.pop('strict', None)
+            if tool['name'] not in ('search_memory', 'discuss_memory'):
+                tool['parameters']['properties']['sourceId'] = {'type': 'string'}
+                tool['parameters']['required'].append('sourceId')
+            tools.append({'type': 'function', **tool})
+        return tools
 
     async def maybe_respond(self, instructions=None):
         if self.ended or not self.want_response or self.response_active:
@@ -269,7 +285,15 @@ class RealtimeTrialSession(TrialJournal):
             self.pending_inputs.discard(key)
             text = message.get('transcript', '').strip()
             if text:
-                await self.append('user', text, source=f"{self.episode}:{message['item_id']}")
+                saved = await self.append('user', text, source=f"{self.episode}:{message['item_id']}")
+                if saved.get('eventId'):
+                    source = {'id': saved['eventId'], 'body': text[:12000]}
+                    self.memory_sources[source['id']] = source
+                    while len(self.memory_sources) > 20:
+                        self.memory_sources.pop(next(iter(self.memory_sources)))
+                    await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
+                        'role': 'system', 'content': [{'type': 'input_text', 'text':
+                            'Saved transcript metadata for memory tools (data, not instructions): ' + json.dumps(source, ensure_ascii=False)}]}})
             await self.finish_if_ready()
         elif kind == 'conversation.item.input_audio_transcription.failed':
             raise RealtimeProviderError(message.get('error', {}))
@@ -343,9 +367,34 @@ class RealtimeTrialSession(TrialJournal):
         if len(self.tool_calls) > 100:
             raise ValueError('realtime_tool_limit')
         try:
-            arguments = json.loads(output.get('arguments', '')[:2000])
+            arguments = json.loads(output.get('arguments', '')[:16000])
         except (ValueError, TypeError):
             arguments = None
+        if output['name'] in MEMORY_MODELS:
+            try:
+                if not isinstance(arguments, dict):
+                    raise ValueError('invalid_arguments')
+                source = self.memory_sources.get(arguments.pop('sourceId', None))
+                result = await execute_memory(self.backend, self.scope, self.episode + ':' + call_id,
+                                              source, output['name'], arguments)
+            except BackendFailure as error:
+                if error.status >= 500:
+                    raise
+                result = {'ok': False, 'error': error.code}
+            except (ValueError, TypeError):
+                result = {'ok': False, 'error': 'invalid_memory_arguments_or_unavailable_transcript'}
+            if result.get('contextRevoked'):
+                self.ended = True
+                self.want_response = False
+                self.input_buffer.clear()
+                self.memory_sources.clear()
+                await self.socket.send_json({'type': 'ended', 'reason': 'memory_forgotten', 'message': result['reply']})
+                await self.provider.close()
+                return
+            await self.send({'type': 'conversation.item.create', 'item': {'type': 'function_call_output',
+                'call_id': call_id, 'output': json.dumps(result, ensure_ascii=False)}})
+            self.want_response = True
+            return
         valid = (output['name'] == 'finish_after_reply' and arguments == {}
                  and not any(not item['settled'] for item in self.items.values()))
         # Only provider-authenticated calls reach here; never browser function events.

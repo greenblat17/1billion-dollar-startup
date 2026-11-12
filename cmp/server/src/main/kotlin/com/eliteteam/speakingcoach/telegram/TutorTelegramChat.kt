@@ -5,10 +5,8 @@ import com.eliteteam.speakingcoach.ai.TutorClient
 import com.eliteteam.speakingcoach.ai.TutorRequest
 import com.eliteteam.speakingcoach.ai.TutorDelivery
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
-import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.sendBotAction
 import dev.inmo.tgbotapi.types.actions.TypingAction
-import dev.inmo.tgbotapi.types.buttons.ReplyKeyboardRemove
 import dev.inmo.tgbotapi.types.message.abstracts.ChatMessage
 import dev.inmo.tgbotapi.requests.abstracts.SimpleRequest
 import kotlinx.coroutines.CancellationException
@@ -81,9 +79,11 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
             val response = client.respond(TutorRequest(sessionId, requestId, text, message.date.unixMillis / 1000.0), start)
             if (response.replyMessageId == null && client.beginDelivery(TutorDelivery(sessionId, requestId))) {
                 var lastMessageId: Long? = null
-                for (part in response.reply.chunked(3500)) {
-                    lastMessageId = bot.reply(message, part, allowSendingWithoutReply = true,
-                        replyMarkup = ReplyKeyboardRemove()).messageId.long
+                for (part in tutorTextParts(response.reply)) {
+                    val sent = bot.execute(TutorTextRequest(requireNotNull(telegramChatNumber(message.chat.id)),
+                        part.text, part.entities, buildJsonObject { put("remove_keyboard", true) },
+                        TutorReplyParameters(message.messageId.long, true)))
+                    lastMessageId = (sent as JsonObject).getValue("message_id").jsonPrimitive.long
                 }
                 client.delivered(TutorDelivery(sessionId, requestId, replyMessageId = lastMessageId))
             }
