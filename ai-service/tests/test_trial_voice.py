@@ -337,3 +337,24 @@ async def test_audio_probe_distinguishes_received_frames_from_browser_state(capl
                              'trackEnded': True, 'contextRunning': False}
     assert 'private' not in caplog.text
     assert s.last_ping >= s.last_audio
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('muted,speaking,pending,expected', [
+    (True, False, 0, True), (False, False, 0, True),
+    (True, True, 0, False), (True, False, 1, False),
+])
+async def test_silence_recovery_can_answer_with_microphone_muted(monkeypatch, muted, speaking, pending, expected):
+    from unittest.mock import Mock
+    s = session()
+    s.muted = muted
+    s.last_speech = 10
+    s.last_ping = 20
+    s.stt = SimpleNamespace(keepalive=AsyncMock(), speaking=speaking, pending_transcriptions=pending)
+    s.start_turn = Mock()
+    monkeypatch.setattr('app.trial_session.time.monotonic', lambda: 20)
+    async def one_tick(_):
+        s.ended = True
+    monkeypatch.setattr('app.trial_session.asyncio.sleep', one_tick)
+    await s.heartbeat()
+    assert s.start_turn.called is expected

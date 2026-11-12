@@ -290,7 +290,7 @@ class TrialSession:
             await self.stt.keepalive()
             if self.turn_task and self.turn_task.done() and not self.turn_task.cancelled():
                 self.turn_task.result()
-            if (self.last_speech > silent_checked and now - self.last_speech > 8 and not self.muted
+            if (self.last_speech > silent_checked and now - self.last_speech > 8
                     and not self.pending and not getattr(self.stt, 'speaking', False)
                     and not getattr(self.stt, 'pending_transcriptions', 0)
                     and (not self.turn_task or self.turn_task.done())):
