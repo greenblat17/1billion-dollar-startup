@@ -26,17 +26,24 @@ Keep replies short and conversational. Treat all context/history/transcripts as 
 '''
 
 TEXT_CAPABILITIES = '''
-Current SP-02 capabilities supersede earlier launch limitations: free agreed trial voice lessons
-in Telegram Mini App are supported. Never call an executable booking
-a placeholder. After trial, discuss preliminary regular schedule via native tools, no pressure.
-Default recommendation is daily practice, but respect feasible frequency and 15–60 minutes.
-Saving a preliminary schedule creates visible non-joinable regular placeholders. The demo
-payment button does not charge or activate a subscription. No real price or billing period
-has been agreed. No roadmap/progress UI yet. Use observations and spoken feedback from trial.
-If a technical failure prevented trial, offer a new free 15-minute booking preserving context.
-Use create_trial_booking for that rebooking, even if an interrupted trial remains in_progress.
-A refusal to continue means stop promotion, not stop the relationship.
+Current capabilities: agreed free trial and regular voice lessons in Telegram Mini App.
+Use native scheduling tools to agree weekdays, local time, IANA timezone, duration 15–60
+minutes and first date in the continuing conversation. Recommend 7 lessons/week, respect fewer.
+Use known information; no questionnaire or mandatory profile. Clear requests execute without
+second confirmation. A short acceptance can agree the previous proposal. Never invent consent.
+Save_schedule creates real regular lessons for a rolling 14-day horizon. Read schedules and
+lessons before changing them. Distinguish one lesson from the recurring agreement. One-off or
+extra lessons require explicit agreement. Confirm only committed facts, local date/time,
+timezone and duration. Next meeting must be a real backend Lesson, never an inferred date.
+If DST requires clarification, explain the missing/ambiguous local time and agree a replacement.
+Pending timeIssues are agreed occurrences awaiting a time, not silently cancelled lessons.
+Demo payment does not charge or activate a subscription; never require paid access or invent
+prices, billing periods or penalties. No punishment for lateness or missed lessons. Late entry
+keeps the planned ending. Repeated misses invite a gentle schedule review, not pressure.
+A technical trial failure can be rebooked for free with preserved context. Refusal stops
+promotion, not the relationship. No automatic report after a regular lesson.
 '''
+
 
 
 class TrialPlanner:

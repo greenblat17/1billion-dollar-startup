@@ -36,6 +36,63 @@ TRIAL_TOOLS = [
 ]
 
 
+class RegularLesson(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    evidence: str = Field(min_length=1, max_length=2000)
+    startsAt: str = Field(description='Agreed ISO instant including UTC offset; never guess a DST offset')
+    timezone: str
+    durationMinutes: int = Field(ge=15, le=60)
+
+
+class MoveLesson(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    evidence: str = Field(min_length=1, max_length=2000)
+    lessonId: str
+    expectedVersion: int = Field(ge=1)
+    startsAt: str
+    timezone: str
+
+
+class CancelLesson(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    evidence: str = Field(min_length=1, max_length=2000)
+    lessonId: str
+    expectedVersion: int = Field(ge=1)
+
+
+class ResolveScheduleTime(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    evidence: str = Field(min_length=1, max_length=2000)
+    scheduleId: str
+    expectedVersion: int = Field(ge=1)
+    occurrenceKey: str
+    localTime: str = Field(description='Explicitly agreed replacement local time for the unresolved date')
+
+
+SCHEDULE_MODELS = {
+    'save_schedule': (PreliminarySchedule, 'schedule.agree'),
+    'cancel_schedule': (CancelPreliminarySchedule, 'trial.schedule_cancel'),
+    'create_extra_lesson': (RegularLesson, 'lesson.create'),
+    'reschedule_lesson': (MoveLesson, 'lesson.reschedule'),
+    'cancel_lesson': (CancelLesson, 'lesson.cancel'),
+    'resolve_schedule_time': (ResolveScheduleTime, 'schedule.resolve_time'),
+}
+SCHEDULE_DESCRIPTIONS = {
+    'save_schedule': 'Save or change the explicitly agreed recurring schedule: weekdays, local time, IANA timezone, duration 15–60, first date. Creates real regular lessons. Recommend 7/week but respect fewer. Read current schedule and version before changing. No payment or subscription claim.',
+    'cancel_schedule': 'Cancel the recurring agreement only on an explicit request, preserving started lessons.',
+    'create_extra_lesson': 'Create one real additional or one-off regular lesson ONLY on explicit agreement. Never infer one-off from a recurring request.',
+    'reschedule_lesson': 'Move one scheduled lesson, keeping the recurring agreement unchanged. Read lessonId/version first.',
+    'cancel_lesson': 'Cancel just one scheduled lesson. Read lessonId/version first. Do not cancel the recurring agreement.',
+    'resolve_schedule_time': 'Resolve a pending DST occurrence with an explicitly agreed alternative local time. Read timeIssues from get_schedules. Does not change other dates.',
+}
+SCHEDULE_TOOLS = [{'type': 'function', 'function': {'name': name, 'description': SCHEDULE_DESCRIPTIONS[name],
+    'parameters': model.model_json_schema(), 'strict': True}} for name, (model, _) in SCHEDULE_MODELS.items()]
+SCHEDULE_TOOLS += [{'type': 'function', 'function': {'name': name, 'description': description,
+    'parameters': {'type': 'object', 'properties': {}, 'required': [], 'additionalProperties': False}, 'strict': True}}
+    for name, description in [('get_schedules', 'Read recurring agreements, versions and unresolved DST dates.'),
+                              ('get_lessons', 'Read real upcoming/current lessons, ids and versions; do not guess next meeting.')]]
+
+
 class TrialTutorModel:
     def __init__(self, llm):
         self.llm = llm
@@ -47,4 +104,4 @@ class TrialTutorModel:
             if function['name'] == 'create_trial_booking':
                 function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. A technical failure may be rebooked with preserved context.'
             tools.append({'type': 'function', 'function': function})
-        return await self.llm.complete_tools(messages, tools + TRIAL_TOOLS)
+        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS)
