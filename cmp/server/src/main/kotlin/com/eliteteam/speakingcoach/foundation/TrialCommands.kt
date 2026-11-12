@@ -44,7 +44,9 @@ internal class TrialCommands {
                     c.update("UPDATE lesson SET status='completed',outcome_reason=?,version=version+1 WHERE id=?", reason, scope.lessonId)
                     c.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
                 }
-                c.trialNotice(scope.studentId, lesson.text("id"), scope.epoch,
+                val earlyRegularExit = reason == "end_button" &&
+                    now < Instant.parse(lesson.text("starts_at")).plusSeconds(lesson.number("duration_minutes") * 60 - 180)
+                if (lesson.text("kind") == "trial" || earlyRegularExit) c.trialNotice(scope.studentId, lesson.text("id"), scope.epoch,
                     if (reason == "natural_goodbye") "followup" else reason, now.plusSeconds(if (reason == "natural_goodbye") 3 else 30))
                 json("ended" to true, "completed" to (reason == "natural_goodbye"))
             }

@@ -6,14 +6,14 @@ import vm from 'node:vm';
 test('joining and reconnecting enable microphone; toggle shows state and action',async()=>{
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{dataset:{},setAttribute(name,value){this[name]=value;}});return elements.get(id);};
- const track={enabled:false},sockets=[];
+ const track={enabled:false,stop(){this.stopped=true;}},sockets=[];
  class Socket{static OPEN=1;constructor(){this.readyState=1;sockets.push(this);}send(){}close(){}}
- class AudioContext{state='running';audioWorklet={addModule:async()=>{}};resume=async()=>{};createMediaStreamSource(){return{connect(){}};}createGain(){return{gain:{},connect(){}};}}
- class AudioWorkletNode{port={postMessage(){}};connect(node){return node;}}
+ class AudioContext{state='running';audioWorklet={addModule:async()=>{}};resume=async()=>{};close=async()=>{};createMediaStreamSource(){return{connect(){}};}createGain(){return{gain:{},connect(){}};}}
+ class AudioWorkletNode{disconnect(){}port={postMessage(){}};connect(node){return node;}}
  const context=vm.createContext({window:{Telegram:{WebApp:{initData:'test',ready(){},expand(){}}},addEventListener(){}},
  document:{getElementById:element},location:{search:'?lesson=test',origin:'https://example.test'},
  URLSearchParams,crypto:{randomUUID:()=> 'test'},performance:{now:()=>0},
- navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track]})}},
+ navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}},
  AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout});
  const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
@@ -29,9 +29,15 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(element('mute')['aria-pressed'],'true');
  assert.equal(element('mic-action').textContent,'Включить');
  assert.equal(element('mic-status').textContent,'Микрофон выключен — Саша вас не слышит');
- await vm.runInContext('connect()',context);
+ const originalStarted=vm.runInContext('started',context);
+ const previous=sockets.at(-1);
+ await previous.onmessage({data:JSON.stringify({type:'reconnect'})});
+ assert.equal(track.stopped,true);
+ assert.equal(sockets.length,2);
+ assert.notEqual(sockets.at(-1),previous);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
  assert.equal(track.enabled,true);
+ assert.equal(vm.runInContext('started',context),originalStarted);
  assert.equal(element('mute')['aria-pressed'],'false');
  assert.equal(element('mic-action').textContent,'Выключить');
 });

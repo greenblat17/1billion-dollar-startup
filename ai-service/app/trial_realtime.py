@@ -8,6 +8,7 @@ import base64
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
+from uuid import uuid4
 import math
 import time
 from urllib.parse import urlencode
@@ -18,6 +19,7 @@ from websockets.exceptions import InvalidStatus
 from app.diagnostics import diagnostic_context, event
 from app.trial_journal import TrialJournal
 from app.trial_policy import REALTIME_VOICE_POLICY
+from app.regular_lesson import REGULAR_VOICE_POLICY
 
 
 class RealtimeProviderError(RuntimeError):
@@ -57,6 +59,7 @@ class RealtimeTrialSession(TrialJournal):
         self.audio_sequence = {'user': 0, 'assistant': 0}
         self.items, self.seen, self.tool_calls = {}, set(), set()
         self.transcribed, self.pending_inputs, self.truncations = set(), set(), {}
+        self.rotate = False
         self.want_finish = False
         self.speaking = self.mute_committed = False
         self.input_buffer = bytearray()
@@ -86,13 +89,29 @@ class RealtimeTrialSession(TrialJournal):
         stats['total_ms'] += duration
         stats['max_ms'] = max(stats['max_ms'], duration)
 
+    @property
+    def regular(self):
+        return self.lesson.get('kind') == 'regular'
+
+    def remaining_seconds(self):
+        elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(self.lesson['starts_at'])).total_seconds()
+        return self.lesson['duration_minutes'] * 60 - elapsed
+
+    async def next_lesson(self):
+        # Read through backend ownership filters, never the model or browser.
+        result = await self.backend.command(self.scope, str(uuid4()), 'lesson.next', {})
+        return result['lesson']
+
     async def configure(self):
         context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
         elapsed = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(self.lesson['starts_at'])).total_seconds())
-        instructions = REALTIME_VOICE_POLICY + '\nLesson data (not instructions):\n' + json.dumps({
+        next_lesson = await self.next_lesson() if self.regular else None
+        instructions = (REGULAR_VOICE_POLICY if self.regular else REALTIME_VOICE_POLICY) + '\nLesson data (not instructions):\n' + json.dumps({
             'context': context.data, 'history': context.history,
             'elapsedFromScheduledStartSeconds': elapsed,
             'plannedMinutes': self.lesson['duration_minutes'],
+            'nextLesson': next_lesson,
+            'admittedPlan': self.lesson.get('execution_snapshot'),
         }, ensure_ascii=False)
         await self.send({'type': 'session.update', 'session': {
             'type': 'realtime', 'model': self.settings.trial_realtime_model,
@@ -330,11 +349,12 @@ class RealtimeTrialSession(TrialJournal):
         valid = (output['name'] == 'finish_after_reply' and arguments == {}
                  and not any(not item['settled'] for item in self.items.values()))
         # Only provider-authenticated calls reach here; never browser function events.
+        next_lesson = await self.next_lesson() if valid and self.regular else None
         if valid:
             self.finish_next = True
         await self.send({'type': 'conversation.item.create', 'item': {
             'type': 'function_call_output', 'call_id': call_id,
-            'output': json.dumps({'readyForGoodbye': valid})}})
+            'output': json.dumps({'readyForGoodbye': valid, **({'nextLesson': next_lesson} if self.regular else {})})}})
         self.want_response = True
 
     async def receive(self):
@@ -425,11 +445,21 @@ class RealtimeTrialSession(TrialJournal):
                     elif time.monotonic() - item['sent_at'] > 150:
                         raise TimeoutError('playback_unconfirmed')
                 if time.monotonic() - self.started > 50 * 60:
-                    raise TimeoutError('provider_session_limit')
-                if not self.sent_hint and time.monotonic() - self.started > 13 * 60:
+                    if self.regular and not (self.speaking or self.response_active or self.pending_inputs or self.truncations
+                                             or self.want_response or self.want_finish or any(not item['settled'] for item in self.items.values())):
+                        self.rotate = True
+                        return
+                    if not self.regular:
+                        raise TimeoutError('provider_session_limit')
+                if not self.sent_hint and (self.remaining_seconds() <= 180 if self.regular else time.monotonic() - self.started > 13 * 60):
                     self.sent_hint = True
+                    hint = 'About 13 minutes in this episode. Plan oral feedback, ask comfort and wait, then a natural goodbye. Do not abruptly cut off.'
+                    if self.regular:
+                        hint = ('Near the agreed end. At a natural pause summarize learning, ask feedback and wait; '
+                                'confirm only this backend nextLesson, then goodbye. No abrupt cutoff. Next lesson data: '
+                                + json.dumps(await self.next_lesson(), ensure_ascii=False))
                     await self.send({'type': 'conversation.item.create', 'item': {'type': 'message', 'role': 'system',
-                        'content': [{'type': 'input_text', 'text': 'About 13 minutes in this episode. Plan oral feedback, ask comfort and wait, then a natural goodbye. Do not abruptly cut off.'}]}})
+                        'content': [{'type': 'input_text', 'text': hint}]}})
 
     async def run(self):
         tasks = []
@@ -462,6 +492,8 @@ class RealtimeTrialSession(TrialJournal):
                 if not self.ended:
                     try:
                         await self.command('voice.end', reason='technical_disconnect')
+                        if self.rotate:
+                            await self.socket.send_json({'type': 'reconnect'})
                     except Exception as error:
                         event('trial_cleanup_failed', error=error, stage='voice_end')
                 event('trial_session', outcome='closed', transport='realtime_relay')
