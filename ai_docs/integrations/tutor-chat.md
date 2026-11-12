@@ -16,6 +16,12 @@ legacy сохраняется отдельно, без переноса его R
 
 ### Реализованный путь
 
+Ответы Саши и follow-up после урока преобразуют `**жирный**`, inline code и fenced code
+в Telegram `entities`. Остальная разметка остаётся текстом; HTML/Markdown parse mode не включён.
+Длинные ответы делятся после преобразования, с сохранением UTF-16 offsets и целых surrogate pairs.
+Контракт Telegram: [MessageEntity](https://core.telegram.org/bots/api#messageentity).
+Поставка исправления форматирования указана в status.md.
+
 ```text
 Telegram /start, /onboarding, свободный текст
   → TutorClient → /internal/tutor/start|turn
