@@ -9,6 +9,7 @@ function reportFailure(code,closeCode){
  fetch('/miniapp/diagnostics',{method:'POST',keepalive:true,headers:{'Content-Type':'application/json'},
   body:JSON.stringify({initData:tg.initData,attemptId,stage:diagnosticStage,code,closeCode})}).catch(()=>{});
 }
+let capturedFrames=0,sentFrames=0;
 const playing=new Map();
 const errors={too_early:'Встреча ещё не началась. Вернитесь в согласованное время.',lesson_expired:'Время этой встречи прошло. Напишите Саше, чтобы договориться заново.',lesson_unavailable:'Эта встреча недоступна для звонка. Проверьте договорённость в Telegram.',active_episode:'Звонок уже открыт на другом устройстве. Завершите его там или дождитесь восстановления связи.',telegram_auth_expired:'Откройте Mini App заново из Telegram.',invalid_telegram_auth:'Откройте встречу из Telegram.',trial_not_configured:'Подключение к урокам пока недоступно.',voice_unavailable:'Не удалось получить голосовой ответ. Попробуйте подключиться снова.',connection_lost:'Связь прервалась. Можно вернуться в тот же урок.'};
 function view(id){for(const name of ['call','lobby','error'])$(name).hidden=name!==id;}
@@ -35,7 +36,7 @@ async function list(){
  }catch(error){failure(error.message);}}
 async function connect(){
  attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
- const joining=performance.now();closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent='Подключаемся…';$('mute').setAttribute('aria-pressed','false');
+ const joining=performance.now();capturedFrames=0;sentFrames=0;closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent='Подключаемся…';$('mute').setAttribute('aria-pressed','false');
  try{
   if(!tg?.initData)throw Error('invalid_telegram_auth');
   diagnosticStage='microphone';
@@ -56,8 +57,8 @@ async function connect(){
    if(message.type==='connected'){
     send({type:'metric',name:'join',milliseconds:performance.now()-joining});$('notice').hidden=true;started=Date.now();ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
     const source=ctx.createMediaStreamSource(mic);worklet=new AudioWorkletNode(ctx,'capture');source.connect(worklet);const silent=ctx.createGain();silent.gain.value=0;worklet.connect(silent).connect(ctx.destination);
-    worklet.port.onmessage=e=>{if(ws.readyState===WebSocket.OPEN&&!muted){if(ws.bufferedAmount>128000){diagnosticStage='buffer';failure('buffer_overflow');return;}ws.send(e.data);}};
-    pinger=setInterval(()=>send({type:'ping'}),5000);
+    worklet.port.onmessage=e=>{capturedFrames++;if(ws.readyState===WebSocket.OPEN&&!muted){if(ws.bufferedAmount>128000){diagnosticStage='buffer';failure('buffer_overflow');return;}ws.send(e.data);sentFrames++;}};
+    pinger=setInterval(()=>{const track=mic?.getAudioTracks()[0];send({type:'ping',audio:{capturedFrames,sentFrames,muted,trackEnabled:track?.enabled===true,trackMuted:track?.muted===true,trackEnded:track?.readyState==='ended',contextRunning:ctx?.state==='running',pageHidden:document.hidden,playing:playing.size}});},5000);
    }else if(message.type==='audio_start'){current=message.id;playing.set(current,{sources:[],start:Math.max(cursor,ctx.currentTime),timer:null});}
    else if(message.type==='audio_end'){const item=playing.get(message.id);if(item){const end=cursor;item.timer=setTimeout(()=>acknowledgePlayback(message.id,end),Math.max(0,(end-ctx.currentTime)*1000));}}
    else if(message.type==='interrupt'){stopAudio();}

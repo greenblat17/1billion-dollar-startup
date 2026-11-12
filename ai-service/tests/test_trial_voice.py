@@ -257,3 +257,83 @@ async def test_speech_activity_interrupts_before_transcription_returns():
     s.socket.send_json.assert_awaited_with({'type': 'interrupt'})
     assert s.pending['playing']['cancelled']
     s.backend.command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_voice_diagnostics_distinguish_interrupt_causes_without_transcript(caplog):
+    import logging
+    s = session()
+    async def events():
+        yield {'speech_start': True}
+        s.pending['playing'] = {'cancelled': False}
+        yield {'text': 'private learner words', 'confidence': 1, 'final': True, 'endpoint': False}
+    s.stt = SimpleNamespace(events=events)
+    with caplog.at_level(logging.INFO, logger='app.diagnostics'):
+        await s.recognize()
+        await s.interrupt('end_button')
+    assert '"reason": "speech_start"' in caplog.text
+    assert '"reason": "recognized_speech"' in caplog.text
+    assert '"reason": "end_button"' in caplog.text
+    assert '"has_text": true' in caplog.text
+    assert 'private learner words' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_cancelled_response_logs_stage_and_generation(caplog):
+    import logging
+    s = session()
+    s.contexts = SimpleNamespace(build=AsyncMock(return_value=SimpleNamespace(data={}, history=[])))
+    s.lesson.update(starts_at='2026-11-12T12:00:00+00:00', duration_minutes=15)
+    entered = asyncio.Event()
+    async def complete(*args, **kwargs):
+        entered.set()
+        await asyncio.Event().wait()
+    s.model = SimpleNamespace(complete_json=complete)
+    with caplog.at_level(logging.INFO, logger='app.diagnostics'):
+        s.start_turn('private cue')
+        await asyncio.wait_for(entered.wait(), 1)
+        await s.interrupt('speech_start')
+    assert '"outcome": "cancelled", "stage": "llm", "generation": 0' in caplog.text
+    assert 'private cue' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_end_button_records_end_when_browser_has_already_closed():
+    from starlette.websockets import WebSocketDisconnect
+    s = session()
+    s.socket.receive = AsyncMock(return_value={'type': 'websocket.receive', 'text': '{"type":"end"}'})
+    s.socket.send_json.side_effect = WebSocketDisconnect(1000)
+    s.turn_task = asyncio.create_task(asyncio.Event().wait())
+    s.user_audio.extend(b'\x00\x00')
+    await s.receive()
+    assert s.ended
+    assert s.turn_task.cancelled()
+    s.socket.send_json.assert_not_called()
+    assert [call.args[2] for call in s.backend.command.call_args_list] == [
+        'voice.audio', 'voice.audio_stored', 'voice.end']
+    assert s.backend.command.call_args.args[3]['reason'] == 'end_button'
+
+
+@pytest.mark.asyncio
+async def test_audio_probe_distinguishes_received_frames_from_browser_state(caplog):
+    import json
+    import logging
+    s = session()
+    s.stt = SimpleNamespace(send=AsyncMock(), speaking=False, pending_transcriptions=0)
+    s.socket.receive = AsyncMock(side_effect=[
+        {'type': 'websocket.receive', 'bytes': bytes(640)},
+        {'type': 'websocket.receive', 'text': json.dumps({'type': 'ping', 'audio': {
+            'capturedFrames': 12, 'sentFrames': 10, 'trackEnded': True,
+            'contextRunning': False, 'muted': 'private value', 'playing': -1,
+            'token': 'private token'}})},
+        {'type': 'websocket.disconnect', 'code': 1000},
+    ])
+    with caplog.at_level(logging.INFO, logger='app.diagnostics'):
+        await s.receive()
+    row = next(json.loads(r.message.split('runtime_event ')[1]) for r in caplog.records
+               if '"event": "trial_audio_state"' in r.message)
+    assert row['received_bytes'] == 640
+    assert row['client'] == {'capturedFrames': 12, 'sentFrames': 10,
+                             'trackEnded': True, 'contextRunning': False}
+    assert 'private' not in caplog.text
+    assert s.last_ping >= s.last_audio

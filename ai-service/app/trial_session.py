@@ -31,6 +31,7 @@ class TrialSession:
         self.muted = False
         self.ended = False
         self.last_ping = time.monotonic()
+        self.received_audio_bytes = 0
         self.last_audio = time.monotonic()
         self.last_speech = 0.0
         self.generation = 0
@@ -77,12 +78,16 @@ class TrialSession:
         return await self.command('voice.append', sourceId=source or uuid4().hex, role=role,
                                   body=text[:12000], occurredAt=timestamp())
 
-    async def interrupt(self):
+    async def interrupt(self, reason='speech_start', *, notify=True):
+        log_event('trial_interrupt', reason=reason, generation=self.generation,
+                  response_running=bool(self.turn_task and not self.turn_task.done()),
+                  pending_playback=sum(not item['cancelled'] for item in self.pending.values()))
         self.generation += 1
         # Stop browser playback BEFORE waiting for TTS cancellation or archive I/O.
         for item in self.pending.values():
             item['cancelled'] = True
-        await self.socket.send_json({'type': 'interrupt'})
+        if notify:
+            await self.socket.send_json({'type': 'interrupt'})
         if self.turn_task and not self.turn_task.done():
             self.turn_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -98,6 +103,7 @@ class TrialSession:
     async def _respond(self, cue, generation):
         started = time.monotonic()
         first_audio = True
+        log_event('trial_response', outcome='started', generation=generation)
         stage = 'context'
         try:
             context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
@@ -115,6 +121,8 @@ class TrialSession:
             if not isinstance(result.get('reply'), str) or type(result.get('finish')) is not bool or type(result.get('wait')) is not bool:
                 raise ValueError('invalid_voice_reply')
             if result['wait'] or generation != self.generation:
+                log_event('trial_response', outcome='waiting' if result['wait'] else 'superseded',
+                          generation=generation)
                 return
             reply = result['reply'].strip()
             if not reply or len(reply) > 3000:
@@ -154,6 +162,8 @@ class TrialSession:
                         await self.record('assistant', collected, {'utteranceId': audio_id, 'generatedText': sentence, 'generation': generation})
                 await self.socket.send_json({'type': 'audio_end', 'id': audio_id})
         except asyncio.CancelledError:
+            log_event('trial_response', outcome='cancelled', stage=stage, generation=generation,
+                      elapsed_ms=int((time.monotonic() - started) * 1000))
             raise
         except Exception as error:
             error_id = log_event('trial_response_failed', error=error, stage=stage)
@@ -182,6 +192,26 @@ class TrialSession:
         if len(self.pending) > 100:
             raise ValueError('unacknowledged_audio')
 
+    def log_audio_state(self, client):
+        # Accept only bounded counters and booleans, never arbitrary client payloads.
+        safe = {}
+        if isinstance(client, dict):
+            for key in ('capturedFrames', 'sentFrames', 'playing'):
+                value = client.get(key)
+                if type(value) is int and 0 <= value <= 1_000_000_000:
+                    safe[key] = value
+            for key in ('muted', 'trackEnabled', 'trackMuted', 'trackEnded',
+                        'contextRunning', 'pageHidden'):
+                if type(client.get(key)) is bool:
+                    safe[key] = client[key]
+        log_event('trial_audio_state', client=safe, muted=self.muted,
+                  received_bytes=self.received_audio_bytes,
+                  last_audio_ms=int((time.monotonic() - self.last_audio) * 1000),
+                  speaking=bool(getattr(self.stt, 'speaking', False)),
+                  pending_transcriptions=getattr(self.stt, 'pending_transcriptions', 0),
+                  response_running=bool(self.turn_task and not self.turn_task.done()),
+                  pending_playback=len(self.pending))
+
     async def receive(self):
         while not self.ended:
             message = await self.socket.receive()
@@ -195,6 +225,7 @@ class TrialSession:
                 if self.muted:
                     continue
                 self.last_audio = time.monotonic()
+                self.received_audio_bytes += len(audio)
                 self.user_audio.extend(audio)
                 await self.stt.send(audio)
                 if len(self.user_audio) >= 16000 * 2 * 5:
@@ -207,16 +238,19 @@ class TrialSession:
                 kind = control.get('type')
                 if kind == 'ping':
                     self.last_ping = time.monotonic()
+                    self.log_audio_state(control.get('audio'))
                 elif kind == 'metric':
                     value = control.get('milliseconds')
                     if control.get('name') in ('join', 'barge_in') and isinstance(value, (int, float)) and 0 <= value <= 300000:
                         logging.getLogger(__name__).info('trial_client_metric name=%s milliseconds=%.0f', control['name'], value)
                 elif kind == 'mute':
                     self.muted = control.get('value') is True
+                    log_event('trial_mute', muted=self.muted)
                 elif kind == 'played':
                     await self.acknowledged(control)
                 elif kind == 'end':
-                    await self.interrupt()
+                    # The browser stops playback and closes immediately after sending end.
+                    await self.interrupt('end_button', notify=False)
                     await self.flush_input()
                     await self.command('voice.end', reason='end_button')
                     self.ended = True
@@ -228,11 +262,15 @@ class TrialSession:
                 self.last_speech = time.monotonic()
                 await self.interrupt()
                 continue
+            log_event('trial_recognition', final=event['final'], endpoint=event['endpoint'],
+                      has_text=bool(event['text'].strip()),
+                      speaking=bool(getattr(self.stt, 'speaking', False)),
+                      pending_transcriptions=getattr(self.stt, 'pending_transcriptions', 0))
             text = event['text'].strip()
             if text and event['confidence'] >= 0.5:
                 self.last_speech = time.monotonic()
                 if any(not item['cancelled'] for item in self.pending.values()) or (self.turn_task and not self.turn_task.done()):
-                    await self.interrupt()
+                    await self.interrupt('recognized_speech')
                 if event['final']:
                     self.transcript.append(text)
             if event['endpoint'] and self.transcript and not getattr(self.stt, 'speaking', False) and not getattr(self.stt, 'pending_transcriptions', 0):
