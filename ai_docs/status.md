@@ -7,7 +7,7 @@
 | Telegram-знакомство и trial booking tools | Реализованы; полная живая приёмка диалога открыта |
 | PostgreSQL foundation, общая память и ContextBuilder | Реализованы; Ktor владеет Student/Lesson/Call Session, scopes, epoch, версиями и receipts |
 | Mini App | Отдельный frontend `mini-app/`, контейнер и DEV workflow; AI содержит API/голосовой relay |
-| SP-02 Realtime | Локально заменён STT → LLM → TTS на OpenAI `gpt-realtime-2.1`, согласованный Marin; не поставлен |
+| SP-02 Realtime | STT → LLM → TTS заменён на OpenAI `gpt-realtime-2.1`, согласованный Marin; поставлен на DEV, живая приёмка открыта |
 | Trial и продолжение | Diagnose + Demonstrate → Prescribe, устный feedback, вопрос о комфорте и Telegram follow-up; педагогика требует живой проверки |
 | Регулярные уроки/оплата | Предварительное расписание, встречи-заглушки и demo receipt; настоящая оплата и регулярный цикл остаются SP-03+ |
 
@@ -38,11 +38,15 @@ Reconnect сохраняет Lesson и контекст; mute/end/disconnect р�
 
 ## Поставка и эксплуатация
 
-HEAD перед изменениями: `af2bfb1`. Последний успешный DEV workflow проверен через GitHub Actions:
-[run 43225615607](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43225615607), `af2bfb1`.
-Это подтверждение workflow, не новая проверка работающих контейнеров. Realtime commit/push/deploy не выполнялись.
-Требуются отдельное разрешение поставки, серверный `OPENAI_REALTIME_API_KEY` с доступом к модели
-и разрешение платной приёмки. Доступность ключа/модели не проверялась. PROD/merge не выполнялись.
+По поручению пользователя ревизия `175f5f5` запушена и поставлена на DEV: backend, AI и Mini App.
+[Run 43230527834](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43230527834) завершился успешно.
+Readiness: оба контейнера работают без рестартов/OOM и startup errors; health 200,
+внутренние auth/scopes и AI→backend TLS проверены, S3 credentials/list versions доступны.
+Хеш Realtime-модуля внутри AI и frontend JS через публичный HTTPS совпадают с поставленной ревизией.
+В AI подтверждены модель `gpt-realtime-2.1`, голос `marin` и наличие `OPENAI_REALTIME_API_KEY` без раскрытия значения.
+Доступ аккаунта к модели, запись/удаление новых аудиообъектов и живой звонок этим не проверены.
+Платные smoke/benchmark не запускались; пользователь проводит живую проверку самостоятельно.
+PROD/merge не выполнялись.
 
 DEV Mini App: `https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp`.
 По последним проверенным отчётам SeaweedFS работает: приватный `speaky-trial-audio-dev`, сеть `speaky-storage`,
