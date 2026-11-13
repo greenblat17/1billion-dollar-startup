@@ -9,6 +9,7 @@ from fastapi import Header, HTTPException, Request, WebSocket
 
 from app.foundation_client import BackendFailure
 from app.trial_realtime import RealtimeTrialSession
+from app.lesson_calendar import calendar_export
 
 def install_trial_api(app, backend, contexts, model, client, settings, audio_store, speech=None):
     @app.post('/miniapp/api')
@@ -20,10 +21,12 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             payload = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise HTTPException(400) from None
-        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress'):
+        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress', 'calendar'):
             raise HTTPException(400)
         try:
             result = await backend._request('POST', '/trial/access', '', json=payload)
+            if payload['action'] == 'calendar':
+                return calendar_export(result['lesson'])
             if payload['action'] == 'audio':
                 if audio_store is None:
                     raise HTTPException(503, 'recording_unavailable')

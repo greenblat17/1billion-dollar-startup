@@ -51,9 +51,9 @@ internal class LessonManagement {
         }
         val id = newId()
         connection.update(
-            """INSERT INTO lesson(id,student_id,kind,starts_at,duration_minutes,timezone,launch_mode,schedule_id,occurrence_key,timing)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
-            occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled",
+            """INSERT INTO lesson(id,student_id,kind,starts_at,duration_minutes,timezone,launch_mode,schedule_id,occurrence_key,timing,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
+            occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled", now, now,
         )
         if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
         if (kind == "regular" && connection.currentRoadmap(scope.studentId) == null &&

@@ -11,6 +11,7 @@ internal class ConversationHistory(private val database: FoundationDatabase) {
         database.transaction { connection, now ->
             if (request.isBlank() || request.length > 200 || text.length > 12000) reject("invalid_input")
             connection.lockStudent(student)
+            connection.update("UPDATE student SET telegram_intro_eligible=FALSE WHERE id=?", student)
             val fingerprint = digest(canonical(json("text" to text, "start" to start, "occurredAt" to occurredAt.toString())))
             val previous = connection.document(
                 "SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=?", student, request,

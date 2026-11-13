@@ -122,6 +122,12 @@ class TrialTutorModel:
         for tool in TOOLS:
             function = dict(tool['function'])
             if function['name'] == 'create_trial_booking':
-                function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. A technical failure may be rebooked with preserved context.'
+                function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. An exact time supplied in reply to your scheduling question or acceptance of your unambiguous proposal is a clear request. A vague period needs a concrete proposal and acceptance before booking. Resolve relative dates using original message time and known learner timezone. Never invent availability limits. A technical failure may be rebooked with preserved context.'
+            if function['name'] == 'update_learner_context':
+                function['description'] = ('Save or correct user-stated facts with verbatim evidence from this message. '
+                    'Null deletes a fact. Self-reported level is self_assessment, never measured. '
+                    'Preserve unrelated facts. Save a concise summary and trial preference only with evidence. '
+                    'A preference records what the learner said; it does not change the conversation mode. '
+                    'Follow the current mode strategy and respect an explicit request to stop.')
             tools.append({'type': 'function', 'function': function})
         return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)

@@ -14,7 +14,7 @@ test('real agreed regular meetings remain joinable without treating demo as subs
   fetch:async()=>({ok:true,json:async()=>({lessons:[{...lesson,id:'real',launch_mode:'executable'},
    {...lesson,id:'demo',launch_mode:'placeholder'}],schedules:[{...schedule,id:'agreed',agreement:{...schedule.agreement,executable:true}},
    {...schedule,id:'preliminary'}],demoReceipts:[]})})});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
+ const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
  await vm.runInContext('list()',context);
  const [real,placeholder]=get('meetings').children;

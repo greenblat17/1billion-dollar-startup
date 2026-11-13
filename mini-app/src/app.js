@@ -2,6 +2,7 @@ const tg=window.Telegram?.WebApp;
 tg?.ready();tg?.expand();
 const $=id=>document.getElementById(id);
 const progressMode=new URLSearchParams(location.search).get('view')==='progress'||tg?.initDataUnsafe?.start_param==='progress';
+const calendarMode=new URLSearchParams(location.search).get('view')==='calendar';
 let lessonId=new URLSearchParams(location.search).get('lesson')||tg?.initDataUnsafe?.start_param;
 let ws,ctx,mic,worklet,pinger,ticker,muted=false,closing=false,started=0,cursor=0,current,carry=null;
 let attemptId=crypto.randomUUID(),diagnosticStage='connect',reported=false;
@@ -37,7 +38,12 @@ function cleanup(){clearInterval(pinger);clearInterval(ticker);stopAudio();workl
 function leave(){closing=true;stopAudio();send({type:'end'});cleanup();tg?.close();if(!tg?.initData){view('error');$('error-title').textContent='Звонок завершён';$('error-text').textContent='Вернитесь в Telegram.';$('retry').hidden=true;}}
 function failure(code,errorId){if(closing)return;reportFailure(code);closing=true;cleanup();view('error');$('error-text').textContent=errors[code]||'Не удалось подключиться. Проверьте сеть и доступ к микрофону.';if(errorId)$('error-text').textContent+=' Код ошибки: '+errorId;$('retry').hidden=false;}
 async function api(action,extra={}){const response=await fetch('/miniapp/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,initData:tg?.initData||'',...extra})});const data=await response.json();if(!response.ok)throw Error(data.detail||'connection_lost');return data;}
-function label(lesson){return new Intl.DateTimeFormat('ru',{dateStyle:'medium',timeStyle:'short',timeZone:lesson.timezone}).format(new Date(lesson.starts_at))+' · '+lesson.timezone;}
+function label(lesson){
+ const fixed=/^UTC([+-])(\d{2}):(\d{2})$/.exec(lesson.timezone);
+ const minutes=fixed?(Number(fixed[2])*60+Number(fixed[3]))*(fixed[1]==='+'?1:-1):0;
+ const date=new Date(new Date(lesson.starts_at).getTime()+minutes*60000);
+ return new Intl.DateTimeFormat('ru',{dateStyle:'medium',timeStyle:'short',timeZone:fixed?'UTC':lesson.timezone}).format(date)+' · '+lesson.timezone;
+}
 async function list(){
  view('lobby');try{const data=await api('list');$('meetings').replaceChildren();$('schedules').replaceChildren();
  for(const lesson of data.lessons){const card=document.createElement('article');const title=document.createElement('h2');title.textContent=lesson.kind==='trial'?'Пробный урок':lesson.launch_mode==='executable'?'Урок английского':'Предварительная встреча';const time=document.createElement('p');time.textContent=label(lesson);const button=document.createElement('button');button.textContent=lesson.launch_mode==='placeholder'?'Подключение пока недоступно':'Открыть урок';button.disabled=lesson.launch_mode!=='executable'||!['scheduled','in_progress'].includes(lesson.status);button.onclick=()=>{lessonId=lesson.id;connect();};card.append(title,time,button);$('meetings').append(card);}
@@ -121,6 +127,28 @@ $('progress-refresh').onclick=progress;
 $('progress-back').onclick=()=>tg?.close();
 
 $('mute').onclick=()=>{muted=!muted;mic?.getAudioTracks().forEach(t=>t.enabled=!muted);worklet?.port.postMessage({muted});send({type:'mute',value:muted});renderMicrophone();};
-$('end').onclick=leave;$('return').onclick=()=>tg?.close();$('back').onclick=()=>tg?.close();$('retry').onclick=()=>{closing=false;lessonId?connect():list();};
+$('end').onclick=leave;$('return').onclick=()=>tg?.close();$('back').onclick=()=>tg?.close();$('retry').onclick=()=>{closing=false;calendarMode?calendar():lessonId?connect():list();};
 window.addEventListener('pagehide',()=>{closing=true;cleanup();});
-progressMode?progress():lessonId?connect():list();
+
+async function calendar(){
+ view('lobby');$('lobby-title').textContent='Ваше занятие';$('lobby-note').textContent='Сохраните время в удобном календаре.';$('meetings').replaceChildren();$('schedules').replaceChildren();
+ try{
+  const data=await api('calendar',{lessonId});
+  const card=document.createElement('article');
+  const title=document.createElement('h2');title.textContent=data.lesson.status==='cancelled'?'Занятие отменено':'Добавить в календарь';
+  const time=document.createElement('p');time.textContent=label(data.lesson)+' · '+data.lesson.duration_minutes+' минут';
+  const note=document.createElement('p');note.textContent=data.lesson.status==='cancelled'?'Удалите занятие из своего календаря.':'Необязательно. После переноса или отмены обновите событие в своём календаре. Саша напомнит о занятии в Telegram.';
+  card.append(title,time);
+  if(data.googleUrl){const google=document.createElement('button');google.textContent='Google Calendar';google.onclick=()=>tg?.openLink?tg.openLink(data.googleUrl):window.open(data.googleUrl,'_blank','noopener');card.append(google);}
+  const download=document.createElement('button');download.textContent='Скачать .ics';
+  download.onclick=async()=>{
+   const file=new File([data.ics],data.filename,{type:'text/calendar;charset=utf-8'});
+   if(navigator.canShare?.({files:[file]})){try{await navigator.share({files:[file],title:'Занятие с Сашей'});}catch(error){if(error.name!=='AbortError')downloadCalendar(file);} }
+   else downloadCalendar(file);
+  };
+  card.append(download,note);$('meetings').append(card);
+ }catch(error){failure(error.message);}
+}
+function downloadCalendar(file){const url=URL.createObjectURL(file);const link=document.createElement('a');link.href=url;link.download=file.name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+
+calendarMode?calendar():progressMode?progress():lessonId?connect():list();

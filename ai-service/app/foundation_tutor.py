@@ -11,8 +11,9 @@ import anyio
 from app.context_builder import ContextBuilder
 from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
-from app.tutor import RELATIONSHIP_POLICY, TutorRequest
-from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
+from app.tutor import TutorRequest
+from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
+from app.tutor_tools import MODELS, resolve_time, zone
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
 from app.tutor_diagnostics import record_tool
@@ -20,10 +21,15 @@ from app.subscription_tools import SUBSCRIPTION_MODELS
 
 
 def booking_label(booking):
-    text = legacy_booking_label(booking)
-    if booking and booking.get("launchMode") == "executable":
-        text = text.replace("Запуск урока пока недоступен.", "")
-    return text
+    if booking['status'] == 'cancelled':
+        return 'Пробное занятие отменено.\nЕсли добавлял его в календарь, удали событие там.'
+    local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
+    weekdays = ('понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье')
+    months = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
+    return (f"Пробное занятие · бесплатно\n"
+            f"{local.day} {months[local.month - 1]} {local.year}, {weekdays[local.weekday()]}\n"
+            f"{local:%H:%M} · {booking['timezone']} · {booking['durationMinutes']} минут\n"
+            + ('Звонок в Speaky' if booking.get('launchMode') == 'executable' else 'Подключение пока недоступно'))
 
 
 def booking_projection(lesson: dict | None) -> dict | None:
@@ -48,7 +54,7 @@ class FoundationTutor:
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
-        messages = [{'role': 'system', 'content': RELATIONSHIP_POLICY},
+        messages = [{'role': 'system', 'content': TEXT_RELATIONSHIP_POLICY},
                     {'role': 'system', 'content': context.instructions('text')}]
         messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
@@ -60,7 +66,10 @@ class FoundationTutor:
             'that supports the requested action, not a quote from history or a paraphrase. '
             'A matching quote alone does not authorize an action: determine the current intent. '
             'An explicit current request needs no additional confirmation. '
-            + ('This is a Telegram start event: begin or continue the conversation. ' if start else '')
+            'The Telegram adapter may have delivered part or all of a fixed introduction; '
+            'its confirmed messages are in history. Respond to the current message immediately, '
+            'without continuing or repeating the introduction or asking for an already stated goal. '
+            + ('This is a returning Telegram start event: continue the relationship using known context, without restarting onboarding. ' if start else '')
             + 'Current event metadata: ' + json.dumps(
                 {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
         )})

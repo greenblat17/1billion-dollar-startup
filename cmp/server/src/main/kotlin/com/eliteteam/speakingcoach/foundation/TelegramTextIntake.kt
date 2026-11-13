@@ -19,12 +19,15 @@ internal class TelegramTextIntake(private val database: FoundationDatabase) {
         if (chat.optionalText("type") != "private" || message.optionalText("text") == null) return false
         if (sender.number("id") != chat.number("id")) reject("invalid_identity")
         database.transaction { connection, now ->
+            connection.lockTelegramChat(chat.number("id"))
             val hash = digest(canonical(update))
-            connection.update("""INSERT INTO telegram_text_intake(update_id,chat_id,message_id,payload,input_digest,received_at,expires_at)
+            val inserted = connection.update("""INSERT INTO telegram_text_intake(update_id,chat_id,message_id,payload,input_digest,received_at,expires_at)
                 VALUES (?,?,?,?::jsonb,?,?,?) ON CONFLICT(chat_id,message_id) DO NOTHING""",
                 update.number("update_id"), chat.number("id"), message.number("message_id"), update, hash, now, now.plusSeconds(7 * 86400))
             val existing = connection.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=? AND message_id=?", chat.number("id"), message.number("message_id")) ?: reject("invalid_input")
             if (existing.text("input_digest") != hash) reject("operation_conflict")
+            if (inserted == 1) connection.update("""UPDATE telegram_introduction SET status='cancelled'
+                WHERE chat_id=? AND message_id<? AND status='active'""", chat.number("id"), message.number("message_id"))
         }
         return true
     }
