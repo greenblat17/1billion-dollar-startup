@@ -54,3 +54,19 @@ def test_missing_s3_credentials_do_not_open_episode_or_call_paid_providers(caplo
     assert 'audio_credentials' in caplog.text
     assert 'NoCredentialsError' in caplog.text
     assert 'not-logged' not in caplog.text
+
+
+def test_lesson_status_reads_authenticated_backend_without_opening_voice():
+    app = FastAPI()
+    result = {'serverNow': '2026-11-13T10:00:00Z', 'lesson': {'status': 'scheduled'}}
+    backend = SimpleNamespace(_request=AsyncMock(return_value=result), command=AsyncMock())
+    model = SimpleNamespace(complete_json=AsyncMock())
+    install_trial_api(app, backend, None, model, None, SimpleNamespace(), None)
+    payload = {'action': 'lesson_status', 'initData': 'signed', 'lessonId': 'lesson'}
+    with TestClient(app) as client:
+        response = client.post('/miniapp/api', json=payload)
+    assert response.status_code == 200
+    assert response.json() == result
+    backend._request.assert_awaited_once_with('POST', '/trial/access', '', json=payload)
+    backend.command.assert_not_awaited()
+    model.complete_json.assert_not_awaited()

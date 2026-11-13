@@ -22,12 +22,13 @@ class ReadBooking(Strict):
 
 
 class Schedule(Strict):
-    mode: Literal['now', 'local', 'shift_minutes', 'same_time_on_date']
-    localDateTime: str | None
-    timezone: str | None
-    offset: str | None
-    shiftMinutes: int | None
-    date: str | None
+    mode: Literal['now', 'after_minutes', 'local', 'shift_minutes', 'same_time_on_date']
+    localDateTime: str | None = None
+    timezone: str | None = None
+    offset: str | None = None
+    shiftMinutes: int | None = None
+    date: str | None = None
+    delayMinutes: int | None = Field(default=None, ge=1, le=525600)
 
 
 class CreateBooking(Strict):
@@ -58,8 +59,8 @@ class Fact(Strict):
 
 class UpdateContext(Strict):
     facts: list[Fact] = Field(max_length=20)
-    trialPreference: Literal['unknown', 'interested', 'declined'] | None
-    preferenceEvidence: str | None
+    trialPreference: Literal['unknown', 'interested', 'declined'] | None = Field(description='Use null to leave unchanged. Set a value ONLY for explicit trial readiness in the current message, with preferenceEvidence.')
+    preferenceEvidence: str | None = Field(description='Exact quote from current message supporting trialPreference; null when preference is unchanged.')
     summary: str | None = Field(max_length=3000)
 
 
@@ -75,6 +76,12 @@ DESCRIPTIONS = {
 }
 TOOLS = [{'type': 'function', 'function': {'name': name, 'description': DESCRIPTIONS[name],
          'strict': True, 'parameters': model.model_json_schema()}} for name, model in MODELS.items()]
+for tool in TOOLS:
+    schedule_schema = tool['function']['parameters'].get('$defs', {}).get('Schedule')
+    if schedule_schema:
+        schedule_schema['required'] = list(schedule_schema['properties'])
+        for field in schedule_schema['properties'].values():
+            field.pop('default', None)
 
 
 def zone(value):
@@ -99,14 +106,20 @@ def utc_text(dt):
 def resolve_time(schedule, received, current=None, now=None):
     now = now or datetime.now(timezone.utc)
     allowed = {
-        'now': set(), 'local': {'localDateTime', 'timezone', 'offset'},
+        'now': set(), 'after_minutes': {'delayMinutes', 'timezone'}, 'local': {'localDateTime', 'timezone', 'offset'},
         'shift_minutes': {'shiftMinutes'}, 'same_time_on_date': {'date', 'timezone', 'offset'},
     }[schedule.mode]
     if any(v is not None and k not in allowed for k, v in schedule.model_dump().items() if k != 'mode'):
         raise ValueError('conflicting_schedule_fields')
     if schedule.mode == 'now':
         return utc_text(now), 'UTC', 'now'
-    if schedule.mode == 'shift_minutes':
+    if schedule.mode == 'after_minutes':
+        if schedule.delayMinutes is None:
+            raise ValueError('delay_minutes_required')
+        instant = datetime.fromtimestamp(received, timezone.utc) + timedelta(minutes=schedule.delayMinutes)
+        tz_name = schedule.timezone or (current or {}).get('timezone') or 'UTC'
+        zone(tz_name)
+    elif schedule.mode == 'shift_minutes':
         if current is None or schedule.shiftMinutes is None:
             raise ValueError('current_booking_and_shift_required')
         instant = datetime.fromisoformat(current['startsAtUtc']) + timedelta(minutes=schedule.shiftMinutes)

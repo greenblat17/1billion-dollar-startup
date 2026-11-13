@@ -7,6 +7,11 @@ import java.time.Instant
 
 /** Trusted Telegram adapter. Model requests cannot choose the student or issue capabilities. */
 internal class FoundationChat(private val service: FoundationService) {
+    val introduction = TelegramIntroduction(service.database)
+
+    suspend fun prepareIntroduction(request: TutorRequest, chatId: Long, messageId: Long): Boolean =
+        introduction.prepare(chatId, messageId, request)
+
     suspend fun beginPayment(session: String, request: String): kotlinx.serialization.json.JsonObject? {
         val student = student(session)
         return service.database.transaction { c, now ->
@@ -36,6 +41,9 @@ internal class FoundationChat(private val service: FoundationService) {
             connection.lockStudent(student)
             if (connection.document("SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=? AND status='ready' AND response IS NOT NULL",
                     student, delivery.requestId) == null) reject("invalid_state")
+            if (delivery.bookingId != null && connection.document(
+                    "SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND id=? AND version=?",
+                    student, delivery.bookingId, delivery.version) == null) return@transaction false
             connection.update("""INSERT INTO tutor_delivery(student_id,request_id,kind,outcome,lesson_id,lesson_version)
                 VALUES (?,?,?,'unknown',?,?) ON CONFLICT(student_id,request_id,kind) DO NOTHING""",
                 student, delivery.requestId, if (delivery.bookingId == null) "reply" else "card", delivery.bookingId, delivery.version) == 1
@@ -66,9 +74,9 @@ internal class FoundationChat(private val service: FoundationService) {
                 VALUES (?,?,?,'sent',?,?,?) ON CONFLICT(student_id,request_id,kind)
                 DO UPDATE SET outcome='sent',message_id=EXCLUDED.message_id,lesson_id=EXCLUDED.lesson_id,lesson_version=EXCLUDED.lesson_version""",
                 student, delivery.requestId, kind, message, delivery.bookingId, delivery.version)
-            if (delivery.bookingId != null) connection.update("""INSERT INTO lesson_telegram_card(student_id,lesson_id,message_id,lesson_version)
-                VALUES (?,?,?,?) ON CONFLICT(lesson_id) DO UPDATE SET message_id=EXCLUDED.message_id,lesson_version=EXCLUDED.lesson_version
-                WHERE lesson_telegram_card.lesson_version<=EXCLUDED.lesson_version""", student, delivery.bookingId, message, delivery.version)
+            if (delivery.bookingId != null) connection.update("""INSERT INTO lesson_telegram_card(student_id,lesson_id,message_id,lesson_version,is_widget)
+                VALUES (?,?,?,?,?) ON CONFLICT(lesson_id) DO UPDATE SET message_id=EXCLUDED.message_id,lesson_version=EXCLUDED.lesson_version,is_widget=EXCLUDED.is_widget
+                WHERE lesson_telegram_card.lesson_version<=EXCLUDED.lesson_version""", student, delivery.bookingId, message, delivery.version, delivery.cardIsWidget)
         }
     }
 
@@ -79,7 +87,10 @@ internal class FoundationChat(private val service: FoundationService) {
             val previousCard = response.booking?.let { booking -> connection.document("""SELECT to_jsonb(d) FROM lesson_telegram_card d
                 WHERE student_id=? AND lesson_id=? AND lesson_version<=?""", student, booking.id, booking.version) }
             response.copy(replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
-                cardMessageId = previousCard?.number("message_id"))
+                cardMessageId = previousCard?.number("message_id"),
+                cardIsWidget = previousCard?.optionalText("is_widget") == "true",
+                cardDelivered = sent.any { it.text("kind") == "card" },
+                showProgressNavigation = response.booking == null && connection.textConversationMode(student) != "introduction")
         }
     }
 

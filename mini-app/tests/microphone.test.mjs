@@ -12,10 +12,11 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  class AudioWorkletNode{disconnect(){}port={postMessage(){}};connect(node){return node;}}
  const context=vm.createContext({window:{Telegram:{WebApp:{initData:'test',ready(){},expand(){}}},addEventListener(){}},
  document:{getElementById:element},location:{search:'?lesson=test',origin:'https://example.test'},
+ fetch:async()=>({ok:true,json:async()=>({serverNow:'2026-11-13T10:00:00Z',lesson:{launch_mode:'executable',status:'scheduled',starts_at:'2026-11-13T10:00:00Z'}})}),
  URLSearchParams,crypto:{randomUUID:()=> 'test'},performance:{now:()=>0},
  navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}},
  AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
+ const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
  await vm.runInContext('connect()',context);
  assert.equal(track.enabled,true);

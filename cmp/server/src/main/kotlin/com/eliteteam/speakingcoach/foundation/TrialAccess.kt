@@ -18,6 +18,8 @@ internal class TrialAccess(private val service: FoundationService) {
                 "list" -> json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? ORDER BY starts_at DESC LIMIT 40", student)),
                     "schedules" to JsonArray(c.documents("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? ORDER BY effective_from DESC", student)),
                     "demoReceipts" to JsonArray(c.documents("SELECT to_jsonb(r) FROM trial_demo_receipt r WHERE student_id=?", student)))
+                "lesson_status" -> json("lesson" to c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId")), "serverNow" to now.toString())
+                "calendar" -> json("lesson" to c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId")))
                 "audio" -> {
                     val lesson = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
                     val cursor = args.optionalText("cursor") ?: ""

@@ -553,3 +553,14 @@ the matching mode only if a linked call still proves whether it was free or a
 situation. Expired or missing scenario data is not guessed. New call ratings
 are also written to the old key where possible for a rollback; the dashboard
 deduplicates such rows by call ID. Onboarding ratings have no old key.
+
+
+### Вход в согласованный урок
+
+Mini App автоматически проверяет `lesson_status` (Telegram initData, владение уроком, серверное время).
+До начала показывает ожидание и перечитывает запись каждые 15 секунд или к началу: перенос и отмена учитываются без запроса микрофона.
+В назначенное время запрашивает микрофон и подключается без кнопки старта; backend повторно проверяет допуск при открытии WebSocket.
+После готовности realtime-соединения Саша приветствует голосом; переподключение продолжает тот же урок.
+При запрете/отсутствии/занятости микрофона — понятная ошибка и повтор подключения. Системное разрешение выдаёт пользователь.
+Если браузер блокирует AudioContext, остаётся исключительная кнопка «Включить звук»; обойти ограничение автозвука нельзя.
+Закрытие Mini App останавливает ожидание и микрофон, включая поздний результат запроса разрешения.

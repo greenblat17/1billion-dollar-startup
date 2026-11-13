@@ -23,11 +23,13 @@ data class TrialBooking(val id: String, val learnerId: String, val status: Strin
 @Serializable
 data class TutorResponse(val conversationId: String, val reply: String, val booking: TrialBooking? = null,
                          val bookingText: String? = null, val degraded: Boolean = false,
-                         val replyMessageId: Long? = null, val cardMessageId: Long? = null)
+                         val replyMessageId: Long? = null, val cardMessageId: Long? = null,
+                         val showProgressNavigation: Boolean = true, val cardIsWidget: Boolean = false,
+                         val cardDelivered: Boolean = false)
 
 @Serializable
 data class TutorDelivery(val sessionId: String, val requestId: String, val replyMessageId: Long? = null,
-                         val bookingId: String? = null, val cardMessageId: Long? = null, val version: Int? = null)
+                         val bookingId: String? = null, val cardMessageId: Long? = null, val version: Int? = null, val cardIsWidget: Boolean = false)
 
 class TutorClient(private val root: String, private val http: HttpClient, private val token: String) {
     internal var foundation: com.eliteteam.speakingcoach.foundation.FoundationChat? = null

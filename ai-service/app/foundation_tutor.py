@@ -11,8 +11,9 @@ import anyio
 from app.context_builder import ContextBuilder
 from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
-from app.tutor import RELATIONSHIP_POLICY, TutorRequest
-from app.tutor_tools import MODELS, booking_label as legacy_booking_label, resolve_time
+from app.tutor import TutorRequest
+from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
+from app.tutor_tools import MODELS, resolve_time, zone
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
 from app.tutor_diagnostics import record_tool
@@ -20,10 +21,15 @@ from app.subscription_tools import SUBSCRIPTION_MODELS
 
 
 def booking_label(booking):
-    text = legacy_booking_label(booking)
-    if booking and booking.get("launchMode") == "executable":
-        text = text.replace("Запуск урока пока недоступен.", "")
-    return text
+    if booking['status'] == 'cancelled':
+        return 'Пробное занятие отменено.\nЕсли добавлял его в календарь, удали событие там.'
+    local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
+    weekdays = ('понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье')
+    months = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
+    return (f"Пробное занятие · бесплатно\n"
+            f"{local.day} {months[local.month - 1]} {local.year}, {weekdays[local.weekday()]}\n"
+            f"{local:%H:%M} · {booking['timezone']} · {booking['durationMinutes']} минут\n"
+            + ('Звонок в Speaky' if booking.get('launchMode') == 'executable' else 'Подключение пока недоступно'))
 
 
 def booking_projection(lesson: dict | None) -> dict | None:
@@ -48,7 +54,7 @@ class FoundationTutor:
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
-        messages = [{'role': 'system', 'content': RELATIONSHIP_POLICY},
+        messages = [{'role': 'system', 'content': TEXT_RELATIONSHIP_POLICY},
                     {'role': 'system', 'content': context.instructions('text')}]
         messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
@@ -60,7 +66,10 @@ class FoundationTutor:
             'that supports the requested action, not a quote from history or a paraphrase. '
             'A matching quote alone does not authorize an action: determine the current intent. '
             'An explicit current request needs no additional confirmation. '
-            + ('This is a Telegram start event: begin or continue the conversation. ' if start else '')
+            'The Telegram adapter may have delivered part or all of a fixed introduction; '
+            'its confirmed messages are in history. Respond to the current message immediately, '
+            'without continuing or repeating the introduction or asking for an already stated goal. '
+            + ('This is a returning Telegram start event: continue the relationship using known context, without restarting onboarding. ' if start else '')
             + 'Current event metadata: ' + json.dumps(
                 {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
         )})
@@ -70,6 +79,7 @@ class FoundationTutor:
         payment_committed = False
         memory_committed = False
         degraded = False
+        rejected_tools = 0
         try:
             committed = claim.get('committed', [])
             if committed:
@@ -99,6 +109,10 @@ class FoundationTutor:
                         if result.get('contextRevoked'):
                             return dict(conversationId=result['conversationId'], reply=result['reply'],
                                         booking=None, bookingText=None, degraded=False)
+                        if result.get('ok') is False or (result.get('skipped') and not result.get('saved')):
+                            rejected_tools += 1
+                        if function['name'] == 'update_learner_context' and result.get('saved'):
+                            memory_committed = True
                         if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
                             memory_committed = True
                         if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
@@ -108,6 +122,19 @@ class FoundationTutor:
                         if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
                             changed = result['booking']
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
+                    if rejected_tools >= 2:
+                        messages.append({'role': 'system', 'content': (
+                            'Stop tool attempts for this turn. Answer the learner now from the conversation and tool results. '
+                            'Optional memory failure must not stop consultation or make the learner repeat their message. '
+                            'Never claim an uncommitted booking succeeded. If booking failed, explain it briefly; '
+                            'do not invent a missing timezone or missing user information to explain invalid tool arguments.')})
+                        final = await self.model.finalize(messages)
+                        if final.get('tool_calls'):
+                            raise ValueError('unexpected_final_tool_call')
+                        reply = json.loads(final.get('content') or '{}')['reply'].strip()
+                        if not reply:
+                            raise ValueError('empty_reply')
+                        break
                 else:
                     raise ValueError('tool_round_limit')
         except BackendFailure as error:
@@ -209,10 +236,17 @@ class FoundationTutor:
             if name == 'get_trial_booking':
                 return {'ok': True, 'booking': current}
             if name == 'update_learner_context':
-                await self.backend.command(scope, identity, 'tutor.update_context', {
-                    'sourceId': source['id'], **args.model_dump(),
-                })
-                return {'ok': True}
+                stage = 'update_context'
+                payload, skipped = supported_context_update(args, source['body'])
+                saved = bool(payload['facts'] or payload['trialPreference'] is not None or payload['summary'] is not None)
+                if saved:
+                    await self.backend.command(scope, identity, 'tutor.update_context', {
+                        'sourceId': source['id'], **payload,
+                    })
+                return {'ok': True, 'saved': saved, 'skipped': skipped, 'guidance':
+                    'Only supported fields were saved. Do not retry skipped optional memory in this turn. '
+                    'Continue responding to the learner; do not ask them to repeat information. '
+                    'Use null for trialPreference when the current message says nothing about trial readiness.'}
             stage = 'validate_evidence'
             if getattr(args, 'evidence', '') not in source['body']:
                 raise ValueError('invalid_evidence')
@@ -257,4 +291,28 @@ class FoundationTutor:
                     'whether the current message requests this action. If it does, retry with '
                     'an exact supporting quote; otherwise continue the conversation without '
                     'booking. Do not ask the learner to repeat an already clear request.')}
+            if stage == 'resolve_time' and str(error) in ('conflicting_schedule_fields', 'current_booking_and_shift_required'):
+                return {'ok': False, 'error': str(error), 'guidance':
+                    'Invalid tool arguments, not a timezone problem. For N minutes from this message use '
+                    'after_minutes with delayMinutes. shift_minutes requires an existing booking. '
+                    'Use only fields belonging to the chosen mode; no change was committed.'}
             return {'ok': False, 'error': str(error)[:300]}
+
+
+def supported_context_update(args, text):
+    """Keep exact-source validation; omit unsupported optional fields instead of failing the whole turn."""
+    payload = args.model_dump()
+    facts = []
+    skipped = []
+    for index, fact in enumerate(payload['facts']):
+        if fact['evidence'].strip() and fact['evidence'] in text:
+            facts.append(fact)
+        else:
+            skipped.append(f'facts[{index}]: evidence must quote this message exactly')
+    payload['facts'] = facts
+    evidence = payload['preferenceEvidence']
+    if payload['trialPreference'] is not None and (not evidence or not evidence.strip() or evidence not in text):
+        skipped.append('trialPreference: no supporting quote in this message')
+        payload['trialPreference'] = None
+        payload['preferenceEvidence'] = None
+    return payload, skipped

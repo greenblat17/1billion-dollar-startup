@@ -11,6 +11,7 @@ import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.async
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -22,13 +23,266 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class FoundationIntegrationTest {
-    private suspend fun withStore(clock: Clock = Clock.systemUTC(), block: suspend (FoundationService) -> Unit) {
+    private fun introEnvelope(chat: Long, message: Long, text: String, at: Instant) = json(
+        "update_id" to (chat * 100 + message), "message" to json("message_id" to message,
+            "chat" to json("id" to chat, "type" to "private"), "from" to json("id" to chat),
+            "text" to text, "date" to at.epochSecond))
+
+    private fun introRequest(chat: Long, message: Long, text: String, at: Instant) =
+        com.eliteteam.speakingcoach.ai.TutorRequest("tg-$chat", "message:$message", text, at.epochSecond.toDouble())
+
+    @Test
+    fun firstStartDeliversFourSeparateMessagesAndOnlyConfirmedHistory() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val request = introRequest(9200, 1, "/start", clock.instant())
+            service.telegramIntake.accept(introEnvelope(9200, 1, "/start", clock.instant()))
+            val bridge = FoundationChat(service)
+            assertTrue(bridge.prepareIntroduction(request, 9200, 1))
+            val sent = mutableListOf<String>()
+            var typing = 0
+            var paused = 0L
+            com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9200, request.requestId,
+                typing = { typing++ }, send = { sent += it; sent.size.toLong() },
+                pause = { paused += it; clock.current = clock.current.plusMillis(it) })
+            assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
+                "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
+                "Расскажи, пожалуйста, для чего ты изучаешь английский?"), sent)
+            assertEquals(3, typing)
+            assertEquals(2750L, paused)
+            val student = service.identity.resolve("telegram", "9200")
+            val scope = service.identity.issue(student, "operator")
+            assertEquals(listOf("/start") + sent, service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+            assertTrue(FoundationChat(service).prepareIntroduction(request, 9200, 1))
+            assertEquals(null, TelegramIntroduction(service.database).next(9200, request.requestId))
+            assertEquals("introduction", service.snapshot(scope, "text").text("textMode"))
+            val reply = com.eliteteam.speakingcoach.ai.TutorResponse("test", "Ответ")
+            assertEquals(false, bridge.withDelivery(request, reply).showProgressNavigation)
+            val trial = service.op(scope, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to clock.instant().plusSeconds(600).toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            assertEquals("dialogue", service.snapshot(scope, "text").text("textMode"))
+            service.op(scope, "lesson.cancel", json("lessonId" to trial.text("id"), "expectedVersion" to trial.number("version")))
+            assertEquals("dialogue", service.snapshot(scope, "text").text("textMode"))
+            assertEquals(true, bridge.withDelivery(request, reply).showProgressNavigation)
+        }
+    }
+
+    @Test
+    fun incomingReplyDuringAnyPauseCancelsRemainderAndProcessesExactlyOneModelResult() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            for (after in 1..3) {
+                val chat = 9210L + after
+                val firstAt = clock.instant()
+                val request = introRequest(chat, 1, "/start", firstAt)
+                val envelope = introEnvelope(chat, 1, "/start", firstAt)
+                service.telegramIntake.accept(envelope)
+                assertEquals(chat * 100 + 1, service.telegramIntake.claim()!!.number("update_id"))
+                val bridge = FoundationChat(service)
+                assertTrue(bridge.prepareIntroduction(request, chat, 1))
+                var count = 0
+                var interrupted = false
+                val reply = introRequest(chat, 2, "Запиши меня на пробный сейчас", firstAt)
+                com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, chat, request.requestId,
+                    typing = {}, send = { count++; count.toLong() }, pause = {
+                        if (count == after && !interrupted) {
+                            service.telegramIntake.accept(introEnvelope(chat, 2, reply.text, firstAt))
+                            service.telegramIntake.accept(envelope) // replay of start must not undo cancellation
+                            assertEquals(null, service.telegramIntake.claim()) // start still owns delivery order
+                            interrupted = true
+                        }
+                        clock.current = clock.current.plusMillis(it)
+                    })
+                assertEquals(after, count)
+                bridge.completeIntake(chat, 1)
+                assertEquals(chat * 100 + 2, service.telegramIntake.claim()!!.number("update_id"))
+                val scope = bridge.accept(reply, false)
+                val claimed = service.op(scope, "run.claim", json())
+                assertEquals(reply.text, claimed.obj("input").text("body"))
+                val context = service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") }
+                assertEquals(listOf("/start") + TELEGRAM_INTRO_TEXTS.take(after) + reply.text, context)
+                service.op(scope, "run.complete", json("reply" to "Давай начнём", "degraded" to false))
+                val receipt = com.eliteteam.speakingcoach.ai.TutorDelivery(reply.sessionId, reply.requestId)
+                assertTrue(bridge.beginDelivery(receipt))
+                bridge.delivered(receipt.copy(replyMessageId = 99))
+                val replay = FoundationChat(service).accept(reply, false)
+                assertEquals("ready", service.op(replay, "run.claim", json()).text("status"))
+                assertEquals(false, bridge.beginDelivery(receipt))
+                bridge.completeIntake(chat, 2)
+                assertEquals(null, service.telegramIntake.claim())
+            }
+        }
+    }
+
+    @Test
+    fun replyAlreadyInDurableIntakeSuppressesIntroductionBeforeFirstSend() = runTest {
+        withStore { service ->
+            val at = Instant.now()
+            service.telegramIntake.accept(introEnvelope(9220, 1, "/start", at))
+            service.telegramIntake.accept(introEnvelope(9220, 2, "Мне нужен английский для работы", at))
+            val bridge = FoundationChat(service)
+            assertTrue(bridge.prepareIntroduction(introRequest(9220, 1, "/start", at), 9220, 1))
+            com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9220, "message:1",
+                typing = { error("unexpected typing") }, send = { error("unexpected introduction") })
+        }
+    }
+
+    @Test
+    fun restartResumesUnclaimedPartsButNeverRepeatsAnUnknownSend() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val request = introRequest(9230, 1, "/start", clock.instant())
+            val bridge = FoundationChat(service)
+            assertTrue(bridge.prepareIntroduction(request, 9230, 1))
+            assertTrue(bridge.introduction.claim(9230, request.requestId, 0))
+            bridge.introduction.sent(9230, request.requestId, 0, 41)
+            bridge.introduction.sent(9230, request.requestId, 0, 41) // receipt replay
+            val restarted = FoundationChat(service)
+            assertTrue(restarted.prepareIntroduction(request, 9230, 1))
+            clock.current = clock.current.plusSeconds(1)
+            assertEquals(1, restarted.introduction.next(9230, request.requestId)!!.index)
+            assertTrue(restarted.introduction.claim(9230, request.requestId, 1))
+            assertEquals(false, bridge.introduction.claim(9230, request.requestId, 1))
+            assertEquals("introduction_busy", assertFailsWith<FoundationFailure> {
+                bridge.introduction.next(9230, request.requestId)
+            }.code)
+            // Process dies after the send claim (possibly after Telegram accepted the message).
+            clock.current = clock.current.plusSeconds(181)
+            com.eliteteam.speakingcoach.telegram.deliverIntroduction(TelegramIntroduction(service.database), 9230, request.requestId,
+                typing = { error("unexpected typing") }, send = { error("must not resend") })
+            val student = service.identity.resolve("telegram", "9230")
+            val scope = service.identity.issue(student, "operator")
+            assertEquals(listOf("/start", TELEGRAM_INTRO_TEXTS[0]),
+                service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+        }
+    }
+
+    @Test
+    fun typingFailureDoesNotStopIntroductionAndSendFailureDoesNotRetryOrContinue() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val bridge = FoundationChat(service)
+            val request = introRequest(9240, 1, "/start", clock.instant())
+            assertTrue(bridge.prepareIntroduction(request, 9240, 1))
+            var sends = 0
+            var typing = 0
+            com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9240, request.requestId,
+                typing = { typing++; error("typing unavailable") },
+                send = { sends++; if (sends == 3) error("send timed out") else sends.toLong() },
+                pause = { clock.current = clock.current.plusMillis(it) })
+            assertEquals(3, sends)
+            assertEquals(2, typing)
+            assertTrue(FoundationChat(service).prepareIntroduction(request, 9240, 1))
+            com.eliteteam.speakingcoach.telegram.deliverIntroduction(TelegramIntroduction(service.database), 9240, request.requestId,
+                typing = { error("unexpected typing") }, send = { error("must not resend") })
+            val student = service.identity.resolve("telegram", "9240")
+            val scope = service.identity.issue(student, "operator")
+            assertEquals(listOf("/start") + TELEGRAM_INTRO_TEXTS.take(2),
+                service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+        }
+    }
+
+    @Test
+    fun startResetsMemoryLessonsAndScopesButReplayKeepsTheNewRelationship() = runTest {
+        withStore { service ->
+            val old = service.identity.resolve("telegram", "9250")
+            service.goal(old, "work meetings", 0)
+            val token = service.identity.issue(old, "operator")
+            service.op(token, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to Instant.now().plusSeconds(600).toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            val bridge = FoundationChat(service)
+            val request = introRequest(9250, 2, "/start", Instant.now())
+            service.telegramIntake.accept(introEnvelope(9250, 2, "/start", Instant.now()))
+            service.telegramIntake.accept(introEnvelope(9250, 3, "Теперь для путешествий", Instant.now()))
+            assertTrue(bridge.prepareIntroduction(request, 9250, 2))
+            val fresh = service.identity.resolve("telegram", "9250")
+            assertTrue(fresh != old)
+            assertEquals("scope_expired", assertFailsWith<FoundationFailure> { service.snapshot(token, "text") }.code)
+            val freshToken = service.identity.issue(fresh, "operator")
+            val snapshot = service.snapshot(freshToken, "text")
+            assertEquals("introduction", snapshot.text("textMode"))
+            assertEquals(listOf("/start"), snapshot["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+            service.database.transaction(readOnly = true) { c, _ ->
+                for (table in listOf("memory_fact", "learning_goal", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
+                    assertEquals(0L, c.rows("SELECT count(*) FROM $table WHERE student_id IN (?,?)", old, fresh) { it.getLong(1) }.single())
+                }
+                assertEquals(0L, c.rows("SELECT count(*) FROM foundation_job WHERE student_id=? AND status<>'cancelled'", old) { it.getLong(1) }.single())
+                assertEquals("pending", c.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=9250 AND message_id=3")!!.text("status"))
+            }
+            // The early answer cancels the new greeting, and a restart never erases it again.
+            assertEquals(null, bridge.introduction.next(9250, request.requestId))
+            assertTrue(FoundationChat(service).prepareIntroduction(request, 9250, 2))
+            assertEquals(fresh, service.identity.resolve("telegram", "9250"))
+            service.goal(fresh, "travel", 0)
+            assertTrue(bridge.prepareIntroduction(request.copy(requestId="message:1"), 9250, 1))
+            assertEquals("travel", service.snapshot(freshToken, "text").obj("goal").obj("content").text("value"))
+            service.telegramIntake.accept(introEnvelope(9250, 1, "old delayed text", Instant.now()))
+            service.database.transaction(readOnly = true) { c, _ ->
+                assertEquals("done", c.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=9250 AND message_id=1")!!.text("status"))
+            }
+            assertTrue(bridge.prepareIntroduction(request.copy(requestId="message:4"), 9250, 4))
+            assertTrue(fresh != service.identity.resolve("telegram", "9250"))
+            assertEquals(0, bridge.introduction.next(9250, "message:4")!!.index)
+            // An old greeting receipt cannot recreate erased history.
+            bridge.introduction.sent(9250, request.requestId, 0, 99)
+        }
+    }
+
+    @Test
+    fun migratedExistingStudentsAlsoResetOnStart() = runTest {
+        withStore(beforeMigration = { url ->
+            org.flywaydb.core.Flyway.configure().dataSource(url, null, null).target("44").load().migrate()
+            DriverManager.getConnection(url).use { c ->
+                c.update("INSERT INTO student(id) VALUES ('before-intro')")
+                c.update("INSERT INTO student_identity(provider,subject,student_id) VALUES ('telegram','9260','before-intro')")
+            }
+        }) { service ->
+            assertTrue(FoundationChat(service).prepareIntroduction(introRequest(9260, 1, "/start", Instant.now()), 9260, 1))
+            assertTrue(service.identity.resolve("telegram", "9260") != "before-intro")
+        }
+    }
+
+    @Test
+    fun cancellationWinsBeforeClaimAndConcurrentDispatchersHaveOnlyOneSendClaim() = runTest {
+        withStore { service ->
+            val bridge = FoundationChat(service)
+            val at = Instant.now()
+            val first = introRequest(9270, 1, "/start", at)
+            assertTrue(bridge.prepareIntroduction(first, 9270, 1))
+            assertEquals(0, bridge.introduction.next(9270, first.requestId)!!.index)
+            service.telegramIntake.accept(introEnvelope(9270, 2, "Хочу говорить увереннее", at))
+            assertEquals(false, bridge.introduction.claim(9270, first.requestId, 0))
+
+            val second = introRequest(9271, 1, "/start", at)
+            assertTrue(bridge.prepareIntroduction(second, 9271, 1))
+            val results = kotlinx.coroutines.coroutineScope {
+                (1..8).map {
+                    async { TelegramIntroduction(service.database).claim(9271, second.requestId, 0) }
+                }.map { it.await() }
+            }
+            assertEquals(1, results.count { it })
+            // An inbound reply cannot retract an already claimed external send; its receipt still belongs in history.
+            service.telegramIntake.accept(introEnvelope(9271, 2, "Для работы", at))
+            bridge.introduction.sent(9271, second.requestId, 0, 71)
+            assertEquals(null, bridge.introduction.next(9271, second.requestId))
+            val student = service.identity.resolve("telegram", "9271")
+            val token = service.identity.issue(student, "operator")
+            assertEquals(listOf("/start", TELEGRAM_INTRO_TEXTS[0]),
+                service.snapshot(token, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+            service.op(token, "student.delete", json())
+            bridge.introduction.sent(9271, second.requestId, 0, 71)
+            assertEquals(null, bridge.introduction.next(9271, second.requestId))
+        }
+    }
+
+    private suspend fun withStore(clock: Clock = Clock.systemUTC(), beforeMigration: (String) -> Unit = {}, block: suspend (FoundationService) -> Unit) {
         val raw = requireNotNull(System.getenv("TEST_POSTGRES_URL")) { "TEST_POSTGRES_URL is required; SP-00 integration tests cannot skip PostgreSQL" }
         val url = if (raw.startsWith("jdbc:")) raw else "jdbc:$raw"
         val schema = "sp00_${newId().replace("-", "")}"
         DriverManager.getConnection(url).use { it.createStatement().use { sql -> sql.execute("CREATE SCHEMA $schema") } }
         val scoped = url + (if ('?' in url) "&" else "?") + "currentSchema=$schema"
         try {
+            beforeMigration(scoped)
             FoundationService(FoundationDatabase(scoped, clock)).use { block(it) }
         } finally {
             DriverManager.getConnection(url).use { it.createStatement().use { sql -> sql.execute("DROP SCHEMA $schema CASCADE") } }
@@ -525,6 +779,12 @@ class FoundationIntegrationTest {
             bridge.delivered(com.eliteteam.speakingcoach.ai.TutorDelivery(request.sessionId, request.requestId, replyMessageId = 42))
             val answer = bridge.withDelivery(request, com.eliteteam.speakingcoach.ai.TutorResponse(saved.text("conversationId"), saved.text("reply")))
             assertEquals(42L, answer.replyMessageId)
+            assertEquals(true, answer.showProgressNavigation)
+            val student = service.identity.resolve("telegram", "7001")
+            val operator = service.identity.issue(student, "operator")
+            service.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to Instant.now().plusSeconds(600).toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            assertEquals(true, bridge.withDelivery(request, answer).showProgressNavigation)
             val repeat = bridge.accept(request, false)
             assertEquals("ready", service.op(repeat, "run.claim", json()).text("status"))
             assertEquals("invalid_identity", assertFailsWith<FoundationFailure> { bridge.accept(request.copy(sessionId = "tg--123"), false) }.code)
@@ -593,6 +853,45 @@ class FoundationIntegrationTest {
             assertEquals(false, FoundationChat(service).beginDelivery(delivery))
             bridge.delivered(delivery.copy(replyMessageId = 42))
             assertEquals(false, bridge.beginDelivery(delivery))
+        }
+    }
+
+    @Test
+    fun widgetReceiptSurvivesRestartAndStaleBookingCannotOverwriteNewerAgreement() = runTest {
+        withStore { service ->
+            val bridge = FoundationChat(service)
+            val request = introRequest(9300, 1, "Запиши сейчас", Instant.now())
+            val scope = bridge.accept(request, false)
+            service.op(scope, "run.claim", json())
+            val student = service.identity.resolve("telegram", "9300")
+            val operator = service.identity.issue(student, "operator")
+            val lesson = service.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to Instant.now().plusSeconds(600).toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            service.op(scope, "run.complete", json("reply" to "Договорились", "bookingId" to lesson.text("id"), "degraded" to false))
+            val delivery = com.eliteteam.speakingcoach.ai.TutorDelivery(request.sessionId, request.requestId,
+                bookingId = lesson.text("id"), version = 1, cardIsWidget = true)
+            assertTrue(bridge.beginDelivery(delivery))
+            assertEquals(false, FoundationChat(service).beginDelivery(delivery))
+            val response = com.eliteteam.speakingcoach.ai.TutorResponse("test", "Договорились",
+                booking = com.eliteteam.speakingcoach.ai.TrialBooking(lesson.text("id"), student, "scheduled",
+                    lesson.text("starts_at"), "UTC", 1))
+            val uncertain = FoundationChat(service).withDelivery(request, response)
+            assertEquals(false, uncertain.cardDelivered)
+            assertEquals(false, uncertain.showProgressNavigation)
+            bridge.delivered(delivery.copy(cardMessageId = 81))
+            val restored = FoundationChat(service).withDelivery(request, response)
+            assertEquals(true, restored.cardIsWidget)
+            assertEquals(true, restored.cardDelivered)
+            assertEquals(false, restored.showProgressNavigation)
+            assertEquals(true, bridge.withDelivery(request, response.copy(booking = null)).showProgressNavigation)
+            assertEquals(81L, restored.cardMessageId)
+            val second = request.copy(requestId = "message:2")
+            val nextScope = bridge.accept(second, false)
+            service.op(nextScope, "run.claim", json())
+            service.op(nextScope, "run.complete", json("reply" to "Договорились", "bookingId" to lesson.text("id"), "degraded" to false))
+            service.op(operator, "lesson.cancel", json("lessonId" to lesson.text("id"), "expectedVersion" to 1))
+            assertEquals(false, bridge.beginDelivery(delivery.copy(requestId = second.requestId)))
+            assertEquals(false, bridge.withDelivery(second, response).cardDelivered)
         }
     }
 

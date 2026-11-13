@@ -1,14 +1,22 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-13. База функционального кода: `dev` **fce9b627ffc936eaa2107d72ac452985f3612e2a**.
+Срез: 2026-11-13. База ветки: `origin/dev` **7cb21ab9850de75b47d68bd776a88ffcc4be709f**.
+Поверх неё реализованы первое приветствие, стратегии диалога и запись на пробный с HTML-виджетом, календарём и напоминаниями. Ветка `bb/onboarding-intro-thr_u4vaxexf6a` подготовлена к PR в `dev` и отдельному DEV redeploy; результат поставки проверяется по workflow.
 Реализация, workflow поставки и живая приёмка — разные доказательства.
+DEV: `985f7802a0185bada605fd7bb21c327df9f55490` поставлен успешно: [43431910903](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43431910903). Включает описанные ниже исправления, редизайн и вход в урок.
+Следующая локальная правка: caption виджета убран; при переносе/отмене старая подпись очищается. Ещё не поставлено.
+Исправлены ошибки DEV-диалога: режим trial `after_minutes`, взаимоисключающие схемы времени, пропуск неподтверждённых полей optional memory, завершение после двух отказов tools без новых действий и совместимые ключи personal candidates. Проверки: 673 Python tests и `git diff --check` — passed. Реальные модельные проверки не запускались.
+Переделан HTML-виджет записи: компактная дата и диапазон времени, одна кнопка календаря, подтверждение перед виджетом и завершение после него. Утреннее напоминание без кнопок; вход в урок — в момент начала. Проверки: 297 Kotlin tests, buildFatJar, detekt, 673 Python tests — passed. Визуальная проверка — локальный Chrome, не Telegram. Ранее отправленные виджеты сохраняют старый HTML, их данные поддержаны.
+Mini App ждёт начала по серверному времени, учитывает перенос/отмену, затем автоматически подключается; ошибки микрофона объяснены. Trial-напоминания: 08:00 и за час без кнопок, приглашение с «Начать урок» в начале, мягкая неявка через 10 минут. Проверки: 13 Mini App, 674 Python, 298 Kotlin unit; PostgreSQL — 67/69 в полном прогоне, два устаревших ожидания обновлены и повторно прошли вместе с новым тестом раннего входа (3/3). buildFatJar, detekt, Mini App build и diff-check — passed. Живой Telegram/голосовой прогон агентом не выполнялся.
+Вопрос приветствия заменён на «Расскажи, пожалуйста, для чего ты изучаешь английский?» в коде, тесте и UX-документах.
+Доработка в ветке PR #57: каждый `/start` сбрасывает ученика во всех окружениях (V47), включая память, историю, уроки, прогресс и подписку. Replay команды не сбрасывает повторно; подготовка персонального урока не менялась. Сброс поставлен на DEV: [43418840976](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43418840976), `7b2dbbd3f9a79964e72d3f24edf5ab5172c6fd29`; backend, AI, Mini App и readiness — success. Проверки сброса: 295 Kotlin unit и 68 PostgreSQL integration, 14 Python prompt/context tests — passed; buildFatJar, detekt и diff-check — passed.
 
 ## Реализовано в коде
 
 | Область | Доступное поведение |
 | --- | --- |
 | SP-00 | PostgreSQL foundation, единый профиль/контекст, scopes, версии, receipts, jobs и удаление; legacy изолирован |
-| SP-01 | Постоянный Telegram-диалог, native tools, trial create/read/reschedule/cancel/rebook; жирный текст и code через entities |
+| SP-01 | Постоянный Telegram-диалог, native tools, trial create/read/reschedule/cancel/rebook; entities; общий характер Kora и отдельные стратегии знакомства/обычного диалога; первое приветствие из четырёх сообщений с паузами/typing и отменой остатка при входящем ответе |
 | SP-02 | Отдельный Mini App, Realtime/Marin, trial, reconnect, playback/truncation, S3-архив и Telegram follow-up |
 | SP-03/04 | Подготовка и проведение regular 15–60 минут, согласование расписания, переносы/отмены, DST-уточнения, reminders и no-show |
 | SP-05 | Opt-in mock checkout, тестовое продление, отмена автопродления, entitlement gate для regular; trial бесплатен |
@@ -21,24 +29,50 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 
 ## Поставка и проверки
 
-- GitHub проверен read-only 2026-11-13. Последний **Redeploy DEV** —
-  [43295801220](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43295801220),
-  `4a08369daf6008dd42945a8140a03d6e84960ca9`: backend, AI, Mini App и readiness — success.
-  Он включает SP-05/06/07 и Telegram entities. Это workflow evidence, не проверка текущего сервера.
-- SP-08 входит в `dev` (`fce9b62`), но более новая поставка DEV не найдена.
-  Текущий PROD этим срезом не проверялся.
+- DEV redeploy знакомства/записи [43417154588](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43417154588),
+  `d6e8ed616f2b9c7e25482a8f37c2c27b785ce401`: success, включая backend, AI, Mini App и readiness.
+  Последующая поставка сброса V47 указана выше. PROD не затронут.
+  PR в `dev`: [#57](https://github.com/greenblat17/1billion-dollar-startup/pull/57); merge не выполнялся.
 - На `fce9b62` AI service, CMP и Mini App checks — success. **Foundation integration — failure**:
   [43304873405](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43304873405),
   57 тестов, один сбой `realBackupRestoreReplaysDeletionLedgerBeforeServingContext`
   (`IllegalStateException`, `FoundationIntegrationTest.kt:164`). Причина здесь не установлена.
-- Последний сохранённый локальный результат SP-08: 652 Python, 288 Kotlin unit,
-  57 PostgreSQL integration, 27 HTTP integration, 7 Mini App — passed; fatJar/detekt/build прошли.
-  Первый Kotlin-прогон имел таймауты, последовательный повтор прошёл. Python имеет dependency warning.
-  Это прежние результаты, в документационной задаче runtime-тесты не повторялись.
+- Текущая локальная проверка знакомства и записи: **666 Python, 295 Kotlin unit, 68 PostgreSQL integration — passed**;
+  `:server:buildFatJar`, `detekt` и `git diff --check` — passed. Python сообщает прежний dependency warning.
+  PostgreSQL был отдельным локальным кластером с синтетическими данными; Telegram/model delivery — подставные.
+  Восемь новых DB-сценариев проверяют четыре реплики, прерывание после 1/2/3 сообщений и до первого,
+  порядок intake/history, replay/рестарт, конкурирующие claims, сброс по новому start, replay без повторного сброса, миграции V45/V47,
+  typing/send failures и удаление. Новые проверки записи покрывают receipt виджета после рестарта,
+  запрет устаревшего подтверждения, morning/DST/совпадения, перенос/отмену, unknown delivery,
+  ownership календаря, UTC/UID/SEQUENCE/UTF-8 ICS и вход в календарь без микрофона. Python проверяет контекст прерванного приветствия и replay без model call,
+  состав промптов обоих режимов, сохранение Kora в обычном диалоге и core-самооценки при сбое selector.
+  Backend проверяет явный textMode и отсутствие клавиатуры в знакомстве. Семантическое качество живой модели не проверено.
+  Локальный backup/restore test также прошёл; это не отменяет прежний CI failure на другой ревизии.
+- Прежняя проверка SP-08: 27 HTTP integration — passed; сейчас не повторялась. Mini App: 9 тестов и build — passed.
   HTTP использовал настоящий Python → Ktor → PostgreSQL; модели, Realtime/S3 и доставки — подставные.
   UI проверялся через подставной DOM, без визуальной приёмки.
+- Запись доработана: свободное согласование времени через LLM/native tools, без второго согласия;
+  отказ/неопределённость оставляет инициативу ученику. Успешная запись завершает знакомство.
+  Сверка с [исходным UX-ТЗ](product/2026-11-13-first-acquaintance-ux.md): подтверждение отправляется перед
+  завершающей репликой; в этом ответе нет My Progress. Unknown delivery подтверждения не запускает завершение.
+  Подготовительный шаблон trial общий; модель получает цель, факты и историю для персонализации урока.
+  Персональную подготовку пользователь отложил; точный текст приветствия оставлен по варианту 1.
+  При unknown delivery согласованный приоритет — отсутствие дублей, даже если сообщение будет пропущено.
+  Подтверждение — HTML-виджет с подписью и кнопками урока/календаря; перенос/отмена меняют то же сообщение.
+  Экспорт Google/ICS читает актуальный урок после Telegram auth/ownership; нет OAuth или автосинхронизации.
+  Trial получает сообщения в 08:00 по своему поясу, за час и в начале; совпадения и поздняя запись
+  не создают лишних уведомлений. Durable receipts и версия урока защищают replay/перенос/отмену.
+  До реальной приёмки не проверены native renderer виджета, Google Calendar и импорт ICS в Telegram iOS/Android.
+  Попытка локального browser preview заблокирована `EATTESTATIONVERIFY`; JS/DOM проверки не заменяют визуальные.
+- Пользователь поручил push, PR в `dev` и DEV redeploy ветки с V45–V46; merge не поручен.
+  После поставки нужна живая Telegram-приёмка пауз, typing, прерывания и сброса по новому start.
+  BotFather/config идентичности не менялись.
 
 ## Открытые ограничения и приёмка
+
+- У приветствия отменяются только ещё не начатые отправки; внешний send после claim нельзя отозвать.
+  Неизвестный результат не повторяется автоматически: возможен пропуск реплики. User typing недоступен;
+  отмена опирается на сохранённое входящее сообщение. Контракт — в [tutor-chat](integrations/tutor-chat.md#первое-приветствие).
 
 - Настоящий billing provider не реализован; коммерческие условия не выбраны. Mock не списывает деньги.
   Старый demo receipt не даёт entitlement.
@@ -57,4 +91,4 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
   и 30-дневная очистка приложения не доказывают disaster recovery.
 
 Платные прогоны после HTTP 402 не повторять без поручения. Порядок проверок и диагностики —
-в [operations](integrations/operations.md); новый deploy и реальные сообщения этой задачей не выполнялись.
+в [operations](integrations/operations.md). Реальные Telegram/model acceptance-прогоны не выполнялись.

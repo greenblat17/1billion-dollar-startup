@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.foundation
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.telegram.TutorTextRequest
 import com.eliteteam.speakingcoach.telegram.tutorTextParts
+import com.eliteteam.speakingcoach.telegram.tutorBookingMarkup
 import kotlinx.serialization.encodeToString
 
 import io.ktor.client.HttpClient
@@ -54,21 +55,28 @@ internal class TrialWorker(private val service: FoundationService, private val h
             c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE id=?", current.text("id"))
         } ?: return
         val student = notice.text("student_id")
-        val execution = service.identity.issue(student, "voice", lesson = notice.text("lesson_id"))
-        val response = http.post("${aiRoot.trimEnd('/')}/internal/trial/followup") {
-            header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(notice.text("id")))
-            header("X-Diagnostic-Lesson", notice.text("lesson_id"))
-            header("X-Internal-Token", internalToken); header("X-Execution-Scope", execution)
-            contentType(ContentType.Application.Json); setBody(notice.toString())
+        val scheduledTrial = if (notice.text("kind") in scheduledNoticeKinds) service.database.transaction(readOnly = true) { c, _ ->
+            c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=? AND kind='trial'", notice.text("lesson_id"))
+        } else null
+        val reply = if (scheduledTrial != null) {
+            scheduledNoticeText(notice.text("kind"), scheduledTrial)
+        } else {
+            val execution = service.identity.issue(student, "voice", lesson = notice.text("lesson_id"))
+            val response = http.post("${aiRoot.trimEnd('/')}/internal/trial/followup") {
+                header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(notice.text("id")))
+                header("X-Diagnostic-Lesson", notice.text("lesson_id"))
+                header("X-Internal-Token", internalToken); header("X-Execution-Scope", execution)
+                contentType(ContentType.Application.Json); setBody(notice.toString())
+            }
+            if (response.status.value !in 200..299) {
+                RuntimeDiagnostics.record("trial_followup_failed", "ai_response", extra = mapOf(
+                    "notice_id" to notice.text("id"),
+                    "trace_id" to RuntimeDiagnostics.trace(notice.text("id"))) + RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
+                service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='failed' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
+                return
+            }
+            foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.text("reply")
         }
-        if (response.status.value !in 200..299) {
-            RuntimeDiagnostics.record("trial_followup_failed", "ai_response", extra = mapOf(
-                "notice_id" to notice.text("id"),
-                "trace_id" to RuntimeDiagnostics.trace(notice.text("id"))) + RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
-            service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='failed' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
-            return
-        }
-        val reply = foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.text("reply")
         if (reply.isBlank() || reply.length > 3500) {
             service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='cancelled' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
             return
@@ -78,13 +86,15 @@ internal class TrialWorker(private val service: FoundationService, private val h
             val active = c.document("SELECT to_jsonb(n) FROM trial_notice n JOIN student s ON s.id=n.student_id WHERE n.id=? AND n.status='generating' AND n.fence=? AND n.data_epoch=s.data_epoch AND s.deleted_at IS NULL", notice.text("id"), notice.number("fence")) ?: return@transaction null
             val newer = c.document("SELECT to_jsonb(e) FROM conversation_event e JOIN tutor_conversation t ON t.id=e.conversation_id WHERE e.student_id=? AND t.channel='telegram' AND e.role='user' AND e.received_at>? LIMIT 1", student, java.time.Instant.parse(active.text("due_at")))
             val currentLesson = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", notice.text("lesson_id"))
-            if (currentLesson == null || !noticeApplies(c, notice, currentLesson, now) || newer != null || c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", notice.text("lesson_id")) != null) {
+            if (currentLesson == null || !noticeApplies(c, notice, currentLesson, now) || (newer != null && scheduledTrial == null) || c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", notice.text("lesson_id")) != null) {
                 c.update("UPDATE trial_notice SET status='cancelled' WHERE id=?", notice.text("id")); return@transaction null
             }
             c.update("UPDATE trial_notice SET status='unknown',reply=? WHERE id=?", reply, notice.text("id"))
             c.rows("SELECT subject FROM student_identity WHERE student_id=? AND provider='telegram'", student) { it.getString(1) }.singleOrNull()
         } ?: return
-        val markup = json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
+        val markup = if (notice.text("kind") == "invitation") tutorBookingMarkup(true, notice.text("lesson_id"), miniUrl)
+        else if (notice.text("kind") in setOf("morning", "reminder")) tutorBookingMarkup(false)
+        else json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
             json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
         for (part in tutorTextParts(reply)) {
             val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
@@ -112,8 +122,8 @@ internal class TrialWorker(private val service: FoundationService, private val h
         if (notice.optionalText("lesson_version")?.toLong() != null && notice.number("lesson_version") != lesson.number("version")) return false
         val start = java.time.Instant.parse(lesson.text("starts_at"))
         return when (notice.text("kind")) {
-            "reminder" -> lesson.text("status") == "scheduled" && now < start
-            "invitation" -> lesson.text("status") == "scheduled" && now >= start && now < start.plusSeconds(300)
+            in scheduledNoticeKinds -> lesson.text("status") == "scheduled" &&
+                scheduledNoticeApplies(notice.text("kind"), java.time.Instant.parse(notice.text("due_at")), start, now)
             "followup" -> lesson.text("status") == "completed" && lesson.optionalText("outcome_reason") == "natural_goodbye"
             "no_show" -> lesson.text("status") == "scheduled" && now < java.time.Instant.parse(lesson.text("starts_at")).plusSeconds(lesson.number("duration_minutes") * 60)
             else -> {
@@ -139,11 +149,16 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 if (expired > 0 && lesson.text("kind") == "trial") c.trialNotice(student, id, epoch, "technical_disconnect", now.plusSeconds(30))
                 val start = java.time.Instant.parse(lesson.text("starts_at"))
                 val end = start.plusSeconds(lesson.number("duration_minutes") * 60)
+                if (lesson.text("kind") == "trial" && lesson.text("status") == "scheduled") {
+                    for ((kind, due) in trialReminderTimes(lesson)) {
+                        if (scheduledNoticeApplies(kind, due, start, now)) schedulingNotice(c, lesson, epoch, kind, due)
+                    }
+                }
                 if (lesson.text("kind") == "regular" && lesson.text("status") == "scheduled") {
                     if (now >= start.minusSeconds(900) && now < start) schedulingNotice(c, lesson, epoch, "reminder", now)
                     if (now >= start && now < start.plusSeconds(300)) schedulingNotice(c, lesson, epoch, "invitation", now)
                 }
-                if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(300) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
+                if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(600) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
                 if (lesson.text("status") == "scheduled" && now >= end) c.update("UPDATE lesson SET status='missed',version=version+1 WHERE id=? AND status='scheduled'", id)
                 val last = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", id)
                 if (lesson.text("status") == "in_progress" && now >= end && last?.optionalText("end_reason") == "end_button") {

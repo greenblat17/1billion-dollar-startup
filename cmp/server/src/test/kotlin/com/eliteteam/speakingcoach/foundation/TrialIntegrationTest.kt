@@ -57,6 +57,22 @@ class TrialIntegrationTest {
     private suspend fun open(s: FoundationService, subject: String, id: String, now: Instant) = TrialAccess(s).access(
         json("action" to "open", "initData" to auth(subject, now), "lessonId" to id, "attemptId" to newId()), bot)
 
+    @Test fun waitingStatusUsesServerClockAndDoesNotAdmitEarly() = runTest {
+        store { s, clock ->
+            val l = lesson(s, "100", clock.value.plusSeconds(600))
+            val status = TrialAccess(s).access(json("action" to "lesson_status", "initData" to auth("100", clock.value), "lessonId" to l.text("id")), bot)
+            assertEquals(clock.value.toString(), status.text("serverNow"))
+            assertEquals("scheduled", status.obj("lesson").text("status"))
+            assertEquals("too_early", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM call_session") { it.getLong(1) }.single()) }
+            assertFailsWith<FoundationFailure> {
+                TrialAccess(s).access(json("action" to "lesson_status", "initData" to auth("200", clock.value), "lessonId" to l.text("id")), bot)
+            }
+            clock.value = clock.value.plusSeconds(600)
+            assertEquals("in_progress", open(s, "100", l.text("id"), clock.value).obj("lesson").text("status"))
+        }
+    }
+
     private suspend fun regular(s: FoundationService, clock: TestClock, duration: Int = 30): JsonObject {
         val student = s.identity.resolve("telegram", "100")
         s.op(s.identity.issue(student, "operator"), "access.confirm_payment", json("provider" to "test", "externalId" to newId(),
@@ -335,6 +351,79 @@ class TrialIntegrationTest {
                 worker.tick()
                 assertEquals(1, generated)
                 assertEquals(1, delivered)
+            }
+        }
+    }
+
+    @Test fun trialRemindersUseLocalMorningSurviveRestartAndCalendarChecksOwnership() = runTest {
+        store(TestClock(Instant.parse("2026-11-13T10:00:00Z"))) { s, clock ->
+            val l = lesson(s, "100", Instant.parse("2026-11-14T19:00:00Z"))
+            val id = l.text("id")
+            val access = TrialAccess(s)
+            assertEquals(id, access.access(json("action" to "calendar", "initData" to auth("100", clock.value), "lessonId" to id), bot).obj("lesson").text("id"))
+            assertEquals("not_owned", assertFailsWith<FoundationFailure> {
+                access.access(json("action" to "calendar", "initData" to auth("200", clock.value), "lessonId" to id), bot)
+            }.code)
+            val sent = mutableListOf<String>()
+            val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+                assertEquals("api.telegram.org", request.url.host)
+                sent += (request.body as io.ktor.http.content.TextContent).text
+                respond("{\"ok\":true}", io.ktor.http.HttpStatusCode.OK)
+            })
+            http.use {
+                clock.value = Instant.parse("2026-11-14T08:00:00Z")
+                // Text activity does not cancel an agreed reminder.
+                s.history.accept(l.text("student_id"), "question", "Где подключиться?", clock.value.plusSeconds(1), false)
+                TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
+                TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
+                assertEquals(1, sent.size)
+                assertTrue(sent.single().contains("Сегодня"))
+                clock.value = Instant.parse("2026-11-14T18:00:00Z")
+                TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
+                clock.value = Instant.parse("2026-11-14T19:00:00Z")
+                TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
+                assertEquals(3, sent.size)
+                assertTrue(sent.take(2).none { body -> body.contains("lesson=$id") })
+                assertTrue(sent.last().contains("lesson=$id"))
+                assertTrue(sent.last().contains("Начать урок"))
+                val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
+                clock.value = Instant.parse("2026-11-14T19:09:00Z")
+                worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show'") { it.getLong(1) }.single()) }
+                clock.value = Instant.parse("2026-11-14T19:10:00Z")
+                worker.sweep(); worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(1L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show' AND status='pending'") { it.getLong(1) }.single()) }
+                open(s, "100", id, clock.value)
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show' AND status='pending'") { it.getLong(1) }.single()) }
+            }
+        }
+    }
+
+    @Test fun trialRescheduleCancelsOldNoticesAndUnknownDeliveryDoesNotRepeat() = runTest {
+        store { s, clock ->
+            val start = clock.value.plusSeconds(86400)
+            val l = lesson(s, "100", start)
+            clock.value = start.minusSeconds(900)
+            val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+                assertEquals("api.telegram.org", request.url.host)
+                respond("upstream disconnected", io.ktor.http.HttpStatusCode.BadGateway)
+            })
+            http.use {
+                val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
+                worker.tick(); worker.tick()
+                s.database.transaction { c, _ ->
+                    assertEquals("unknown", c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE lesson_id=? AND kind='reminder'", l.text("id"))!!.text("status"))
+                }
+                val moved = s.op(s.identity.issue(l.text("student_id"), "operator"), "lesson.reschedule", json("lessonId" to l.text("id"), "expectedVersion" to l.number("version"),
+                    "startsAt" to start.plusSeconds(86400).toString(), "timezone" to "UTC"))
+                clock.value = start
+                worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE lesson_id=? AND kind='invitation'", l.text("id")) { it.getLong(1) }.single()) }
+                val cancelled = s.op(s.identity.issue(l.text("student_id"), "operator"), "lesson.cancel", json("lessonId" to moved.text("id"), "expectedVersion" to moved.number("version")))
+                assertEquals("cancelled", cancelled.text("status"))
+                clock.value = start.plusSeconds(86400)
+                worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE lesson_id=? AND status='pending'", l.text("id")) { it.getLong(1) }.single()) }
             }
         }
     }

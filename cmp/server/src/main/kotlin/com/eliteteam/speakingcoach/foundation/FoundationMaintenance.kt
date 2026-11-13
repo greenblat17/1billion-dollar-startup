@@ -47,12 +47,12 @@ internal class FoundationMaintenance {
         return json("forgotten" to true)
     }
 
-    fun deleteStudent(connection: Connection, scope: ExecutionScope, now: Instant, recordDeletion: Boolean = true): JsonObject {
+    fun deleteStudent(connection: Connection, scope: ExecutionScope, now: Instant, recordDeletion: Boolean = true, preserveTelegramFrom: Long = Long.MAX_VALUE): JsonObject {
         requireRole(scope, "operator")
         val student = scope.studentId
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
-        invalidateCopies(connection, student, now)
+        invalidateCopies(connection, student, now, preserveTelegramFrom)
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
@@ -66,6 +66,7 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM lesson_plan WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_evaluation WHERE student_id=?", student)
         connection.update("DELETE FROM reminder_delivery WHERE student_id=?", student)
+        connection.update("DELETE FROM telegram_introduction WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_telegram_card WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_event WHERE student_id=?", student)
@@ -126,11 +127,12 @@ internal class FoundationMaintenance {
         connection.update("UPDATE roadmap SET active_revision=NULL WHERE student_id=?", student)
     }
 
-    private fun invalidateCopies(connection: Connection, student: String, now: Instant) {
+    private fun invalidateCopies(connection: Connection, student: String, now: Instant, preserveTelegramFrom: Long = Long.MAX_VALUE) {
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
         connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
-        connection.update("UPDATE student SET data_epoch=data_epoch+1 WHERE id=?", student)
+        connection.update("UPDATE telegram_introduction SET status='cancelled' WHERE student_id=?", student)
+        connection.update("UPDATE student SET data_epoch=data_epoch+1,telegram_intro_eligible=FALSE WHERE id=?", student)
         connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',result=NULL,error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_summary WHERE student_id=?", student)
         connection.update("UPDATE foundation_operation SET result='{}',expires_at=? WHERE student_id=?", now, student)
@@ -141,8 +143,8 @@ internal class FoundationMaintenance {
         // Free-form replies/summaries can paraphrase a fact without a machine-verifiable source link.
         // Forget conservatively clears raw conversation content; unrelated confirmed facts remain.
         connection.update("UPDATE conversation_event SET body=NULL,metadata='{}' WHERE student_id=?", student)
-        connection.update("""UPDATE telegram_text_intake SET payload=NULL,status='done',lease_until=NULL WHERE chat_id::text IN
-            (SELECT subject FROM student_identity WHERE student_id=? AND provider='telegram')""", student)
+        connection.update("""UPDATE telegram_text_intake SET payload=NULL,status='done',lease_until=NULL WHERE message_id<? AND chat_id::text IN
+            (SELECT subject FROM student_identity WHERE student_id=? AND provider='telegram')""", preserveTelegramFrom, student)
     }
 
     fun replayDeletions(connection: Connection, scope: ExecutionScope, now: Instant): JsonObject {

@@ -24,7 +24,7 @@ test('interrupt reports only bounded playback and stops queued sources before en
  const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}},
  location:{search:'',origin:'https://test'},URLSearchParams,crypto:{randomUUID:()=> 'test'},
  WebSocket:{OPEN:1},clearTimeout(){},setTimeout(){},clearInterval(){}});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
+ const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
  context.record=data=>sent.push(JSON.parse(data));
  vm.runInContext(`ws={readyState:1,send:record};ctx={currentTime:10};playing.set('one',{start:8,duration:.3,segments:[{start:8,duration:.1},{start:10.5,duration:.2}],sources:[{stop(){}}]});stopAudio();`,context);

@@ -257,8 +257,8 @@ class OpenAiChatModel:
         """Native tool messages; no fabricated JSON action envelope or clip job."""
         response = await logged_provider_call(
             lambda: self._client.chat.completions.create(
-                model=self._model, messages=messages, tools=tools,
-                tool_choice="auto", temperature=0.7, max_tokens=1800,
+                model=self._model, messages=messages,
+                **({"tools": tools, "tool_choice": "auto"} if tools else {}), temperature=0.7, max_tokens=1800,
                 response_format={"type": "json_schema", "json_schema": {"name": "tutor_reply", "strict": True,
                     "schema": {"type": "object", "properties": {"reply": {"type": "string"},
                                "trialOffered": {"type": "boolean"}},
