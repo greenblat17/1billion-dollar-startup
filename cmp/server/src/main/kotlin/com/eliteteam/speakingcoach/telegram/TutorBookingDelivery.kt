@@ -87,12 +87,12 @@ internal suspend fun deliverBookingCard(chat: Long, booking: TrialBooking, capti
     }
     if (messageId == null) {
         if (booking.status == "scheduled") send(TutorTextRequest(chat, "Отлично, договорились! 🙂", emptyList(), tutorProgressMarkup(miniUrl = "")))
-        val result = send(BookingWidgetRequest(chat, html = bookingWidgetHtml, data = bookingWidgetData(booking), caption = caption, markup = markup))
+        val result = send(BookingWidgetRequest(chat, html = bookingWidgetHtml, data = bookingWidgetData(booking), markup = markup))
         return result.jsonObject.getValue("message_id").jsonPrimitive.long
     }
     if (widget) {
         edit(BookingWidgetRequest(chat, messageId, data = bookingWidgetData(booking), apiMethod = "editMessageWidgetData"))
-        edit(BookingWidgetRequest(chat, messageId, caption = caption, markup = markup, apiMethod = "editMessageCaption"))
+        edit(BookingWidgetRequest(chat, messageId, caption = "", markup = markup, apiMethod = "editMessageCaption"))
     } else edit(TutorCardRequest(chat, caption, markup, messageId))
     return messageId
 }

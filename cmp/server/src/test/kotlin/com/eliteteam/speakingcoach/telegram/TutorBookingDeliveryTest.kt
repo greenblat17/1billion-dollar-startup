@@ -18,7 +18,7 @@ import kotlin.test.assertFailsWith
 
 class TutorBookingDeliveryTest {
     private val booking = TrialBooking("lesson", "student", "scheduled", "2026-11-14T16:00:00Z", "Europe/Moscow", 2)
-    @Test fun sendsOneWidgetWithCompatibleCaptionAndUpdatesSameMessage() = runTest {
+    @Test fun sendsWidgetWithoutCaptionAndClearsOldCaptionOnUpdate() = runTest {
         val calls = mutableListOf<String>()
         assertEquals(72L, deliverBookingCard(1, booking, "confirmation", null, true) {
             calls += it.method()
@@ -27,7 +27,7 @@ class TutorBookingDeliveryTest {
                 return@deliverBookingCard buildJsonObject { put("message_id", 71) }
             }
             val request = it as BookingWidgetRequest
-            assertEquals("confirmation", request.caption)
+            assertEquals(null, request.caption)
             assertTrue(request.html!!.contains("textContent"))
             assertTrue(request.data!!.contains("19:00"))
             buildJsonObject { put("message_id", 72) }
@@ -36,7 +36,10 @@ class TutorBookingDeliveryTest {
             calls += it.method()
             val request = it as BookingWidgetRequest
             assertEquals(72L, request.messageId)
-            if (it.method() == "editMessageCaption") assertEquals("[]", request.markup!!["inline_keyboard"].toString())
+            if (it.method() == "editMessageCaption") {
+                assertEquals("", request.caption)
+                assertEquals("[]", request.markup!!["inline_keyboard"].toString())
+            }
             JsonPrimitive(true)
         })
         assertEquals(listOf("sendMessage", "sendWidget", "editMessageWidgetData", "editMessageCaption"), calls)
