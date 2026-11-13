@@ -19,9 +19,11 @@ test('calendar entry reads current owned lesson without opening microphone or vo
  assert.deepEqual(requests,[{action:'calendar',initData:'signed',lessonId:'owned'}]);
  const card=get('meetings').children[0];
  assert.match(card.children[1].textContent,/19:00/);
- card.children[2].onclick();
+ assert.match(card.children[2].textContent,/UTC\+03:00/);
+ assert.equal(card.children.find(child=>child.className==='lesson-duration').textContent,'15 минут');
+ card.children.find(child=>child.textContent==='Google Calendar').onclick();
  assert.equal(links.length,1);
- assert.match(card.children[4].textContent,/обновите событие/);
+ assert.match(card.children.at(-1).textContent,/обновите событие/);
 });
 
 test('widget state updates safely and ignores older revisions',async()=>{

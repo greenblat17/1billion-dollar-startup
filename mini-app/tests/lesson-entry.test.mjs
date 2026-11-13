@@ -22,6 +22,9 @@ test('early arrival waits using server time, rechecks changes, then automaticall
  const h=harness();await h.connect();
  assert.equal(h.microphoneCalls,0);assert.equal(h.sockets.length,0);
  assert.equal(h.element('lobby-title').textContent,'Ждём начала занятия');
+ assert.equal(h.element('lobby-time').hidden,false);
+ assert.match(h.element('lobby-time').textContent,/10:00/);
+ assert.match(h.element('lobby-note').textContent,/автоматически/);
  assert.equal(h.timers.at(-1).ms,15000);
  h.state.lesson.starts_at='2026-11-13T11:00:00Z';h.state.serverNow='2026-11-13T10:00:00Z';
  await h.timers.at(-1).fn();assert.equal(h.microphoneCalls,0);
@@ -31,7 +34,9 @@ test('early arrival waits using server time, rechecks changes, then automaticall
 test('cancelled lesson never requests microphone or connects',async()=>{
  const h=harness();h.state.lesson.status='cancelled';await h.connect();
  assert.equal(h.microphoneCalls,0);assert.equal(h.sockets.length,0);
- assert.match(h.element('error-text').textContent,/недоступна/);
+ assert.equal(h.element('error-title').textContent,'Урок недоступен');
+ assert.match(h.element('error-text').textContent,/Telegram/);
+ assert.equal(h.element('retry').hidden,true);
 });
 test('denied microphone explains permissions and offers retry',async()=>{
  const h=harness();h.state.serverNow=h.state.lesson.starts_at;
@@ -39,6 +44,7 @@ test('denied microphone explains permissions and offers retry',async()=>{
  await h.connect();assert.equal(h.sockets.length,0);
  assert.match(h.element('error-text').textContent,/Разрешите микрофон/);
  assert.equal(h.element('retry').textContent,'Повторить подключение');
+ assert.equal(h.element('retry').hidden,false);
 });
 test('closing during microphone permission request stops late stream and prevents connection',async()=>{
  const h=harness();h.state.serverNow=h.state.lesson.starts_at;let resolve;
@@ -46,4 +52,19 @@ test('closing during microphone permission request stops late stream and prevent
  const pending=h.connect();while(!resolve)await Promise.resolve();
  h.events.pagehide();resolve({getTracks:()=>[h.track]});await pending;
  assert.equal(h.track.stopped,true);assert.equal(h.sockets.length,0);
+});
+
+test('recovery keeps diagnostics separate and clears them on a different error',async()=>{
+ const h=harness();
+ vm.runInContext('failure("connection_lost","trace-123")',h.context);
+ assert.equal(h.element('error-title').textContent,'Связь прервалась');
+ assert.equal(h.element('retry').hidden,false);
+ assert.equal(h.element('error-diagnostics').hidden,false);
+ assert.equal(h.element('error-code').textContent,'Код ошибки: trace-123');
+ assert.doesNotMatch(h.element('error-text').textContent,/trace-123/);
+ h.state.lesson.status='cancelled';await h.connect();
+ assert.equal(h.element('error-diagnostics').hidden,true);
+ assert.equal(h.element('error-code').textContent,'');
+ assert.equal(h.element('error-help').hidden,true);
+ assert.equal(h.element('retry').hidden,true);
 });

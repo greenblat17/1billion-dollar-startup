@@ -12,15 +12,23 @@ test('real agreed regular meetings remain joinable without treating demo as subs
  const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:get,createElement:element},
   location:{search:'',origin:'https://test'},URLSearchParams,crypto:{randomUUID:()=> 'test'},
   fetch:async()=>({ok:true,json:async()=>({lessons:[{...lesson,id:'real',launch_mode:'executable'},
-   {...lesson,id:'demo',launch_mode:'placeholder'}],schedules:[{...schedule,id:'agreed',agreement:{...schedule.agreement,executable:true}},
+   {...lesson,id:'demo',launch_mode:'placeholder'},
+   {...lesson,id:'done',launch_mode:'executable',status:'completed'},
+   {...lesson,id:'cancelled',launch_mode:'executable',status:'cancelled'},
+   {...lesson,id:'unknown',launch_mode:'executable',status:'unknown'}],schedules:[{...schedule,id:'agreed',agreement:{...schedule.agreement,executable:true}},
    {...schedule,id:'preliminary'}],demoReceipts:[]})})});
  const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
  vm.runInContext(source,context);
  await vm.runInContext('list()',context);
- const [real,placeholder]=get('meetings').children;
+ const [real,placeholder,done,cancelled,unknown]=get('meetings').children;
+ const action=card=>card.children.find(child=>child.className==='lesson-action');
  assert.equal(real.children[0].textContent,'Урок английского');
- assert.equal(real.children[2].disabled,false);
- assert.equal(placeholder.children[2].disabled,true);
+ assert.equal(action(real).disabled,false);
+ assert.equal(action(placeholder).disabled,true);
+ assert.equal(action(done).textContent,'Урок завершён');
+ assert.equal(action(cancelled).textContent,'Урок отменён');
+ assert.equal(action(unknown).textContent,'Урок недоступен');
+ for(const card of [done,cancelled,unknown])assert.equal(action(card).disabled,true);
  const [agreed,preliminary]=get('schedules').children;
  assert.match(agreed.children[0].textContent,/Согласованное/);
  assert.match(agreed.children[1].textContent,/подписка не включается/);
