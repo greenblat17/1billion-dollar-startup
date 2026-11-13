@@ -22,6 +22,10 @@ class TutorBookingDeliveryTest {
         val calls = mutableListOf<String>()
         assertEquals(72L, deliverBookingCard(1, booking, "confirmation", null, true) {
             calls += it.method()
+            if (it is TutorTextRequest) {
+                assertEquals("Отлично, договорились! 🙂", it.text)
+                return@deliverBookingCard buildJsonObject { put("message_id", 71) }
+            }
             val request = it as BookingWidgetRequest
             assertEquals("confirmation", request.caption)
             assertTrue(request.html!!.contains("textContent"))
@@ -35,7 +39,7 @@ class TutorBookingDeliveryTest {
             if (it.method() == "editMessageCaption") assertEquals("[]", request.markup!!["inline_keyboard"].toString())
             JsonPrimitive(true)
         })
-        assertEquals(listOf("sendWidget", "editMessageWidgetData", "editMessageCaption"), calls)
+        assertEquals(listOf("sendMessage", "sendWidget", "editMessageWidgetData", "editMessageCaption"), calls)
     }
     @Test fun uncertainSendOrEditNeverFallsBackToAnotherSend() = runTest {
         for (previous in listOf(null, 72L)) {
@@ -58,5 +62,32 @@ class TutorBookingDeliveryTest {
         assertTrue(bookingWidgetData(booking).toByteArray().size <= 1024)
         val markup = tutorBookingMarkup(true, "a b", "https://mini.test/miniapp", calendar=true).toString()
         assertTrue(markup.contains("view=calendar&lesson=a+b"))
+        assertTrue(!markup.contains("Открыть урок"))
+        assertEquals(1, kotlinx.serialization.json.Json.parseToJsonElement(markup).jsonObject["inline_keyboard"]!!.let {
+            (it as kotlinx.serialization.json.JsonArray).size
+        })
     }
+    @Test fun compactWidgetShowsLocalRangeAndHandlesMidnight() {
+        val data = kotlinx.serialization.json.Json.parseToJsonElement(bookingWidgetData(booking)).jsonObject
+        assertEquals("14", data["day"]!!.jsonPrimitive.content)
+        assertTrue(data["date"]!!.jsonPrimitive.content.contains("14 ноября 2026"))
+        assertEquals("19:00–19:15 (МСК)", data["time"]!!.jsonPrimitive.content)
+        assertEquals("Суббота · Саша", data["weekday"]!!.jsonPrimitive.content)
+        val midnight = bookingWidgetData(booking.copy(startsAtUtc = "2026-11-14T20:55:00Z"))
+        assertTrue(midnight.contains("23:55–15 ноября 00:10 (МСК)"))
+        assertTrue(!bookingWidgetHtml.contains("SPEAKY"))
+    }
+
+    @Test fun failureAfterAcknowledgmentDoesNotRetryWidget() = runTest {
+        val calls = mutableListOf<String>()
+        assertFailsWith<IllegalStateException> {
+            deliverBookingCard(1, booking, "confirmation", null, true) {
+                calls += it.method()
+                if (it is BookingWidgetRequest) error("unknown widget outcome")
+                buildJsonObject { put("message_id", 71) }
+            }
+        }
+        assertEquals(listOf("sendMessage", "sendWidget"), calls)
+    }
+
 }

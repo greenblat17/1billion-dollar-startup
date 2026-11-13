@@ -28,8 +28,8 @@ import java.time.Instant
 /** Native disabled button is absent from tgbotapi 36.1.0; use the Bot API wire shape. */
 internal fun tutorBookingMarkup(active: Boolean, lessonId: String? = null, miniUrl: String = System.getenv("MINI_APP_URL").orEmpty(), calendar: Boolean = false): JsonObject = buildJsonObject {
     put("inline_keyboard", buildJsonArray {
-        if (active) add(buildJsonArray { add(buildJsonObject {
-            put("text", "Открыть урок")
+        if (active && !calendar) add(buildJsonArray { add(buildJsonObject {
+            put("text", "Начать урок")
             if (lessonId != null && miniUrl.startsWith("https://")) {
                 put("style", "primary")
                 put("web_app", buildJsonObject { put("url", miniUrl + (if ('?' in miniUrl) "&" else "?") + "lesson=" + java.net.URLEncoder.encode(lessonId, "UTF-8")) })

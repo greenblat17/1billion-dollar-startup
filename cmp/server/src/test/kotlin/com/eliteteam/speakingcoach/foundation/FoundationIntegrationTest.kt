@@ -47,7 +47,7 @@ class FoundationIntegrationTest {
                 pause = { paused += it; clock.current = clock.current.plusMillis(it) })
             assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
                 "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
-                "А для чего английский нужен тебе?"), sent)
+                "Расскажи, пожалуйста, для чего ты изучаешь английский?"), sent)
             assertEquals(3, typing)
             assertEquals(2750L, paused)
             val student = service.identity.resolve("telegram", "9200")

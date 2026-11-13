@@ -92,7 +92,8 @@ internal class TrialWorker(private val service: FoundationService, private val h
             c.update("UPDATE trial_notice SET status='unknown',reply=? WHERE id=?", reply, notice.text("id"))
             c.rows("SELECT subject FROM student_identity WHERE student_id=? AND provider='telegram'", student) { it.getString(1) }.singleOrNull()
         } ?: return
-        val markup = if (notice.text("kind") in scheduledNoticeKinds) tutorBookingMarkup(true, notice.text("lesson_id"), miniUrl)
+        val markup = if (notice.text("kind") == "invitation") tutorBookingMarkup(true, notice.text("lesson_id"), miniUrl)
+        else if (notice.text("kind") in setOf("morning", "reminder")) tutorBookingMarkup(false)
         else json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
             json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
         for (part in tutorTextParts(reply)) {
@@ -157,7 +158,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
                     if (now >= start.minusSeconds(900) && now < start) schedulingNotice(c, lesson, epoch, "reminder", now)
                     if (now >= start && now < start.plusSeconds(300)) schedulingNotice(c, lesson, epoch, "invitation", now)
                 }
-                if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(300) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
+                if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(600) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
                 if (lesson.text("status") == "scheduled" && now >= end) c.update("UPDATE lesson SET status='missed',version=version+1 WHERE id=? AND status='scheduled'", id)
                 val last = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", id)
                 if (lesson.text("status") == "in_progress" && now >= end && last?.optionalText("end_reason") == "end_button") {

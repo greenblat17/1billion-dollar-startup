@@ -21,7 +21,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             payload = json.loads(raw)
         except (ValueError, UnicodeDecodeError):
             raise HTTPException(400) from None
-        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress', 'calendar'):
+        if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress', 'calendar', 'lesson_status'):
             raise HTTPException(400)
         try:
             result = await backend._request('POST', '/trial/access', '', json=payload)
@@ -125,7 +125,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             'followup': 'The trial ended normally. Briefly refer to the actual conversation and invite discussion of a personal learning plan and agreed regular schedule, without repeating a report. Respect refusal or unsuitable level. No invented progress.',
             'end_button': 'Learner left early. Gently ask whether everything was comfortable; do not sell or assume a technical problem.',
             'technical_disconnect': 'The connection broke. Offer to resume the same lesson. If it cannot be recovered, offer a new free approximately 15-minute trial with the same context. Do not claim completion.',
-            'no_show': 'The agreed trial started five minutes ago. Send one gentle check-in, no pressure or blame.',
+            'no_show': 'The agreed trial started ten minutes ago. Send one gentle check-in: ask if everything is okay and offer to reschedule if plans changed. No pressure or blame.',
         }.get(kind)
         if directive is None:
             raise HTTPException(400)
@@ -138,7 +138,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                 'invitation': 'The agreed lesson is starting. Briefly invite the learner to join the meeting using the attached button.',
                 'end_button': 'Learner left a regular lesson early. Read the actual conversation first. If the learner already explained leaving or said a natural goodbye, return an empty reply. Otherwise ask once gently whether everything is okay or uncomfortable. No sales. No assumption of failure.',
                 'technical_disconnect': 'The regular lesson connection broke. Offer to resume the same lesson without moving its agreed ending. No completion claim.',
-                'no_show': 'The agreed regular lesson started five minutes ago. Send one gentle check-in, no pressure or blame.',
+                'no_show': 'The agreed regular lesson started ten minutes ago. Send one gentle check-in: ask if everything is okay and offer to reschedule if plans changed. No pressure or blame.',
             }.get(kind)
             if directive is None:
                 raise HTTPException(400)

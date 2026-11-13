@@ -132,7 +132,7 @@ class TrialIntegrationTestSchedule {
             repeat(2) { worker(s).sweep() }
             clock.value = clock.value.plusSeconds(600)
             repeat(2) { worker(s).sweep() }
-            clock.value = clock.value.plusSeconds(301)
+            clock.value = clock.value.plusSeconds(601)
             repeat(2) { worker(s).sweep() }
             s.database.transaction { c, _ -> assertEquals(3L, c.rows("SELECT count(*) FROM trial_notice WHERE lesson_id=?", id) { it.getLong(1) }.single()) }
             clock.value = clock.value.plusSeconds(1500)

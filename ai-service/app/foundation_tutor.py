@@ -79,6 +79,7 @@ class FoundationTutor:
         payment_committed = False
         memory_committed = False
         degraded = False
+        rejected_tools = 0
         try:
             committed = claim.get('committed', [])
             if committed:
@@ -108,6 +109,10 @@ class FoundationTutor:
                         if result.get('contextRevoked'):
                             return dict(conversationId=result['conversationId'], reply=result['reply'],
                                         booking=None, bookingText=None, degraded=False)
+                        if result.get('ok') is False or (result.get('skipped') and not result.get('saved')):
+                            rejected_tools += 1
+                        if function['name'] == 'update_learner_context' and result.get('saved'):
+                            memory_committed = True
                         if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
                             memory_committed = True
                         if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
@@ -117,6 +122,19 @@ class FoundationTutor:
                         if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
                             changed = result['booking']
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
+                    if rejected_tools >= 2:
+                        messages.append({'role': 'system', 'content': (
+                            'Stop tool attempts for this turn. Answer the learner now from the conversation and tool results. '
+                            'Optional memory failure must not stop consultation or make the learner repeat their message. '
+                            'Never claim an uncommitted booking succeeded. If booking failed, explain it briefly; '
+                            'do not invent a missing timezone or missing user information to explain invalid tool arguments.')})
+                        final = await self.model.finalize(messages)
+                        if final.get('tool_calls'):
+                            raise ValueError('unexpected_final_tool_call')
+                        reply = json.loads(final.get('content') or '{}')['reply'].strip()
+                        if not reply:
+                            raise ValueError('empty_reply')
+                        break
                 else:
                     raise ValueError('tool_round_limit')
         except BackendFailure as error:
@@ -218,10 +236,17 @@ class FoundationTutor:
             if name == 'get_trial_booking':
                 return {'ok': True, 'booking': current}
             if name == 'update_learner_context':
-                await self.backend.command(scope, identity, 'tutor.update_context', {
-                    'sourceId': source['id'], **args.model_dump(),
-                })
-                return {'ok': True}
+                stage = 'update_context'
+                payload, skipped = supported_context_update(args, source['body'])
+                saved = bool(payload['facts'] or payload['trialPreference'] is not None or payload['summary'] is not None)
+                if saved:
+                    await self.backend.command(scope, identity, 'tutor.update_context', {
+                        'sourceId': source['id'], **payload,
+                    })
+                return {'ok': True, 'saved': saved, 'skipped': skipped, 'guidance':
+                    'Only supported fields were saved. Do not retry skipped optional memory in this turn. '
+                    'Continue responding to the learner; do not ask them to repeat information. '
+                    'Use null for trialPreference when the current message says nothing about trial readiness.'}
             stage = 'validate_evidence'
             if getattr(args, 'evidence', '') not in source['body']:
                 raise ValueError('invalid_evidence')
@@ -266,4 +291,28 @@ class FoundationTutor:
                     'whether the current message requests this action. If it does, retry with '
                     'an exact supporting quote; otherwise continue the conversation without '
                     'booking. Do not ask the learner to repeat an already clear request.')}
+            if stage == 'resolve_time' and str(error) in ('conflicting_schedule_fields', 'current_booking_and_shift_required'):
+                return {'ok': False, 'error': str(error), 'guidance':
+                    'Invalid tool arguments, not a timezone problem. For N minutes from this message use '
+                    'after_minutes with delayMinutes. shift_minutes requires an existing booking. '
+                    'Use only fields belonging to the chosen mode; no change was committed.'}
             return {'ok': False, 'error': str(error)[:300]}
+
+
+def supported_context_update(args, text):
+    """Keep exact-source validation; omit unsupported optional fields instead of failing the whole turn."""
+    payload = args.model_dump()
+    facts = []
+    skipped = []
+    for index, fact in enumerate(payload['facts']):
+        if fact['evidence'].strip() and fact['evidence'] in text:
+            facts.append(fact)
+        else:
+            skipped.append(f'facts[{index}]: evidence must quote this message exactly')
+    payload['facts'] = facts
+    evidence = payload['preferenceEvidence']
+    if payload['trialPreference'] is not None and (not evidence or not evidence.strip() or evidence not in text):
+        skipped.append('trialPreference: no supporting quote in this message')
+        payload['trialPreference'] = None
+        payload['preferenceEvidence'] = None
+    return payload, skipped

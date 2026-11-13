@@ -19,8 +19,8 @@ internal fun trialReminderTimes(lesson: JsonObject): Map<String, Instant> {
     val morning = offsets.singleOrNull()?.let { localMorning.toInstant(it) }
     return buildMap {
         // A now booking needs only its invitation, not an immediate reminder as well.
-        if (agreed < start.minusSeconds(900)) put("reminder", start.minusSeconds(900))
-        if (morning != null && agreed < morning && morning < start && morning != start.minusSeconds(900)) {
+        if (agreed < start.minusSeconds(3600)) put("reminder", start.minusSeconds(3600))
+        if (morning != null && agreed < morning && morning < start && morning != start.minusSeconds(3600)) {
             put("morning", morning)
         }
         put("invitation", start)
@@ -41,7 +41,7 @@ internal fun scheduledNoticeText(kind: String, lesson: JsonObject): String {
     val details = "$time (${lesson.text("timezone")}), ${lesson.number("duration_minutes")} минут."
     return when (kind) {
         "morning" -> "Сегодня у нас бесплатное пробное занятие: $details До встречи!"
-        "reminder" -> "Напоминаю о нашем занятии: $details Подключиться можно кнопкой ниже в назначенное время."
-        else -> "Наше занятие начинается. Подключайся кнопкой ниже — жду тебя!"
+        "reminder" -> "Напоминаю о нашем занятии: $details До скорого 🙂"
+        else -> "Я готов! Можем начинать наш урок 👋"
     }
 }

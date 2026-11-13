@@ -27,7 +27,7 @@ class PersonalCandidateExtractor:
             raise ValueError('source_expired')
         person = await self.model.update_person_once({}, [source['body']])
         candidates = [{'key': key, 'value': person[key]} for key in ('name', 'work', 'leisure') if person.get(key)]
-        candidates += [{'key': 'fact_' + hashlib.sha256(value.encode()).hexdigest()[:24], 'value': value}
+        candidates += [{'key': 'fact_' + hashlib.sha256(value.encode()).hexdigest()[:24].translate(str.maketrans('0123456789', 'ghijklmnop')), 'value': value}
                        for value in person.get('facts', [])]
         return {'candidates': candidates}
 

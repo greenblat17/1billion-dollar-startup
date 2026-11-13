@@ -57,6 +57,22 @@ class TrialIntegrationTest {
     private suspend fun open(s: FoundationService, subject: String, id: String, now: Instant) = TrialAccess(s).access(
         json("action" to "open", "initData" to auth(subject, now), "lessonId" to id, "attemptId" to newId()), bot)
 
+    @Test fun waitingStatusUsesServerClockAndDoesNotAdmitEarly() = runTest {
+        store { s, clock ->
+            val l = lesson(s, "100", clock.value.plusSeconds(600))
+            val status = TrialAccess(s).access(json("action" to "lesson_status", "initData" to auth("100", clock.value), "lessonId" to l.text("id")), bot)
+            assertEquals(clock.value.toString(), status.text("serverNow"))
+            assertEquals("scheduled", status.obj("lesson").text("status"))
+            assertEquals("too_early", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+            s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM call_session") { it.getLong(1) }.single()) }
+            assertFailsWith<FoundationFailure> {
+                TrialAccess(s).access(json("action" to "lesson_status", "initData" to auth("200", clock.value), "lessonId" to l.text("id")), bot)
+            }
+            clock.value = clock.value.plusSeconds(600)
+            assertEquals("in_progress", open(s, "100", l.text("id"), clock.value).obj("lesson").text("status"))
+        }
+    }
+
     private suspend fun regular(s: FoundationService, clock: TestClock, duration: Int = 30): JsonObject {
         val student = s.identity.resolve("telegram", "100")
         s.op(s.identity.issue(student, "operator"), "access.confirm_payment", json("provider" to "test", "externalId" to newId(),
@@ -362,12 +378,23 @@ class TrialIntegrationTest {
                 TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
                 assertEquals(1, sent.size)
                 assertTrue(sent.single().contains("Сегодня"))
-                clock.value = Instant.parse("2026-11-14T18:45:00Z")
+                clock.value = Instant.parse("2026-11-14T18:00:00Z")
                 TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
                 clock.value = Instant.parse("2026-11-14T19:00:00Z")
                 TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick()
                 assertEquals(3, sent.size)
-                assertTrue(sent.all { body -> body.contains("lesson=$id") })
+                assertTrue(sent.take(2).none { body -> body.contains("lesson=$id") })
+                assertTrue(sent.last().contains("lesson=$id"))
+                assertTrue(sent.last().contains("Начать урок"))
+                val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
+                clock.value = Instant.parse("2026-11-14T19:09:00Z")
+                worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show'") { it.getLong(1) }.single()) }
+                clock.value = Instant.parse("2026-11-14T19:10:00Z")
+                worker.sweep(); worker.sweep()
+                s.database.transaction { c, _ -> assertEquals(1L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show' AND status='pending'") { it.getLong(1) }.single()) }
+                open(s, "100", id, clock.value)
+                s.database.transaction { c, _ -> assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE kind='no_show' AND status='pending'") { it.getLong(1) }.single()) }
             }
         }
     }
