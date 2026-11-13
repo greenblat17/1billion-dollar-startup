@@ -55,7 +55,6 @@ class FoundationIntegrationTest {
             assertEquals(listOf("/start") + sent, service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
             assertTrue(FoundationChat(service).prepareIntroduction(request, 9200, 1))
             assertEquals(null, TelegramIntroduction(service.database).next(9200, request.requestId))
-            assertEquals(false, bridge.prepareIntroduction(request.copy(requestId = "message:2"), 9200, 2))
             assertEquals("introduction", service.snapshot(scope, "text").text("textMode"))
             val reply = com.eliteteam.speakingcoach.ai.TutorResponse("test", "Ответ")
             assertEquals(false, bridge.withDelivery(request, reply).showProgressNavigation)
@@ -64,7 +63,6 @@ class FoundationIntegrationTest {
             assertEquals("dialogue", service.snapshot(scope, "text").text("textMode"))
             service.op(scope, "lesson.cancel", json("lessonId" to trial.text("id"), "expectedVersion" to trial.number("version")))
             assertEquals("dialogue", service.snapshot(scope, "text").text("textMode"))
-            assertEquals(false, bridge.prepareIntroduction(request.copy(requestId = "message:3"), 9200, 3))
             assertEquals(true, bridge.withDelivery(request, reply).showProgressNavigation)
         }
     }
@@ -185,23 +183,53 @@ class FoundationIntegrationTest {
     }
 
     @Test
-    fun existingMemoryAndRepeatedStartKeepTheLiveDialogueContract() = runTest {
+    fun startResetsMemoryLessonsAndScopesButReplayKeepsTheNewRelationship() = runTest {
         withStore { service ->
-            val student = service.identity.resolve("telegram", "9250")
-            service.goal(student, "work meetings", 0)
+            val old = service.identity.resolve("telegram", "9250")
+            service.goal(old, "work meetings", 0)
+            val token = service.identity.issue(old, "operator")
+            service.op(token, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to Instant.now().plusSeconds(600).toString(), "durationMinutes" to 15, "timezone" to "UTC"))
             val bridge = FoundationChat(service)
             val request = introRequest(9250, 2, "/start", Instant.now())
-            assertEquals(false, bridge.prepareIntroduction(request, 9250, 2))
-            val scope = bridge.accept(request, true)
-            assertEquals("running", service.op(scope, "run.claim", json()).text("status"))
-            assertEquals("work meetings", service.snapshot(scope, "text").obj("goal").obj("content").text("value"))
-            service.op(scope, "run.complete", json("reply" to "Продолжим готовиться к рабочим встречам", "degraded" to false))
-            assertEquals(false, bridge.prepareIntroduction(request.copy(requestId = "message:3"), 9250, 3))
+            service.telegramIntake.accept(introEnvelope(9250, 2, "/start", Instant.now()))
+            service.telegramIntake.accept(introEnvelope(9250, 3, "Теперь для путешествий", Instant.now()))
+            assertTrue(bridge.prepareIntroduction(request, 9250, 2))
+            val fresh = service.identity.resolve("telegram", "9250")
+            assertTrue(fresh != old)
+            assertEquals("scope_expired", assertFailsWith<FoundationFailure> { service.snapshot(token, "text") }.code)
+            val freshToken = service.identity.issue(fresh, "operator")
+            val snapshot = service.snapshot(freshToken, "text")
+            assertEquals("introduction", snapshot.text("textMode"))
+            assertEquals(listOf("/start"), snapshot["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+            service.database.transaction(readOnly = true) { c, _ ->
+                for (table in listOf("memory_fact", "learning_goal", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
+                    assertEquals(0L, c.rows("SELECT count(*) FROM $table WHERE student_id IN (?,?)", old, fresh) { it.getLong(1) }.single())
+                }
+                assertEquals(0L, c.rows("SELECT count(*) FROM foundation_job WHERE student_id=? AND status<>'cancelled'", old) { it.getLong(1) }.single())
+                assertEquals("pending", c.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=9250 AND message_id=3")!!.text("status"))
+            }
+            // The early answer cancels the new greeting, and a restart never erases it again.
+            assertEquals(null, bridge.introduction.next(9250, request.requestId))
+            assertTrue(FoundationChat(service).prepareIntroduction(request, 9250, 2))
+            assertEquals(fresh, service.identity.resolve("telegram", "9250"))
+            service.goal(fresh, "travel", 0)
+            assertTrue(bridge.prepareIntroduction(request.copy(requestId="message:1"), 9250, 1))
+            assertEquals("travel", service.snapshot(freshToken, "text").obj("goal").obj("content").text("value"))
+            service.telegramIntake.accept(introEnvelope(9250, 1, "old delayed text", Instant.now()))
+            service.database.transaction(readOnly = true) { c, _ ->
+                assertEquals("done", c.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=9250 AND message_id=1")!!.text("status"))
+            }
+            assertTrue(bridge.prepareIntroduction(request.copy(requestId="message:4"), 9250, 4))
+            assertTrue(fresh != service.identity.resolve("telegram", "9250"))
+            assertEquals(0, bridge.introduction.next(9250, "message:4")!!.index)
+            // An old greeting receipt cannot recreate erased history.
+            bridge.introduction.sent(9250, request.requestId, 0, 99)
         }
     }
 
     @Test
-    fun migrationExcludesExistingStudentsEvenWhenTheirHistoryHasExpired() = runTest {
+    fun migratedExistingStudentsAlsoResetOnStart() = runTest {
         withStore(beforeMigration = { url ->
             org.flywaydb.core.Flyway.configure().dataSource(url, null, null).target("44").load().migrate()
             DriverManager.getConnection(url).use { c ->
@@ -209,7 +237,8 @@ class FoundationIntegrationTest {
                 c.update("INSERT INTO student_identity(provider,subject,student_id) VALUES ('telegram','9260','before-intro')")
             }
         }) { service ->
-            assertEquals(false, FoundationChat(service).prepareIntroduction(introRequest(9260, 1, "/start", Instant.now()), 9260, 1))
+            assertTrue(FoundationChat(service).prepareIntroduction(introRequest(9260, 1, "/start", Instant.now()), 9260, 1))
+            assertTrue(service.identity.resolve("telegram", "9260") != "before-intro")
         }
     }
 

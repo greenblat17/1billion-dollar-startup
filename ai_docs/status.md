@@ -3,6 +3,7 @@
 Срез: 2026-11-13. База ветки: `origin/dev` **7cb21ab9850de75b47d68bd776a88ffcc4be709f**.
 Поверх неё реализованы первое приветствие, стратегии диалога и запись на пробный с HTML-виджетом, календарём и напоминаниями. Ветка `bb/onboarding-intro-thr_u4vaxexf6a` подготовлена к PR в `dev` и отдельному DEV redeploy; результат поставки проверяется по workflow.
 Реализация, workflow поставки и живая приёмка — разные доказательства.
+Доработка в ветке PR #57: каждый `/start` сбрасывает ученика во всех окружениях (V47), включая память, историю, уроки, прогресс и подписку. Replay команды не сбрасывает повторно; подготовка персонального урока не менялась. Push и DEV redeploy этой доработки поручены; результат проверяется отдельно. Проверки сброса: 295 Kotlin unit и 68 PostgreSQL integration, 14 Python prompt/context tests — passed; buildFatJar, detekt и diff-check — passed.
 
 ## Реализовано в коде
 
@@ -22,12 +23,10 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 
 ## Поставка и проверки
 
-- GitHub проверен read-only 2026-11-13. Последний **Redeploy DEV** —
-  [43295801220](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43295801220),
-  `4a08369daf6008dd42945a8140a03d6e84960ca9`: backend, AI, Mini App и readiness — success.
-  Он включает SP-05/06/07 и Telegram entities. Это workflow evidence, не проверка текущего сервера.
-- SP-08 входит в `dev` (`fce9b62`), но более новая поставка DEV не найдена.
-  Текущий PROD этим срезом не проверялся.
+- DEV redeploy знакомства/записи [43417154588](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43417154588),
+  `d6e8ed616f2b9c7e25482a8f37c2c27b785ce401`: success, включая backend, AI, Mini App и readiness.
+  Эта поставка ещё не включает полный сброс по `/start` (V47). PROD не затронут.
+  PR в `dev`: [#57](https://github.com/greenblat17/1billion-dollar-startup/pull/57); merge не выполнялся.
 - На `fce9b62` AI service, CMP и Mini App checks — success. **Foundation integration — failure**:
   [43304873405](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43304873405),
   57 тестов, один сбой `realBackupRestoreReplaysDeletionLedgerBeforeServingContext`
@@ -36,7 +35,7 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
   `:server:buildFatJar`, `detekt` и `git diff --check` — passed. Python сообщает прежний dependency warning.
   PostgreSQL был отдельным локальным кластером с синтетическими данными; Telegram/model delivery — подставные.
   Восемь новых DB-сценариев проверяют четыре реплики, прерывание после 1/2/3 сообщений и до первого,
-  порядок intake/history, replay/рестарт, конкурирующие claims, повторный start/память, миграцию V45,
+  порядок intake/history, replay/рестарт, конкурирующие claims, сброс по новому start, replay без повторного сброса, миграции V45/V47,
   typing/send failures и удаление. Новые проверки записи покрывают receipt виджета после рестарта,
   запрет устаревшего подтверждения, morning/DST/совпадения, перенос/отмену, unknown delivery,
   ownership календаря, UTC/UID/SEQUENCE/UTF-8 ICS и вход в календарь без микрофона. Python проверяет контекст прерванного приветствия и replay без model call,
@@ -60,8 +59,8 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
   До реальной приёмки не проверены native renderer виджета, Google Calendar и импорт ICS в Telegram iOS/Android.
   Попытка локального browser preview заблокирована `EATTESTATIONVERIFY`; JS/DOM проверки не заменяют визуальные.
 - Пользователь поручил push, PR в `dev` и DEV redeploy ветки с V45–V46; merge не поручен.
-  После поставки нужна живая Telegram-приёмка пауз, typing, прерывания и повторного start. Существующие Student миграция
-  исключает из нового приветствия. BotFather/config идентичности не менялись.
+  После поставки нужна живая Telegram-приёмка пауз, typing, прерывания и сброса по новому start.
+  BotFather/config идентичности не менялись.
 
 ## Открытые ограничения и приёмка
 

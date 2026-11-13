@@ -10,7 +10,7 @@ internal class FoundationChat(private val service: FoundationService) {
     val introduction = TelegramIntroduction(service.database)
 
     suspend fun prepareIntroduction(request: TutorRequest, chatId: Long, messageId: Long): Boolean =
-        introduction.prepare(student(request.sessionId), chatId, messageId, request)
+        introduction.prepare(chatId, messageId, request)
 
     suspend fun beginPayment(session: String, request: String): kotlinx.serialization.json.JsonObject? {
         val student = student(session)

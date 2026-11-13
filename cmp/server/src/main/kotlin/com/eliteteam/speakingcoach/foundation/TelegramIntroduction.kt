@@ -15,27 +15,36 @@ private val introPauses = listOf(0L, 750L, 1250L, 750L)
 
 internal data class IntroductionPart(val index: Int, val waitMillis: Long)
 
-/** One durable introduction per student. Intake and send claims share a short chat lock, never a network call. */
+/** Each distinct /start creates a fresh student; a durable chat boundary makes replay harmless. */
 internal class TelegramIntroduction(private val database: FoundationDatabase) {
-    suspend fun prepare(student: String, chat: Long, message: Long, request: TutorRequest): Boolean =
+    suspend fun prepare(chat: Long, message: Long, request: TutorRequest): Boolean =
         database.transaction { c, now ->
+            require(chat > 0 && message > 0 && request.sessionId == "tg-$chat" && request.requestId == "message:$message")
             c.lockTelegramChat(chat)
-            c.lockStudent(student)
             val fingerprint = digest(canonical(json("text" to request.text, "receivedAt" to request.receivedAt)))
-            val previous = c.document("SELECT to_jsonb(i) FROM telegram_introduction i WHERE student_id=?", student)
-            if (previous?.text("request_id") == request.requestId) {
-                if (previous.text("input_digest") != fingerprint) reject("operation_conflict")
+            val boundary = c.document("SELECT to_jsonb(r) FROM telegram_start_reset r WHERE chat_id=?", chat)
+            if (boundary != null && message <= boundary.number("message_id")) {
+                if (message == boundary.number("message_id") && boundary.text("input_digest") != fingerprint) reject("operation_conflict")
                 return@transaction true
             }
-            val eligible = c.rows("""SELECT telegram_intro_eligible AND NOT EXISTS
-                (SELECT 1 FROM tutor_conversation WHERE student_id=?) FROM student WHERE id=?""", student, student) { it.getBoolean(1) }.single()
-            if (!eligible) return@transaction false
-            c.update("UPDATE student SET telegram_intro_eligible=FALSE WHERE id=?", student)
+            // Same lock as identity.resolve: no caller can recreate the old identity mid-reset.
+            c.rows("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "telegram:$chat") { Unit }
+            val old = c.rows("SELECT student_id FROM student_identity WHERE provider='telegram' AND subject=?", chat.toString()) { it.getString(1) }.singleOrNull()
+            if (old != null) {
+                c.lockStudent(old)
+                val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", old) { it.getLong(1) }.single()
+                FoundationMaintenance().deleteStudent(c, ExecutionScope(old, "operator", epoch), now, preserveTelegramFrom = message)
+            }
+            val student = newId()
+            c.update("INSERT INTO student(id,telegram_intro_eligible) VALUES (?,FALSE)", student)
+            c.update("INSERT INTO student_identity(provider,subject,student_id) VALUES ('telegram',?,?)", chat.toString(), student)
+            c.update("""INSERT INTO telegram_start_reset(chat_id,message_id,input_digest) VALUES (?,?,?)
+                ON CONFLICT(chat_id) DO UPDATE SET message_id=EXCLUDED.message_id,input_digest=EXCLUDED.input_digest""", chat, message, fingerprint)
             val conversation = c.conversation(student, "telegram")
             c.appendEvent(student, conversation, request.requestId, "user", request.text,
                 Instant.ofEpochMilli((request.receivedAt * 1000).toLong()), now)
             // A reply can reach durable intake before the start handler even runs.
-            val interrupted = c.rows("SELECT EXISTS(SELECT 1 FROM telegram_text_intake WHERE chat_id=? AND message_id<>?)", chat, message) { it.getBoolean(1) }.single()
+            val interrupted = c.rows("SELECT EXISTS(SELECT 1 FROM telegram_text_intake WHERE chat_id=? AND message_id>?)", chat, message) { it.getBoolean(1) }.single()
             c.update("""INSERT INTO telegram_introduction(student_id,chat_id,request_id,message_id,input_digest,data_epoch,status,due_at,expires_at)
                 SELECT id,?,?,?,?,data_epoch,?,?,? FROM student WHERE id=?""", chat, request.requestId, message, fingerprint,
                 if (interrupted) "cancelled" else "active", now, now.plusSeconds(7 * 86400), student)

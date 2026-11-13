@@ -26,6 +26,10 @@ internal class TelegramTextIntake(private val database: FoundationDatabase) {
                 update.number("update_id"), chat.number("id"), message.number("message_id"), update, hash, now, now.plusSeconds(7 * 86400))
             val existing = connection.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=? AND message_id=?", chat.number("id"), message.number("message_id")) ?: reject("invalid_input")
             if (existing.text("input_digest") != hash) reject("operation_conflict")
+            // Delayed pre-reset updates must never enter the fresh relationship.
+            connection.update("""UPDATE telegram_text_intake SET payload=NULL,status='done',lease_until=NULL
+                WHERE chat_id=? AND message_id=? AND message_id<(SELECT message_id FROM telegram_start_reset WHERE chat_id=?)""",
+                chat.number("id"), message.number("message_id"), chat.number("id"))
             if (inserted == 1) connection.update("""UPDATE telegram_introduction SET status='cancelled'
                 WHERE chat_id=? AND message_id<? AND status='active'""", chat.number("id"), message.number("message_id"))
         }

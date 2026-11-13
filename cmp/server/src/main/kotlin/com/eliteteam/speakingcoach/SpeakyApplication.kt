@@ -80,7 +80,7 @@ internal fun Application.speakyModule(config: AppConfig) {
         }
         runBlocking {
             registerTelegramWebhook(bot, requireNotNull(config.telegramWebhookUrl), requireNotNull(config.telegramWebhookSecret), File(config.tlsCertPath))
-            bot.setMyCommands(listOf(BotCommand("start", "Начать разговор")))
+            bot.setMyCommands(listOf(BotCommand("start", "Сбросить всё и начать заново")))
         }
     }
 }
