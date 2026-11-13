@@ -18,6 +18,13 @@ import kotlin.test.assertFailsWith
 
 class TutorBookingDeliveryTest {
     private val booking = TrialBooking("lesson", "student", "scheduled", "2026-11-14T16:00:00Z", "Europe/Moscow", 2)
+    @Test fun timingComesFromStructuredBookingAndCancellationStillGetsConfirmation() {
+        val decoded = kotlinx.serialization.json.Json.decodeFromString<TrialBooking>(
+            """{"id":"lesson","learnerId":"student","status":"scheduled","startsAtUtc":"2026-11-14T16:00:00Z","timezone":"UTC","version":1,"timing":"now"}""")
+        assertTrue(decoded.startsImmediately)
+        assertTrue(!booking.startsImmediately)
+        assertTrue(!decoded.copy(status = "cancelled").startsImmediately)
+    }
     @Test fun sendsWidgetWithoutCaptionAndClearsOldCaptionOnUpdate() = runTest {
         val calls = mutableListOf<String>()
         assertEquals(72L, deliverBookingCard(1, booking, "confirmation", null, true) {

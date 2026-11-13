@@ -37,15 +37,19 @@ internal class ConversationRuns {
         requireRole(scope, "text")
         args.only("reply", "bookingId", "degraded")
         assertRun(connection, scope, now)
-        val reply = args.text("reply")
-        if (reply.isBlank() || reply.length > 12000) reject("invalid_reply")
+        val booking = args.optionalText("bookingId")?.let { connection.lesson(scope, it) }
+        // The durable invitation owns immediate-start delivery and its visible history.
+        val immediate = booking?.text("timing") == "now" && booking.text("status") in setOf("scheduled", "in_progress")
+        val reply = if (immediate) "" else args.text("reply")
+        if ((!immediate && reply.isBlank()) || reply.length > 12000) reject("invalid_reply")
         val request = scope.requestId ?: reject("request_required")
         val conversation = connection.conversation(scope.studentId, "telegram")
         val deadline = connection.rows("SELECT min(expires_at) FROM conversation_event WHERE student_id=? AND body IS NOT NULL AND expires_at>?",
             scope.studentId, now) { it.getTimestamp(1)?.toInstant() }.single() ?: now.plusSeconds(HISTORY_SECONDS)
-        val event = connection.appendEvent(scope.studentId, conversation, "reply:$request", "assistant", reply, now, now)
-        connection.update("UPDATE conversation_event SET expires_at=? WHERE id=?", deadline, event.text("id"))
-        val booking = args.optionalText("bookingId")?.let { connection.lesson(scope, it) }
+        if (!immediate) {
+            val event = connection.appendEvent(scope.studentId, conversation, "reply:$request", "assistant", reply, now, now)
+            connection.update("UPDATE conversation_event SET expires_at=? WHERE id=?", deadline, event.text("id"))
+        }
         val response = json("conversationId" to conversation, "reply" to reply, "booking" to booking, "degraded" to args["degraded"])
         connection.update("UPDATE tutor_inbox SET status='ready',response=?::jsonb,lease_until=NULL,expires_at=LEAST(expires_at,?) WHERE student_id=? AND request_id=?", response, deadline, scope.studentId, request)
         val input = connection.document("SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=?", scope.studentId, request) ?: reject("not_owned")

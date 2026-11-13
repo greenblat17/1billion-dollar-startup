@@ -107,7 +107,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
         }
         try {
             val response = client.respond(request, start)
-            response.booking?.let { booking ->
+            response.booking?.takeUnless { it.startsImmediately }?.let { booking ->
                 if (!client.beginDelivery(TutorDelivery(sessionId, requestId, bookingId = booking.id, version = booking.version))) {
                     // Unknown/stale delivery must not be followed by a claim that confirmation arrived.
                     if (!response.cardDelivered) return@coroutineScope
@@ -119,7 +119,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                 client.delivered(TutorDelivery(sessionId, requestId,
                     bookingId = booking.id, cardMessageId = cardId, version = booking.version, cardIsWidget = widget))
             }
-            if (response.replyMessageId == null && client.beginDelivery(TutorDelivery(sessionId, requestId))) {
+            if (response.booking?.startsImmediately != true && response.reply.isNotBlank() && response.replyMessageId == null && client.beginDelivery(TutorDelivery(sessionId, requestId))) {
                 var lastMessageId: Long? = null
                 for (part in tutorTextParts(response.reply)) {
                     val sent = bot.execute(TutorTextRequest(requireNotNull(telegramChatNumber(message.chat.id)),

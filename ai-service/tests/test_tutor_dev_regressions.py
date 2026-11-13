@@ -112,3 +112,30 @@ async def test_after_minutes_reaches_real_booking_adapter(monkeypatch):
     assert backend.command.call_args.args[2] == 'lesson.create'
     assert backend.command.call_args.args[3]['startsAt'] == '2026-11-13T12:18:00+00:00'
     assert result['booking']['id'] == 'lesson'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('action', ['create_trial_booking', 'reschedule_trial_booking'])
+@pytest.mark.parametrize('timing', ['now', 'scheduled'])
+async def test_immediate_action_finishes_without_extra_model_reply_and_replays(action, timing):
+    import json
+    from app.foundation_tutor import booking_projection
+    body = 'Я готов, можем начать'
+    lesson = dict(id='lesson', student_id='student', status='scheduled', starts_at='2026-11-13T12:18:00+00:00',
+                  timezone='UTC', version=1, duration_minutes=15, launch_mode='executable', timing=timing)
+    saved = dict(conversationId='conversation', reply='' if timing == 'now' else 'До встречи!', booking=lesson)
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
+        {'status': 'running', 'input': {'id': 'current', 'body': body}}, saved,
+        {'status': 'ready', 'response': saved}]))
+    model = SimpleNamespace(complete=AsyncMock(side_effect=[
+        {'role': 'assistant', 'tool_calls': [{'id': 'call', 'function': {'name': action, 'arguments': '{}'}}]},
+        {'content': json.dumps({'reply': 'До встречи!'})}]))
+    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    tutor.execute = AsyncMock(return_value={'ok': True, 'booking': booking_projection(lesson)})
+    request = TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794570480)
+    result = await tutor.respond(request, 'scope')
+    assert result == await tutor.respond(request, 'scope')
+    assert result['booking']['timing'] == timing
+    assert model.complete.await_count == (1 if timing == 'now' else 2)
+    assert tutor.execute.await_count == 1
+    assert backend.command.call_args_list[1].args[3]['reply'] == saved['reply']

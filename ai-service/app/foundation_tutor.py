@@ -122,6 +122,10 @@ class FoundationTutor:
                         if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
                             changed = result['booking']
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
+                    if changed and changed.get('timing') == 'now' and changed['status'] in ('scheduled', 'in_progress'):
+                        # The durable invitation is the response; no extra model round or goodbye.
+                        reply = ''
+                        break
                     if rejected_tools >= 2:
                         messages.append({'role': 'system', 'content': (
                             'Stop tool attempts for this turn. Answer the learner now from the conversation and tool results. '

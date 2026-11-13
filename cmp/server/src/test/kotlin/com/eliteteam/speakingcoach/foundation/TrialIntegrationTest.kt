@@ -430,4 +430,44 @@ class TrialIntegrationTest {
         }
     }
 
+    @Test fun immediateCreateAndRescheduleOnlyInviteAndReplayNeverRepeatsUnknownSend() = runTest {
+        for (reschedule in listOf(false, true)) for (failure in listOf(false, true)) store { s, clock ->
+            val student = s.identity.resolve("telegram", "100")
+            val operator = s.identity.issue(student, "operator")
+            val old = if (reschedule) lesson(s, "100", clock.value.plusSeconds(86400)) else null
+            s.history.accept(student, "now-request", "Можно начать? Я готов", clock.value, false)
+            val scope = s.identity.issue(student, "text", "now-request")
+            s.op(scope, "run.claim", json())
+            val l = if (old == null) s.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "timing" to "now", "startsAt" to clock.value.toString(), "timezone" to "UTC", "durationMinutes" to 15))
+            else s.op(operator, "lesson.reschedule", json("lessonId" to old.text("id"), "expectedVersion" to old.number("version"),
+                "timing" to "now", "startsAt" to clock.value.toString(), "timezone" to "UTC"))
+            val saved = s.op(scope, "run.complete", json("reply" to "Я напомню. До встречи!", "bookingId" to l.text("id"), "degraded" to false))
+            assertEquals("", saved.text("reply"))
+            assertEquals("now", saved.obj("booking").text("timing"))
+            val replay = s.op(s.identity.issue(student, "text", "now-request"), "run.claim", json())
+            assertEquals(saved, replay.obj("response"))
+            var sends = 0
+            val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
+                val body = (request.body as io.ktor.http.content.TextContent).text
+                sends++
+                assertTrue(body.contains("Начать урок"))
+                assertTrue(!body.contains("календарь") && !body.contains("напомню"))
+                if (failure) respond("disconnected", io.ktor.http.HttpStatusCode.BadGateway)
+                else respond("{\"ok\":true}", io.ktor.http.HttpStatusCode.OK)
+            })
+            http.use {
+                repeat(2) { TrialWorker(s, http, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick() }
+            }
+            assertEquals(1, sends)
+            s.database.transaction { c, _ ->
+                assertEquals(1L, c.rows("SELECT count(*) FROM lesson") { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM trial_notice WHERE kind IN ('morning','reminder')") { it.getLong(1) }.single())
+                val history = c.documents("SELECT to_jsonb(e) FROM conversation_event e WHERE role='assistant'")
+                assertEquals(if (failure) 0 else 1, history.size)
+                assertTrue(history.none { it.text("body").contains("напомню") })
+            }
+        }
+    }
+
 }

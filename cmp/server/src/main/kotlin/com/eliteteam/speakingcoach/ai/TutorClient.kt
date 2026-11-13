@@ -19,7 +19,9 @@ data class TutorRequest(val sessionId: String, val requestId: String, val text: 
 @Serializable
 data class TrialBooking(val id: String, val learnerId: String, val status: String,
                         val startsAtUtc: String, val timezone: String, val version: Int,
-                        val durationMinutes: Int = 15)
+                        val durationMinutes: Int = 15, val timing: String = "scheduled") {
+    val startsImmediately: Boolean get() = timing == "now" && status in setOf("scheduled", "in_progress")
+}
 @Serializable
 data class TutorResponse(val conversationId: String, val reply: String, val booking: TrialBooking? = null,
                          val bookingText: String? = null, val degraded: Boolean = false,
