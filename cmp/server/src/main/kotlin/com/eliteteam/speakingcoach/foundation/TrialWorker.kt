@@ -2,6 +2,7 @@ package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.telegram.TutorTextRequest
+import com.eliteteam.speakingcoach.telegram.telegramRequestJson
 import com.eliteteam.speakingcoach.telegram.tutorTextParts
 import com.eliteteam.speakingcoach.telegram.tutorBookingMarkup
 import kotlinx.serialization.encodeToString
@@ -99,7 +100,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
         for (part in tutorTextParts(reply)) {
             val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
                 contentType(ContentType.Application.Json)
-                setBody(foundationJson.encodeToString(TutorTextRequest(subject.toLong(), part.text, part.entities, markup)))
+                setBody(telegramRequestJson.encodeToString(TutorTextRequest(subject.toLong(), part.text, part.entities, markup)))
             }
             val sentBody = sent.bodyAsText()
             val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)

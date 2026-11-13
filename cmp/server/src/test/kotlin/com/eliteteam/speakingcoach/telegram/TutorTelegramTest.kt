@@ -28,6 +28,17 @@ class TutorTelegramTest {
         assertEquals("sendMessage", request.copy(messageId = null).method())
     }
 
+    @Test fun invitationOmitsReplyParametersButKeepsJoinButton() {
+        val request = TutorTextRequest(123, "Я готов!", emptyList(), tutorBookingMarkup(true, "lesson", "https://mini.test"))
+        val wire = telegramRequestJson.parseToJsonElement(telegramRequestJson.encodeToString(request)).jsonObject
+        assertFalse("reply_parameters" in wire)
+        assertEquals("123", wire["chat_id"].toString())
+        assertTrue(wire["reply_markup"].toString().contains("lesson=lesson"))
+        val quoted = telegramRequestJson.parseToJsonElement(telegramRequestJson.encodeToString(
+            request.copy(reply = TutorReplyParameters(42, true)))).jsonObject
+        assertEquals("42", quoted["reply_parameters"]!!.jsonObject["message_id"].toString())
+    }
+
     @Test fun tutorContractSupportsPlainConversationAfterBooking() {
         val json = Json { ignoreUnknownKeys = true }
         val reply = json.decodeFromString<TutorResponse>("""{"conversationId":"same","reply":"Давай обсудим","booking":null,"degraded":false}""")

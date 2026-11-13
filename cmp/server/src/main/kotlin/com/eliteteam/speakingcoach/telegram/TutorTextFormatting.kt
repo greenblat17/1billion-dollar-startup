@@ -3,7 +3,11 @@ package com.eliteteam.speakingcoach.telegram
 import dev.inmo.tgbotapi.requests.abstracts.SimpleRequest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+
+/** Telegram optional fields must be absent, not JSON null. Separate from storage encoding. */
+internal val telegramRequestJson = Json { encodeDefaults = false; explicitNulls = false }
 
 @Serializable
 internal data class TutorTextEntity(val type: String, val offset: Int, val length: Int)

@@ -367,7 +367,9 @@ class TrialIntegrationTest {
             val sent = mutableListOf<String>()
             val http = io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { request ->
                 assertEquals("api.telegram.org", request.url.host)
-                sent += (request.body as io.ktor.http.content.TextContent).text
+                val body = (request.body as io.ktor.http.content.TextContent).text
+                assertTrue("reply_parameters" !in foundationJson.parseToJsonElement(body).jsonObject)
+                sent += body
                 respond("{\"ok\":true}", io.ktor.http.HttpStatusCode.OK)
             })
             http.use {
