@@ -24,18 +24,16 @@ import io.ktor.server.routing.openapi.hide
 import io.ktor.server.routing.post
 import io.ktor.utils.io.ExperimentalKtorApi
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.slf4j.LoggerFactory
 import java.io.File
-import java.util.concurrent.Executors
 
 private val log = LoggerFactory.getLogger("TelegramWebhook")
 private val telegramUpdateJson = Json { ignoreUnknownKeys = true }
 
 internal fun newTelegramWebhookScope(): CoroutineScope =
-    CoroutineScope(Executors.newFixedThreadPool(4).asCoroutineDispatcher())
+    CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO.limitedParallelism(4))
 
 internal suspend fun buildTelegramWebhookBehaviour(
     token: String,
@@ -72,12 +70,18 @@ internal fun Route.installSpeakingCoachWebhook(
     webhookScope: CoroutineScope,
     audit: InteractionAudit? = null,
     operationalMetrics: TelegramOperationalMetrics,
+    textIntake: com.eliteteam.speakingcoach.foundation.TelegramTextIntake? = null,
+    paymentHandler: (suspend (kotlinx.serialization.json.JsonObject) -> Boolean)? = null,
 ) {
+    require(secret.isNotBlank()) { "Telegram webhook secret required" }
     val transformer = webhookScope.updateHandlerWithMediaGroupsAdaptation(
         behaviourContext.asUpdateReceiver,
     )
+    textIntake?.launch(webhookScope) { envelope ->
+        transformer(telegramUpdateJson.decodeFromString(UpdateDeserializationStrategy, envelope.toString()))
+    }
     post {
-        if (call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER) != secret) {
+        if (!java.security.MessageDigest.isEqual(call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER).orEmpty().toByteArray(), secret.toByteArray())) {
             log.warn("Rejected Telegram webhook")
             call.respond(HttpStatusCode.Forbidden)
             return@post
@@ -90,7 +94,14 @@ internal fun Route.installSpeakingCoachWebhook(
                 UpdateDeserializationStrategy,
                 raw,
             )
-            if (audit?.recordInbound(telegramUpdateJson.parseToJsonElement(raw).jsonObject) == false) {
+            val envelope = telegramUpdateJson.parseToJsonElement(raw).jsonObject
+            if (paymentHandler?.invoke(envelope) == true) {
+                call.respond(HttpStatusCode.OK)
+                return@post
+            }
+            val durableText = textIntake?.accept(envelope) == true
+            val freshAudit = audit?.recordInbound(envelope) != false
+            if (durableText || !freshAudit) {
                 call.respond(HttpStatusCode.OK)
                 return@post
             }

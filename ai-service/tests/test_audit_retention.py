@@ -8,7 +8,7 @@ from fakeredis import FakeAsyncRedis
 from app.audit_artifacts import AuditArtifacts, RETENTION_SECONDS, bind_receipt_time, reset_receipt_time
 from app.calls import _expire_call_content
 from app.dialogue import ChatMessage, _current_messages
-from app.onboarding import FIRST_QUESTION, _expire_raw_turns
+from app.learner_store import _expire_raw_turns
 
 
 def test_seven_day_boundary_drops_raw_dialogue_and_review() -> None:
@@ -25,7 +25,7 @@ def test_seven_day_boundary_drops_raw_dialogue_and_review() -> None:
     }
     cleaned = _expire_raw_turns(onboarding, now)
     assert cleaned["turns"] == []
-    assert cleaned["question"] == FIRST_QUESTION
+    assert cleaned["question"] == ""
     assert all(key not in cleaned for key in ("review", "assessment", "continueQuestion", "resultText"))
 
     call = {

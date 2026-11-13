@@ -45,3 +45,37 @@ dependencies {
     testImplementation(libs.kotlin.testJunit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
+
+// PostgreSQL suites run only in foundationIntegrationTest. Missing DB configuration there is a failure, not a skip.
+tasks.test {
+    exclude("**/FoundationIntegrationTest*")
+    exclude("**/TrialIntegrationTest*")
+}
+val foundationIntegrationTest by tasks.registering(Test::class) {
+    description = "Run foundation and trial integration contracts against real PostgreSQL"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include("**/FoundationIntegrationTest*")
+    include("**/TrialIntegrationTest*")
+    outputs.upToDateWhen { false }
+}
+
+val foundationHarness by tasks.registering(JavaExec::class) {
+    description = "Start loopback-only SP-00 test backend (test classpath, never shipped)"
+    group = "verification"
+    classpath = sourceSets.test.get().runtimeClasspath
+    mainClass.set("com.eliteteam.speakingcoach.foundation.FoundationHarnessKt")
+}
+
+val foundationImport by tasks.registering(JavaExec::class) {
+    description = "Validate and import a frozen text-tutor manifest; never sends messages"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.eliteteam.speakingcoach.foundation.FoundationImportCliKt")
+}
+
+val foundationMaintenance by tasks.registering(JavaExec::class) {
+    description = "Offline foundation diagnostics and deletion-ledger backup/restore"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.eliteteam.speakingcoach.foundation.FoundationMaintenanceCliKt")
+}

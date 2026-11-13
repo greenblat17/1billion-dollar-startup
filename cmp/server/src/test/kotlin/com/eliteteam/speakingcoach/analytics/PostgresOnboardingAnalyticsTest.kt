@@ -140,6 +140,13 @@ class PostgresOnboardingAnalyticsTest {
             analytics.recordEntry(sessionId, "message:start", at, true, "start", null, source, runId, at.plusSeconds(2))
             analytics.recordEntry(sessionId, "message:start", at.plusSeconds(1), true, "start", null, source, runId)
             analytics.startAttempt(sessionId, runId, "start", at, source)
+            // This test exercises the historical v2 cohort, independent of the current default version.
+            DriverManager.getConnection(if (url.startsWith("jdbc:")) url else "jdbc:$url").use { connection ->
+                connection.prepareStatement("UPDATE onboarding_attempts SET onboarding_version='v2' WHERE run_id=?").use { statement ->
+                    statement.setString(1, runId)
+                    statement.executeUpdate()
+                }
+            }
             analytics.mark(runId, AttemptMark.BEGIN_PRESSED, at.plusSeconds(5))
             analytics.mark(runId, AttemptMark.FIRST_QUESTION_DELIVERED, at.plusSeconds(6))
             analytics.mark(runId, AttemptMark.LETS_CHAT, at.plusSeconds(10))

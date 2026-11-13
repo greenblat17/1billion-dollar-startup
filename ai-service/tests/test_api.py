@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from app.onboarding import FIRST_QUESTION
 
 from dataclasses import replace
 from uuid import uuid4
@@ -11,7 +10,7 @@ from fastapi.testclient import TestClient
 from app.llm import Correction
 from app.metrics_v2 import MemoryMetricsV2, client_for, current_session
 from app.main import create_app
-from app.onboarding_model import OnboardingModel
+from app.learner_model import LearnerModel
 from app.dialogue import MemoryDialogueStore
 from app.characters import Characters, CharacterStore
 from app.pipeline import ClipPipeline
@@ -53,13 +52,13 @@ def test_health() -> None:
 
 def test_start_call_internal_contract_and_delivery() -> None:
     llm = FakeLlm()
-    class OpeningModel(OnboardingModel):
+    class OpeningModel(LearnerModel):
         async def start_call_question(self, context):
             assert context["firstName"] == "Alex"
             return "Hi, Alex! How are you? What made you smile today?"
 
     pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
-    app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
+    app = create_app(settings=make_settings(), pipeline=pipeline, learner_model=OpeningModel(llm))
     with _client(app) as client:
         payload = {"sessionId": "tg-1", "firstName": "Alex"}
         first = client.post("/internal/calls/start", json=payload)
@@ -81,13 +80,13 @@ def test_start_call_internal_contract_and_delivery() -> None:
 
 def test_start_call_scenario_contract_validates_and_passes_role() -> None:
     llm = FakeLlm()
-    class OpeningModel(OnboardingModel):
+    class OpeningModel(LearnerModel):
         async def start_call_question(self, context):
             assert context["scenario"] == {"kind": "custom", "description": "Ask for a refund"}
             return "What seems to be the problem with your purchase?"
 
     pipeline = ClipPipeline(FakeStt([]), llm, FakeTts(), MemoryDialogueStore(40, 86400))
-    app = create_app(settings=make_settings(), pipeline=pipeline, onboarding_model=OpeningModel(llm))
+    app = create_app(settings=make_settings(), pipeline=pipeline, learner_model=OpeningModel(llm))
     with _client(app) as client:
         base = {"sessionId": "tg-role"}
         assert client.post("/internal/calls/start", json={**base, "scenarioKind": "custom"}).status_code == 400
@@ -215,19 +214,6 @@ def test_vocabulary_voice_logs_rejection_reason_without_audio(caplog, monkeypatc
     assert "reason=invalid vocabulary grade" in caplog.text
     assert "private-audio" not in caplog.text
 
-
-def test_legacy_invitation_is_claimed_once_after_existing_user_is_identified() -> None:
-    app, _, _, _ = build_app()
-    with _client(app) as client:
-        payload = {"sessionId": "tg-123"}
-        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
-        assert client.post("/internal/funnel/start", json=payload).status_code == 200
-        state = client.post("/internal/onboarding/state", json={**payload, "requestId": "voice:1"}).json()
-        assert state["status"] == "exempt"
-        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
-        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": False}
-        assert client.post("/internal/onboarding/legacy-invitation", json={**payload, "action": "release"}).json() == {"ok": True}
-        assert client.post("/internal/onboarding/legacy-invitation", json=payload).json() == {"ok": True}
 
 
 def test_call_voice_endpoint_returns_first_reply_and_last_voice_on_end() -> None:
@@ -364,7 +350,7 @@ def test_clip_contract_returns_audio(media_type: str, prefix: bytes) -> None:
         assert audio.status_code == 200
         assert audio.headers["content-type"].startswith(media_type)
         assert audio.content.startswith(prefix)
-        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I went to the shop"]
+        assert tts.texts == ["Got it: I went to the shop"]
 
 
 def test_clip_failures_are_counted_without_exposing_error_text() -> None:
@@ -422,7 +408,7 @@ def test_empty_transcript_clarifies_without_llm(media_type: str) -> None:
         assert audio.headers["content-type"].startswith(media_type)
         assert llm.calls == []
         assert llm.notes_calls == []
-        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["I didn't catch that. Could you say it again?"]
+        assert tts.texts == ["I didn't catch that. Could you say it again?"]
 
 
 def test_second_clip_includes_dialogue_history() -> None:
@@ -491,7 +477,7 @@ def test_clip_includes_coaching_notes() -> None:
              "explanation": "Для поездки здесь нужен глагол went."},
         ]
         assert body["replyText"] == "Got it: I was in Turkey last summer"
-        assert [text for text in tts.texts if text != FIRST_QUESTION] == ["Got it: I was in Turkey last summer"]
+        assert tts.texts == ["Got it: I was in Turkey last summer"]
 
 
 def test_internal_realtime_and_review() -> None:

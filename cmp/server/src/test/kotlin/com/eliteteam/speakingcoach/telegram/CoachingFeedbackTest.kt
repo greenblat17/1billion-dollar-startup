@@ -27,17 +27,17 @@ class CoachingFeedbackTest {
 
     @Test
     fun quotesOneOnboardingMistakeWithoutTheRestOfTheSpeech() {
-        val grammar = onboardingCorrection(Correction("You is", "You are", CorrectionKind.GRAMMAR))
+        val grammar = correctionCard(Correction("You is", "You are", CorrectionKind.GRAMMAR))
         assertEquals(
             "Ранее ты сказал:\nYou is are",
             grammar.joinToString("") { it.source },
         )
-        val word = onboardingCorrection(Correction("made a photo", "took a photo", CorrectionKind.WORD))
+        val word = correctionCard(Correction("made a photo", "took a photo", CorrectionKind.WORD))
         assertEquals(
             "Ранее ты сказал:\nmade took a photo",
             word.joinToString("") { it.source },
         )
-        val natural = onboardingCorrection(Correction("very interesting for me", "really fun", CorrectionKind.NATURAL))
+        val natural = correctionCard(Correction("very interesting for me", "really fun", CorrectionKind.NATURAL))
         assertEquals(
             "Ранее ты сказал:\nvery interesting for me really fun",
             natural.joinToString("") { it.source },
@@ -59,7 +59,7 @@ class CoachingFeedbackTest {
     @Test
     fun explanationFollowsOnlyItsOwnCorrection() {
         val explanation = "Agree — глагол, поэтому am здесь не нужен."
-        val onboarding = onboardingCorrection(Correction(
+        val onboarding = correctionCard(Correction(
             "I am agree with you.", "I agree with you.", CorrectionKind.GRAMMAR, explanation,
         ))
         assertEquals("Ранее ты сказал:\nI am agree agree with you.\n\n💡 $explanation", onboarding.joinToString("") { it.source })
@@ -80,7 +80,7 @@ class CoachingFeedbackTest {
     @Test
     fun englishPhrasesInRussianExplanationAreVisuallyDistinct() {
         val explanation = "Перед исчисляемыми существительными AI и person нужны артикли: an AI и a person."
-        val sources = onboardingCorrection(Correction(
+        val sources = correctionCard(Correction(
             "between AI and a person", "between an AI and a person", CorrectionKind.GRAMMAR, explanation,
         ))
         assertEquals(listOf("AI", "person", "an AI", "a person"), sources.filterIsInstance<CodeTextSource>().map { it.source })
@@ -95,7 +95,7 @@ class CoachingFeedbackTest {
             CorrectionKind.GRAMMAR,
             "С подлежащим we нужен глагол are, а не is.",
         )
-        val sources = onboardingCorrection(correction)
+        val sources = correctionCard(correction)
         assertEquals(
             "Ранее ты сказал:\n" +
                 "that's important we is are in a very competitive market\n\n" +
@@ -230,7 +230,7 @@ class CoachingFeedbackTest {
 
     @Test
     fun keepsContextWhileChangingOnlyTheMistake() {
-        val sources = onboardingCorrection(Correction(
+        val sources = correctionCard(Correction(
             "Yesterday I go to the office early.",
             "Yesterday I went to the office early.",
             CorrectionKind.GRAMMAR,
@@ -245,9 +245,9 @@ class CoachingFeedbackTest {
 
     @Test
     fun insertionsAndDeletionsKeepAVisibleReplacement() {
-        val insertion = onboardingCorrection(Correction("I bought car", "I bought a car"))
+        val insertion = correctionCard(Correction("I bought car", "I bought a car"))
         assertEquals("Ранее ты сказал:\nI bought car a car", insertion.joinToString("") { it.source })
-        val deletion = onboardingCorrection(Correction("I am agree", "I agree"))
+        val deletion = correctionCard(Correction("I am agree", "I agree"))
         assertEquals("Ранее ты сказал:\nI am agree agree", deletion.joinToString("") { it.source })
     }
 }

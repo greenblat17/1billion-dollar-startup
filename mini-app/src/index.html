@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#111318"><title>Speaky — Саша</title><link rel="stylesheet" href="/miniapp/assets/style.css"><script src="https://telegram.org/js/telegram-web-app.js"></script></head>
+<body><main id="call" hidden aria-labelledby="call-title"><div id="timer" aria-label="Время звонка">00:00</div><div class="identity"><img src="/miniapp/assets/avatar.jpg" alt="Саша, ваш репетитор"><h1 id="call-title" tabindex="-1">Саша</h1></div><div id="notice" role="status" hidden></div><p id="mic-status" role="status">Подключаем микрофон…</p><div class="controls"><button id="mute" disabled aria-label="Выключить микрофон" aria-pressed="false"><span class="control-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path class="mic-slash" d="M3 3L21 21"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></span><span id="mic-action">Выключить</span></button><button id="end" aria-label="Завершить звонок"><span class="control-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 16v-4c5-5 13-5 18 0v4l-5-1v-3a13 13 0 0 0-8 0v3z"/></svg></span><span>Завершить</span></button></div></main>
+<section id="progress" role="main" hidden aria-labelledby="progress-title"><div id="progress-shell" class="progress-shell"><header>speaky<span>.</span></header><div id="progress-symbol" class="support-symbol is-route" aria-hidden="true" hidden><svg class="symbol-route" viewBox="0 0 32 32" fill="none"><circle cx="9" cy="8" r="3"/><circle cx="23" cy="24" r="3"/><path d="M9 11v7a6 6 0 0 0 6 6h5M15 8h5a3 3 0 0 1 0 6h-3"/></svg><svg class="symbol-clock" viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="11"/><path d="M16 9v7l5 3"/></svg><svg class="symbol-alert" viewBox="0 0 32 32" fill="none"><rect x="5" y="5" width="22" height="22" rx="8"/><path d="M16 10v7M16 22h.01"/></svg></div><h1 id="progress-title" tabindex="-1">Мой прогресс</h1><div id="progress-state" role="status" aria-live="polite"></div><div id="progress-content" hidden><section class="goal-card"><p class="goal-label">Ваша цель</p><h2 id="progress-goal"></h2></section><p id="progress-note" class="progress-note"></p><ol id="progress-steps" aria-label="Этапы вашего пути"></ol></div><div id="progress-actions"><button id="progress-refresh">Обновить</button><button id="progress-back">Вернуться к Саше</button></div><p id="progress-footer" class="progress-footer" hidden>Достижения опираются на практику, а не на число уроков.</p></div></section>
+<section id="lobby" role="main" hidden aria-labelledby="lobby-title"><div class="lobby-shell">
+ <header>speaky<span>.</span></header>
+ <img id="lobby-avatar" src="/miniapp/assets/avatar.jpg" alt="Саша, ваш репетитор" width="72" height="72" hidden>
+ <div id="lobby-symbol" class="support-symbol" aria-hidden="true" hidden><svg viewBox="0 0 32 32" fill="none"><rect x="5" y="7" width="22" height="21" rx="5"/><path d="M10 4v6M22 4v6M5 14h22M11 20h3M18 20h3"/></svg></div>
+ <h1 id="lobby-title" tabindex="-1">Ваши встречи</h1>
+ <div id="lobby-appointment" hidden><p id="lobby-time" hidden></p><p id="lobby-date"></p></div>
+ <p id="lobby-note" role="status">Договориться о времени можно с Сашей в Telegram.</p>
+ <div id="meetings"></div><div id="schedules"></div><button id="back">Вернуться в Telegram</button>
+</div></section>
+<section id="error" hidden role="main" aria-labelledby="error-title">
+ <div class="recovery-shell">
+  <div id="error-symbol" class="recovery-symbol" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><rect x="5" y="5" width="22" height="22" rx="8"/><path d="M16 10v7M16 22h.01"/></svg></div>
+  <div class="recovery-message" role="alert"><h1 id="error-title" tabindex="-1">Не удалось подключиться</h1><p id="error-text"></p></div>
+  <details id="error-help" class="recovery-details" hidden><summary>Как разрешить микрофон</summary><p id="error-help-text"></p></details>
+  <div class="recovery-actions"><button id="retry">Попробовать снова</button><button id="return">Вернуться в Telegram</button></div>
+  <details id="error-diagnostics" class="recovery-details diagnostics" hidden><summary>Технические сведения</summary><p id="error-code"></p></details>
+ </div>
+</section>
+<script type="module" src="/miniapp/assets/app.js"></script></body></html>

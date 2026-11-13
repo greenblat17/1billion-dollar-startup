@@ -14,7 +14,6 @@ from app.speech import SessionSpeech
 
 
 class ConversationMode(str, Enum):
-    ONBOARDING = "onboarding"
     FREE = "free"
     SITUATION = "situation"
 
@@ -125,7 +124,7 @@ class PersonalityRuntime:
                 turn = await self.characters.reply_turn(history.messages, user, variant="kora_h",
                                                         profile_note=profile_note, opening=opening)
             else:
-                mode = "onboarding_closing" if closing and route.mode == ConversationMode.ONBOARDING else route.mode.value
+                mode = route.mode.value
                 turn = await self.characters.reply_mode_turn(mode, history.messages, user,
                                                              profile_note=profile_note, opening=opening)
             return SpokenTurn(turn.text, turn.tone)

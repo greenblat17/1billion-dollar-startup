@@ -1,6 +1,10 @@
 """Durable, per-provider-attempt costs for incoming Telegram voice jobs."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import asyncio
 import json
 import logging
@@ -11,8 +15,6 @@ from typing import Any
 from uuid import uuid4
 
 import httpx
-from redis.asyncio import Redis
-from redis.exceptions import WatchError
 
 from app.metrics_v2 import cost_micro
 
@@ -89,6 +91,7 @@ class VoiceCostLedger:
         return [json.loads(payload) for payload in payloads if payload]
 
     async def acknowledge(self, receipts: list[dict[str, Any]]) -> None:
+        from redis.exceptions import WatchError
         for receipt in receipts[:100]:
             call_id = str(receipt.get("callId") or "")
             revision = receipt.get("revision")

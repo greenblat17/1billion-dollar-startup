@@ -11,6 +11,22 @@ on:
         description: ai-server
         type: boolean
         default: true
+      mini_app:
+        description: mini-app frontend
+        type: boolean
+        default: true
+      billing_mock:
+        description: Enable SP-05 mock billing on DEV (100 TEST per day, no real charges)
+        type: boolean
+        default: false
+      verify_only:
+        description: Read-only DEV readiness without redeployment
+        type: boolean
+        default: false
+      tutor_smoke:
+        description: Two synthetic tutor requests after DEV readiness (stop on first failure)
+        type: boolean
+        default: false
       speech_time_benchmark:
         description: Measure speech time on DEV AI without redeploying
         type: boolean
@@ -25,15 +41,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.speech_time_benchmark != true }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && !inputs.verify_only }}
         run: |
-          echo "Enable cmp-server and/or ai-server" >&2
+          echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
 
   package-server:
     name: Package cmp-server
     needs: require-target
-    if: ${{ inputs.cmp_server && !inputs.speech_time_benchmark }}
+    if: ${{ inputs.cmp_server && !inputs.speech_time_benchmark && !inputs.verify_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,7 +79,7 @@ jobs:
   package-ai:
     name: Package ai-server
     needs: require-target
-    if: ${{ inputs.ai_server && !inputs.speech_time_benchmark }}
+    if: ${{ inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -98,15 +114,23 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  deploy-mini-app:
+    name: Deploy Mini App
+    needs: require-target
+    if: ${{ inputs.mini_app && !inputs.speech_time_benchmark && !inputs.verify_only }}
+    uses: ./.github/workflows/deploy-mini-app.yml
+    secrets: inherit
+
   deploy-server:
     name: Deploy cmp-server
     needs:
       - require-target
       - package-server
-    if: ${{ !cancelled() && inputs.cmp_server && !inputs.speech_time_benchmark && needs.package-server.result == 'success' }}
+    if: ${{ !cancelled() && inputs.cmp_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-server.result == 'success' }}
     uses: ./.github/workflows/deploy-cmp-server.yml
     with:
       destination: dev
+      billing_mock: ${{ inputs.billing_mock }}
     secrets: inherit
 
   deploy-ai:
@@ -114,7 +138,8 @@ jobs:
     needs:
       - require-target
       - package-ai
-    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && needs.package-ai.result == 'success' }}
+      - deploy-mini-app
+    if: ${{ !cancelled() && inputs.ai_server && !inputs.speech_time_benchmark && !inputs.verify_only && needs.package-ai.result == 'success' && (!inputs.mini_app || needs.deploy-mini-app.result == 'success') }}
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
@@ -165,3 +190,40 @@ jobs:
             "$image" sh -c \
             'pip install --quiet --no-cache-dir webrtcvad-wheels==2.0.14.post1 && python load/speech-time-dev-benchmark.py'
           REMOTE
+
+  verify-tutor-dev:
+    name: Verify DEV tutor readiness
+    needs: [deploy-server, deploy-ai]
+    if: ${{ !cancelled() && (inputs.verify_only || (needs.deploy-server.result == 'success' && needs.deploy-ai.result == 'success')) }}
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    env:
+      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+      AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+      AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify artifacts, health, configuration and internal auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_flag=""
+          billing_flag=""
+          if [ "${{ inputs.billing_mock }}" = true ]; then billing_flag="--mock-billing"; fi
+          for component in ai cmp; do
+            if [ "$component" = ai ]; then
+              target_host="$AI_HOST"; target_user="$AI_USER"; key_body="$AI_KEY"
+            else
+              target_host="$CMP_HOST"; target_user="$CMP_USER"; key_body="$CMP_KEY"
+              if [ "${{ inputs.tutor_smoke }}" = true ]; then smoke_flag="--smoke"; fi
+            fi
+            key="$RUNNER_TEMP/verify-$component-key"
+            install -m 600 /dev/null "$key"
+            printf '%s\n' "$key_body" > "$key"
+            ssh -i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o HostKeyAlias="speaky-dev-$component" -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
+              "$target_user@$target_host" "python3 - $component $GITHUB_SHA $smoke_flag $billing_flag" < infra/dev/verify-tutor.py
+          done

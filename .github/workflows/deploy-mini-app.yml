@@ -1,0 +1,54 @@
+name: Deploy Mini App DEV
+on:
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    concurrency:
+      group: mini-app-dev
+      cancel-in-progress: false
+    env:
+      MINI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+      MINI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+      MINI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check edge migration
+        run: python3 -m unittest discover -s infra/miniapp -p "test_*.py"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Check and build frontend
+        working-directory: mini-app
+        run: npm test && npm run build
+      - name: Deploy frontend without restarting AI or backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${MINI_HOST:?}" "${MINI_USER:?}" "${MINI_KEY:?}"
+          key="$RUNNER_TEMP/mini-app-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$MINI_KEY" > "$key"
+          opts=(-i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+          stage="$RUNNER_TEMP/mini-app"
+          mkdir -p "$stage"
+          cp -R mini-app/dist mini-app/Dockerfile mini-app/nginx.conf "$stage/"
+          cp infra/miniapp/{deploy-remote.sh,install-edge.py,Caddyfile.dev.example} "$stage/"
+          tar -czf "$RUNNER_TEMP/mini-app.tgz" -C "$stage" .
+          scp "${opts[@]}" "$RUNNER_TEMP/mini-app.tgz" "$MINI_USER@$MINI_HOST:/tmp/mini-app-$GITHUB_RUN_ID.tgz"
+          ssh "${opts[@]}" "$MINI_USER@$MINI_HOST" "MINI_RUN=$GITHUB_RUN_ID bash -s" <<'REMOTE'
+          set -euo pipefail
+          mkdir -p /opt/mini-app
+          stage=$(mktemp -d /opt/mini-app/release.XXXXXX)
+          tar -xzf "/tmp/mini-app-$MINI_RUN.tgz" -C "$stage"
+          rm "/tmp/mini-app-$MINI_RUN.tgz"
+          MINI_APP_RELEASE="$stage" bash "$stage/deploy-remote.sh"
+          python3 "$stage/install-edge.py"
+          curl -fsS https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp > /dev/null
+          curl -fsS https://speaky-miniapp-dev.109.71.241.224.sslip.io/miniapp/assets/app.js > /dev/null
+          REMOTE

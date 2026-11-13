@@ -3,10 +3,8 @@ package com.eliteteam.speakingcoach.ai
 import com.eliteteam.speakingcoach.MetricsSource
 import com.eliteteam.speakingcoach.LlmRange
 import com.eliteteam.speakingcoach.speaking.CallProgress
-import com.eliteteam.speakingcoach.speaking.OnboardingStatus
 import com.eliteteam.speakingcoach.speaking.AudioClip
 import com.eliteteam.speakingcoach.speaking.ClipProcessor
-import com.eliteteam.speakingcoach.analytics.OnboardingVoiceFacts
 import com.eliteteam.speakingcoach.speaking.ClipReply
 import com.eliteteam.speakingcoach.speaking.Correction
 import com.eliteteam.speakingcoach.speaking.CorrectionKind
@@ -56,6 +54,7 @@ class HttpClipClient(
     private val internalToken: String = "",
 ) : ClipProcessor {
     private val root = baseUrl.trimEnd('/')
+    val tutor = TutorClient(root, http, internalToken)
     private val log = LoggerFactory.getLogger(HttpClipClient::class.java)
 
     internal suspend fun vocabularyAnalytics(cursor: String): VocabularyFactsBatch {
@@ -320,28 +319,8 @@ class HttpClipClient(
         return SessionId(createSession(sessionId).sessionId)
     }
 
-    suspend fun onboardingState(sessionId: SessionId, requestId: String, reset: String = ""): OnboardingStateResponse {
-        val response = http.post("$root/internal/onboarding/state") {
-            applyInternalToken()
-            contentType(ContentType.Application.Json)
-            setBody(OnboardingRequest(sessionId.value, requestId, reset = reset))
-        }
-        check(response.status.isSuccess()) { "ai-service onboarding state returned ${response.status}" }
-        return response.body()
-    }
-
-    suspend fun legacyInvitation(sessionId: SessionId, action: String): Boolean {
-        val response = http.post("$root/internal/onboarding/legacy-invitation") {
-            applyInternalToken()
-            contentType(ContentType.Application.Json)
-            setBody(LegacyInvitationRequest(sessionId.value, action))
-        }
-        check(response.status.isSuccess()) { "ai-service legacy invitation returned ${response.status}" }
-        return response.body<LegacyInvitationResponse>().ok
-    }
-
     suspend fun savePracticeGoal(sessionId: SessionId, requestId: String, minutes: Int) {
-        val response = http.post("$root/internal/onboarding/goal") {
+        val response = http.post("$root/internal/practice/goal") {
             applyInternalToken()
             contentType(ContentType.Application.Json)
             setBody(PracticeGoalRequest(sessionId.value, requestId, minutes))
@@ -441,16 +420,6 @@ class HttpClipClient(
         val response = http.get("$root/internal/calls/feedback?offset=$offset&limit=$limit") { applyInternalToken() }
         check(response.status.isSuccess()) { "ai-service call feedback list returned ${response.status}" }
         return response.body()
-    }
-
-    suspend fun onboardingAction(sessionId: SessionId, requestId: String, runId: String, action: String): ClipReply {
-        val response = http.post("$root/internal/onboarding/actions") {
-            applyInternalToken()
-            contentType(ContentType.Application.Json)
-            setBody(OnboardingRequest(sessionId.value, requestId, runId = runId, action = action))
-        }
-        check(response.status == HttpStatusCode.Accepted) { "ai-service onboarding action returned ${response.status}" }
-        return awaitJob(response.body<ClipAcceptedResponse>().jobId)
     }
 
     suspend fun loadMetrics(): MetricsSnapshot {
@@ -565,12 +534,6 @@ class HttpClipClient(
                         corrections = status.corrections,
                         audio = audio,
                         text = status.text,
-                        onboarding = status.onboarding?.let {
-                            OnboardingStatus(
-                                it.runId, it.status, it.seconds, it.cefr, it.review,
-                                it.overallScore, it.nextBand, it.pointsToNext, it.analytics?.toFacts(), it.phase,
-                            )
-                        },
                         transcript = status.transcript,
                         streak = status.streak,
                         call = status.call?.let {
@@ -599,7 +562,6 @@ class HttpClipClient(
             url = "$root/v1/clips",
             formData = formData {
                 append("sessionId", sessionId.value)
-                clip.onboardingRunId?.let { append("onboardingRunId", it) }
                 clip.requestId?.let { append("requestId", it) }
                 clip.attemptId?.let { append("attemptId", it) }
                 clip.receivedAtEpoch?.let { append("receivedAtEpoch", it.toString()) }
@@ -646,7 +608,6 @@ class HttpClipClient(
                 streak = body.result?.streak?.let(::turnStreak),
                 text = body.replyText,
                 audioAvailable = body.result?.audioAvailable ?: true,
-                onboarding = body.result?.onboarding,
                 call = body.result?.call,
                 timingsMs = body.timingsMs,
                 voiceCallCounts = body.voiceCallCounts,
@@ -711,7 +672,6 @@ private sealed interface ClipJobStatus {
         val streak: TurnStreak?,
         val text: String,
         val audioAvailable: Boolean,
-        val onboarding: OnboardingStateResponse?,
         val call: CallClipResponse?,
         val timingsMs: Map<String, Long>,
         val voiceCallCounts: Map<String, Int>?,
@@ -725,25 +685,6 @@ internal class ClipJobFailure(val code: String, val jobId: String, val stage: St
 internal class ClipUploadFailure(val reason: String, message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
 internal class ClipPollingTimeout(val jobId: String) : IllegalStateException("ai-service job $jobId timed out")
 
-private fun OnboardingVoiceAnalyticsResponse.toFacts(): OnboardingVoiceFacts = OnboardingVoiceFacts(
-    voiceIndex = voiceIndex,
-    telegramDurationSec = telegramDurationSec,
-    recognizedDurationSec = recognizedDurationSec,
-    recordingDurationSec = recordingDurationSec,
-    durationMethod = durationMethod,
-    durationSource = durationSource,
-    durationFallbackReason = durationFallbackReason,
-    recognized = recognized,
-    failureReason = failureReason,
-    milestones = milestones,
-    completedNow = completedNow,
-    assessmentFailed = assessmentFailed,
-    cefr = cefr,
-    overallScore = overallScore,
-    scoreAvailable = scoreAvailable,
-    speechBeforeSec = speechBeforeSec,
-    speechAfterSec = speechAfterSec,
-)
 
 private fun turnStreak(streak: ClipStreakResponse): TurnStreak = TurnStreak(
     current = streak.current,

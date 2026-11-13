@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 import asyncio
 import json
 import math
@@ -10,8 +14,6 @@ from datetime import date, datetime, timedelta
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
-from redis.asyncio import Redis
-from redis.exceptions import WatchError
 
 from app.load_test import load_test_active
 
@@ -830,6 +832,7 @@ class RedisMetricsStore:
         text: str | None = None,
         run_id: str = "",
     ) -> dict[str, str]:
+        from redis.exceptions import WatchError
         session = session_id.strip()
         if not session:
             raise ValueError("session id required")
@@ -952,6 +955,7 @@ class RedisMetricsStore:
         return targets
 
     async def _claim_reminder(self, day_name: str, session: str, mode: str) -> bool:
+        from redis.exceptions import WatchError
         sent_key = _reminder_sent_key(day_name, session)
         while True:
             async with self._redis.pipeline(transaction=True) as pipe:
@@ -1118,6 +1122,7 @@ class RedisMetricsStore:
 
 
 def build_metrics_store(settings: Any, redis: Redis | None = None) -> MetricsStore:
+    from redis.asyncio import Redis
     if redis is not None:
         return RedisMetricsStore(redis, DEFAULT_RATES)
     url = getattr(settings, "redis_url", None)
