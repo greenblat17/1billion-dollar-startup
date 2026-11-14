@@ -14,7 +14,7 @@ Get the context needed for the user's task before editing. Context loading alone
 Paths below are relative to the repository root.
 
 1. `ai_docs/README.md` — documentation map.
-2. `ai_docs/product/2026-11-08-ai-tutor-experience-v0.5.md` — product intent, not shipped scope.
+2. `ai_docs/product/2026-11-14-personalized-learning-v5.5.md` — current product target, not shipped scope; `ai_docs/product/2026-11-08-ai-tutor-experience-v0.5.md` — historical product intent.
 3. `ai_docs/status.md` — shipped behavior, work in progress and verification limits.
 4. `architecture.md` — single reference for implemented components, flows, data ownership and decision rationale.
 5. `AGENTS.md` — operational boundaries.
