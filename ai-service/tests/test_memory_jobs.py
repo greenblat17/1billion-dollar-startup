@@ -5,8 +5,8 @@ import pytest
 from fakeredis import FakeAsyncRedis
 
 from app.memory_jobs import MemoryJob, MemoryJobRunner, MemoryJobStore
-from app.onboarding import OnboardingStore
-from app.onboarding_model import PersonValidationError
+from app.learner_store import LearnerStore
+from app.learner_model import PersonValidationError
 from app.personalization import Personalization
 
 
@@ -39,16 +39,16 @@ async def test_redis_queue_survives_restart_and_applies_one_users_turns_in_order
     assert await queue.enqueue(MemoryJob("second", "tg-1", "I now work in design", now + 1))
     model = Model()
     reopened = MemoryJobStore(redis)
-    runner = MemoryJobRunner(reopened, Personalization(OnboardingStore(redis), model, Streaks()))
+    runner = MemoryJobRunner(reopened, Personalization(LearnerStore(redis), model, Streaks()))
     await runner._process("tg-1")
     await runner._process("tg-1")
-    learner = await OnboardingStore(redis).get_learner("tg-1")
+    learner = await LearnerStore(redis).get_learner("tg-1")
     assert learner["person"]["facts"] == ["I moved to Kazan", "I now work in design"]
     assert [text for _, text in model.calls] == ["I moved to Kazan", "I now work in design"]
     assert await reopened.sessions() == []
     assert not await reopened.enqueue(MemoryJob("first", "tg-1", "duplicate", time.time()))
     await runner.personalization.record_contact("tg-1")
-    assert (await OnboardingStore(redis).get_learner("tg-1"))["person"]["facts"] == [
+    assert (await LearnerStore(redis).get_learner("tg-1"))["person"]["facts"] == [
         "I moved to Kazan", "I now work in design"]
     await redis.aclose()
 
@@ -60,7 +60,7 @@ async def test_recovery_after_profile_save_does_not_call_model_again():
     job = MemoryJob("saved", "tg-1", "I moved to Kazan", time.time())
     await queue.enqueue(job)
     model = Model()
-    service = Personalization(OnboardingStore(redis), model, Streaks())
+    service = Personalization(LearnerStore(redis), model, Streaks())
     await service.apply_background("tg-1", job.id, job.transcript)
     restarted = MemoryJobRunner(MemoryJobStore(redis), service)
     await restarted._process("tg-1")
@@ -73,7 +73,7 @@ async def test_recovery_after_profile_save_does_not_call_model_again():
 async def test_invalid_schema_retries_then_saves_only_valid_result():
     model = Model()
     model.fail_once = True
-    learner = OnboardingStore()
+    learner = LearnerStore()
     queue = MemoryJobStore()
     runner = MemoryJobRunner(queue, Personalization(learner, model, Streaks()))
     await queue.enqueue(MemoryJob("retry", "tg-1", "I moved to Kazan", time.time()))
@@ -94,7 +94,7 @@ async def test_exhausted_invalid_output_keeps_existing_facts():
             raise PersonValidationError("facts_too_long")
 
     model = InvalidModel()
-    learner = OnboardingStore()
+    learner = LearnerStore()
     await learner.save_learner("tg-1", {"person": {"facts": ["Lives in Moscow"]}, "proficiency": {"overall_cefr": "B1"}})
     queue = MemoryJobStore()
     runner = MemoryJobRunner(queue, Personalization(learner, model, Streaks()))
@@ -109,7 +109,7 @@ async def test_exhausted_invalid_output_keeps_existing_facts():
 
 @pytest.mark.asyncio
 async def test_save_retry_reuses_valid_extraction():
-    class FlakyStore(OnboardingStore):
+    class FlakyStore(LearnerStore):
         failures = 1
 
         async def save_learner_if_current(self, session, expected, updated):
@@ -147,7 +147,7 @@ async def test_different_sessions_can_process_while_one_model_call_waits():
             return await super().update_person(person, transcripts)
 
     queue = MemoryJobStore()
-    learner = OnboardingStore()
+    learner = LearnerStore()
     runner = MemoryJobRunner(queue, Personalization(learner, SlowModel(), Streaks()))
     await queue.enqueue(MemoryJob("one", "tg-1", "slow", time.time()))
     await queue.enqueue(MemoryJob("two", "tg-2", "fast", time.time()))

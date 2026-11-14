@@ -8,9 +8,9 @@ from typing import Any
 
 from app.calls import CallStore
 from app.correction_verification import verify_corrections_with_metrics
-from app.onboarding import OnboardingStore
-from app.onboarding_review import REVIEW_COPY_POLICY, correction_candidates, fluency_metrics, select_examples
-from app.onboarding_score import SCORE_TABLE, normalize_shade, placed_level, skill_score, step_score
+from app.learner_store import LearnerStore
+from app.review_content import REVIEW_COPY_POLICY, correction_candidates, fluency_metrics, select_examples
+from app.review_score import SCORE_TABLE, normalize_shade, placed_level, skill_score, step_score
 from app.metrics_v2 import bind_metrics, reset_metrics
 from app.vocabulary_suggestions import discover_vocabulary_suggestions
 
@@ -163,7 +163,7 @@ def apply_call_level(
 
 
 class CallReviews:
-    def __init__(self, calls: CallStore, store: OnboardingStore, model: Any, streaks: Any) -> None:
+    def __init__(self, calls: CallStore, store: LearnerStore, model: Any, streaks: Any) -> None:
         self.calls = calls
         self.store = store
         self.model = model

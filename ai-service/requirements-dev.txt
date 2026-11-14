@@ -1,4 +1,4 @@
--r requirements.txt
+-r requirements-legacy.txt
 pytest==8.4.2
 pytest-asyncio==1.1.0
-fakeredis==2.31.3
+fakeredis[lua]==2.31.3

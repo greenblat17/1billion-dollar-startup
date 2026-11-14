@@ -12,9 +12,10 @@ from app.calls import CallStore, moscow_day
 from app.dialogue import MemoryDialogueStore
 from app.llm import Correction
 from app.metrics import DEFAULT_RATES, MemoryMetricsStore
-from app.onboarding import OnboardingStore
-from app.onboarding_model import CALL_REVIEW_RESPONSE_FORMAT, OnboardingModel, REVIEW_MAX_TOKENS, REVIEW_RETRY_MAX_TOKENS
-from app.onboarding_score import placed_level, step_score
+from app.learner_store import LearnerStore
+from tests.learner_fixtures import seed_history
+from app.learner_model import CALL_REVIEW_RESPONSE_FORMAT, LearnerModel, REVIEW_MAX_TOKENS, REVIEW_RETRY_MAX_TOKENS
+from app.review_score import placed_level, step_score
 from app.pipeline import ClipPipeline
 from app.stt import SttResult
 from app.speech_time import SpeechTime, SpeechTimeRollout
@@ -288,7 +289,7 @@ def test_call_places_missing_skill_scores_from_this_conversation_once():
 
 @pytest.mark.asyncio
 async def test_call_review_saves_first_skill_scores_when_baseline_has_none():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", {**baseline(), "grammar": None,
                                          "vocabulary": None, "fluency": None})
     calls = CallStore(goal_of=_goal(10))
@@ -306,7 +307,7 @@ async def test_call_review_saves_first_skill_scores_when_baseline_has_none():
 
 @pytest.mark.asyncio
 async def test_under_thirty_seconds_returns_cached_text_result_without_models_or_score_change():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     learner = {"person": {}, "proficiency": {"overall_score": 52}}
     await store.save_learner("tg-1", learner)
@@ -333,7 +334,7 @@ async def test_under_thirty_seconds_returns_cached_text_result_without_models_or
 
 @pytest.mark.asyncio
 async def test_thirty_seconds_uses_model_and_decisively_short_review_keeps_scores():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
@@ -376,7 +377,7 @@ def test_accumulated_scores_cross_position_and_band_boundaries():
 
 @pytest.mark.asyncio
 async def test_successive_call_reviews_save_accumulated_level_and_skill_progress():
-    store = OnboardingStore()
+    store = LearnerStore()
     initial = {**baseline(), "overallScore": 56, "position": "high", "shade": "-", "pointsToNext": 5,
                "grammar": 56, "fluency": 56}
     await store.save_assessment("tg-1", initial)
@@ -406,7 +407,7 @@ async def test_successive_call_reviews_save_accumulated_level_and_skill_progress
 
 @pytest.mark.asyncio
 async def test_review_is_cached_and_a_failure_can_be_retried():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
@@ -430,7 +431,7 @@ async def test_review_is_cached_and_a_failure_can_be_retried():
         "status": "completed", "runId": "a" * 32, "cefr": "A1", "position": "low",
         "review": {"shade": "0", "grammar": {"score": 12}, "vocabulary": {"score": 12}, "fluency": {"score": 12}},
     }
-    await store.save("tg-1", state)
+    await seed_history(store, "tg-1", state)
     assert (await store.get_assessment("tg-1"))["overallScore"] == 53
     failing = CallStore(goal_of=_goal(10))
     other = await failing.open("tg-2")
@@ -466,7 +467,7 @@ def test_call_review_uses_saved_explanation_without_requesting_another():
 
 @pytest.mark.asyncio
 async def test_call_review_shows_up_to_five_verified_examples_per_skill():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
@@ -502,7 +503,7 @@ async def test_call_review_shows_up_to_five_verified_examples_per_skill():
 
 @pytest.mark.asyncio
 async def test_call_review_routes_lexical_error_to_grammar_beside_vocabulary_upgrade():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")
@@ -550,7 +551,7 @@ async def test_call_review_retries_invalid_response_with_review_fallback_model()
             return json.dumps(response)
 
     llm = Llm()
-    result = await OnboardingModel(
+    result = await LearnerModel(
         llm, "google/gemini-3.5-flash-lite", "openai/gpt-4o-mini",
     ).compose_call_review({
         "grammarExamples": [{"wrong": "I builds", "better": "I build"}],
@@ -566,7 +567,7 @@ async def test_call_review_retries_invalid_response_with_review_fallback_model()
 
 @pytest.mark.asyncio
 async def test_call_review_finds_upgrade_without_live_corrections():
-    store = OnboardingStore()
+    store = LearnerStore()
     await store.save_assessment("tg-1", baseline())
     calls = CallStore(goal_of=_goal(10))
     opened = await calls.open("tg-1")

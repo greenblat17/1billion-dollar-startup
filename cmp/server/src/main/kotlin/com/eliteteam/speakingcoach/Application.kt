@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.foundation.installFoundation
+
 import com.eliteteam.speakingcoach.analytics.createOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.createVoiceAttemptStore
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
@@ -106,25 +108,7 @@ import java.util.UUID
 private val tlsStorePassword = "ktor".toCharArray()
 
 suspend fun main() {
-    val config = AppConfig.fromEnv()
-    if (config.usesWebhook) {
-        startWebhookServer(config)
-    } else {
-        embeddedServer(Netty, configure = {
-            connector {
-                host = "0.0.0.0"
-                port = config.serverPort
-            }
-            if (config.monitoringPort > 0) {
-                connector {
-                    host = "127.0.0.1"
-                    port = config.monitoringPort
-                }
-            }
-        }) {
-            module(config)
-        }.start(wait = true)
-    }
+    startSpeakyServer(AppConfig.fromEnv())
 }
 
 @OptIn(ExperimentalKtorApi::class)
@@ -257,8 +241,8 @@ private suspend fun startWebhookServer(config: AppConfig) {
         FollowupRunner(
             store = store,
             state = { candidate ->
-                val current = ai.onboardingState(SessionId(candidate.sessionId), "followup:check:${candidate.runId}")
-                current.runId to (if (current.status == "active") current.phase else current.status)
+                // Retired introduction stages can no longer trigger outbound messages.
+                if (candidate.stage == "practice") candidate.runId to "completed" else "" to "retired"
             },
             reminderTime = { sessionId -> ai.reminderTime(SessionId(sessionId)) },
             send = { claim ->
@@ -305,8 +289,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
             active = { candidate ->
                 val session = SessionId(candidate.sessionId)
                 if (candidate.kind == "onboarding") {
-                    val state = ai.onboardingState(session, "soft-nudge:check:${candidate.flowId}")
-                    state.runId == candidate.flowId && state.status == "active"
+                    false
                 } else {
                     val state = ai.callStatus(session)
                     state.active && state.callId == candidate.flowId
@@ -317,11 +300,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                     replyMarkup = softNudgeKeyboard(candidate))
             })
     }
-    val campaignRunner = LegacyCampaignRunner(ai, webhookScope) { chatId ->
-        behaviourContext.sendMessage(
-            ChatId(RawChatId(chatId)), legacyCampaignMessage(), replyMarkup = legacyCampaignKeyboard(),
-        )
-    }
+    val campaignRunner: LegacyCampaignAdmin? = null
     val appApi = createAppApi(config, aiHttp)
     val keyStore = loadPemKeyStore(
         File(config.tlsCertPath),
@@ -349,6 +328,13 @@ private suspend fun startWebhookServer(config: AppConfig) {
         },
     ) {
         val ktorApp = this
+        val foundation = requireNotNull(installFoundation(config.databaseUrl, config.aiInternalToken)) {
+            "DATABASE_URL is required for the persistent tutor"
+        }
+        ai.tutor.foundation = com.eliteteam.speakingcoach.foundation.FoundationChat(foundation)
+        com.eliteteam.speakingcoach.foundation.FoundationWorker(foundation,
+            com.eliteteam.speakingcoach.foundation.HttpLearningComputer(aiHttp, config.aiServiceBaseUrl, config.aiInternalToken))
+            .launch(webhookScope)
         if (appApi != null) {
             installAppPlugins(appApi)
         }
@@ -388,7 +374,7 @@ private suspend fun startWebhookServer(config: AppConfig) {
                 }
             }.hide()
             route("/telegram/webhook") {
-                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics)
+                installSpeakingCoachWebhook(webhookSecret, behaviourContext, webhookScope, audit, telegramMetrics, foundation.telegramIntake)
             }.hide()
             if (config.loadTestEnabled) {
                 installLoadTestRoutes(config, ai, sessionClipQueue)

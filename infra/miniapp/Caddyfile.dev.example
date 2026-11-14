@@ -1,0 +1,15 @@
+# Installed on DEV in /opt/speaky-voice-lab/Caddyfile.
+# Both upstream containers join the external 'speaking-coach' Docker network.
+speaky-miniapp-dev.109.71.241.224.sslip.io {
+    @api path /miniapp/api /miniapp/diagnostics /miniapp/voice
+    handle @api {
+        reverse_proxy ai-service:8090
+    }
+    @ui path /miniapp /miniapp/ /miniapp/assets/*
+    handle @ui {
+        reverse_proxy mini-app:8080
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

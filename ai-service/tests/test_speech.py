@@ -1,7 +1,6 @@
 import pytest
 from fakeredis import FakeAsyncRedis
 
-from app.onboarding import FIRST_QUESTION
 from app.sessions import GREETING_VOICE_TEXT
 from app.speech import SessionSpeech, SpeechSpeedStore
 from tests.conftest import FakeTts, build_app
@@ -30,13 +29,6 @@ async def test_selected_speed_reaches_reply_and_intro_without_crossing_intro_cac
 
     await speech.synthesize("tg-slow", "Reply")
     assert tts.speeds[-1] == 0.8
-
-    onboarding = app.state.onboarding
-    await onboarding.intro_audio("tg-slow")
-    await onboarding.intro_audio("tg-fast")
-    await onboarding.intro_audio("tg-slow")
-    intro_speeds = [speed for text, speed in zip(tts.texts, tts.speeds) if text == FIRST_QUESTION]
-    assert intro_speeds == [0.8, 1.0]
 
 
 def test_speech_speed_api_is_authenticated_and_greeting_cache_is_per_speed() -> None:

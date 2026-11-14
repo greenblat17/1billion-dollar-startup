@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from app.onboarding_model import OnboardingModel
+from app.learner_model import LearnerModel
 
 
 class Llm:
@@ -19,7 +19,7 @@ class Llm:
 @pytest.mark.asyncio
 async def test_call_opening_greets_then_follows_a_prior_user_topic():
     llm = Llm("Last time you mentioned a job interview. How did it go?")
-    model = OnboardingModel(llm)
+    model = LearnerModel(llm)
     opening = await model.start_call_question({
         "personalContext": "Verified learner memory",
         "firstName": "Alex",
@@ -34,7 +34,7 @@ async def test_call_opening_greets_then_follows_a_prior_user_topic():
 @pytest.mark.asyncio
 async def test_call_opening_without_usable_name_uses_plain_greeting():
     llm = Llm("What was the best part of your day?")
-    opening = await OnboardingModel(llm).start_call_question({"firstName": "🎙", "recentConversation": []})
+    opening = await LearnerModel(llm).start_call_question({"firstName": "🎙", "recentConversation": []})
     assert opening == "Hi! How are you? What was the best part of your day?"
 
 
@@ -42,13 +42,13 @@ async def test_call_opening_without_usable_name_uses_plain_greeting():
 async def test_call_opening_rejects_extra_questions_in_follow_up():
     llm = Llm("How did it go? What happened next?")
     with pytest.raises(ValueError, match="missing call opening question"):
-        await OnboardingModel(llm).start_call_question({})
+        await LearnerModel(llm).start_call_question({})
 
 
 @pytest.mark.asyncio
 async def test_scenario_opening_starts_in_role_without_free_call_greeting():
     llm = Llm("Tell me about a time you solved a difficult problem?")
-    opening = await OnboardingModel(llm).start_call_question({
+    opening = await LearnerModel(llm).start_call_question({
         "scenario": {"kind": "job", "description": ""}, "recentConversation": [],
     })
     assert opening == "Tell me about a time you solved a difficult problem?"

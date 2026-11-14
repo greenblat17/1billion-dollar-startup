@@ -16,9 +16,8 @@ from openai import AsyncOpenAI
 from app.call_review import CallReviews
 from app.config import Settings
 from app.llm import OpenAiChatModel
-from app.onboarding import OnboardingService, assessment_summary
-from app.onboarding_model import OnboardingModel
-from app.onboarding_review import correction_candidates
+from app.learner_model import LearnerModel
+from app.review_content import correction_candidates
 from app.pipeline import NOTES_TIMEOUT_SECONDS
 
 
@@ -45,10 +44,6 @@ class RecordingModel:
         self.verifications.append({"candidateIds": [item["id"] for item in candidates], "acceptedIds": sorted(accepted)})
         return accepted
 
-    async def compose_review(self, payload):
-        self.review_requests.append(payload)
-        return await self.delegate.compose_review(payload)
-
     async def compose_call_review(self, payload):
         self.review_requests.append(payload)
         return await self.delegate.compose_call_review(payload)
@@ -63,7 +58,7 @@ async def main():
     settings = Settings.from_env()
     client = AsyncOpenAI(api_key=settings.openai_api_key, base_url=settings.openai_base_url, max_retries=0)
     llm = OpenAiChatModel(client, settings.llm_model, notes_model=settings.notes_model)
-    model = OnboardingModel(llm, settings.onboarding_review_model, settings.onboarding_review_fallback_model)
+    model = LearnerModel(llm, settings.onboarding_review_model, settings.onboarding_review_fallback_model)
     report = {"models": {"notes": settings.notes_model,
                          "review": settings.onboarding_review_model or settings.llm_model,
                          "reviewFallback": settings.onboarding_review_fallback_model}, "turns": []}
@@ -89,25 +84,9 @@ async def main():
             print(f"turn {len(turns)}: {row['outcome']}, {len(row['corrections'])} candidates", file=sys.stderr, flush=True)
 
         report["candidates"] = correction_candidates(turns)
-        state = {"ask": "followup", "seconds": 112.0,
-                 "profile": {"work": "designer", "leisure": "", "goal": "improve English at work"},
-                 "turns": turns}
-        placement = await model.assess(state)
-        report["placement"] = placement
-        state.update(cefr=placement.get("cefr"), position=placement.get("position"))
-
-        onboarding_model = RecordingModel(model)
-        onboarding = OnboardingService.__new__(OnboardingService)
-        onboarding.model = onboarding_model
-        onboarding.pipeline = NoWritePipeline()
-        first_review = await onboarding._compose_review(state)
-        report["onboarding"] = {"verification": onboarding_model.verifications,
-                                "requestExamples": [{name: request.get(name) for name in ("grammarExamples", "vocabularyExamples")}
-                                                    for request in onboarding_model.review_requests],
-                                "review": first_review}
-
-        baseline = assessment_summary({**state, "status": "completed", "runId": "synthetic",
-                                       "review": first_review})
+        # A supplied fixed baseline keeps call review evaluation independent of retired onboarding.
+        baseline = {"cefr": "B1", "position": "mid", "overallScore": 52,
+                    "grammar": 52, "vocabulary": 52, "fluency": 52}
         report["baseline"] = baseline
         call_model = RecordingModel(model)
         calls = CallReviews.__new__(CallReviews)
