@@ -65,6 +65,14 @@ class Flow:
     async def fact(self, key, value, revision, category='personal'):
         source = await actor(self.http, self.root, self.token, self.subject, 'operator',
             requestId=uuid4().hex, text=value, occurredAt=now())
+        if key == 'goal':
+            state = await self.backend.learning_state(self.operator)
+            assert (state['goal']['revision'] if state['goal'] else 0) == revision
+            event = next(e for e in (await self.backend.snapshot(self.operator, 'text'))['events']
+                         if e['id'] == source['input']['event_id'])
+            return await self.backend.update_learning_state(self.operator, uuid4().hex,
+                expected_revision=state['revision'], patch={}, goal=value, component='test-onboarding',
+                sources=[{'type': 'event', 'id': event['id'], 'revision': event['sequence']}])
         return await self.command('memory.record', {'key': key, 'value': value, 'category': category,
             'kind': 'user_report', 'expectedVersion': revision, 'sourceId': source['input']['event_id'], 'evidence': value})
 

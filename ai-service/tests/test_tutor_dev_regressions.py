@@ -45,9 +45,9 @@ def test_exclusive_modes_and_existing_shift_semantics():
 async def test_memory_saves_supported_fact_without_inventing_evidence_or_preference():
     backend = SimpleNamespace(receipt=AsyncMock(return_value=None), snapshot=AsyncMock(return_value={}), command=AsyncMock())
     tutor = FoundationTutor(backend, None, None)
-    fact = dict(memory='learning', key='difficulty', value='Vocabulary', kind='user_report', evidence='не хватает словб')
+    fact = dict(memory='personal', key='difficulty', value='Vocabulary', kind='user_report', evidence='не хватает словб')
     result = await tutor.execute('scope', 'request', {'id': 'current', 'body': 'отчасти не хватает словб'},
-        'update_learner_context', dict(facts=[fact, {**fact, 'key': 'goal', 'evidence': 'для бизнеса'}],
+        'update_learner_context', dict(facts=[fact, {**fact, 'key': 'occupation', 'evidence': 'для бизнеса'}],
         trialPreference='unknown', preferenceEvidence=None, summary=None))
     payload = backend.command.call_args.args[3]
     assert payload['facts'] == [fact]

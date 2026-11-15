@@ -124,8 +124,10 @@ class TrialTutorModel:
             if function['name'] == 'create_trial_booking':
                 function['description'] = 'Book the free approximately 15-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. An exact time supplied in reply to your scheduling question or acceptance of your unambiguous proposal is a clear request. A vague period needs a concrete proposal and acceptance before booking. Resolve relative dates using original message time and known learner timezone. Never invent availability limits. A technical failure may be rebooked with preserved context.'
             if function['name'] == 'update_learner_context':
-                function['description'] = ('Save or correct user-stated facts with verbatim evidence from this message. '
-                    'Null deletes a fact. Self-reported level is self_assessment, never measured. '
+                from app.student_learning_state import UpdatePersonalContext
+                function['parameters'] = UpdatePersonalContext.model_json_schema()
+                function['description'] = ('Save or correct personal facts with verbatim evidence from this message. '
+                    'Null deletes a personal fact. Do not store goals, CEFR, topic knowledge, intensity or homework preferences in Memory. '
                     'Preserve unrelated facts. Save a concise summary and trial preference only with evidence. '
                     'A preference records what the learner said; it does not change the conversation mode. '
                     'Follow the current mode strategy and respect an explicit request to stop.')

@@ -67,6 +67,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
     }
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
+        "learning.update" -> StudentLearningState().update(connection, scope, args, now)
+        "learning.topic.record" -> StudentTopicKnowledge().record(connection, scope, args, now)
+        "learning.forget" -> maintenance.forgetLearning(connection, scope, args, now)
         "subscription.get" -> { requireRole(scope, "text", "operator"); args.only(); billing.read(connection, scope.studentId, now) }
         "subscription.checkout" -> billing.checkout(connection, scope, args, now)
         "subscription.cancel_renewal" -> billing.cancelRenewal(connection, scope, args, now)
@@ -131,7 +134,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         val goal = connection.document("SELECT to_jsonb(g) FROM learning_goal g WHERE student_id=? ORDER BY revision DESC LIMIT 1", scope.studentId)
         val facts = connection.documents("""SELECT to_jsonb(f) || jsonb_build_object('source_content_expired',e.body IS NULL OR e.expires_at<=?, 'occurred_at',e.occurred_at)
             FROM memory_fact f LEFT JOIN conversation_event e ON e.id=f.source_event_id
-            WHERE f.student_id=? AND forgotten_at IS NULL AND value IS NOT NULL AND (valid_until IS NULL OR valid_until>?) ORDER BY updated_at DESC,category,fact_key""", now, scope.studentId, now)
+            WHERE f.student_id=? AND f.category='personal' AND forgotten_at IS NULL AND value IS NOT NULL AND (valid_until IS NULL OR valid_until>?) ORDER BY updated_at DESC,category,fact_key""", now, scope.studentId, now)
         val observations = connection.documents("""SELECT to_jsonb(o) || jsonb_build_object('source_content_expired',e.body IS NULL OR e.expires_at<=?, 'occurred_at',e.occurred_at, 'review',to_jsonb(r))
             FROM memory_observation o LEFT JOIN conversation_event e ON e.id=o.source_event_id
             LEFT JOIN memory_observation_review r ON r.student_id=o.student_id AND r.observation_key=o.observation_key
@@ -157,6 +160,10 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         val roadmap = connection.currentRoadmap(scope.studentId)
         val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress') ORDER BY created_at DESC LIMIT 1", scope.studentId)
         json("version" to 1, "student" to student, "textMode" to connection.textConversationMode(scope.studentId), "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
+            "learningState" to StudentLearningState().read(connection, scope.studentId, now),
+            "topicKnowledge" to connection.document("SELECT to_jsonb(c) FROM learning_catalog_current c WHERE singleton=TRUE")?.let {
+                StudentTopicKnowledge().read(connection, scope.studentId, it.text("version"), null, 0, false, now)
+            },
             "billing" to billing.read(connection, scope.studentId, now),
             "lessonAnalysis" to lessonId?.let { connection.document("""SELECT jsonb_build_object('status',j.status,'error',j.error_code)
                 FROM foundation_job j JOIN lesson l ON l.id=j.target_id WHERE j.student_id=? AND l.id=?
@@ -169,6 +176,17 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             "analysisSourceTruncated" to (analysisSources.size > 1000), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }
+
+    suspend fun learningState(token: String): JsonObject = database.transaction(readOnly = true) { c, now ->
+        val scope = authenticateScope(c, token, now)
+        StudentLearningState().read(c, scope.studentId, now)
+    }
+
+    suspend fun topicKnowledge(token: String, version: String, topic: String?, offset: Int, history: Boolean): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            StudentTopicKnowledge().read(c, scope.studentId, version, topic, offset, history, now)
+        }
 
     suspend fun receipt(token: String, id: String): JsonObject = database.transaction(readOnly = true) { connection, now ->
         val scope = authenticateScope(connection, token, now)

@@ -120,14 +120,17 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
 @pytest.mark.asyncio
 async def test_known_level_survives_selector_failure_and_voice_keeps_its_personality():
     data = snapshot('Привет снова')
-    data['facts'] = [dict(category='learning', fact_key='level', value='Наверное B1',
-                          kind='self_assessment', revision=1)]
+    data['facts'] = [dict(category='personal', fact_key='interest', value='books', kind='user_report', revision=1)]
+    data['learningState'] = {'schemaVersion': 1, 'revision': 2, 'profile': {
+        'currentLevels': {'selfAssessment': {'overall': {'level': 'B1', 'explanation': 'Наверное B1'}}}}}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=data))
     selector = SimpleNamespace(select=AsyncMock(side_effect=RuntimeError('selection unavailable')))
     contexts = ContextBuilder(backend, selector=selector)
     text = await contexts.build('scope', 'text')
     voice = await contexts.build('scope', 'voice')
     assert 'Наверное B1' in text.instructions('text')
+    assert text.data['learningState'] == data['learningState']
+    assert text.data['memorySelection']['status'] == 'unavailable_core_only'
     assert 'professional tutor' in text.instructions('text')
     assert 'Current mode: introduction.' in text.instructions('text')
     assert 'help find a topic with an easy question' in voice.instructions('voice')

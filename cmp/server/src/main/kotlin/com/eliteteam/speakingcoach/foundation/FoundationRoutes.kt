@@ -56,6 +56,23 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
                 service.command(scope, foundationJson.parseToJsonElement(body).jsonObject)
             }
         }
+        get("/learning-state") {
+            foundationResponse(internalToken) { scope ->
+                if (call.request.queryParameters.names().isNotEmpty()) reject("invalid_learning_query")
+                service.learningState(scope)
+            }
+        }
+        get("/learning-state/topics") {
+            foundationResponse(internalToken) { scope ->
+                val query = call.request.queryParameters
+                if (query.names().any { it !in setOf("catalogVersion", "topicId", "offset", "history") || query.getAll(it)?.size != 1 }) {
+                    reject("invalid_learning_query")
+                }
+                val offset = query["offset"]?.let { it.toIntOrNull() ?: reject("invalid_offset") } ?: 0
+                val history = query["history"]?.let { it.toBooleanStrictOrNull() ?: reject("invalid_history") } ?: false
+                service.topicKnowledge(scope, query["catalogVersion"] ?: reject("catalog_version_required"), query["topicId"], offset, history)
+            }
+        }
         get("/snapshot") {
             foundationResponse(internalToken) { scope ->
                 service.snapshot(scope, call.request.queryParameters["purpose"] ?: "text", call.request.queryParameters["lessonId"])

@@ -69,6 +69,40 @@ class FoundationClient:
             raise BackendFailure('unsupported_catalog_schema', 502)
         return result
 
+    async def learning_state(self, scope: str) -> dict:
+        result = await self._request('GET', '/learning-state', scope)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_learning_schema', 502)
+        return result
+
+    async def topic_knowledge(self, scope: str, catalog_version: str, *, topic_id: str | None = None,
+                              offset: int = 0, history: bool = False) -> dict:
+        params = {'catalogVersion': catalog_version, 'offset': str(offset), 'history': str(history).lower()}
+        if topic_id is not None:
+            params['topicId'] = topic_id
+        result = await self._request('GET', '/learning-state/topics', scope, params=params)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_learning_schema', 502)
+        return result
+
+    async def update_learning_state(self, scope: str, operation_id: str, *, expected_revision: int,
+                                    patch: dict, component: str, sources: list[dict], **changes) -> dict:
+        # Trusted backend integrations only. No native AI tool exposes this method.
+        if set(changes) - {'goal'}:
+            raise ValueError('unknown_learning_field')
+        return await self.command(scope, operation_id, 'learning.update', {
+            'expectedRevision': expected_revision, 'patch': patch, 'component': component,
+            'sources': sources, **changes,
+        })
+
+    async def record_topic_knowledge(self, scope: str, operation_id: str, *, catalog_version: str,
+                                     topic_id: str, expected_revision: int, status: str,
+                                     explanation: str, component: str, sources: list[dict]) -> dict:
+        return await self.command(scope, operation_id, 'learning.topic.record', {
+            'catalogVersion': catalog_version, 'topicId': topic_id, 'expectedRevision': expected_revision,
+            'status': status, 'explanation': explanation, 'component': component, 'sources': sources,
+        })
+
     async def command(self, scope: str, operation_id: str, action: str, arguments: dict) -> dict:
         with diagnostic_context(operation_id=operation_id):
             event('backend_command', stage=action, outcome='started')

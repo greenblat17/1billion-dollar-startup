@@ -32,7 +32,7 @@ Legacy `RELATIONSHIP_POLICY` с пятью темами не входит в а�
 Существующие отношения без такой последовательности и ученики с созданным Lesson остаются в `dialogue`.
 Повторный start не сбрасывает режим или память. Успешное создание Lesson завершает знакомство;
 последующая отмена не возвращает его. Прямые booking tools остаются доступны без анкеты. В режиме знакомства My Progress скрыт, в обычном диалоге доступен.
-Самооценка `level` входит в core памяти, в том числе при сбое relevance-selector.
+Учебные поля читаются из Student Learning State отдельно от MemorySelector. Запись цели, CEFR, интенсивности и Homework через Memory отключена; новые AI-writers относятся к будущему SP-05. [Контракт SP-03 v5.5](../../architecture.md#student-learning-state-sp-03-v55).
 Shipping root использует `TrialTutorModel(OpenAiChatModel(..., KORA_MODEL))`, без voice allowlist.
 
 ContextBuilder получает актуальный snapshot из backend, выбирает память и ограниченную историю.

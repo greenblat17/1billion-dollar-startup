@@ -8,10 +8,11 @@ from app.foundation_client import FoundationClient
 from app.kora_personality import PERSONALITY
 from app.text_tutor_policy import text_strategy
 from app.memory_policy import MEMORY_POLICY
+from app.student_learning_state import LEARNING_KEYS, learning_context
 from app.memory_context import observation_patterns
 from app.diagnostics import event as diagnostic_event
 
-CORE_KEYS = frozenset({'name', 'difficulty', 'difficulties', 'self_assessment', 'level', 'timezone', 'current_timezone', 'experience', 'desired_result'})
+CORE_KEYS = frozenset({'name', 'difficulty', 'difficulties', 'timezone', 'current_timezone', 'experience'})
 
 
 @dataclass(frozen=True)
@@ -45,7 +46,8 @@ class ContextBuilder:
         if snapshot.get('version') != 1:
             raise ValueError('unsupported_context_version')
         facts = [f for f in snapshot.get('facts', []) if not f.get('forgotten_at')
-                 and f.get('kind') in {'user_report', 'self_assessment'}]
+                 and f.get('category') == 'personal' and f.get('fact_key') not in LEARNING_KEYS
+                 and f.get('kind') == 'user_report']
         all_observations = snapshot.get('observations', [])
         selection_status = 'bounded'
         original_count = len(facts)
@@ -117,6 +119,7 @@ class ContextBuilder:
                 budget -= size
             roadmap = {'revision': source['revision'], 'goalRevision': source['goal_revision'], 'steps': steps, 'reason': source.get('reason'),
                        'sources': source.get('content', {}).get('sources', [])}
+        learning_state, topic_knowledge = learning_context(snapshot, self.memory_budget)
         data = {
             'memoryRestrictions': [{'key': f['fact_key'], 'policy': f['mention_policy']} for f in snapshot.get('facts', []) if f.get('mention_policy') == 'context_only'],
             'memorySelection': {'status': selection_status, 'partial': original_count > len(selected) or len(snapshot.get('observations', [])) > len(observations),
@@ -125,7 +128,9 @@ class ContextBuilder:
             'studentId': snapshot['student']['id'],
             'textMode': snapshot.get('textMode', 'dialogue'),
             'tutor': {'id': snapshot['student']['tutor_id'], 'version': snapshot['student']['tutor_version']},
-            'goal': snapshot.get('goal'), 'facts': selected, 'roadmap': roadmap,
+            'goal': snapshot.get('learningState', {}).get('goal'), 'facts': selected, 'roadmap': roadmap,
+            'learningState': learning_state,
+            'topicKnowledge': topic_knowledge,
             'progress': snapshot.get('progress'),
             'progressEvidence': snapshot.get('progressEvidence') if purpose == 'learning' else None,
             'observations': observations, 'roadmapPreparation': snapshot.get('roadmapPreparation'),
@@ -134,7 +139,8 @@ class ContextBuilder:
             'lesson': snapshot.get('lesson'), 'booking': snapshot.get('booking'),
             'preparation': snapshot.get('preparation'),
             'analysisSourceTruncated': snapshot.get('analysisSourceTruncated', False),
-            'memoryIndex': [{'key': f['fact_key'], 'category': f['category'], 'revision': f['revision']} for f in snapshot.get('facts', [])] if purpose == 'learning' else [],
+            'memoryIndex': [{'key': f['fact_key'], 'category': f['category'], 'revision': f['revision']} for f in snapshot.get('facts', [])
+                            if f.get('category') == 'personal' and f['fact_key'] not in LEARNING_KEYS] if purpose == 'learning' else [],
             'sourceEvents': ([snapshot['workSource']] if snapshot.get('workSource') else snapshot.get('analysisSources') or list(reversed(sources))) if purpose == 'learning' else [],
             'summary': snapshot.get('summary'),
             'trialPreference': snapshot['student'].get('profile', {}).get('trialPreference', 'unknown'),

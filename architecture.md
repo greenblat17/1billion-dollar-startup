@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и нового SP-02 v5.5.
+Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02/SP-03 v5.5.
 Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -273,3 +273,68 @@ Offline `LearningCatalogCli` валидирует без БД, импортир�
 Python читает через `FoundationClient.catalog()`, без отдельной изменяемой копии.
 Каталог не создаёт состояния учеников, Learning Tasks или Roadmap.
 [Обзор содержания](ai_docs/product/2026-11-15-learning-catalog-review.md), [поставка и проверки](ai_docs/status.md).
+
+## Student Learning State: SP-03 v5.5
+
+`StudentLearningState` в Ktor — владелец учебного профиля; `StudentTopicKnowledge` — оценок Topics и их истории.
+V50 добавляет `student_learning_state` и `student_topic_knowledge`. Цель остаётся в единственной таблице
+`learning_goal`, но её запись больше не принадлежит `StructuredMemory`. Переноса старых учеников нет.
+
+- Текущий CEFR: `currentLevels.selfAssessment` и `currentLevels.speaky`, каждый содержит `overall` и `skills`.
+  Оценка состоит из `level` (A1/A2/B1/B2/C1/Unknown) и `explanation`. Общий уровень не вычисляется из Skills.
+- `targetLevel` — единственный общий целевой CEFR. Практическая цель и nullable-дедлайн хранятся отдельно.
+- `intensity`: nullable `lessonsPerWeek` и `lessonDurationMinutes`; положительные числа, без диапазонов.
+- `homework`: `consent` yes/no/unknown, nullable положительное `minutes` и `period` day/week/null.
+  Известное количество минут требует периода. Отказ не меняет цель или оценку знаний.
+- Topic Knowledge: Known / Not Known / Presumed Not Known / Unknown, объяснение, источники, компонент и время.
+  Каждая запись добавляет ревизию; текущая оценка — последняя. Нет числового mastery и механизма оспаривания.
+  Отказ изучать Topic не меняет знания; выбор задач относится к будущей Roadmap.
+
+Внутренний контракт `/internal/foundation/v1` требует service token и student execution scope:
+
+| Операция | Контракт |
+| --- | --- |
+| `GET /learning-state` | Профиль, revision, единственная goal и provenance изменённых полей |
+| `GET /learning-state/topics` | Обязательная catalogVersion; optional topicId, offset, history. Страница до 50 записей; history требует topicId |
+| command `learning.update` | expectedRevision, patch, optional goal, component, sources; отсутствующее поле сохраняется, null очищает nullable-поле |
+| command `learning.topic.record` | catalogVersion, topicId, expectedRevision, status, explanation, component, sources |
+| command `learning.forget` | expectedRevision; явное удаление учебного состояния и его производных копий с epoch/deletion ledger |
+
+Записи доступны только operator scope, через общий механизм student lock, operationId и receipts.
+Text/voice/learning scopes могут читать, но не записывать новую модель. Python `FoundationClient` содержит
+адаптеры для будущих доверенных компонентов; native tools текущего AI их не предоставляют.
+`memory.record`, personal candidates и `tutor.update_context` отклоняют учебные поля.
+Telegram schema и Memory tools теперь принимают только персональные факты; legacy TutorStore не меняется.
+
+`Sources` — массив `{type: event|observation, id, revision}`. Для event revision означает sequence;
+для observation — source_revision существующего durable Observation. Backend проверяет владельца,
+существование, актуальную ревизию и доступность исходного текста при записи. Несуществующие Observations
+не создаются автоматически. Полный новый producer Observations остаётся SP-17.
+Known/Not Known требуют источники; Presumed Not Known сохраняет явное объяснение гипотезы.
+Backend проверяет структуру и происхождение, а не педагогическую достаточность доказательства.
+
+Истечение срока исходного текста сохраняет оценки, объяснения и ссылки. Чтение возвращает
+`sourceContentExpired` и `sourceRevisionCurrent`; сырые цитаты в новом хранилище не копируются.
+Обновлённый transcript не делает старую ссылку новым доказательством.
+Персональное `memory.forget` очищает только связанные с источниками факта поля учебного профиля,
+цели и ревизии Topics. Источники собираются из всех ревизий факта и кандидатов.
+Единица зависимости — исходное сообщение: разные сведения из одного сообщения удаляются вместе.
+Backend сохраняет `sourceEventId` и `lessonId` в ссылках, включая Observations; удаление Observation
+не разрывает цепочку происхождения. Независимые поля и оценки сохраняются.
+Связанная текущая оценка становится Unknown с новой ревизией; её прежние основания стираются.
+У гипотез без источников очищается только свободное объяснение, статус сохраняется.
+Удаление периода Homework очищает также минуты, чтобы сохранить валидный контракт.
+Полный сброс учебного состояния выполняет явный `learning.forget`. Оба удаления отзывают epoch.
+`/start`, delete и replay deletion ledger включают новые таблицы.
+
+Каталог должен быть опубликован. Оценки закреплены за catalogVersion/topicId; новая публикация не переносит
+их автоматически. Отсутствующая оценка в явно выбранной версии читается как Unknown.
+Snapshot добавляет отдельные `learningState` и первую страницу `topicKnowledge` текущего каталога.
+ContextBuilder передаёт их независимо от MemorySelector, сокращает объяснения/список по бюджету и отмечает
+`contextPartial` с endpoint для полного чтения. Отсутствие темы в сокращённом контексте не означает Unknown.
+Поле `goal` для существующих planners — проекция той же цели, без fallback на Memory.
+Изменения отзывают будущую подготовку через learning_revision; начатый урок сохраняет execution snapshot.
+
+Onboarding, Post-Trial Assessment и Post-Lesson Review ещё не заполняют новую модель автоматически.
+Новый UI, педагогические переходы и назначение Homework не входят в SP-03.
+[Утверждённый план](ai_docs/plans/2026-11-15-sp03-student-learning-state.md), [проверки и поставка](ai_docs/status.md).

@@ -203,7 +203,7 @@ class FoundationIntegrationTest {
             assertEquals("introduction", snapshot.text("textMode"))
             assertEquals(listOf("/start"), snapshot["events"]!!.jsonArray.map { it.jsonObject.text("body") })
             service.database.transaction(readOnly = true) { c, _ ->
-                for (table in listOf("memory_fact", "learning_goal", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
+                for (table in listOf("memory_fact", "learning_goal", "student_learning_state", "student_topic_knowledge", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
                     assertEquals(0L, c.rows("SELECT count(*) FROM $table WHERE student_id IN (?,?)", old, fresh) { it.getLong(1) }.single())
                 }
                 assertEquals(0L, c.rows("SELECT count(*) FROM foundation_job WHERE student_id=? AND status<>'cancelled'", old) { it.getLong(1) }.single())
@@ -295,11 +295,14 @@ class FoundationIntegrationTest {
     private suspend fun FoundationService.goal(student: String, value: String, revision: Long): JsonObject {
         val request = newId()
         val input = history.accept(student, request, value, Instant.now(), false)
-        val token = identity.issue(student, "text", request)
-        op(token, "run.claim", json())
-        val result = op(token, "memory.record", json("sourceId" to input.text("event_id"), "evidence" to value,
-            "category" to "learning", "key" to "goal", "value" to value, "kind" to "user_report", "expectedVersion" to revision))
-        op(token, "run.complete", json("reply" to "saved", "degraded" to false))
+        val token = identity.issue(student, "operator")
+        assertEquals(revision, database.transaction(readOnly = true) { c, _ -> c.goalRevision(student) })
+        val sequence = database.transaction(readOnly = true) { c, _ ->
+            c.document("SELECT to_jsonb(e) FROM conversation_event e WHERE id=?", input.text("event_id"))!!.number("sequence")
+        }
+        val result = op(token, "learning.update", json("expectedRevision" to learningState(token).number("revision"),
+            "patch" to json(), "goal" to value, "component" to "test", "sources" to JsonArray(listOf(
+                json("type" to "event", "id" to input.text("event_id"), "revision" to sequence)))))
         return result
     }
 
@@ -436,7 +439,7 @@ class FoundationIntegrationTest {
             try {
                 pg("pg_dump", "--format=custom", "--schema=$schema", "--file=$backup")
                 val operator = service.identity.issue(student, "operator")
-                service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 1))
+                service.op(operator, "learning.forget", json("expectedRevision" to 1))
                 val ledger = service.database.transaction(readOnly = true) { c, _ -> c.documents("SELECT to_jsonb(d) FROM foundation_deletion d WHERE student_id=?", student) }
                 service.close()
                 DriverManager.getConnection("jdbc:$raw").use { connection ->
@@ -572,9 +575,9 @@ class FoundationIntegrationTest {
             service.goal(student, "new private objective", 1)
             val operator = service.identity.issue(student, "operator")
             assertEquals("version_conflict", assertFailsWith<FoundationFailure> {
-                service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 1))
+                service.op(operator, "learning.forget", json("expectedRevision" to 1))
             }.code)
-            service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 2))
+            service.op(operator, "learning.forget", json("expectedRevision" to 2))
             assertEquals("scope_expired", assertFailsWith<FoundationFailure> { service.snapshot(operator, "text") }.code)
             service.database.transaction { connection, _ ->
                 assertEquals(3L, connection.goalRevision(student))

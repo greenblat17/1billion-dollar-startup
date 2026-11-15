@@ -19,18 +19,7 @@ internal class StructuredMemory {
         if (category !in setOf("personal", "learning") || !key.matches(Regex("[a-z][a-z_]{0,49}")) ||
             kind !in setOf("user_report", "self_assessment") || (value?.length ?: 0) > 1000
         ) reject("invalid_fact")
-        if (key == "goal") {
-            if (category != "learning" || kind != "user_report") reject("invalid_goal")
-            val revision = connection.goalRevision(scope.studentId)
-            if (args.number("expectedVersion") != revision) reject("version_conflict")
-            connection.update(
-                "INSERT INTO learning_goal(student_id,revision,content,source_event_id,created_at) VALUES (?,?,?::jsonb,?,?)",
-                scope.studentId, revision + 1, json("value" to value), source.text("id"), now,
-            )
-            connection.update("UPDATE lesson_plan SET status='stale' WHERE student_id=? AND status='ready'", scope.studentId)
-            connection.invalidatePreparation(scope.studentId, now)
-            return json("revision" to revision + 1, "value" to value)
-        }
+        if (category != "personal" || key in StudentLearningModel.memoryKeys) reject("learning_state_required")
         val old = connection.document(
             "SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category=? AND fact_key=?",
             scope.studentId, category, key,
@@ -56,7 +45,7 @@ internal class StructuredMemory {
         args.only("sourceId", "key", "value")
         val source = sourceMessage(connection, scope, args.text("sourceId"), now)
         val key = args.text("key")
-        if (key in setOf("goal", "goals", "self_assessment", "confidence", "level") || !key.matches(Regex("[a-z][a-z_]{0,49}")) || args.text("value").length > 1000) reject("invalid_candidate")
+        if (key in StudentLearningModel.memoryKeys + "confidence" || !key.matches(Regex("[a-z][a-z_]{0,49}")) || args.text("value").length > 1000) reject("invalid_candidate")
         val forgotten = connection.document(
             "SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category='personal' AND fact_key=? AND forgotten_at IS NOT NULL",
             scope.studentId, key,
@@ -103,10 +92,6 @@ internal class StructuredMemory {
         return json("confirmed" to true)
     }
 }
-
-internal fun Connection.goalRevision(student: String): Long = rows(
-    "SELECT COALESCE(max(revision),0) FROM learning_goal WHERE student_id=?", student,
-) { it.getLong(1) }.single()
 
 internal fun Connection.learningRevision(student: String): Long = rows(
     "SELECT learning_revision FROM student WHERE id=?", student,

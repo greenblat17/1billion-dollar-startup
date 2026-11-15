@@ -13,7 +13,10 @@ from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import TutorRequest
 from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
-from app.tutor_tools import MODELS, resolve_time, zone
+from app.tutor_tools import MODELS as LEGACY_MODELS, resolve_time, zone
+from app.student_learning_state import UpdatePersonalContext
+
+MODELS = {**LEGACY_MODELS, "update_learner_context": UpdatePersonalContext}
 from app.trial_policy import TEXT_CAPABILITIES
 from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
 from app.tutor_diagnostics import record_tool

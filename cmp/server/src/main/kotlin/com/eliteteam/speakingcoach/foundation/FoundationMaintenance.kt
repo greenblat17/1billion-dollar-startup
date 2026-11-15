@@ -33,16 +33,26 @@ internal class FoundationMaintenance {
         args.only("category", "key", "expectedVersion")
         val category = args.text("category")
         val key = args.text("key")
-        val revision = if (category == "learning" && key == "goal") {
-            connection.goalRevision(scope.studentId).takeIf { it > 0 } ?: reject("not_owned")
-        } else {
-            connection.document("SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category=? AND fact_key=?",
-                scope.studentId, category, key)?.number("revision") ?: reject("not_owned")
-        }
+        if (category != "personal" || key in StudentLearningModel.memoryKeys) reject("learning_state_required")
+        val revision = connection.document("SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category=? AND fact_key=?",
+            scope.studentId, category, key)?.number("revision") ?: reject("not_owned")
         if (revision != args.number("expectedVersion")) reject("version_conflict")
         connection.update("INSERT INTO foundation_deletion(id,student_id,kind,category,fact_key,deleted_at,resulting_epoch) VALUES (?,?,'forget',?,?,?,?)",
             newId(), scope.studentId, category, key, now, scope.epoch + 1)
         eraseFact(connection, scope.studentId, category, key, now)
+        invalidateCopies(connection, scope.studentId, now)
+        return json("forgotten" to true)
+    }
+
+    fun forgetLearning(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
+        requireRole(scope, "operator")
+        args.only("expectedRevision")
+        if (StudentLearningState().read(connection, scope.studentId, now).number("revision") != args.number("expectedRevision")) {
+            reject("version_conflict")
+        }
+        connection.update("INSERT INTO foundation_deletion(id,student_id,kind,category,fact_key,deleted_at,resulting_epoch) VALUES (?,?,'forget','learning','state',?,?)",
+            newId(), scope.studentId, now, scope.epoch + 1)
+        eraseFact(connection, scope.studentId, "learning", "state", now)
         invalidateCopies(connection, scope.studentId, now)
         return json("forgotten" to true)
     }
@@ -53,6 +63,8 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now, preserveTelegramFrom)
+        connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
+        connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
@@ -107,17 +119,22 @@ internal class FoundationMaintenance {
     }
 
     private fun eraseFact(connection: Connection, student: String, category: String, key: String, now: Instant) {
-        if (category == "learning" && key == "goal") {
+        if (category == "learning" && key in setOf("goal", "state")) {
             // Keep revision identities referenced by plans; erase their private contents.
             connection.update("UPDATE learning_goal SET content='{}',source_event_id=NULL WHERE student_id=?", student)
             connection.update("INSERT INTO learning_goal(student_id,revision,content,created_at) VALUES (?,?,'{}',?)",
                 student, connection.goalRevision(student) + 1, now)
         } else {
+            StudentLearningPrivacy().forgetPersonalFact(connection, student, category, key, now)
             connection.update("UPDATE memory_fact SET value=NULL,forgotten_at=?,revision=revision+1,source_event_id=NULL WHERE student_id=? AND category=? AND fact_key=?",
                 now, student, category, key)
             connection.update("DELETE FROM memory_fact_history WHERE student_id=? AND category=? AND fact_key=?", student, category, key)
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
+        if (category == "learning" && key in setOf("goal", "state")) {
+            connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
+            connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
+        }
         // Observations and roadmap prose can paraphrase a forgotten fact without a complete source graph.
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
