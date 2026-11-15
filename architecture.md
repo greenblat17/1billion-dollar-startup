@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник **реализованной архитектуры SP-00–SP-08**: компоненты, данные, потоки и причины решений.
+Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и нового SP-02 v5.5.
 Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -256,3 +256,20 @@ initData auth. Просмотр не запускает Lesson, entitlement ил
 V46 отличает старые текстовые сообщения. `TrialReminders` использует пояс/версию урока и durable receipts.
 Экспорт календаря проходит Telegram auth/ownership в `TrialAccess`, затем `trial_api`/`lesson_calendar.py`;
 он не даёт доступ к звонку или аккаунту календаря. Контракты доставки и ограничения — в [tutor-chat](ai_docs/integrations/tutor-chat.md).
+
+## Учебные каталоги: SP-02 v5.5
+
+Источник — `learning-catalog/v1/catalog.json`: шесть Skills, девять Problem types, 163 целевых Topics A1–C1.
+Topic содержит стабильный ID, Skill, CEFR, название, ожидаемую способность, границы и источники.
+Prerequisites и обязательного Curriculum Order нет. Зависимости и персональный порядок относятся к будущей Roadmap Generation.
+
+`LearningCatalogModel` строго проверяет schemaVersion 2, ID, оси и источники.
+Offline `LearningCatalogCli` валидирует без БД, импортирует черновик или отдельно публикует принятую версию.
+`LearningCatalog` хранит неизменяемые версии, digest, записи и current pointer в PostgreSQL (V48/V49).
+Импорт не публикует каталог; публикация сохраняет reviewer и ссылку на приёмку.
+
+`GET /internal/foundation/v1/catalog` требует service token, без student scope; читает только опубликованные версии.
+Фильтры: `version`, `skill`, `cefr`, `topicId`. Ответ schemaVersion 2 не содержит зависимостей.
+Python читает через `FoundationClient.catalog()`, без отдельной изменяемой копии.
+Каталог не создаёт состояния учеников, Learning Tasks или Roadmap.
+[Обзор содержания](ai_docs/product/2026-11-15-learning-catalog-review.md), [поставка и проверки](ai_docs/status.md).

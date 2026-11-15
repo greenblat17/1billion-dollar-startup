@@ -1,6 +1,21 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-14. Сведения о коде и поставке ниже отражают прежний срез 2026-11-13: база `origin/dev` `44f7e03db7e9261228f5cb7b48dd12894d360bf0`, ветка `bb/telegram-null-fix-thr_u4vaxexf6a`; актуальность этой ревизии сейчас не проверялась.
+Срез документации: 2026-11-15. Сведения о коде и поставке ниже отражают прежний срез 2026-11-13: база `origin/dev` `44f7e03db7e9261228f5cb7b48dd12894d360bf0`, ветка `bb/telegram-null-fix-thr_u4vaxexf6a`; актуальность этой ревизии сейчас не проверялась.
+
+## Новый SP-02 v5.5: учебные каталоги
+
+Реализация сохранена в коммите `1166f02`; это отдельная задача от прежнего SP-02 про trial.
+
+- Skill Map: шесть навыков; Speaking, Listening, Grammar и Vocabulary входят в MVP.
+- Topic Map: 163 целевые темы A1–C1. Источник — `learning-catalog/v1/catalog.json`, schemaVersion 2, версия `speaky-v55-v2`.
+- Problem Map: девять типов проблем. Reading/Writing сохранены в модели, без наполнения Topics.
+- Prerequisites и Curriculum Order исключены решением пользователя. Зависимости и порядок определяет будущая Roadmap Generation.
+- Backend реализует валидацию, версионный импорт в PostgreSQL и отдельную публикацию с записью приёмки.
+  Внутренний API читает опубликованный каталог; Python использует FoundationClient. V48/V49 не применялись к пользовательским базам.
+- После изменения формата прошли 3 Kotlin catalog unit, 3 Python adapter, 73 PostgreSQL integration и 8 HTTP integration tests;
+  buildFatJar, detekt и проверки генерации прошли. Это локальные проверки, не DEV/PROD-поставка.
+- [Темы и ожидаемые способности](product/2026-11-15-learning-catalog-review.md) ожидают содержательной приёмки.
+  Персональные Learning Tasks/Roadmap не входят в SP-02. Push и deploy не выполнялись.
 
 ## Новый продуктовый ориентир
 
