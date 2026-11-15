@@ -55,6 +55,20 @@ class FoundationClient:
             params['lessonId'] = lesson_id
         return await self._request('GET', '/snapshot', scope, params=params)
 
+    async def catalog(self, *, version: str | None = None, skill: str | None = None,
+                      cefr: str | None = None, topic_id: str | None = None) -> dict:
+        """Read shared published curriculum. Pin returned version for subsequent reads in one computation.
+
+        No student scope, inference, local mutable catalogue, or fallback to an unreviewed file.
+        """
+        params = {key: value for key, value in {
+            'version': version, 'skill': skill, 'cefr': cefr, 'topicId': topic_id,
+        }.items() if value is not None}
+        result = await self._request('GET', '/catalog', '', params=params)
+        if result.get('schemaVersion') != 2:
+            raise BackendFailure('unsupported_catalog_schema', 502)
+        return result
+
     async def command(self, scope: str, operation_id: str, action: str, arguments: dict) -> dict:
         with diagnostic_context(operation_id=operation_id):
             event('backend_command', stage=action, outcome='started')

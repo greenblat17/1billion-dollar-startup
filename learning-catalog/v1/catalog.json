@@ -1,0 +1,2604 @@
+{
+  "schemaVersion": 2,
+  "version": "speaky-v55-v2",
+  "editorialStatus": "pending_review",
+  "skills": [
+    {
+      "id": "speaking",
+      "title": "Speaking",
+      "description": "Свободное самостоятельное выражение мыслей в речи.",
+      "mvp": true
+    },
+    {
+      "id": "listening",
+      "title": "Listening",
+      "description": "Понимание устного английского.",
+      "mvp": true
+    },
+    {
+      "id": "grammar",
+      "title": "Grammar",
+      "description": "Знание и применение конструкций.",
+      "mvp": true
+    },
+    {
+      "id": "vocabulary",
+      "title": "Vocabulary",
+      "description": "Понимание и самостоятельное употребление слов и выражений.",
+      "mvp": true
+    },
+    {
+      "id": "reading",
+      "title": "Reading",
+      "description": "Понимание письменного английского; вне фокуса MVP.",
+      "mvp": false
+    },
+    {
+      "id": "writing",
+      "title": "Writing",
+      "description": "Создание письменных высказываний и текстов; вне фокуса MVP.",
+      "mvp": false
+    }
+  ],
+  "problems": [
+    {
+      "id": "speaking_barrier",
+      "skillId": "speaking",
+      "title": "Языковой барьер",
+      "description": "Требуется самостоятельная разговорная практика для уверенности и автоматизма; не дублирует отдельные грамматические пробелы."
+    },
+    {
+      "id": "listening_comprehension",
+      "skillId": "listening",
+      "title": "Недостаточное понимание устной речи",
+      "description": "Ученик затрудняется извлекать смысл из обращённой речи или аудио в условиях данной темы."
+    },
+    {
+      "id": "grammar_unknown",
+      "skillId": "grammar",
+      "title": "Не знает конструкцию",
+      "description": "Конструкция незнакома: нужны объяснение значения и начальное освоение."
+    },
+    {
+      "id": "grammar_application",
+      "skillId": "grammar",
+      "title": "Знает, но ошибается в применении",
+      "description": "Правило знакомо, но выбор или построение формы нестабильны; требуется закрепление и перенос в речь."
+    },
+    {
+      "id": "vocabulary_passive",
+      "skillId": "vocabulary",
+      "title": "Недостаточный пассивный словарь",
+      "description": "Ученик не узнаёт или не понимает нужные слова и выражения."
+    },
+    {
+      "id": "vocabulary_active",
+      "skillId": "vocabulary",
+      "title": "Недостаточный активный словарь",
+      "description": "Ученик понимает лексику, но не извлекает и не применяет её самостоятельно."
+    },
+    {
+      "id": "reading_comprehension",
+      "skillId": "reading",
+      "title": "Недостаточное понимание текста",
+      "description": "Трудно извлекать смысл письменного материала."
+    },
+    {
+      "id": "writing_sentences",
+      "skillId": "writing",
+      "title": "Сложности с предложениями",
+      "description": "Трудно самостоятельно формулировать мысли письменно на уровне предложения."
+    },
+    {
+      "id": "writing_text",
+      "skillId": "writing",
+      "title": "Сложности со связным текстом",
+      "description": "Трудно выстраивать последовательное письменное высказывание."
+    }
+  ],
+  "sources": [
+    {
+      "id": "speaky-v55",
+      "title": "Speaky Product Specification v5.5",
+      "url": "repo:ai_docs/product/2026-11-14-personalized-learning-v5.5.md",
+      "section": "§2–4, §6",
+      "usage": "Согласованные навыки и проблемы; предварительный каркас тем. Не нормативная программа CEFR."
+    },
+    {
+      "id": "cefr-oral",
+      "title": "Council of Europe: CEFR Companion Volume 2020",
+      "url": "https://rm.coe.int/cefr-companion-volume-with-new-descriptors-2020/16809ea0d4",
+      "section": "§3.1.1.1, §3.2.1.1, §3.3.1.1; §3.2.2, §3.3.2",
+      "usage": "Сверка областей устной коммуникации. Авторские Topics Speaky не являются копиями дескрипторов или сертификацией CEFR."
+    },
+    {
+      "id": "cefr-linguistic",
+      "title": "Council of Europe: CEFR Companion Volume 2020",
+      "url": "https://rm.coe.int/cefr-companion-volume-with-new-descriptors-2020/16809ea0d4",
+      "section": "§5.1: linguistic range, vocabulary range/control, grammatical accuracy",
+      "usage": "Сверка широты и контроля языка. Не задаёт список обязательных английских конструкций или слов."
+    },
+    {
+      "id": "bc-grammar-basic",
+      "title": "British Council: A1–A2 grammar",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/grammar/a1-a2",
+      "section": "Указатель учебных тем A1–A2",
+      "usage": "Проверен диапазон раздела; распределение между A1 и A2 и связи — редакционные решения Speaky, ожидают приёмки."
+    },
+    {
+      "id": "bc-grammar-intermediate",
+      "title": "British Council: B1–B2 grammar",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/grammar/b1-b2",
+      "section": "Указатель учебных тем B1–B2",
+      "usage": "Проверен диапазон раздела; отдельные уровни Topics не выдаются за утверждения источника."
+    },
+    {
+      "id": "bc-grammar-advanced",
+      "title": "British Council: C1 grammar",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/grammar/c1",
+      "section": "Advanced passives; emphasis; ellipsis; contrasting ideas",
+      "usage": "Сверка выбранных областей C1; авторские формулировки и граф Speaky требуют приёмки."
+    },
+    {
+      "id": "bc-speaking",
+      "title": "British Council: Speaking",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/speaking",
+      "section": "Обзор A1–B2",
+      "usage": "Дополнительная сверка учебных ситуаций A1–B2; источник не обосновывает C1."
+    },
+    {
+      "id": "bc-listening",
+      "title": "British Council: Listening",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/listening",
+      "section": "Обзор A1–C1",
+      "usage": "Сверка изменения условий аудирования по уровням; понимание одного голоса не доказывает перенос."
+    },
+    {
+      "id": "bc-vocabulary",
+      "title": "British Council: Vocabulary",
+      "url": "https://learnenglish.britishcouncil.org/free-resources/vocabulary",
+      "section": "Тематические разделы лексики",
+      "usage": "Справочная сверка тематического подхода; конкретные уровни Topics и отраслевой набор авторские, не словник источника."
+    }
+  ],
+  "topics": [
+    {
+      "id": "grammar-a1-be",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Be: identity and state",
+      "objective": "Сообщить, кто человек и в каком он состоянии, используя be.",
+      "scope": "Утверждение, отрицание и вопрос с am/is/are; без прошедшего времени.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-pronouns",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Personal pronouns and possession",
+      "objective": "Указать участника действия и принадлежность предмета.",
+      "scope": "I/you/he и объектные формы; my/your и притяжательное 's; без сложных именных групп.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-articles",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Articles and singular/plural nouns",
+      "objective": "Назвать один или несколько знакомых предметов.",
+      "scope": "a/an, базовое the, регулярное и частотное нерегулярное множественное число; без абстрактного употребления.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-there",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "There is/are and place",
+      "objective": "Описать наличие и расположение предметов.",
+      "scope": "there is/are, in/on/under/next to; конкретное окружение.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-have",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Have and have got",
+      "objective": "Сообщить о семье, вещах и доступных ресурсах.",
+      "scope": "have/has, have got, отрицание и вопрос; без perfect.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-present-simple",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Present Simple: routines",
+      "objective": "Рассказать о привычных действиях и задать вопрос о них.",
+      "scope": "Утверждение, -s, do/does, отрицание; без рассказа о прошлом.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-frequency",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Time and frequency expressions",
+      "objective": "Указать, когда и как часто происходит привычное действие.",
+      "scope": "always/usually/sometimes, at/on/in для времени; без сложных временных отношений.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-questions",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Basic question patterns",
+      "objective": "Запросить личную информацию вопросом с what/where/when/who/how.",
+      "scope": "Порядок слов с be и do; без косвенных вопросов.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-can",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Can: ability and permission",
+      "objective": "Сказать о простой способности и попросить разрешение.",
+      "scope": "can/cannot и вопрос; без вероятностного значения.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-imperatives",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Imperatives and simple requests",
+      "objective": "Дать простую инструкцию или попросить прекратить действие.",
+      "scope": "Утвердительная и отрицательная инструкция, please; без сложных вежливых оборотов.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-present-continuous",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Present Continuous: happening now",
+      "objective": "Описать действие, происходящее сейчас.",
+      "scope": "be + -ing; вопросы и отрицание; без будущих договорённостей.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-quantity",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "Basic quantity and countability",
+      "objective": "Назвать количество еды или предметов в простой ситуации.",
+      "scope": "some/any, much/many, базовые исчисляемые и неисчисляемые; без тонких значений артиклей.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a1-linking",
+      "skillId": "grammar",
+      "cefr": "A1",
+      "title": "And, but, because",
+      "objective": "Связать простые сообщения и назвать причину.",
+      "scope": "Короткие соединённые предложения; без развёрнутой аргументации.",
+      "coverageArea": "basic-clause",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-past-simple",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Past Simple: completed events",
+      "objective": "Рассказать о завершённых событиях и спросить о прошлом.",
+      "scope": "was/were, regular/irregular verbs, did; конкретное завершённое время.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-past-continuous",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Past Continuous: background",
+      "objective": "Описать процесс в прошлом и событие, которое его прервало.",
+      "scope": "was/were + -ing, when/while; без past perfect.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-present-contrast",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Present Simple vs Continuous",
+      "objective": "Различать привычное действие и текущую ситуацию.",
+      "scope": "Обычные состояния и действия; без сложных стилистических употреблений.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-future",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Future plans and predictions",
+      "objective": "Различать намерение, договорённость и простое предсказание.",
+      "scope": "going to, present continuous для планов, базовое will; без future perfect.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-comparison",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Comparatives and superlatives",
+      "objective": "Сравнить знакомые варианты и выбрать один.",
+      "scope": "-er/-est, more/most, as…as; без сложной сравнительной аргументации.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-perfect-intro",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Present Perfect: experience and result",
+      "objective": "Сообщить об опыте или результате, связанном с настоящим.",
+      "scope": "have + participle, ever/never, just/already/yet; без тонкого выбора всех аспектов.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-modals",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Obligation and advice",
+      "objective": "Объяснить простое правило и дать совет.",
+      "scope": "must/mustn't, have to, don't have to, should; без вывода о прошлом.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-infinitive-gerund",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Common verb complements",
+      "objective": "Сообщить, что нравится и что планируется делать.",
+      "scope": "want/need + to, enjoy + -ing, like; без смены значения remember/stop.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-quantifiers",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Quantifiers and indefinite pronouns",
+      "objective": "Уточнить количество и назвать неизвестного человека или предмет.",
+      "scope": "a few/a little, enough, too, someone/anything; без сложных определителей.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-relative-basic",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Basic defining relative clauses",
+      "objective": "Уточнить, о каком человеке или предмете идёт речь.",
+      "scope": "who/which/that в простой определяющей части; без non-defining clauses.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-zero-conditional",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Zero conditional",
+      "objective": "Описать повторяющуюся связь условия и результата.",
+      "scope": "if/when + present, обычные правила; без гипотез о будущем.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-a2-prepositions",
+      "skillId": "grammar",
+      "cefr": "A2",
+      "title": "Movement and common preposition patterns",
+      "objective": "Описать путь и типичные отношения действия с предметом.",
+      "scope": "to/from/into/through, частотные adjective/verb + preposition; без идиоматического расширения.",
+      "coverageArea": "time-and-basic-relations",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-basic"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-perfect-past",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Present Perfect vs Past Simple",
+      "objective": "Выбрать форму для опыта, результата и завершённого эпизода.",
+      "scope": "Связь с настоящим, finished/unfinished time, for/since; без perfect continuous.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-perfect-continuous",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Present Perfect Continuous",
+      "objective": "Описать длительную деятельность с результатом сейчас.",
+      "scope": "have been + -ing, for/since, contrast with simple; без прошедшего perfect continuous.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-first-conditional",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "First Conditional",
+      "objective": "Обсудить реальное будущее условие и его результат.",
+      "scope": "if/unless, will/can в результате; без контрфактического прошлого.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-second-conditional",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Second Conditional",
+      "objective": "Обсудить воображаемую ситуацию и возможное следствие.",
+      "scope": "if + past, would + verb, were; без third/mixed conditional.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-passive",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Present and Past Passive",
+      "objective": "Описать действие с фокусом на результате или объекте.",
+      "scope": "be + participle в present/past, by при необходимости; без сложных пассивных форм.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-relative",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Defining and non-defining clauses",
+      "objective": "Добавить необходимую или дополнительную информацию о предмете.",
+      "scope": "who/which/that/whose, различие defining/non-defining в устном смысле; без reduced clauses.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-used-to",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Used to and past habits",
+      "objective": "Сопоставить прежнюю привычку с настоящим.",
+      "scope": "used to/didn't use to, contrast with past events; без be/get used to.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-reported-basic",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Reporting statements",
+      "objective": "Передать чужое простое утверждение.",
+      "scope": "say/tell, смена лица и базовый backshift; без сложных reporting verbs.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-indirect-questions",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Indirect questions",
+      "objective": "Вежливо запросить информацию через вводную конструкцию.",
+      "scope": "Could you tell me / do you know, порядок слов; без сложной косвенной речи.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-modals-deduction",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Present deduction and possibility",
+      "objective": "Различать уверенный вывод и возможность о текущей ситуации.",
+      "scope": "must/might/could/can't; без modal perfect.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-articles-reference",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Articles: general and specific reference",
+      "objective": "Различать общее понятие и известный собеседнику объект.",
+      "scope": "the/zero article, общие и конкретные группы; без стилистических исключений.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-verb-patterns",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Infinitive and gerund patterns",
+      "objective": "Выбрать частотную форму после глагола или предлога.",
+      "scope": "verb + to/-ing, базовый объект перед infinitive; без редких формальных моделей.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b1-linking-contrast",
+      "skillId": "grammar",
+      "cefr": "B1",
+      "title": "Cause, purpose and contrast",
+      "objective": "Связать объяснение с причиной, целью и противопоставлением.",
+      "scope": "although, so that, because of, however; без сложной риторической структуры.",
+      "coverageArea": "connected-meaning",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-past-perfect",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Past Perfect and narrative sequence",
+      "objective": "Показать, какое прошлое событие предшествовало другому.",
+      "scope": "had + participle и сопоставление с Past Simple; без past perfect continuous.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-past-perfect-continuous",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Past Perfect Continuous",
+      "objective": "Объяснить длительную деятельность до момента в прошлом.",
+      "scope": "had been + -ing, причина видимого результата; без литературных экспериментов.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-third-conditional",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Third Conditional",
+      "objective": "Рассмотреть альтернативный исход завершённого события.",
+      "scope": "if + past perfect, would/could have; без mixed conditionals.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-mixed-conditional",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Mixed conditionals",
+      "objective": "Связать нереальное прошлое с текущим результатом и наоборот.",
+      "scope": "Явная временная связь частей; без сокращённых инверсий.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-future-aspect",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Future Continuous and Perfect",
+      "objective": "Описать процесс или завершение к будущему сроку.",
+      "scope": "will be doing / will have done; без сложной модальной неоднозначности.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-reported-extended",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Reported questions and reporting verbs",
+      "objective": "Передать вопросы, просьбы, обещания и советы.",
+      "scope": "ask/wonder, tell/advise/promise + patterns, временные ссылки; без формального цитирования.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-modal-perfect",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Past deduction and criticism",
+      "objective": "Обсудить вероятность, упущенную возможность и оценку прошлого.",
+      "scope": "must/might/can't/should have + participle; без редких форм.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-passive-extended",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Passive with modals and perfect",
+      "objective": "Описать требования и завершённые действия без фокуса на исполнителе.",
+      "scope": "modal/passive, have been done, get passive; без сложных reporting passives.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-causative",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Have/get something done",
+      "objective": "Объяснить, что услугу выполняет другой человек.",
+      "scope": "have/get + object + participle; разграничение самостоятельного действия и услуги.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-wish",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Wish and if only",
+      "objective": "Выразить сожаление о настоящем и прошлом.",
+      "scope": "wish + past / past perfect, wish + would; без смешения сожаления с реальным планом.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-participle",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Participle and reduced clauses",
+      "objective": "Сжато добавить обстоятельство или характеристику.",
+      "scope": "-ing/-ed clauses с ясным субъектом; без сложных dangling constructions.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-b2-verb-meaning",
+      "skillId": "grammar",
+      "cefr": "B2",
+      "title": "Verb patterns that change meaning",
+      "objective": "Различать смысл stop/remember/try при разных дополнениях.",
+      "scope": "Infinitive vs gerund в частотных парах; без полного словаря глагольных моделей.",
+      "coverageArea": "complex-time-and-stance",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-intermediate"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-inversion",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Inversion for emphasis",
+      "objective": "Подчеркнуть ограничение или исключительность с помощью инверсии.",
+      "scope": "Negative adverbials, only/not until, auxiliary inversion; без редких поэтических форм.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-cleft",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Cleft sentences",
+      "objective": "Выделить нужную часть сообщения без изменения основного факта.",
+      "scope": "It/what clefts и смысловой фокус; без обязательного использования в каждой реплике.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-advanced-modality",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Nuanced modality and hedging",
+      "objective": "Точно выразить степень уверенности, ожидания и дистанцию от утверждения.",
+      "scope": "Modal alternatives, tentative past, hedging in context; без численной шкалы уверенности.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-advanced-passive",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Reporting and complex passive",
+      "objective": "Сжато передать мнение или сведения с неопределённым источником.",
+      "scope": "is said to, is believed to have, passive reporting; без сокрытия реального источника в диагностике.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-ellipsis",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Ellipsis and substitution in speech",
+      "objective": "Избежать повторов, сохранив понятность ссылки.",
+      "scope": "so/neither, do so, omitted elements in responses; без потери референта.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-concession",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Advanced concession and contrast",
+      "objective": "Выразить уступку и ограничение сложного аргумента.",
+      "scope": "much as, whereas, despite, whatever; без формальной логики доказательств.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-conditional-inversion",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Conditional alternatives and inversion",
+      "objective": "Переформулировать условие с нужным регистром и оттенком.",
+      "scope": "had/were/should inversion, provided/as long as; без новых временных значений.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-complex-noun-phrases",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Complex noun phrases and reference",
+      "objective": "Уплотнить описание и сохранить ясную связь определений с предметом.",
+      "scope": "Nominalisation, pre/post modifiers, уточнение референта; устная понятность важнее длины.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "grammar-c1-aspect-nuance",
+      "skillId": "grammar",
+      "cefr": "C1",
+      "title": "Aspect for stance and temporary meaning",
+      "objective": "Выбрать аспект для оттенка временности, повторяемости или отношения говорящего.",
+      "scope": "Контекстные continuous/simple и perfect contrasts; без требования редких форм ради сложности.",
+      "coverageArea": "precision-and-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-grammar-advanced"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-introductions",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Introducing yourself",
+      "objective": "Начать знакомство и сообщить основные сведения о себе.",
+      "scope": "Имя, место жизни, занятие; допустимы паузы и помощь, без длинной биографии.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-needs",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Expressing immediate needs",
+      "objective": "Попросить нужный предмет или простую помощь.",
+      "scope": "Короткие бытовые запросы; без сложной претензии.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-questions",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Asking and answering personal questions",
+      "objective": "Обменяться простой информацией о себе и собеседнике.",
+      "scope": "Один вопрос и ответ, уточнение имени; без интервью по списку тестов.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-description",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Describing familiar people and places",
+      "objective": "Коротко описать знакомого человека или место.",
+      "scope": "Понятные признаки и расположение; без развёрнутого сравнения.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-routines",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Talking about daily routines",
+      "objective": "Рассказать о типичном дне простыми репликами.",
+      "scope": "Знакомые действия и время; без сложной причинной связи.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-repair",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Asking for repetition and clarification",
+      "objective": "Сообщить о непонимании и попросить повторить или показать смысл.",
+      "scope": "Простые фразы восстановления диалога; не проверка произношения.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a1-preferences",
+      "skillId": "speaking",
+      "cefr": "A1",
+      "title": "Expressing likes and dislikes",
+      "objective": "Назвать предпочтение и спросить о предпочтении собеседника.",
+      "scope": "Еда, занятия, простые варианты; без аргументированного спора.",
+      "coverageArea": "basic-interaction",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-past-story",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Telling a short past story",
+      "objective": "Передать последовательность знакомых событий прошлого.",
+      "scope": "Короткий личный эпизод; без сложной драматургии.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-plans",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Discussing plans and arrangements",
+      "objective": "Согласовать время и место простой встречи.",
+      "scope": "Предложение, ответ, изменение детали; без переговоров с несколькими ограничениями.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-transactions",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Handling everyday transactions",
+      "objective": "Пройти обычный разговор в магазине, кафе или гостинице.",
+      "scope": "Запрос, уточнение цены или условий, завершение; без сложной жалобы.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-comparison",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Comparing familiar options",
+      "objective": "Выбрать один из знакомых вариантов и объяснить простую причину.",
+      "scope": "Покупки, места, занятия; без анализа рисков.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-social",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Maintaining a short social exchange",
+      "objective": "Поддержать короткую беседу реакцией и встречным вопросом.",
+      "scope": "Знакомые темы, интерес и благодарность; без требования непрерывной беглости.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-work-basics",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Describing your work and responsibilities",
+      "objective": "Объяснить, чем занимаешься на работе или учёбе.",
+      "scope": "Роль, типичные задачи и график; без отраслевой презентации.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-a2-repair",
+      "skillId": "speaking",
+      "cefr": "A2",
+      "title": "Clarifying a specific detail",
+      "objective": "Переспросить конкретную часть сообщения и подтвердить понимание.",
+      "scope": "Время, место, имя или шаг; без полного пересказа сложной речи.",
+      "coverageArea": "routine-exchange",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-unprepared",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Joining an unprepared conversation",
+      "objective": "Поддержать неподготовленный разговор на знакомую тему.",
+      "scope": "Личная жизнь, работа, интересы; допустимы поиск слов и перефразирование.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-narrative",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Telling a connected story",
+      "objective": "Рассказать историю с последовательностью, причиной и результатом.",
+      "scope": "Личный опыт, ясные связи; без сложных параллельных сюжетов.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-opinions",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Explaining an opinion",
+      "objective": "Высказать мнение и подкрепить его понятными причинами.",
+      "scope": "Знакомые вопросы, примеры и простое несогласие; без развитой полемики.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-problem-solving",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Explaining a problem and agreeing action",
+      "objective": "Описать бытовую или рабочую проблему и обсудить следующий шаг.",
+      "scope": "Причина, варианты и договорённость; без сложных конфликтных переговоров.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-process",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Explaining a familiar process",
+      "objective": "Объяснить последовательность действий собеседнику.",
+      "scope": "Знакомая процедура, уточнения по ходу; без специализированной лекции.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-paraphrase",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Paraphrasing when a word is missing",
+      "objective": "Продолжить мысль через описание или пример при нехватке слова.",
+      "scope": "Функция, внешний вид, похожее значение; не замена всему Vocabulary.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b1-interview",
+      "skillId": "speaking",
+      "cefr": "B1",
+      "title": "Participating in a familiar interview",
+      "objective": "Ответить на вопросы об опыте и задать уточнения.",
+      "scope": "Работа, учёба, личный опыт; без гарантии готовности к профессиональному интервью.",
+      "coverageArea": "independent-conversation",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-argument",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Expressing and defending opinions",
+      "objective": "Развить позицию, ответить на возражение и уточнить аргумент.",
+      "scope": "Причины, примеры, контраргумент; без обязательной риторической терминологии.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-negotiation",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Negotiating solutions",
+      "objective": "Согласовать решение при разных интересах собеседников.",
+      "scope": "Условия, уступки и альтернатива; без юридических переговоров.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-extended-description",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Giving a detailed account",
+      "objective": "Развёрнуто описать событие или явление с существенными деталями.",
+      "scope": "Структура и акценты для слушателя; без требования академического доклада.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-meetings",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Contributing to a discussion",
+      "objective": "Войти в обсуждение, развить чужую мысль и вернуть разговор к цели.",
+      "scope": "Очередь реплик, уточнение и итог; без искусственной монополизации разговора.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-presentation",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Presenting and answering follow-up questions",
+      "objective": "Представить знакомую тему и ответить на дополнительные вопросы.",
+      "scope": "Структура, примеры и реакция на аудиторию; без подготовки слайдов как учебного требования.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-register",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Adjusting formality and politeness",
+      "objective": "Выбрать уместную манеру просьбы, отказа или несогласия.",
+      "scope": "Бытовое и рабочее общение; без подражания конкретной культуре как единственной норме.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-b2-reformulation",
+      "skillId": "speaking",
+      "cefr": "B2",
+      "title": "Reformulating a misunderstood point",
+      "objective": "Перестроить объяснение после непонимания без потери основного смысла.",
+      "scope": "Другой пример, уточнение границы, проверка результата; без требования безошибочной речи.",
+      "coverageArea": "sustained-discussion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-speaking"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-nuanced-argument",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Qualifying a complex position",
+      "objective": "Выразить сложную позицию с оговорками и границами применимости.",
+      "scope": "Несколько оснований, уступка и точное заключение; не формальный экзамен.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-facilitation",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Facilitating a complex discussion",
+      "objective": "Связать разные позиции участников и продвинуть обсуждение к решению.",
+      "scope": "Переформулирование, возврат к вопросу и промежуточный итог; без роли профессионального фасилитатора.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-complex-explanation",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Explaining an unfamiliar complex idea",
+      "objective": "Сделать сложную идею понятной собеседнику с другим опытом.",
+      "scope": "Аналогия, структура и адаптация глубины; без проверки специальных знаний.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-spontaneous",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Responding flexibly to unexpected turns",
+      "objective": "Сохранить линию мысли при неожиданном вопросе или смене темы.",
+      "scope": "Спонтанный развёрнутый ответ; без нормативов скорости или пауз.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-register",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Using register and indirectness deliberately",
+      "objective": "Выразить тонкое несогласие, дипломатичный отказ или дистанцию.",
+      "scope": "Уместность по контексту; без требования конкретного акцента.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-synthesis",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Synthesising spoken viewpoints",
+      "objective": "Устно объединить разные аргументы, отделив общее от разногласий.",
+      "scope": "Несколько позиций и собственный вывод; без обязательного письменного текста.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "speaking-c1-storytelling",
+      "skillId": "speaking",
+      "cefr": "C1",
+      "title": "Shaping a nuanced narrative",
+      "objective": "Передать сложный опыт с нужным акцентом и отношением говорящего.",
+      "scope": "Смена перспективы, детали и вывод; без литературного исполнения.",
+      "coverageArea": "flexible-complex-communication",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-personal",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Recognising personal information",
+      "objective": "Извлечь имя, место и занятие из короткого знакомства.",
+      "scope": "Медленная ясная речь, знакомые слова; без обобщения на любые акценты.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-numbers",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Recognising numbers, times and prices",
+      "objective": "Понять значимые числа, время и цену в короткой реплике.",
+      "scope": "Различение конкретных значений; допускается повтор; без фонового шума.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-instructions",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Following simple instructions",
+      "objective": "Выполнить короткую знакомую инструкцию после прослушивания.",
+      "scope": "Одно простое действие, ясная речь; без сложной последовательности.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-questions",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Understanding simple direct questions",
+      "objective": "Понять, какую личную информацию спрашивает собеседник.",
+      "scope": "Знакомые вопросительные модели; без косвенного смысла.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-familiar-words",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Recognising familiar words in short speech",
+      "objective": "Узнать знакомые слова внутри короткой фразы.",
+      "scope": "Не список изолированных слов; ясная артикуляция; без проверки написания.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a1-short-exchange",
+      "skillId": "listening",
+      "cefr": "A1",
+      "title": "Following a simple exchange",
+      "objective": "Понять потребность и ответ в коротком бытовом обмене.",
+      "scope": "Две связанные реплики, ясная ситуация; без требования каждого слова.",
+      "coverageArea": "clear-short-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-everyday",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Understanding short everyday dialogues",
+      "objective": "Определить, о чём договорились в коротком бытовом разговоре.",
+      "scope": "Ясная речь, знакомая ситуация, конкретный итог; без быстрого группового спора.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-announcements",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Understanding short announcements",
+      "objective": "Извлечь нужное действие, место и время из объявления.",
+      "scope": "Транспорт, встреча, общественное место; без шумной неразборчивой записи.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-sequence",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Following a short sequence of instructions",
+      "objective": "Восстановить порядок знакомых действий после объяснения.",
+      "scope": "Несколько связанных шагов с ясными связками; без технической инструкции специалиста.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-stories",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Understanding short personal stories",
+      "objective": "Выделить участников, событие и результат короткого рассказа.",
+      "scope": "Знакомая лексика, ясный порядок; без неявной мотивации.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-messages",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Understanding a short voice message",
+      "objective": "Понять цель сообщения и нужный ответ.",
+      "scope": "Знакомый контекст, просьба или изменение планов; без опоры на текстовую расшифровку.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-a2-chunking",
+      "skillId": "listening",
+      "cefr": "A2",
+      "title": "Recognising common spoken chunks",
+      "objective": "Распознать знакомое выражение, произнесённое слитно.",
+      "scope": "Частотные разговорные сочетания; без требования фонетической транскрипции.",
+      "coverageArea": "short-connected-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-everyday",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Understanding everyday conversations",
+      "objective": "Понять основную мысль и важные детали связного разговора.",
+      "scope": "Знакомые жизненные и рабочие темы, ясная речь; без сложного группового спора.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-narrative",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Following a connected narrative",
+      "objective": "Восстановить последовательность, причины и результат рассказа.",
+      "scope": "Связная речь с явными переходами; без сложных смен перспективы.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-explanation",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Understanding a familiar explanation",
+      "objective": "Понять объяснение причины или процесса на знакомую тему.",
+      "scope": "Главные шаги и основания; без необходимости понять каждое слово.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-media",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Following clear factual audio",
+      "objective": "Извлечь основные факты из короткого интервью или сообщения.",
+      "scope": "Понятная дикция, знакомая тема; без подтверждения понимания всех медиажанров.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-attitude",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Recognising explicit opinions and feelings",
+      "objective": "Различить явно выраженное мнение и отношение говорящего.",
+      "scope": "Словесные сигналы и понятная интонация; без уверенного вывода о сарказме.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b1-inference",
+      "skillId": "listening",
+      "cefr": "B1",
+      "title": "Inferring a local unknown meaning",
+      "objective": "Использовать ближайший контекст, чтобы предположить смысл незнакомого выражения.",
+      "scope": "Гипотеза с возможностью уточнения; без выдачи догадки за точное понимание.",
+      "coverageArea": "connected-familiar-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-discussion",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Following an extended discussion",
+      "objective": "Проследить разные позиции и их основания в разговоре естественного темпа.",
+      "scope": "Разборчивая речь нескольких участников; без обещания понимания при любом шуме.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-lecture",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Following a structured talk",
+      "objective": "Понять структуру развёрнутого объяснения и связи между доводами.",
+      "scope": "Знакомая область, явная организация; без требования специальных знаний.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-media",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Understanding interviews and reports",
+      "objective": "Отделить основные факты, оценку и пример в развёрнутой записи.",
+      "scope": "Интервью, обзоры, репортажи; без универсальной оценки всего аудирования.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-connected-speech",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Understanding reductions at natural pace",
+      "objective": "Сохранить понимание знакомого содержания при редукциях и связной речи.",
+      "scope": "Несколько голосов, частотные сокращения; без требования произносить их самому.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-implicit",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Recognising implied stance",
+      "objective": "Объяснить вероятное отношение, когда оно выражено косвенно.",
+      "scope": "Контекст и языковые сигналы; неоднозначность сохраняется.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-b2-precision",
+      "skillId": "listening",
+      "cefr": "B2",
+      "title": "Distinguishing qualifications and corrections",
+      "objective": "Уловить оговорку, исправление или ограничение в объяснении.",
+      "scope": "Смысловые изменения, отрицание, исключения; без требования дословного воспроизведения.",
+      "coverageArea": "extended-natural-speech",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-unstructured",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Following loosely structured speech",
+      "objective": "Восстановить смысл сложного объяснения без явных переходов.",
+      "scope": "Отступления и возвраты к мысли; без обязательного знания темы заранее.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-implicit",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Interpreting nuanced implied meaning",
+      "objective": "Объяснить косвенный смысл с указанием контекстных оснований.",
+      "scope": "Намёк, осторожная оценка, возможная ирония; допускается неоднозначность.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-accents",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Adapting to unfamiliar accent patterns",
+      "objective": "Сохранить понимание после адаптации к непривычному варианту произношения.",
+      "scope": "Разнообразные разборчивые голоса; без обещания понимать любой акцент без усилий.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-multi-party",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Tracking a complex multi-party discussion",
+      "objective": "Различить позиции, смену темы и значимые уточнения нескольких участников.",
+      "scope": "Перебивания и быстрые переходы при доступной записи; без произвольного шумового порога.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-complex-audio",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Understanding complex unfamiliar audio",
+      "objective": "Выделить тезис и ход объяснения в сложном новом материале.",
+      "scope": "Абстрактная тема, возможность уточнить термин; без проверки профессиональной квалификации.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "listening-c1-register",
+      "skillId": "listening",
+      "cefr": "C1",
+      "title": "Recognising register and rhetorical intent",
+      "objective": "Различить манеру речи и её роль в воздействии на слушателя.",
+      "scope": "Дистанция, убеждение, юмор с обоснованием; без психологического диагноза говорящего.",
+      "coverageArea": "complex-and-implicit-discourse",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-oral",
+        "bc-listening"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-identity",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Personal details and family",
+      "objective": "Понимать и использовать слова о себе и близких.",
+      "scope": "Имя, возраст, отношения, страны и языки; без подробной биографии.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-routine",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Daily actions and time",
+      "objective": "Понимать и использовать лексику обычного дня.",
+      "scope": "Частотные действия, дни, часы; без профессиональной специализации.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-home",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Home and familiar places",
+      "objective": "Назвать знакомые места и предметы вокруг.",
+      "scope": "Дом, комнаты, городские места; без архитектурной терминологии.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-food",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Food and basic needs",
+      "objective": "Понимать и назвать еду, напитки и основные потребности.",
+      "scope": "Простая покупка и заказ; без гастрономического словаря.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-quantity",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Numbers, prices and quantities",
+      "objective": "Понимать и использовать числа и единицы в повседневной ситуации.",
+      "scope": "Время, деньги, количество; без сложной финансовой терминологии.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-people",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Appearance, feelings and simple qualities",
+      "objective": "Описать знакомое свойство человека или предмета.",
+      "scope": "Базовые прилагательные и чувства; без тонких психологических различий.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-activities",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Leisure and familiar activities",
+      "objective": "Назвать занятия, которые нравятся или нужны.",
+      "scope": "Отдых, простые виды спорта и обучение; без отраслевого словаря.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a1-interaction",
+      "skillId": "vocabulary",
+      "cefr": "A1",
+      "title": "Basic interaction phrases",
+      "objective": "Использовать частотные формулы контакта и уточнения.",
+      "scope": "Приветствие, благодарность, просьба повторить; без требования заученного сценария.",
+      "coverageArea": "everyday-core",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-travel",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Travel and accommodation",
+      "objective": "Понимать и использовать лексику поездки и размещения.",
+      "scope": "Билет, маршрут, бронь, простая проблема; без миграционной или юридической консультации.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-shopping",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Shopping and everyday services",
+      "objective": "Объяснить нужный товар, размер, оплату или простую неисправность.",
+      "scope": "Покупки и сервисы, возврат в простой ситуации; без договорной терминологии.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-work",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Work and study basics",
+      "objective": "Понимать названия ролей и типичных обязанностей.",
+      "scope": "Общая рабочая и учебная среда; отраслевые слова подбираются отдельно.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-health",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Health and everyday wellbeing",
+      "objective": "Описать самочувствие и бытовую потребность в помощи.",
+      "scope": "Части тела, частотные симптомы и привычки; без медицинской диагностики.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-relationships",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Relationships and social occasions",
+      "objective": "Понимать и описывать обычные отношения и события.",
+      "scope": "Приглашения, праздники, договорённости; без сложной эмоциональной оценки.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-experiences",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Past experiences and life events",
+      "objective": "Назвать событие жизни и описать впечатление.",
+      "scope": "Поездка, учёба, изменение работы; без тонкой литературной оценки.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-collocations",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Everyday verb–noun combinations",
+      "objective": "Использовать частотные сочетания вместо случайного выбора глагола.",
+      "scope": "make/do/take/get в бытовых сочетаниях; без полного перечня значений.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-a2-phrasal-basic",
+      "skillId": "vocabulary",
+      "cefr": "A2",
+      "title": "Common concrete phrasal verbs",
+      "objective": "Понимать и использовать частотные бытовые фразовые глаголы.",
+      "scope": "get up, turn on и подобные конкретные действия; без полного словника.",
+      "coverageArea": "everyday-expansion",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-work-communication",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Work Communication",
+      "objective": "Обсудить задачу, срок, результат и затруднение на работе.",
+      "scope": "Общая рабочая лексика и сочетания; профессия задаёт примеры, не отдельную обязательную программу.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-opinions",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Opinions, reasons and preferences",
+      "objective": "Выбрать слова для мнения, основания и простого возражения.",
+      "scope": "Оценка знакомых вопросов; без тонкой дипломатической дистанции.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-media",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "News, information and digital life",
+      "objective": "Обсудить информацию, источники и повседневные цифровые действия.",
+      "scope": "Общие медиа и технологии; без специализированного IT-словаря.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-society",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Community and environment",
+      "objective": "Обсудить знакомую общественную или экологическую ситуацию.",
+      "scope": "Город, услуги, привычки, простые последствия; без экспертных терминов.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-feelings",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Feelings, reactions and relationships",
+      "objective": "Различать частотные эмоции и описывать реакцию на событие.",
+      "scope": "Личный опыт и социальные отношения; без клинической классификации.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-collocations",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Topic-based collocations",
+      "objective": "Использовать устойчивые сочетания в знакомых темах.",
+      "scope": "Работа, жизнь, мнения; без заучивания всех сочетаний сразу.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-phrasal",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Frequent figurative phrasal verbs",
+      "objective": "Понимать и применять частотные переносные значения фразовых глаголов.",
+      "scope": "Контекстные значения и separable patterns; без редких идиом.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b1-word-formation",
+      "skillId": "vocabulary",
+      "cefr": "B1",
+      "title": "Word families and contextual paraphrase",
+      "objective": "Связать частотные формы слова и объяснить незнакомое через известное.",
+      "scope": "Основные prefix/suffix, синоним или описание; без угадывания как доказанного знания.",
+      "coverageArea": "independent-everyday-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-professional",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Professional discussion vocabulary",
+      "objective": "Обсудить варианты, ограничения и результаты рабочей задачи.",
+      "scope": "Общая профессиональная лексика; конкретная отрасль выбирается под цель.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-abstract",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Abstract issues and consequences",
+      "objective": "Обсудить причины, последствия и компромиссы абстрактного вопроса.",
+      "scope": "Общество, технологии, решения; без экспертного знания предмета.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-collocations",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Precise collocations across contexts",
+      "objective": "Выбрать подходящее сочетание для более точного смысла.",
+      "scope": "Знакомые и абстрактные темы, близкие глаголы и прилагательные; без редких форм ради сложности.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-idioms",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Common idioms in context",
+      "objective": "Понять и уместно использовать распространённое образное выражение.",
+      "scope": "Значение, контекст и ограничение регистра; без обязательного насыщения речи идиомами.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-nuance",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Near-synonyms and degree",
+      "objective": "Выбрать слово с нужной силой и оттенком значения.",
+      "scope": "Отличия близких слов, intensifiers, оценочные сочетания; без искусственной численной шкалы.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-register",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Formal and informal alternatives",
+      "objective": "Выбрать лексический вариант под отношения и ситуацию.",
+      "scope": "Рабочая и бытовая речь; без универсального списка запрещённых разговорных слов.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-discourse",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Discourse markers and argument links",
+      "objective": "Связать аргументы и обозначить уточнение или отступление.",
+      "scope": "Лексические связки устного обсуждения; без замены ими содержания.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-b2-polysemy",
+      "skillId": "vocabulary",
+      "cefr": "B2",
+      "title": "Multiple meanings and lexical inference",
+      "objective": "Различить значения знакомого слова в разных контекстах.",
+      "scope": "Частотная многозначность, проверка догадки; без автоматического признания всех значений освоенными.",
+      "coverageArea": "abstract-and-professional-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-precision",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Fine distinctions and connotation",
+      "objective": "Выбрать выражение с точным смыслом и уместной оценочной окраской.",
+      "scope": "Близкие значения, отношение говорящего и контекст; без требования редкости слова.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-register",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Flexible register and diplomatic wording",
+      "objective": "Менять лексику для дипломатичности, дистанции или неформального контакта.",
+      "scope": "Уместные альтернативы в сложном общении; без фиксированного культурного шаблона.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-collocations",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Advanced collocation and phraseology",
+      "objective": "Использовать точные устойчивые сочетания в сложных рассуждениях.",
+      "scope": "Абстрактные и профессиональные контексты; отраслевые термины остаются персональными.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-idiomatic",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Idiomatic and figurative interpretation",
+      "objective": "Понимать образное выражение и оценивать уместность его употребления.",
+      "scope": "Метафора, разговорный оборот, возможная неоднозначность; без требования владеть всем сленгом.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-stance",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Hedging, emphasis and evaluative language",
+      "objective": "Точно обозначить силу утверждения и собственную позицию.",
+      "scope": "Оговорки, усиление, оценка основания; без численной вероятности по слову.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-specialised",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Acquiring goal-specific terminology",
+      "objective": "Объяснить нужный термин и использовать его в своей области.",
+      "scope": "Умение связывать термин с понятием; конкретный отраслевой словарь не зафиксирован в общем каталоге.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    },
+    {
+      "id": "vocabulary-c1-reformulation",
+      "skillId": "vocabulary",
+      "cefr": "C1",
+      "title": "Flexible lexical reformulation",
+      "objective": "Выразить сложную мысль иначе без потери существенных различий.",
+      "scope": "Перефразирование, обобщение и уточнение; без требования письменного резюме.",
+      "coverageArea": "nuance-and-flexible-range",
+      "sourceIds": [
+        "speaky-v55",
+        "cefr-linguistic",
+        "bc-vocabulary"
+      ],
+      "reviewNote": "Авторская единица Speaky. Уровень, границы и ожидаемая способность требуют содержательной приёмки; источники служат ориентирами, а не независимым подтверждением каждой темы."
+    }
+  ]
+}

@@ -40,6 +40,15 @@ internal fun Application.installFoundation(databaseUrl: String?, internalToken: 
 
 internal fun Route.foundationRoutes(service: FoundationService, internalToken: String) {
     route("/internal/foundation/v1") {
+        get("/catalog") {
+            // Global published curriculum, no learner data; the service token is sufficient for this read.
+            foundationResponse(internalToken, requireScope = false) {
+                val query = call.request.queryParameters
+                if (query.names().any { it !in setOf("version", "skill", "cefr", "topicId") }) reject("invalid_catalog_query")
+                if (query.names().any { query.getAll(it)?.size != 1 }) reject("invalid_catalog_query")
+                LearningCatalog(service.database).read(query["version"], query["skill"], query["cefr"], query["topicId"])
+            }
+        }
         post("/commands") {
             foundationResponse(internalToken) { scope ->
                 val body = call.receiveText()
