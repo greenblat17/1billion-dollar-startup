@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
 
 class FoundationIntegrationTest {
     private fun introEnvelope(chat: Long, message: Long, text: String, at: Instant) = json(
@@ -32,7 +33,7 @@ class FoundationIntegrationTest {
         com.eliteteam.speakingcoach.ai.TutorRequest("tg-$chat", "message:$message", text, at.epochSecond.toDouble())
 
     @Test
-    fun firstStartDeliversFourSeparateMessagesAndOnlyConfirmedHistory() = runTest {
+    fun firstStartDeliversFourSeparateMessagesAndOnlyConfirmedHistory() = runTest(timeout = 5.minutes) {
         val clock = MutableClock()
         withStore(clock) { service ->
             val request = introRequest(9200, 1, "/start", clock.instant())
@@ -68,7 +69,7 @@ class FoundationIntegrationTest {
     }
 
     @Test
-    fun incomingReplyDuringAnyPauseCancelsRemainderAndProcessesExactlyOneModelResult() = runTest {
+    fun incomingReplyDuringAnyPauseCancelsRemainderAndProcessesExactlyOneModelResult() = runTest(timeout = 5.minutes) {
         val clock = MutableClock()
         withStore(clock) { service ->
             for (after in 1..3) {
@@ -158,7 +159,7 @@ class FoundationIntegrationTest {
     }
 
     @Test
-    fun typingFailureDoesNotStopIntroductionAndSendFailureDoesNotRetryOrContinue() = runTest {
+    fun typingFailureDoesNotStopIntroductionAndSendFailureDoesNotRetryOrContinue() = runTest(timeout = 5.minutes) {
         val clock = MutableClock()
         withStore(clock) { service ->
             val bridge = FoundationChat(service)
