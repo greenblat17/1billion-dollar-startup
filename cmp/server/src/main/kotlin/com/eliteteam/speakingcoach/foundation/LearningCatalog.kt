@@ -83,12 +83,28 @@ internal class LearningCatalog(private val database: FoundationDatabase) {
         }
 
     private fun checkIdentities(c: Connection, manifest: CatalogManifest) {
-        val existing = c.documents("SELECT DISTINCT content FROM learning_catalog_topic")
-        val proposed = manifest.topics.associateBy { it.id }
-        existing.forEach { previous -> proposed[previous.text("id")]?.let { topic ->
-            // Correct labels/scope in a new version; a different outcome requires a new ID.
+        val skills = manifest.skills.associateBy { it.id }
+        c.documents("""SELECT DISTINCT s.content FROM learning_catalog_skill s
+            JOIN learning_catalog_release r ON r.version=s.version WHERE r.published_at IS NOT NULL""").forEach { previous ->
+            val skill = skills[previous.text("id")] ?: reject("catalog_identity_conflict")
+            if (previous.text("description") != skill.description) reject("catalog_identity_conflict")
+        }
+        val problems = manifest.problems.associateBy { it.id }
+        c.documents("""SELECT DISTINCT p.content FROM learning_catalog_problem p
+            JOIN learning_catalog_release r ON r.version=p.version WHERE r.published_at IS NOT NULL""").forEach { previous ->
+            val problem = problems[previous.text("id")] ?: reject("catalog_identity_conflict")
+            if (previous.text("skillId") != problem.skillId || previous.text("description") != problem.description) {
+                reject("catalog_identity_conflict")
+            }
+        }
+        val topics = manifest.topics.associateBy { it.id }
+        c.documents("""SELECT DISTINCT t.content FROM learning_catalog_topic t
+            JOIN learning_catalog_release r ON r.version=t.version WHERE r.published_at IS NOT NULL""").forEach { previous ->
+            val topic = topics[previous.text("id")] ?: reject("catalog_identity_conflict")
+            // Labels and review metadata may change; learning outcome and boundaries require a new ID.
             if (previous.text("skillId") != topic.skillId || previous.text("cefr") != topic.cefr ||
-                previous.text("objective") != topic.objective) reject("catalog_identity_conflict")
-        } }
+                previous.text("objective") != topic.objective || previous.text("scope") != topic.scope ||
+                previous.text("coverageArea") != topic.coverageArea) reject("catalog_identity_conflict")
+        }
     }
 }

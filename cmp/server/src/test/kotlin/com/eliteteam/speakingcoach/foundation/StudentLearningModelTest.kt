@@ -26,10 +26,23 @@ class StudentLearningModelTest {
         val invalid = listOf(json("targetLevel" to "A2-B1"), json("targetLevel" to json("speaking" to "B2")),
             json("intensity" to json("lessonsPerWeek" to "3")), json("intensity" to json("lessonDurationMinutes" to 0)),
             json("intensity" to json("lessonsPerWeek" to -1)), json("homework" to json("minutes" to 10)),
+            json("homework" to json("minutes" to -1)),
             json("homework" to json("consent" to true)), json("deadline" to "tomorrow"),
             json("currentLevels" to json("speaky" to json("skills" to json("invented" to json("level" to "A1"))))))
         invalid.forEach { patch -> assertFailsWith<FoundationFailure> { StudentLearningModel.patch(StudentLearningModel.empty(), patch) } }
         assertEquals(JsonPrimitive(10), StudentLearningModel.patch(StudentLearningModel.empty(),
             json("homework" to json("consent" to "yes", "minutes" to 10, "period" to "day"))).obj("homework")["minutes"])
+    }
+
+    @Test
+    fun zeroHomeworkMinutesCanKeepPeriodUnknownWithoutChangingOtherFields() {
+        val profile = StudentLearningModel.patch(StudentLearningModel.empty(), json(
+            "intensity" to json("lessonsPerWeek" to 2),
+            "homework" to json("consent" to "no", "minutes" to 0)))
+        assertEquals(JsonPrimitive(0), profile.obj("homework")["minutes"])
+        assertEquals(JsonNull, profile.obj("homework")["period"])
+        assertEquals(JsonPrimitive(2), profile.obj("intensity")["lessonsPerWeek"])
+        assertEquals(JsonPrimitive(0), StudentLearningModel.patch(profile,
+            json("homework" to json("period" to "week"))).obj("homework")["minutes"])
     }
 }

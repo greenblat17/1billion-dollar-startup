@@ -267,6 +267,10 @@ Prerequisites и обязательного Curriculum Order нет. Завис�
 Offline `LearningCatalogCli` валидирует без БД, импортирует черновик или отдельно публикует принятую версию.
 `LearningCatalog` хранит неизменяемые версии, digest, записи и current pointer в PostgreSQL (V48/V49).
 Импорт не публикует каталог; публикация сохраняет reviewer и ссылку на приёмку.
+После публикации новая версия может уточнять названия и метаданные ревью, но повторное использование ID не может менять
+смысл Skill/Problem или Skill, CEFR, objective, scope и coverageArea Topic. Такое изменение требует нового ID;
+удаление опубликованного ID тоже отклоняется. Старые версии остаются доступны для уже сохранённых ссылок.
+Неопубликованные черновики можно исправлять в новой версии.
 
 `GET /internal/foundation/v1/catalog` требует service token, без student scope; читает только опубликованные версии.
 Фильтры: `version`, `skill`, `cefr`, `topicId`. Ответ schemaVersion 2 не содержит зависимостей.
@@ -284,8 +288,9 @@ V50 добавляет `student_learning_state` и `student_topic_knowledge`. Ц
   Оценка состоит из `level` (A1/A2/B1/B2/C1/Unknown) и `explanation`. Общий уровень не вычисляется из Skills.
 - `targetLevel` — единственный общий целевой CEFR. Практическая цель и nullable-дедлайн хранятся отдельно.
 - `intensity`: nullable `lessonsPerWeek` и `lessonDurationMinutes`; положительные числа, без диапазонов.
-- `homework`: `consent` yes/no/unknown, nullable положительное `minutes` и `period` day/week/null.
-  Известное количество минут требует периода. Отказ не меняет цель или оценку знаний.
+- `homework`: `consent` yes/no/unknown, nullable неотрицательное `minutes` и `period` day/week/null.
+  Положительное количество минут требует периода; ноль допускает неизвестный период.
+  Отказ не меняет цель или оценку знаний.
 - Topic Knowledge: Known / Not Known / Presumed Not Known / Unknown, объяснение, источники, компонент и время.
   Каждая запись добавляет ревизию; текущая оценка — последняя. Нет числового mastery и механизма оспаривания.
   Отказ изучать Topic не меняет знания; выбор задач относится к будущей Roadmap.

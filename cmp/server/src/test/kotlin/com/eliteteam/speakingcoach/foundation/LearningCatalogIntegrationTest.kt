@@ -40,6 +40,9 @@ class LearningCatalogIntegrationTest {
                 assertEquals(manifest.topics.size.toLong(), c.rows("SELECT count(*) FROM learning_catalog_topic") { it.getLong(1) }.single())
                 assertEquals(0L, c.rows("SELECT count(*) FROM student") { it.getLong(1) }.single())
             }
+            val revisedDraft = manifest.copy(version = "test-revised-draft", topics = listOf(
+                manifest.topics.first().copy(scope = "Corrected before publication")) + manifest.topics.drop(1))
+            assertEquals(revisedDraft.version, catalog.import(LearningCatalogModel.document(revisedDraft).toString()))
             assertFailsWith<IllegalArgumentException> { catalog.publish(manifest.version, "", "test acceptance") }
         }
     }
@@ -61,6 +64,19 @@ class LearningCatalogIntegrationTest {
                 catalog.import(LearningCatalogModel.document(next.copy(version = "test-invalid", topics = listOf(
                     next.topics.first().copy(objective = "Different learning outcome")) + next.topics.drop(1))).toString())
             }.code)
+            val incompatible = listOf(
+                next.copy(skills = listOf(next.skills.first().copy(description = "Different skill")) + next.skills.drop(1)),
+                next.copy(problems = listOf(next.problems.first().copy(description = "Different difficulty")) + next.problems.drop(1)),
+                next.copy(topics = listOf(next.topics.first().copy(scope = "Different boundaries")) + next.topics.drop(1)),
+                next.copy(topics = listOf(next.topics.first().copy(coverageArea = "different-area")) + next.topics.drop(1)),
+                next.copy(topics = next.topics.drop(1)),
+            )
+            incompatible.forEachIndexed { index, changed ->
+                assertEquals("catalog_identity_conflict", assertFailsWith<FoundationFailure> {
+                    catalog.import(LearningCatalogModel.document(changed.copy(version = "test-incompatible-$index")).toString())
+                }.code)
+            }
+            assertEquals(next.version, catalog.read(null, null, null, null).text("version"))
             FoundationDatabase(scopedUrl).use { restarted ->
                 assertEquals(next.version, LearningCatalog(restarted).read(null, null, null, null).text("version"))
             }

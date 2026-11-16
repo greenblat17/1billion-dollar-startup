@@ -59,9 +59,9 @@ internal object StudentLearningModel {
         val homework = objectValue(profile["homework"])
         homework.only("consent", "minutes", "period")
         enum(homework["consent"], setOf("yes", "no", "unknown"))
-        positiveOrNull(homework["minutes"])
+        val homeworkMinutes = positiveOrNull(homework["minutes"], allowZero = true)
         if (homework["period"] != JsonNull) enum(homework["period"], setOf("day", "week"))
-        if (homework["minutes"] != JsonNull && homework["period"] == JsonNull) reject("homework_period_required")
+        if (homeworkMinutes != null && homeworkMinutes > 0 && homework["period"] == JsonNull) reject("homework_period_required")
     }
 
     private fun validateAssessment(value: JsonElement?) {
@@ -83,11 +83,14 @@ internal object StudentLearningModel {
     fun enum(value: JsonElement?, allowed: Set<String>): String = requiredString(value).also {
         if (it !in allowed) reject("invalid_learning_enum")
     }
-    private fun positiveOrNull(value: JsonElement?) {
-        if (value == JsonNull) return
+    private fun positiveOrNull(value: JsonElement?, allowZero: Boolean = false): Double? {
+        if (value == JsonNull) return null
         val primitive = value as? JsonPrimitive ?: reject("invalid_learning_number")
         val number = primitive.doubleOrNull
-        if (primitive.isString || number == null || !number.isFinite() || number <= 0) reject("invalid_learning_number")
+        if (primitive.isString || number == null || !number.isFinite() || number < 0 || (!allowZero && number == 0.0)) {
+            reject("invalid_learning_number")
+        }
+        return number
     }
     fun sources(value: JsonElement?): JsonArray = (value as? JsonArray)?.takeIf { it.size <= 50 }
         ?: reject("invalid_learning_sources")
