@@ -109,8 +109,9 @@ Retention, forget/delete/reset удаляют или очищают источн
 Это отдельный Personal Memory extractor без educational observations/notes. Backend отклоняет
 образовательные результаты для этого Trial. Старый `RoadmapPreparation` исключает v5.5 Trial.
 Старый `trialResult` не показывает memory-only результат как диагностику.
-`GET /trial/events` возвращает `observationStatus` для отдельного SP-17B job.
-`assessmentStatus=not_implemented` сохраняется до SP-07; готовые Observations ещё не являются диагнозом.
+`GET /trial/events` возвращает `observationStatus` и `assessmentStatus` для отдельных jobs.
+После успешного SP-17B batch запускается [SP-07 Assessment](trial-assessment.md), который
+сохраняет предварительный диагноз в SP-03. Готовые Observations сами по себе не являются диагнозом.
 
 Follow-up благодарит за разговор без выдуманного плана и продажи; при обрыве предлагает допустимый
 возврат или новую бесплатную запись. Полная доставка Roadmap — SP-08/11A. Релиз с обещанием плана

@@ -60,6 +60,7 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
         trialEventRoutes(service, internalToken)
         learningObservationRoutes(service, internalToken)
         learningPlanRoutes(service, internalToken)
+        learningScoreRoutes(service, internalToken)
         learningContentRoutes(service, internalToken)
         get("/learning-state") {
             foundationResponse(internalToken) { scope ->

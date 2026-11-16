@@ -36,18 +36,21 @@ class LearningEngine:
     def __init__(self, backend: FoundationClient, contexts: ContextBuilder,
                  analyzer: LessonAnalyzer | None = None, planner: LessonPlanner | None = None,
                  extractor: PersonalCandidateExtractor | None = None, roadmap: LessonPlanner | None = None,
-                 trial_observations=None):
+                 trial_observations=None, trial_assessment=None):
         self.backend, self.contexts = backend, contexts
         self.analyzer, self.planner = analyzer, planner
         self.extractor = extractor
         self.roadmap = roadmap
         self.trial_observations = trial_observations
+        self.trial_assessment = trial_assessment
 
     async def compute(self, scope: str, job: dict) -> dict:
         if job.get('schema_version') != 1:
             raise ValueError('unsupported_job_version')
         if job['kind'] == 'trial.observe' and self.trial_observations is not None:
             return await self.trial_observations.extract(scope, job['target_id'], job['input_refs'])
+        if job['kind'] == 'trial.assess' and self.trial_assessment is not None:
+            return await self.trial_assessment.assess(scope, job['target_id'], job['input_refs'])
         context = await self.contexts.build(scope, 'learning', job.get('target_id'))
         if job['kind'] == 'roadmap.prepare' and self.roadmap is not None:
             return await self.roadmap.prepare(context, job['input_refs'])

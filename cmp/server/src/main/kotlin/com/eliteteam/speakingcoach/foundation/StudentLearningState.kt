@@ -25,7 +25,8 @@ internal class StudentLearningState {
         if (value is JsonObject) changedPaths(value, path) else listOf(path)
     }
 
-    fun update(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
+    fun update(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant,
+               allowUnknownSystemReset: Boolean = false): JsonObject {
         requireRole(scope, "operator")
         args.only("expectedRevision", "patch", "goal", "component", "sources")
         val current = read(c, scope.studentId, now)
@@ -35,7 +36,7 @@ internal class StudentLearningState {
         val profile = StudentLearningModel.patch(current.obj("profile"), patch)
         val component = StudentLearningModel.requiredString(args["component"], 100)
         val sources = StudentLearningSources.validate(c, scope.studentId, args["sources"], now)
-        if (sources.isEmpty()) reject("learning_source_required")
+        if (sources.isEmpty() && !(allowUnknownSystemReset && isUnknownSystemReset(patch))) reject("learning_source_required")
         val metadata = json("component" to component, "recordedAt" to now.toString(), "sources" to sources)
         // Persist raw refs only, not the dynamic availability projection returned by read().
         val oldProvenance = c.document("SELECT provenance FROM student_learning_state WHERE student_id=?", scope.studentId) ?: json()
@@ -55,6 +56,18 @@ internal class StudentLearningState {
         c.update("UPDATE lesson_plan SET status='stale' WHERE student_id=? AND status='ready'", scope.studentId)
         c.invalidatePreparation(scope.studentId, now)
         return read(c, scope.studentId, now)
+    }
+
+    private fun isUnknownSystemReset(patch: JsonObject): Boolean {
+        if (patch.keys != setOf("currentLevels")) return false
+        val levels = patch.obj("currentLevels")
+        if (levels.keys != setOf("speaky")) return false
+        val system = levels.obj("speaky")
+        if (system.keys != setOf("overall", "skills")) return false
+        val skills = system.obj("skills")
+        if (skills.keys != setOf("speaking", "listening", "grammar", "vocabulary")) return false
+        return (listOf(system.obj("overall")) + skills.values.map { StudentLearningModel.objectValue(it) })
+            .all { it.text("level") == "Unknown" }
     }
 }
 

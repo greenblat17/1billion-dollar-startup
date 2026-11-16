@@ -74,6 +74,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "learning.plan.create" -> LearningPlans().create(connection, scope, args, now)
         "learning.plan.revise" -> LearningPlans().revise(connection, scope, args, now)
         "learning.plan.select-stage" -> LearningPlans().select(connection, scope, args, now)
+        "learning.score.fixture" -> LearningScores().fixture(connection, scope, args, now)
         "learning.content.create" -> LearningContent().create(connection, scope, args, now)
         "learning.content.revise" -> LearningContent().revise(connection, scope, args, now)
         "learning.content.issue" -> LearningContent().issue(connection, scope, args, now)
@@ -200,6 +201,13 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             val scope = authenticateScope(c, token, now)
             if (history) LearningPlans().history(c, scope.studentId, id, offset)
             else LearningPlans().read(c, scope.studentId, id, revision)
+        }
+
+    suspend fun learningScore(token: String, taskId: String, history: Boolean = false, offset: Int = 0): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            if (history) LearningScores().history(c, scope.studentId, taskId, offset)
+            else LearningScores().read(c, scope.studentId, taskId)
         }
 
     suspend fun learningContent(token: String, id: String, revision: Long? = null, history: Boolean = false, offset: Int = 0): JsonObject =

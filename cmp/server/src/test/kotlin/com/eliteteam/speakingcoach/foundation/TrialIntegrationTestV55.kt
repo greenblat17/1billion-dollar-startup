@@ -192,7 +192,7 @@ class TrialIntegrationTestV55 {
                 "occurredAt" to clock.value.toString(), "metadata" to json("finality" to "final"))))
             s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "end_button")))
             val operator = s.identity.issue(l.text("student_id"), "operator")
-            val job = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
+            var job = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
             assertEquals("trial-observation-v1", job.obj("input_refs").text("analyzerVersion"))
             val document = JsonObject(observationFixture(source.text("eventId"), source.number("sequence")) + json(
                 "attemptId" to source.text("eventId"), "evidenceSlot" to "grammar-example",
@@ -204,7 +204,13 @@ class TrialIntegrationTestV55 {
                 s.op(operator, "job.apply", json("jobId" to job.text("id"), "fence" to job.number("fence"),
                     "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document, listening)))))
             }.code)
+            assertEquals("not_started", events(s, l, operator).text("assessmentStatus"))
+            assertTrue(s.op(operator, "job.claim", json("kind" to "trial.assess"))["job"] == kotlinx.serialization.json.JsonNull)
             assertTrue(s.learningObservations(operator)["items"]!!.jsonArray.isEmpty())
+            s.op(operator, "job.fail", json("jobId" to job.text("id"), "fence" to job.number("fence"), "code" to "invalid_result"))
+            assertEquals("not_started", events(s, l, operator).text("assessmentStatus"))
+            s.op(operator, "job.retry", json("jobId" to job.text("id")))
+            job = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
             val args = json("jobId" to job.text("id"), "fence" to job.number("fence"),
                 "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document))))
             assertEquals("succeeded", s.op(operator, "job.apply", args, "apply-trial-once").text("status"))
@@ -213,6 +219,117 @@ class TrialIntegrationTestV55 {
             assertEquals(1, items.size)
             assertEquals("grammar", items.single().jsonObject.obj("document").text("skillId"))
             assertEquals("true", items.single().jsonObject.text("evidenceUsable"))
+            assertEquals("queued", events(s, l, operator).text("assessmentStatus"))
+            val assess = s.op(operator, "job.claim", json("kind" to "trial.assess")).obj("job")
+            assertEquals(job.text("id"), assess.obj("input_refs").text("observationJobId"))
+            val unknown = json("level" to "Unknown", "explanation" to "Insufficient independent evidence", "observationRefs" to JsonArray(emptyList()))
+            val levels = json("overall" to unknown, "speaking" to unknown, "listening" to unknown,
+                "grammar" to unknown, "vocabulary" to unknown)
+            val ref = json("id" to items.single().jsonObject.text("id"), "revision" to items.single().jsonObject.number("revision"))
+            val result = json("schemaVersion" to 1, "catalogVersion" to catalog.version, "baseLearningRevision" to 0,
+                "observationRefs" to JsonArray(listOf(ref)), "levels" to levels, "topics" to JsonArray(emptyList()),
+                "coverage" to json("active" to 1, "usableWithoutTopic" to 1, "uncertain" to 0, "nonIndependent" to 0))
+            val updated = s.op(operator, "learning.update", json("expectedRevision" to 0,
+                "patch" to json("currentLevels" to json("speaky" to json("skills" to json("grammar" to json(
+                    "level" to "B1", "explanation" to "Later assessment"))))),
+                "component" to "later-assessment", "sources" to JsonArray(listOf(json(
+                    "type" to "event", "id" to source.text("eventId"), "revision" to source.number("sequence"))))))
+            assertEquals(1L, updated.number("revision"))
+            assertEquals("superseded", s.op(operator, "job.apply", json("jobId" to assess.text("id"),
+                "fence" to assess.number("fence"), "result" to result)).text("status"))
+            assertEquals("B1", s.learningState(operator).obj("profile").obj("currentLevels").obj("speaky")
+                .obj("skills").obj("grammar").text("level"))
+        }
+    }
+
+    @Test fun assessmentWritesEvidenceBoundStateWithoutChangingSelfReport() = runTest {
+        store { s, clock ->
+            val catalog = catalogFixture()
+            val grammarTopic = catalog.topics.first { it.skillId == "grammar" }.id
+            LearningCatalog(s.database).import(LearningCatalogModel.document(catalog).toString())
+            LearningCatalog(s.database).publish(catalog.version, "synthetic", "test fixture only")
+            val l = lesson(s, "101", clock.value)
+            val a = open(s, "101", l.text("id"), clock.value)
+            ready(s, l, a)
+            val sources = listOf("I work here", "I live nearby").mapIndexed { index, body ->
+                s.op(a.text("scope"), "voice.append", JsonObject(voice(l, a) + json(
+                    "sourceId" to "u$index", "role" to "user", "body" to body,
+                    "occurredAt" to clock.value.plusSeconds(index.toLong()).toString(),
+                    "metadata" to json("finality" to "final"))))
+            }
+            s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "end_button")))
+            val operator = s.identity.issue(l.text("student_id"), "operator")
+            val prior = s.op(operator, "learning.update", json("expectedRevision" to 0,
+                "patch" to json("currentLevels" to json("selfAssessment" to json("skills" to json(
+                    "listening" to json("level" to "B2", "explanation" to "Student report"))))),
+                "component" to "onboarding", "sources" to JsonArray(listOf(json(
+                    "type" to "event", "id" to sources.first().text("eventId"),
+                    "revision" to sources.first().number("sequence"))))))
+            val observe = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
+            val documents = sources.mapIndexed { index, source ->
+                JsonObject(observationFixture(source.text("eventId"), source.number("sequence")) + json(
+                    "attemptId" to source.text("eventId"), "evidenceSlot" to "grammar-$index",
+                    "lessonId" to l.text("id"), "occurredAt" to clock.value.plusSeconds(index.toLong()).toString(),
+                    "catalogVersion" to catalog.version, "topicId" to grammarTopic, "practice" to "trial",
+                    "provenance" to json("component" to "trial-observation-extractor", "analyzerVersion" to "trial-observation-v1")))
+            }
+            s.op(operator, "job.apply", json("jobId" to observe.text("id"), "fence" to observe.number("fence"),
+                "result" to json("schemaVersion" to 1, "observations" to JsonArray(documents))))
+            val items = s.learningObservations(operator, mapOf("lessonId" to l.text("id")))["items"]!!.jsonArray
+            val refs = JsonArray(items.map { item -> json("id" to item.jsonObject.text("id"),
+                "revision" to item.jsonObject.number("revision")) })
+            val assess = s.op(operator, "job.claim", json("kind" to "trial.assess")).obj("job")
+            val unknown = json("level" to "Unknown", "explanation" to "Insufficient evidence", "observationRefs" to JsonArray(emptyList()))
+            val grammar = json("level" to "A2", "explanation" to "Two independent grammar demonstrations; preliminary", "observationRefs" to refs)
+            val result = json("schemaVersion" to 1, "catalogVersion" to catalog.version,
+                "baseLearningRevision" to prior.number("revision"), "observationRefs" to refs,
+                "levels" to json("overall" to unknown, "speaking" to unknown, "listening" to unknown,
+                    "grammar" to grammar, "vocabulary" to unknown), "topics" to JsonArray(listOf(json(
+                    "topicId" to grammarTopic, "status" to "Known", "explanation" to "Two independent correct Trial attempts",
+                    "observationRefs" to refs))), "coverage" to json("active" to 2,
+                    "usableWithoutTopic" to 0, "uncertain" to 0, "nonIndependent" to 0))
+            val invalid = JsonObject(result + json("topics" to JsonArray(listOf(json(
+                "topicId" to "invented-topic", "status" to "Known", "explanation" to "Invalid ID",
+                "observationRefs" to refs)))))
+            assertEquals("catalog_topic_not_found", assertFailsWith<FoundationFailure> {
+                s.op(operator, "job.apply", json("jobId" to assess.text("id"),
+                    "fence" to assess.number("fence"), "result" to invalid))
+            }.code)
+            assertEquals(prior.number("revision"), s.learningState(operator).number("revision"))
+            assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to assess.text("id"),
+                "fence" to assess.number("fence"), "result" to result)).text("status"))
+            val state = s.learningState(operator)
+            assertEquals("A2", state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("grammar").text("level"))
+            assertEquals("Unknown", state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("listening").text("level"))
+            assertEquals("B2", state.obj("profile").obj("currentLevels").obj("selfAssessment").obj("skills").obj("listening").text("level"))
+            assertEquals("post-trial-assessment", state.obj("provenance").obj("currentLevels.speaky.skills.grammar.level").text("component"))
+            assertEquals("Known", s.topicKnowledge(operator, catalog.version, grammarTopic, 0, false)
+                ["items"]!!.jsonArray.single().jsonObject.text("status"))
+            assertEquals("succeeded", events(s, l, operator).text("assessmentStatus"))
+            items.forEach { item ->
+                val row = item.jsonObject
+                s.op(operator, "learning.observation.invalidate", json("observationId" to row.text("id"),
+                    "expectedRevision" to row.number("revision"), "component" to "trial-source-correction",
+                    "reason" to "Corrected source no longer supports the observation"))
+            }
+            s.database.transaction { c, now -> c.enqueueJob(l.text("student_id"), "trial.assess",
+                "fixture-reassessment", l.text("id"), json("transcriptRevision" to assess.obj("input_refs").number("transcriptRevision"),
+                    "observationJobId" to observe.text("id"), "catalogVersion" to catalog.version), now) }
+            val reassess = s.op(operator, "job.claim", json("kind" to "trial.assess")).obj("job")
+            val reset = json("schemaVersion" to 1, "catalogVersion" to catalog.version,
+                "baseLearningRevision" to state.number("revision"), "observationRefs" to JsonArray(emptyList()),
+                "levels" to json("overall" to unknown, "speaking" to unknown, "listening" to unknown,
+                    "grammar" to unknown, "vocabulary" to unknown), "topics" to JsonArray(listOf(json(
+                    "topicId" to grammarTopic, "status" to "Unknown",
+                    "explanation" to "Earlier Trial evidence is no longer active", "observationRefs" to JsonArray(emptyList())))),
+                "coverage" to json("active" to 0, "usableWithoutTopic" to 0, "uncertain" to 0, "nonIndependent" to 0))
+            assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to reassess.text("id"),
+                "fence" to reassess.number("fence"), "result" to reset)).text("status"))
+            assertEquals("Unknown", s.learningState(operator).obj("profile").obj("currentLevels").obj("speaky")
+                .obj("skills").obj("grammar").text("level"))
+            assertEquals("Unknown", s.topicKnowledge(operator, catalog.version, grammarTopic, 0, false)
+                ["items"]!!.jsonArray.single().jsonObject.text("status"))
+            assertEquals(2, s.topicKnowledge(operator, catalog.version, grammarTopic, 0, true)["items"]!!.jsonArray.size)
         }
     }
 

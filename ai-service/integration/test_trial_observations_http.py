@@ -11,6 +11,7 @@ import pytest
 
 from app.foundation_client import FoundationClient
 from app.trial_observations import TrialObservationExtractor
+from app.trial_assessment import TrialAssessment
 from test_foundation_http import actor, now
 from test_trial_v55_http import init_data
 
@@ -56,3 +57,19 @@ async def test_completed_trial_raw_events_become_scoped_observations_without_lis
         assert items[0]['evidenceUsable'] is True
         assert (await backend.command(scope, 'apply-' + job['id'], 'job.apply', {
             'jobId': job['id'], 'fence': job['fence'], 'result': result})) == applied
+        assessment_job = (await backend.command(owner['scope'], uuid4().hex, 'job.claim',
+                                                {'kind': 'trial.assess'}))['job']
+        assert assessment_job['input_refs']['observationJobId'] == job['id']
+        response = await http.post(root + '/test/job-scope', headers={'X-Test-Token': token}, json=assessment_job)
+        response.raise_for_status()
+        assessment_scope = response.json()['scope']
+        assessment_model = SimpleNamespace(complete_json=AsyncMock())
+        assessment = await TrialAssessment(backend, assessment_model).assess(
+            assessment_scope, lesson['id'], assessment_job['input_refs'])
+        assert assessment['levels']['grammar']['level'] == 'Unknown'
+        assessment_model.complete_json.assert_not_awaited()
+        assert (await backend.command(assessment_scope, 'apply-' + assessment_job['id'], 'job.apply', {
+            'jobId': assessment_job['id'], 'fence': assessment_job['fence'], 'result': assessment}))['status'] == 'succeeded'
+        assert (await backend.trial_events(owner['scope'], lesson['id']))['assessmentStatus'] == 'succeeded'
+        profile = (await backend.learning_state(owner['scope']))['profile']['currentLevels']
+        assert profile['speaky']['skills']['listening']['level'] == 'Unknown'

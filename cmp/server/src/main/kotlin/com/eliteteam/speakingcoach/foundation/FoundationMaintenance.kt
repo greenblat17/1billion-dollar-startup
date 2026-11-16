@@ -117,7 +117,7 @@ internal class FoundationMaintenance {
         val inputs = job.obj("input_refs")
         if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
                 inputs.number("learningRevision") != connection.learningRevision(scope.studentId))) reject("stale_job")
-        if (job.text("kind") in setOf("lesson.evaluate", "trial.observe") && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
+        if (job.text("kind") in setOf("lesson.evaluate", "trial.observe", "trial.assess") && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
         connection.update("UPDATE foundation_job SET status='queued',due_at=?,max_attempts=attempts+3,error_code=NULL WHERE id=?", now, job.text("id"))
         return json("queued" to true)
     }

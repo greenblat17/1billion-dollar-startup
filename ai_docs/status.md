@@ -1,6 +1,21 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. SP-02–06, SP-12A/B, SP-13A и SP-17A/B объединены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Волна 3 собрана из отдельных веток от `2487b22`; merge и deploy не выполнялись. Сведения о прежней поставке ниже относятся к историческим проверкам.
+Срез документации: 2026-11-17. Волны 1–4, включая SP-07, SP-13B и SP-19A, объединены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Merge и deploy не выполнялись. Волны 5–9 ещё не начаты. Волны 10–11 исключены из текущего поручения.
+
+## Совместная интеграция волны 4
+
+SP-07 запускает отдельную диагностику после успешного `trial.observe`. Она сохраняет
+предварительные CEFR и Topic Knowledge через SP-03; системный Listening остаётся Unknown.
+SP-13B готовит материал по Task/Stage через SP-13A и отклоняет его при неудачной
+семантической проверке. SP-19A хранит Stage Score и Task Progress по типизированным
+fixture-событиям; реальный Observation consumer остаётся SP-19B.
+
+Локально после объединения прошли 737 Python, 328 Kotlin unit, 121 PostgreSQL integration
+и 15 HTTP тестов Python → Ktor → PostgreSQL. `buildFatJar`, `detekt` и миграция V58
+прошли. Тестовая PostgreSQL 14.10 и Ktor harness использовались изолированно.
+Живая модель, Voice Agent, Telegram, DEV/PROD и сквозной Roadmap не проверены.
+Три старых timeout и один `introduction.claim` сбой в CI волны 3 требуют повторной
+проверки после закрепления PostgreSQL-клиента 16 и runner Ubuntu 24.04.
 
 ## Совместная интеграция волны 3
 
@@ -63,8 +78,8 @@ DEV/PROD и полная цепочка Trial → Assessment → Roadmap не п
 `sourceEventId/sourceSequence` и возвращает только Speaking, Grammar, Vocabulary.
 Ktor применяет batch через SP-17A `LearningObservations` в одной транзакции,
 сохраняет ревизии, отклоняет устаревший результат и не допускает Listening.
-`GET /trial/events` показывает `observationStatus`; `assessmentStatus` остаётся
-`not_implemented` до SP-07. Listening после Trial имеет системный CEFR Unknown;
+`GET /trial/events` показывает `observationStatus`; `assessmentStatus` теперь
+обновляется SP-07. Listening после Trial имеет системный CEFR Unknown;
 самооценка хранится отдельно. Ни Roadmap, ни Plan, ни Content не создаются.
 
 Локально прошли Python unit suite (708), новый extractor suite (4),

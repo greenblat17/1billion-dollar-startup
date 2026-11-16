@@ -119,6 +119,17 @@ class FoundationClient:
         path = '/learning-tasks/' + quote(task_id, safe='') + ('/history' if history else '')
         return await self._task_request(path, scope, params={'offset': str(offset)} if history else {})
 
+    async def learning_score(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:
+        """Read SP-19A Stage state; real Observation writes are owned by SP-19B."""
+        from urllib.parse import quote
+        path = '/learning-tasks/' + quote(task_id, safe='') + '/score'
+        if history:
+            path += '/history'
+        result = await self._request('GET', path, scope, params={'offset': str(offset)} if history else {})
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_score_schema', 502)
+        return result
+
     async def _task_request(self, path: str, scope: str, **kwargs) -> dict:
         result = await self._request('GET', path, scope, **kwargs)
         if result.get('schemaVersion') != 1:

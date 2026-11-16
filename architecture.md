@@ -474,7 +474,8 @@ ASR confidence остаётся null; детектор ASR ошибок отсу
 Retention и privacy cleanup включают новую таблицу. Архивирование до пересылки сохраняется.
 
 Новый Trial использует memory-only extraction; backend запрещает старые educational observations/notes,
-а старый RoadmapPreparation исключает Trial v5.5. CEFR/Roadmap delivery ожидают SP-07/08/11A.
+а старый RoadmapPreparation исключает Trial v5.5. Первичный CEFR формирует SP-07 после
+Observations; Roadmap и Telegram delivery ожидают SP-08/11A.
 Контракт, ограничения и обязательный список последующего удаления legacy — [Trial v5.5](ai_docs/integrations/trial-v55.md).
 
 ## Observation Contract & Core: SP-17A v5.5
@@ -514,4 +515,6 @@ Ktor применяет весь результат в транзакции че
 ownership и текущей transcript revision. Источник Observation — `sourceEventId/sourceSequence`;
 raw `eventId/revision` остаются транспортной identity. Повтор job не создаёт вторую запись;
 изменение интерпретации сохраняет history, исчезнувшие свидетельства invalidated.
-Trial не определяет CEFR или Listening; SP-07 и отдельная проверка Listening остаются следующими этапами.
+Trial не озвучивает CEFR и не измеряет Listening. После успешного Observation batch
+`trial.assess` формирует предварительный CEFR для наблюдавшихся Skills и Topic Knowledge;
+системный Listening остаётся Unknown. Подробный [SP-07 handoff](ai_docs/integrations/trial-assessment.md).

@@ -29,6 +29,7 @@ from app.trial_audio import TrialAudioStore
 from app.trial_api import install_trial_api
 from app.trial_tools import TrialTutorModel
 from app.trial_observations import TrialObservationExtractor
+from app.trial_assessment import TrialAssessment
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -51,7 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     extractor = PersonalCandidateExtractor(LearnerModel(OpenAiChatModel(model_client, settings.llm_model),
                                                       person_memory_model=settings.person_memory_model))
     learning = LearningEngine(backend, contexts, extractor=extractor, planner=LessonPlanner(voice_model), analyzer=TrialAnalyzer(voice_model), roadmap=RoadmapPlanner(voice_model),
-                              trial_observations=TrialObservationExtractor(backend, voice_model))
+                              trial_observations=TrialObservationExtractor(backend, voice_model),
+                              trial_assessment=TrialAssessment(backend, voice_model))
     audio_store = TrialAudioStore(settings.trial_audio_bucket, settings.trial_s3_endpoint) if settings.trial_audio_bucket else None
 
     @asynccontextmanager

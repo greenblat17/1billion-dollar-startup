@@ -88,13 +88,16 @@ internal class TrialCallEvents {
         val observationStatus = c.document("""SELECT to_jsonb(j) FROM foundation_job j WHERE j.student_id=? AND j.target_id=?
             AND j.kind='trial.observe' AND j.input_refs->>'transcriptRevision'=? ORDER BY j.created_at DESC LIMIT 1""",
             scope.studentId, lesson.text("id"), lesson.number("transcript_revision").toString())?.text("status") ?: "not_started"
+        val assessmentStatus = c.document("""SELECT to_jsonb(j) FROM foundation_job j WHERE j.student_id=? AND j.target_id=?
+            AND j.kind='trial.assess' AND j.input_refs->>'transcriptRevision'=? ORDER BY j.created_at DESC LIMIT 1""",
+            scope.studentId, lesson.text("id"), lesson.number("transcript_revision").toString())?.text("status") ?: "not_started"
         return json("schemaVersion" to 1, "lesson" to lesson, "execution" to TrialExecution().state(c, lesson, now),
             "events" to JsonArray(rows.take(100).map { row -> json(
                 "eventId" to row.text("id"), "sourceEventId" to row["source_event_id"], "sourceSequence" to row["sourceSequence"],
                 "lessonId" to row.text("lesson_id"), "callSessionId" to row.text("call_session_id"),
                 "revision" to row.number("revision"), "kind" to row.text("kind"), "occurredAt" to row.text("occurred_at"),
                 "body" to row["body"], "sourceContentAvailable" to row["sourceContentAvailable"], "metadata" to row.obj("metadata")) }), "nextOffset" to if (rows.size > 100) offset + 100 else null,
-            "assessmentStatus" to "not_implemented", "observationStatus" to observationStatus)
+            "assessmentStatus" to assessmentStatus, "observationStatus" to observationStatus)
     }
 
     fun audio(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {

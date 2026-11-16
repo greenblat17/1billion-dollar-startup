@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "trial.observe", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -31,7 +31,7 @@ internal class FoundationJobs {
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
-               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'roadmap.prepare' THEN 2 ELSE 3 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
+               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'trial.assess' THEN 2 WHEN 'roadmap.prepare' THEN 3 ELSE 4 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
         ) ?: return json("job" to null)
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
@@ -98,7 +98,8 @@ internal class FoundationJobs {
             "schedule.materialize", "notification.reminder" -> BackgroundContracts().apply(connection, scope, job, result, now)
             "roadmap.prepare" -> RoadmapPreparation().apply(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), inputs, result, now)
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
-            "trial.observe" -> observeTrial(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
+            "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
                 result.only("candidates")
@@ -124,7 +125,7 @@ internal class FoundationJobs {
         }
         val status = if (applied) "succeeded" else "superseded"
         connection.update("UPDATE foundation_job SET status=?,lease_until=NULL,result=?::jsonb WHERE id=?", status,
-            if (job.text("kind") == "roadmap.prepare" && applied) result else null, job.text("id"))
+            if (job.text("kind") in setOf("roadmap.prepare", "trial.assess") && applied) result else null, job.text("id"))
         connection.update("UPDATE foundation_job_attempt SET finished_at=?,outcome=? WHERE job_id=? AND fence=?", now, status, job.text("id"), job.number("fence"))
         return json("status" to status)
     }
@@ -149,6 +150,8 @@ internal class FoundationJobs {
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
         val items = result["observations"] as? JsonArray ?: reject("invalid_result")
         if (items.size > 80) reject("invalid_result")
+        val catalogVersions = items.map { (it as? JsonObject ?: reject("invalid_result")).text("catalogVersion") }.toSet()
+        if (catalogVersions.size > 1) reject("invalid_result")
         val writer = LearningObservations(learningPlanObservationStage)
         val operator = scope.copy(role = "operator")
         val seen = mutableSetOf<Pair<String, String>>()
@@ -175,6 +178,14 @@ internal class FoundationJobs {
             writer.invalidate(c, operator, json("observationId" to it.text("id"), "expectedRevision" to it.number("revision"),
                 "component" to "trial-observation-extractor", "reason" to "No longer supported by current Trial analysis"), now)
         }
+        val catalogVersion = catalogVersions.firstOrNull() ?: c.document("""SELECT result FROM foundation_job
+            WHERE student_id=? AND target_id=? AND kind='trial.assess' AND status='succeeded' AND result IS NOT NULL
+            ORDER BY created_at DESC LIMIT 1""", scope.studentId, lessonId)?.optionalText("catalogVersion")
+            ?: c.document("SELECT to_jsonb(x) FROM learning_catalog_current x WHERE singleton=TRUE")?.text("version")
+            ?: reject("catalog_not_published")
+        c.enqueueJob(scope.studentId, "trial.assess", "$lessonId:${inputs.number("transcriptRevision")}:post-trial-assessment-v1", lessonId,
+            json("transcriptRevision" to inputs.number("transcriptRevision"), "observationJobId" to scope.jobId,
+                "catalogVersion" to catalogVersion), now)
         return true
     }
 
