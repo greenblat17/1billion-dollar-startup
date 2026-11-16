@@ -8,7 +8,10 @@ Telegram служит перепиской; приложение в целево
 | Вопрос | Документ |
 | --- | --- |
 | Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |
+| SP-17B: Trial → Observations | [Контракт](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
 | SP-12A v5.5: Task Learning Plan / Stage | [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |
+| SP-12B v5.5: шаблоны методов и переходы Plan | [Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы), [утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md), [готовность](status.md#sp-12b-v55-педагогическая-логика) |
+| SP-13A v5.5: Learning Content Contract | [Контракт и handoff](integrations/learning-content.md), [план](plans/2026-11-16-sp13a-content-contract.md), [примеры](../content-contract/v1/examples.json) |
 | Новый SP-02: учебные каталоги | [Темы по CEFR и навыку](product/2026-11-15-learning-catalog-review.md), [исходный JSON](../learning-catalog/v1/catalog.json), [готовность](status.md#новый-sp-02-v55-учебные-каталоги) |
 | Новый SP-04 v5.5: Learning Tasks | [Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55) |
 | Новый SP-03 v5.5: учебное состояние | [Утверждённый план](plans/2026-11-15-sp03-student-learning-state.md), [контракт и владение данными](../architecture.md#student-learning-state-sp-03-v55) |

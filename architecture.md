@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02–06/SP-12A/SP-17A v5.5.
+Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02–06/SP-12A/SP-12B/SP-13A/SP-17A/SP-17B v5.5.
 Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -402,7 +402,11 @@ Plan не заменяет существующие `lesson_plan`, `LessonPlanne
 Один Stage на выбранный Teaching Method: Conversation, Explanation, Exercises, Exposure.
 Numeric weights неотрицательны, сумма точно 1 при наличии numeric stages; binary condition
 `understanding_demonstrated` не имеет веса. В Plan входят только необходимые методы (`required=true`).
-Состав по Problem выбирает будущая SP-12B; SP-12A не генерирует материал и не считает Score.
+Состав по Problem выбирает Python `PedagogicalPlanner` SP-12B по шести утверждённым базовым
+шаблонам Skill+Problem и опубликованному каталогу. Он создаёт Plan через SP-12A, возвращает
+`template_missing` без записи и даёт правило планового перехода по готовому результату SP-19.
+Веса заданы в шаблонах; LLM не выбирает их. Отказ не сдвигает cursor. SP-12B не считает Score
+или Progress и не создаёт материал SP-13. Вызов из живого урока ожидает интеграции SP-16/19.
 
 StageRef — `taskId + planId + planRevision + stageId`. Исторический resolver проверяет владельца,
 Task и membership в указанной revision, включая удалённые из текущей версии этапы.
@@ -414,6 +418,28 @@ Create/revise атомарно обновляют Plan и Task.details.plan по
 Plan не содержит личного текста/материалов. Полный reset/delete/learning.forget/deletion replay удаляет
 его вместе с Task по FK cascade; personal forget и retention сохраняют учебную структуру.
 Подробный [контракт API и handoff](ai_docs/integrations/learning-plan.md), [проверки](ai_docs/status.md).
+
+## Learning Content Contract: SP-13A v5.5
+
+`LearningContentModel` проверяет единый документ для Explanation, Exercises, Exposure и
+Conversation: Task/Topic/Problem, исторический StageRef, метод, формат действия, короткое
+голосовое условие и описание допустимых ответов. Это описание задания, не автоматическая
+оценка ответа ученика. Реальную генерацию/семантическую проверку выполняет будущий SP-13B;
+AI во время SP-14/15 решает по фактическому ответу, SP-17C пишет Observation, SP-19 считает Score.
+
+V55 хранит `learning_content` и неизменяемые документы `learning_content_revision`.
+`contentId + revision` показывает ровно то условие, которое было выдано ученику; исправление
+создаёт новую revision. Статусы revision — prepared/issued/defective. Выдача требует
+`validation.status=passed` от trusted operator, текущий Task/Plan/Stage и regular Lesson того
+же ученика. SP-13A проверяет форму и ссылки, но не заявляет, что проверка языкового качества
+уже реализована. Старый Content читается по прежней Plan revision после изменения Plan;
+новая подготовка не использует устаревший StageRef. Content не меняет Plan, Score или Progress.
+
+Команды create/revise/issue/mark-defective и GET current/revision/history доступны через
+internal foundation API и Python FoundationClient; запись пока только operator. Personal forget
+удаляет Content ученика, сохраняя Task/Plan. Полный learning reset, новый `/start` и delete
+удаляют его каскадом от Task. Контракт и границы — в
+[handoff](ai_docs/integrations/learning-content.md); готовность и проверки — в [status](ai_docs/status.md).
 
 ## Telegram Onboarding: SP-05 v5.5
 
@@ -443,12 +469,12 @@ user source, evidence, revision и allowlist нагрузки, затем пиш
 CEFR, Topic Knowledge, Homework assignment и расписание этим tools недоступны.
 
 `TrialCallEvents` хранит ссылки на conversation_event, техническую identity/revision и transport metadata.
-`TrialEventRoutes` отдаёт scoped paginated raw events и реальный audio manifest для будущего SP-17B.
+`TrialEventRoutes` отдаёт scoped paginated raw events и реальный audio manifest для SP-17B.
 ASR confidence остаётся null; детектор ASR ошибок отсутствует. Transcript correction сохраняет source identity.
 Retention и privacy cleanup включают новую таблицу. Архивирование до пересылки сохраняется.
 
 Новый Trial использует memory-only extraction; backend запрещает старые educational observations/notes,
-а старый RoadmapPreparation исключает Trial v5.5. CEFR/Observations/Roadmap delivery ожидают SP-17B/07/08/11A.
+а старый RoadmapPreparation исключает Trial v5.5. CEFR/Roadmap delivery ожидают SP-07/08/11A.
 Контракт, ограничения и обязательный список последующего удаления legacy — [Trial v5.5](ai_docs/integrations/trial-v55.md).
 
 ## Observation Contract & Core: SP-17A v5.5
@@ -475,6 +501,17 @@ SP-03 принимает новый source type `learning_observation` с observ
 удаляют журнал. Retention показывает недоступность источников, но сам не меняет оценки знаний.
 
 Прежний `memory_observation`/post-call pipeline сохранён. Автоматического backfill или второго классификатора нет.
-Реальный Trial producer — SP-17B; Teaching Actions и regular Topic Knowledge inference — SP-17C;
+Реальный Trial producer подключён в SP-17B; Teaching Actions и regular Topic Knowledge inference — SP-17C;
 Score — SP-18/19, применение регулярных выводов — SP-20. Запись evidence не меняет эти состояния.
 [Точный контракт, примеры и ограничения интеграции](ai_docs/integrations/learning-observations.md).
+
+## Trial → Observations: SP-17B v5.5
+
+Завершение Trial ставит отдельный `trial.observe` job рядом с memory-only `lesson.evaluate`.
+`TrialObservationExtractor` читает сохранённые raw events через `FoundationClient`, берёт финальные
+реплики и опубликованный каталог. Его typed результат содержит только Speaking, Grammar и Vocabulary.
+Ktor применяет весь результат в транзакции через `LearningObservations` с проверкой источников,
+ownership и текущей transcript revision. Источник Observation — `sourceEventId/sourceSequence`;
+raw `eventId/revision` остаются транспортной identity. Повтор job не создаёт вторую запись;
+изменение интерпретации сохраняет history, исчезнувшие свидетельства invalidated.
+Trial не определяет CEFR или Listening; SP-07 и отдельная проверка Listening остаются следующими этапами.

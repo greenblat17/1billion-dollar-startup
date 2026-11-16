@@ -179,6 +179,43 @@ class TrialIntegrationTestV55 {
         }
     }
 
+    @Test fun completedTrialObservationJobAppliesRealSourceOnceAndRejectsListening() = runTest {
+        store { s, clock ->
+            val catalog = catalogFixture()
+            LearningCatalog(s.database).import(LearningCatalogModel.document(catalog).toString())
+            LearningCatalog(s.database).publish(catalog.version, "synthetic", "test fixture only")
+            val l = lesson(s, "100", clock.value)
+            val a = open(s, "100", l.text("id"), clock.value)
+            ready(s, l, a)
+            val source = s.op(a.text("scope"), "voice.append", JsonObject(voice(l, a) + json(
+                "sourceId" to "u1", "role" to "user", "body" to "I work here",
+                "occurredAt" to clock.value.toString(), "metadata" to json("finality" to "final"))))
+            s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "end_button")))
+            val operator = s.identity.issue(l.text("student_id"), "operator")
+            val job = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
+            assertEquals("trial-observation-v1", job.obj("input_refs").text("analyzerVersion"))
+            val document = JsonObject(observationFixture(source.text("eventId"), source.number("sequence")) + json(
+                "attemptId" to source.text("eventId"), "evidenceSlot" to "grammar-example",
+                "lessonId" to l.text("id"), "occurredAt" to clock.value.toString(),
+                "catalogVersion" to catalog.version, "practice" to "trial",
+                "provenance" to json("component" to "trial-observation-extractor", "analyzerVersion" to "trial-observation-v1")))
+            val listening = JsonObject(document + json("skillId" to "listening"))
+            assertEquals("invalid_result", assertFailsWith<FoundationFailure> {
+                s.op(operator, "job.apply", json("jobId" to job.text("id"), "fence" to job.number("fence"),
+                    "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document, listening)))))
+            }.code)
+            assertTrue(s.learningObservations(operator)["items"]!!.jsonArray.isEmpty())
+            val args = json("jobId" to job.text("id"), "fence" to job.number("fence"),
+                "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document))))
+            assertEquals("succeeded", s.op(operator, "job.apply", args, "apply-trial-once").text("status"))
+            assertEquals("succeeded", s.op(operator, "job.apply", args, "apply-trial-once").text("status"))
+            val items = s.learningObservations(operator, mapOf("lessonId" to l.text("id")))["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals("grammar", items.single().jsonObject.obj("document").text("skillId"))
+            assertEquals("true", items.single().jsonObject.text("evidenceUsable"))
+        }
+    }
+
     @Test fun resetDeletesRawTransportWithoutForeignKeyOrReplayLeak() = runTest {
         store { s, clock ->
             val l = lesson(s, "100", clock.value)

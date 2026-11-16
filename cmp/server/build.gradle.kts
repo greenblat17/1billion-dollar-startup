@@ -51,6 +51,7 @@ tasks.test {
     exclude("**/LearningObservationsIntegrationTest*")
     exclude("**/LearningTasksIntegrationTest*")
     exclude("**/LearningPlansIntegrationTest*")
+    exclude("**/LearningContentIntegrationTest*")
     exclude("**/StudentLearningIntegrationTest*")
     exclude("**/LearningCatalogIntegrationTest*")
     exclude("**/FoundationIntegrationTest*")
@@ -66,6 +67,7 @@ val foundationIntegrationTest by tasks.registering(Test::class) {
     include("**/LearningTasksIntegrationTest*")
     include("**/LearningObservationsIntegrationTest*")
     include("**/LearningPlansIntegrationTest*")
+    include("**/LearningContentIntegrationTest*")
     include("**/StudentLearningIntegrationTest*")
     include("**/LearningCatalogIntegrationTest*")
     outputs.upToDateWhen { false }

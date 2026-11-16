@@ -1,7 +1,44 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-16. Новые SP-02–05 объединены локально в ветке `bb/sp-02-05-v5-5` на базе `origin/dev` `6b3dfbe`. Сведения о прежней поставке ниже относятся к историческим проверкам.
-Ветка опубликована в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; merge и deploy не выполнялись.
+Срез документации: 2026-11-17. SP-02–06, SP-12A/B, SP-13A и SP-17A/B объединены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Волна 3 собрана из отдельных веток от `2487b22`; merge и deploy не выполнялись. Сведения о прежней поставке ниже относятся к историческим проверкам.
+
+## Совместная интеграция волны 3
+
+Локально прошли 722 Python unit, 324 Kotlin unit, 119 PostgreSQL integration и 15 HTTP
+сценариев Python → Ktor → PostgreSQL. Дополнительный HTTP тест проверил передачу StageRef
+из реального SP-12B Plan в SP-13A Content. `buildFatJar`, `detekt` и Flyway V55 прошли;
+тестовый Ktor и отдельная PostgreSQL 14.10 остановлены. Каталог и ответы модели в проверках
+синтетические; качество живой классификации Trial и генерации материала не подтверждено.
+
+В Notion SP-12B подтверждены 3/5 AC (адаптация во время урока и завершение Stage ждут SP-16/19),
+SP-17B — 4/5 (потребление SP-07 ещё не реализовано), SP-13A — 5/5 на уровне контракта.
+Галочки не означают готовности всей SP-12, SP-13 или SP-17.
+
+## Новый SP-13A: Learning Content Contract
+
+После интервью пользователь явно разрешил реализацию 2026-11-17. Изолированная ветка
+`bb/sp-13a-content-contract-thr_i92t3guqfy` основана на `2487b22` из draft PR #58;
+её результат включён в PR, но ещё не поставлен на DEV/PROD.
+
+- V55 хранит Content конкретной Task и исторического Plan/Stage, неизменяемые версии текста,
+  выдачу в regular Lesson и отметку дефектной версии. Новая подготовка требует текущий StageRef;
+  старое выданное задание остаётся читаемым после изменения Plan.
+- Один документ покрывает Explanation, Exercises, Exposure и Conversation с кратким голосовым
+  условием, форматом действия и допустимыми вариантами ответа. Это описание материала;
+  SP-13A не оценивает фактический ответ ученика и не меняет Plan, CEFR, Stage Score или Progress.
+- Структуру и Task/Stage ownership проверяет Ktor. Запись пока только operator, чтение в student
+  scope; Python FoundationClient предоставляет адаптеры. `validation.status=passed` от trusted
+  producer требуется для выдачи, но реальный AI semantic validator ещё принадлежит SP-13B.
+- Personal forget удаляет сохранённый материал, сохраняя Task/Plan. Full learning reset,
+  новый `/start` и student.delete удаляют его каскадом от Task. Legacy lesson plan не менялся.
+- Локально прошли 705 Python tests, 324 Kotlin unit tests, 118 PostgreSQL integration tests,
+  2 новых HTTP Python → Ktor → PostgreSQL tests; `buildFatJar`, `detekt`, миграция V55 на
+  отдельной PostgreSQL 14.10 и проверка JSON-примеров. Тестовый каталог и Content синтетические.
+  Живая генерация/голос/ASR, SP-14/15 execution, SP-17C Observations, Score, DEV/PROD и
+  пользовательская приёмка не проверены.
+
+[Контракт и handoff](integrations/learning-content.md), [план и evidence](plans/2026-11-16-sp13a-content-contract.md),
+[синтетические примеры](../content-contract/v1/examples.json).
 
 ## Совместная интеграция волны 2
 
@@ -17,6 +54,27 @@ Observation StageRef разрешается по исторической рев
 
 Интеграция опубликована в draft PR #58; merge и deploy не выполнялись. Живой звонок, Telegram, S3, визуальная приёмка,
 DEV/PROD и полная цепочка Trial → Assessment → Roadmap не проверены.
+
+## SP-17B: Trial → Observations
+
+После утверждения пользователем SP-17B реализован в отдельной ветке от `2487b22` и включён в draft PR #58.
+Завершение Trial v5.5 ставит отдельный `trial.observe` job. Python extractor читает
+сохранённые raw events и опубликованный каталог, связывает точные цитаты с
+`sourceEventId/sourceSequence` и возвращает только Speaking, Grammar, Vocabulary.
+Ktor применяет batch через SP-17A `LearningObservations` в одной транзакции,
+сохраняет ревизии, отклоняет устаревший результат и не допускает Listening.
+`GET /trial/events` показывает `observationStatus`; `assessmentStatus` остаётся
+`not_implemented` до SP-07. Listening после Trial имеет системный CEFR Unknown;
+самооценка хранится отдельно. Ни Roadmap, ни Plan, ни Content не создаются.
+
+Локально прошли Python unit suite (708), новый extractor suite (4),
+Kotlin unit (321), PostgreSQL integration (116) и HTTP Python → Ktor → PostgreSQL (1)
+с фиксированным результатом модели. Fat JAR, detekt, относительные ссылки документации
+и `git diff --check` прошли. Новая Flyway миграция не нужна: используются V52/V53.
+Merge, deploy и живой Realtime/Telegram/S3 не выполнялись.
+Качество классификации естественной речи не доказано синтетическими тестами.
+
+[План и сценарии](plans/2026-11-16-sp17b-trial-observation-integration.md).
 
 ## Новый SP-06 v5.5: Trial Lesson
 
@@ -70,6 +128,30 @@ DEV/PROD и полная цепочка Trial → Assessment → Roadmap не п
   это не подтверждение будущей AI/Voice/Score интеграции. DEV/PROD, merge и deploy не выполнялись.
 
 [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md).
+
+## SP-12B v5.5: педагогическая логика
+
+После интервью план утверждён пользователем. Реализация из отдельной ветки
+`bb/sp-12b-pedagogical-logic-thr_fi3xp7cvaj` от `2487b22` включена в draft PR #58.
+
+- Python `PedagogicalPlanner` проверяет реальную Task и опубликованный каталог, затем создаёт SP-12A Plan
+  по одному из шести утверждённых базовых шаблонов. Методы и веса заданы заранее. Если шаблона нет,
+  возвращается `template_missing`; Task остаётся без Plan. Существующий Plan повторно не создаётся.
+- StageRef сохраняет Task/Plan/revision/Stage identity. Правило переходов использует готовый SP-19 результат:
+  выполненный binary requirement или numeric Score ≥85 двигает cursor на соседний Stage;
+  Score ≤15 даёт сигнал пересмотра и допускает явный возврат. Отказ оставляет cursor без изменений.
+  Score, Progress, completion и попытки SP-12B не выставляет.
+- Локально: полный Python набор — 717 passed, 1 стороннее предупреждение deprecation;
+  8 HTTP сценариев Python → Ktor → PostgreSQL passed, включая шесть реальных Plan и переходы.
+  Kotlin `:server:test :server:buildFatJar detekt` passed, 321 server unit tests без ошибок.
+  PostgreSQL 14.10 и каталог использовались только как отдельные синтетические тестовые ресурсы;
+  test harness и БД остановлены. Новых Flyway миграций нет.
+- В живой урок, Teaching Actions и Stage Score модуль пока не подключён: SP-16/19 и
+  последующие Action integrations впереди. Listening Trial не оценивается и не даёт Listening Observation
+  для автоматического Plan. DEV/PROD и живое качество обучения не проверены; merge/deploy не выполнялись.
+
+[Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы),
+[утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md).
 
 ## Совместная проверка SP-02–05
 

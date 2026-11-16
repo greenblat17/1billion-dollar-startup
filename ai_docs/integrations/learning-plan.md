@@ -125,3 +125,42 @@ Receipts и scope epochs очищает общий foundation privacy path.
 
 Незавершённые соседние runtime не импортируются. Реальные AI/Voice/Score интеграции проверяются в следующих SP.
 Локальные результаты и ограничения поставки — [status](../status.md).
+
+## SP-12B: педагогический выбор и переходы
+
+`ai-service/app/pedagogical_plan.py` выбирает один из шести утверждённых базовых шаблонов
+для реальной Task и опубликованной версии каталога. Перед созданием проверяются Skill/Topic/Problem,
+objective/scope Topic и принадлежность Problem тому же Skill. Личный текст, самооценка уровня
+и неизвестный CEFR не превращаются в новый Problem или метод. Шаблон отсутствует — результат
+`template_missing`, Task остаётся без Plan. LLM не задаёт состав или веса.
+
+| Problem | Stages |
+| --- | --- |
+| `grammar_unknown` | Explanation binary → Exercises 0.3 → Conversation 0.7 |
+| `grammar_application` | Exercises 0.3 → Conversation 0.7 |
+| `speaking_barrier` | Conversation 1.0 |
+| `listening_comprehension` | Exposure 1.0 |
+| `vocabulary_passive` | Exercises 1.0 |
+| `vocabulary_active` | Exercises 0.3 → Conversation 0.7 |
+
+Каждый Stage ID — имя метода в нижнем регистре. Только соседние этапы имеют прямой и обратный edge.
+`ensure_plan(scope, taskId, operationId)` читает Task и закреплённую в ней версию каталога,
+создаёт Plan с expected Task revision либо возвращает уже связанный Plan без новой записи.
+Повтор того же create с одним operationId обрабатывает receipt SP-12A; новый operationId
+для уже связанной Task читает существующий Plan. Конфликт revision требует нового чтения и решения.
+
+`stage_reference(plan, stageId)` выдаёт StageRef для SP-13A и будущего SP-19.
+`advise_stage` принимает **готовое** доказанное условие Explanation либо numeric Stage Score 0–100.
+Binary requirement → следующий этап; numeric `S≥85` → следующий этап; `S≤15` → сигнал пересмотра
+с допустимым предыдущим этапом, но возврат не автоматический. Промежуточный Score сохраняет cursor.
+`apply_stage_result` использует этот результат и фиксированный snapshot Plan; только плановый переход
+вызывает `select-stage` с expected plan/state revisions. При retry вызывающий повторяет тот же
+snapshot и operationId. Отказ оставляет cursor без изменения и возвращает `pause_task`;
+беседа может продолжиться вне Task. Просьба ученика не вызывает выбор другого Stage.
+
+SP-12B не выставляет Score, Progress, completion или новую попытку. Смена состава/весов возможна
+лишь между уроками при новом утверждённом шаблоне; в текущей версии альтернативных шаблонов
+и автоматической ревизии нет. Контекстные варианты и педагогическая проверка вынесены в
+[будущую задачу](https://app.notion.com/p/41a045c3d5768171a550e644146167a2),
+переходы по просьбе ученика — в [отдельную задачу](https://app.notion.com/p/41a045c3d576816abb4ff4f84b0405eb).
+Listening Trial не оценивается и не создаёт входного Listening Observation для SP-12B.

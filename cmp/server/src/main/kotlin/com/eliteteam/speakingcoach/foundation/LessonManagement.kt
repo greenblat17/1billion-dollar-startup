@@ -188,6 +188,8 @@ internal fun Connection.enqueueEvaluation(student: String, lesson: String, now: 
     enqueueJob(student, "lesson.evaluate", "$lesson:$revision:$analyzer", lesson,
         json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to analyzer,
             "memoryOnly" to v55), now)
+    if (v55) enqueueJob(student, "trial.observe", "$lesson:$revision:trial-observation-v1", lesson,
+        json("transcriptRevision" to revision, "analyzerVersion" to "trial-observation-v1"), now)
 }
 
 /** Relative intent is resolved once under the student lock; the receipt fixes it across retries. */

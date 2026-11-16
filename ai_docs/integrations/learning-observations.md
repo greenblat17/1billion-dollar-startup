@@ -9,7 +9,7 @@ Python wire types: `ai-service/app/learning_observations.py`. Kotlin validation:
 
 Все endpoints используют `/internal/foundation/v1`, service token и student execution scope.
 Чтение доступно существующим scoped consumers, запись SP-17A — только operator.
-Новых native tools нет; production producer будет подключён в SP-17B/C.
+Новых native tools нет; Trial producer подключён в SP-17B, regular producer остаётся SP-17C.
 
 | Операция | Аргументы |
 | --- | --- |
@@ -125,14 +125,20 @@ Provenance содержит component и optional analyzerVersion/model/promptVe
 | sourceEventId | eventId |
 | sourceSequence | revision |
 | raw eventId/raw revision | не подставлять вместо conversation source reference |
-| callSessionId/providerItemId/turnId/finality | контекст будущего SP-17B extractor |
+| callSessionId/providerItemId/turnId/finality | контекст SP-17B extractor |
 | metadata.role | role |
-| actual audio refs/playback/explicit uncertainty | дополнительные основания будущей интерпретации; не выдумывать |
+| actual audio refs/playback/explicit uncertainty | дополнительные основания интерпретации; не выдумывать |
 
 SP-06 endpoints: `/trial/events?lessonId&offset`, `/trial/audio?lessonId&cursor`.
 Provider audio offsets и archived PCM offsets имеют разные basis; автоматическое выравнивание не предполагается.
 SP-06 producer contract находится в его поставке `ai_docs/integrations/trial-v55.md`.
-SP-17B подключает их и связывает ошибку/подсказку/самокоррекцию по реальному контексту.
+SP-17B подключает их после завершения Trial через `trial.observe` и связывает ошибку,
+подсказку и самокоррекцию по сохранённым репликам. Extractor принимает только финальные
+transcript sources, выбирает точную цитату и Unicode span, проверяет каталог и отдаёт
+Speaking/Grammar/Vocabulary с `route=assessment_only`. Ktor применяет batch через
+`LearningObservations` под job fence и student lock; повтор безопасен, устаревший результат
+не применяется. `GET /trial/events` показывает отдельный `observationStatus`.
+Listening не оценивается на Trial; отсутствие Observation не означает низкий уровень.
 В SP-17A нет зависимости от V52 и реального Trial extractor.
 
 ## Исторический Plan/Stage

@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 from app.diagnostics import context_fields, diagnostic_context, event
 from app.learning_observations import LearningObservation
+from app.learning_content import LearningContentDocument
 
 
 @dataclass
@@ -195,6 +196,42 @@ class FoundationClient:
             'planId': plan_id, 'expectedPlanRevision': expected_plan_revision,
             'expectedStateRevision': expected_state_revision, 'currentStageId': current_stage_id,
             'reason': reason, 'component': component,
+        })
+
+    async def learning_content(self, scope: str, content_id: str, *, revision: int | None = None,
+                               history: bool = False, offset: int = 0) -> dict:
+        from urllib.parse import quote
+        path = '/learning-content/' + quote(content_id, safe='') + ('/history' if history else '')
+        params = {'offset': str(offset)} if history else ({'revision': str(revision)} if revision is not None else {})
+        result = await self._request('GET', path, scope, params=params)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_content_schema', 502)
+        return result
+
+    async def create_learning_content(self, scope: str, operation_id: str, *,
+                                      document: LearningContentDocument, component: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.content.create', {
+            'document': document, 'component': component,
+        })
+
+    async def revise_learning_content(self, scope: str, operation_id: str, *, content_id: str,
+                                      expected_revision: int, document: LearningContentDocument,
+                                      component: str, reason: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.content.revise', {
+            'contentId': content_id, 'expectedRevision': expected_revision, 'document': document,
+            'component': component, 'reason': reason,
+        })
+
+    async def issue_learning_content(self, scope: str, operation_id: str, *, content_id: str,
+                                     expected_revision: int, lesson_id: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.content.issue', {
+            'contentId': content_id, 'expectedRevision': expected_revision, 'lessonId': lesson_id,
+        })
+
+    async def mark_learning_content_defective(self, scope: str, operation_id: str, *, content_id: str,
+                                              revision: int, reason: str, component: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.content.mark-defective', {
+            'contentId': content_id, 'revision': revision, 'reason': reason, 'component': component,
         })
 
     async def learning_state(self, scope: str) -> dict:

@@ -35,6 +35,9 @@ internal class StudentLearningPrivacy {
         // Rationale and component-supplied explanations can paraphrase facts outside declared source links.
         c.update("UPDATE learning_observation SET document=jsonb_set(document,'{rationale}','\"\"') WHERE student_id=?", student)
         c.update("UPDATE learning_observation_revision SET reason='',document=jsonb_set(document,'{rationale}','\"\"') WHERE student_id=?", student)
+        // Generated prompts can paraphrase a forgotten fact without a reliable source link.
+        // Keep the Task/Plan structure, but discard all saved material for this student.
+        c.update("DELETE FROM learning_content WHERE student_id=?", student)
     }
 
     private fun redactProfile(c: Connection, student: String, now: Instant, affected: (JsonElement?) -> Boolean) {

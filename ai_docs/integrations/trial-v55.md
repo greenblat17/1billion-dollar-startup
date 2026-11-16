@@ -78,7 +78,7 @@ sourceSequence обновляется, чтобы прежние ссылки SP
 Реплика, действительно повторённая учеником после reconnect, — новый источник; её педагогический смысл определяет SP-17B.
 
 `turnId` — техническая опора, не доказательство одной учебной попытки. Самокоррекции, подсказки,
-независимость, Topics/Skills/Problems и достаточность данных классифицирует будущий SP-17B.
+независимость, Topics/Skills/Problems и достаточность данных классифицирует SP-17B.
 `connected`, `phase`, `ended` — отдельные lifecycle events без учебной интерпретации.
 
 ASR confidence/logprobs сейчас не получаются; null означает unknown quality, не invalid.
@@ -109,7 +109,8 @@ Retention, forget/delete/reset удаляют или очищают источн
 Это отдельный Personal Memory extractor без educational observations/notes. Backend отклоняет
 образовательные результаты для этого Trial. Старый `RoadmapPreparation` исключает v5.5 Trial.
 Старый `trialResult` не показывает memory-only результат как диагностику.
-`GET /trial/events` явно возвращает `assessmentStatus=not_implemented` до SP-17B/SP-07.
+`GET /trial/events` возвращает `observationStatus` для отдельного SP-17B job.
+`assessmentStatus=not_implemented` сохраняется до SP-07; готовые Observations ещё не являются диагнозом.
 
 Follow-up благодарит за разговор без выдуманного плана и продажи; при обрыве предлагает допустимый
 возврат или новую бесплатную запись. Полная доставка Roadmap — SP-08/11A. Релиз с обещанием плана

@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "trial.observe", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -31,7 +31,7 @@ internal class FoundationJobs {
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
-               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'roadmap.prepare' THEN 1 ELSE 2 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
+               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'roadmap.prepare' THEN 2 ELSE 3 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
         ) ?: return json("job" to null)
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
@@ -98,6 +98,7 @@ internal class FoundationJobs {
             "schedule.materialize", "notification.reminder" -> BackgroundContracts().apply(connection, scope, job, result, now)
             "roadmap.prepare" -> RoadmapPreparation().apply(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), inputs, result, now)
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "trial.observe" -> observeTrial(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
                 result.only("candidates")
@@ -137,6 +138,44 @@ internal class FoundationJobs {
             Instant.parse(job.text("lease_until")) <= now || Instant.parse(job.text("deadline")) <= now
         ) reject("stale_job")
         return job
+    }
+
+    private fun observeTrial(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject,
+                             result: JsonObject, now: Instant): Boolean {
+        result.only("schemaVersion", "observations")
+        if (result.number("schemaVersion") != 1L) reject("invalid_result")
+        val lesson = c.lesson(scope, lessonId)
+        if (!trialV55(lesson) || lesson.text("status") != "completed") reject("invalid_target")
+        if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
+        val items = result["observations"] as? JsonArray ?: reject("invalid_result")
+        if (items.size > 80) reject("invalid_result")
+        val writer = LearningObservations(learningPlanObservationStage)
+        val operator = scope.copy(role = "operator")
+        val seen = mutableSetOf<Pair<String, String>>()
+        items.forEach { item ->
+            val d = item as? JsonObject ?: reject("invalid_result")
+            if (d.text("lessonId") != lessonId || d.text("practice") != "trial" || d.text("route") != "assessment_only" ||
+                d.text("skillId") !in setOf("speaking", "grammar", "vocabulary") ||
+                d.optionalText("taskId") != null || d["stageRef"]?.let { it != kotlinx.serialization.json.JsonNull } == true ||
+                d.optionalText("actionId") != null) reject("invalid_result")
+            val key = d.text("anchorEventId") to d.text("evidenceSlot")
+            if (!seen.add(key)) reject("invalid_result")
+            val old = c.document("SELECT to_jsonb(o) FROM learning_observation o WHERE student_id=? AND anchor_event_id=? AND evidence_slot=?",
+                scope.studentId, key.first, key.second)
+            if (old == null) writer.write(c, operator, "record", json("observation" to d), now)
+            else if (old.obj("document").obj("provenance").text("component") != "trial-observation-extractor") reject("observation_identity_conflict")
+            else if (old.text("status") != "active") reject("observation_invalidated")
+            else if (canonical(old.obj("document")) != canonical(d)) writer.write(c, operator, "revise",
+                json("observationId" to old.text("id"), "expectedRevision" to old.number("revision"),
+                    "observation" to d, "reason" to "Trial source revision or analysis changed"), now)
+        }
+        val obsolete = c.documents("SELECT to_jsonb(o) FROM learning_observation o WHERE student_id=? AND lesson_id=? AND status='active' AND document->'provenance'->>'component'='trial-observation-extractor'",
+            scope.studentId, lessonId)
+        obsolete.filter { (it.text("anchor_event_id") to it.text("evidence_slot")) !in seen }.forEach {
+            writer.invalidate(c, operator, json("observationId" to it.text("id"), "expectedRevision" to it.number("revision"),
+                "component" to "trial-observation-extractor", "reason" to "No longer supported by current Trial analysis"), now)
+        }
+        return true
     }
 
     private fun evaluate(connection: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
