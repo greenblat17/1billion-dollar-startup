@@ -67,6 +67,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
     }
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
+        "learning.task.create" -> LearningTasks().create(connection, scope, args, now)
+        "learning.task.update", "learning.task.transition", "learning.task.progress" ->
+            LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
         "learning.update" -> StudentLearningState().update(connection, scope, args, now)
         "learning.topic.record" -> StudentTopicKnowledge().record(connection, scope, args, now)
         "learning.forget" -> maintenance.forgetLearning(connection, scope, args, now)
@@ -176,6 +179,19 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             "analysisSourceTruncated" to (analysisSources.size > 1000), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }
+
+    suspend fun learningTasks(token: String, topic: String?, problem: String?, state: String?, offset: Int): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            LearningTasks().list(c, scope.studentId, topic, problem, state, offset)
+        }
+
+    suspend fun learningTask(token: String, id: String, history: Boolean = false, offset: Int = 0): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            if (history) LearningTasks().history(c, scope.studentId, id, offset, now)
+            else json("schemaVersion" to 1, "task" to LearningTasks().get(c, scope.studentId, id))
+        }
 
     suspend fun learningState(token: String): JsonObject = database.transaction(readOnly = true) { c, now ->
         val scope = authenticateScope(c, token, now)

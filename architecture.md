@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02/SP-03 v5.5.
+Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02/SP-03/SP-04 v5.5.
 Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -343,3 +343,47 @@ ContextBuilder передаёт их независимо от MemorySelector, �
 Onboarding, Post-Trial Assessment и Post-Lesson Review ещё не заполняют новую модель автоматически.
 Новый UI, педагогические переходы и назначение Homework не входят в SP-03.
 [Утверждённый план](ai_docs/plans/2026-11-15-sp03-student-learning-state.md), [проверки и поставка](ai_docs/status.md).
+
+
+## Learning Tasks: SP-04 v5.5
+
+`LearningTasks` в Ktor хранит персональную учебную работу отдельно от Topic Knowledge.
+V51 добавляет `learning_task` и `learning_task_history`. Task связывает Student, ревизию существующей
+цели SP-03 и совместимые Skill/Topic/Problem опубликованной версии SP-02. Каталоговая версия
+закрепляется при создании; новая публикация не создаёт новую Task для тех же стабильных ID.
+
+Новая Task всегда Identified/0. Поддерживаются переходы Identified → In Progress → Mastered → Reopened → In Progress.
+Смена состояния не обнуляет Plan/Progress. SP-04 принимает внешний Progress 0–100 и decisionId,
+но не вычисляет Stage Score, пороги или педагогическую достаточность Mastered.
+Progress=100 не завершает Task автоматически; Task Mastered не меняет Topic Knowledge.
+
+`details` содержит nullable целочисленный priority, nullable plan reference и массивы actions/homework references.
+Ссылки имеют `{id, revision?}`; это непрозрачные идентификаторы будущих доменов, без их контента и статусов.
+Реальная проверка существования Plan/Action/Homework добавляется владельцами этих доменов при интеграции;
+сами ссылки не предоставляют доступ к объектам другого ученика.
+Значение приоритета задаёт внешний компонент; SP-04 не сортирует маршрут педагогически.
+
+| Внутренний API | Назначение |
+| --- | --- |
+| `GET /learning-tasks` | Фильтры topicId/problemId/lifecycle, offset, до 50 записей |
+| `GET /learning-tasks/{id}` | Текущее состояние Task в student scope |
+| `GET /learning-tasks/{id}/history` | История по revision DESC, offset, до 50 записей |
+| `learning.task.create` | Goal/catalog references, component, optional reason/sources; `{created, task}` |
+| `learning.task.update` | taskId, expectedRevision, component, patch и/или goalRevision |
+| `learning.task.transition` | lifecycle, decisionId, optional готовый progress |
+| `learning.task.progress` | Готовый progress и decisionId; не запускает расчёт |
+
+Ответы имеют schemaVersion=1; Task использует имена колонок snake_case, команды — camelCase.
+Чтение требует service token и student scope. Запись пока только operator; job/text/voice scopes не получают
+новых прав. FoundationClient предоставляет адаптеры, native tools их не открывают.
+Общий student lock, expectedRevision, operationId и receipts защищают атомарную запись состояния и истории.
+Повтор создания возвращает существующую Task, включая Mastered, без автоматического Reopened и без изменения цели.
+Частичный UNIQUE index запрещает две активные Task с одинаковыми Student+Topic+Problem.
+Поиск по другой Problem создаёт независимую Task. Смена цели сама по себе не меняет учебную работу.
+
+История хранит previous_state/state, component, decisionId, reason и проверенные event/observation sources.
+Источники не содержат копии транскрипта; чтение отмечает истечение срока и актуальность исходной ревизии.
+Personal forget очищает свободные reason во всей истории ученика, где факт мог быть пересказан,
+но сохраняет ID, lifecycle, Progress, Plan и историю структурированных изменений.
+`learning.forget`, delete, новый `/start` и deletion replay удаляют Tasks и их историю.
+Доставка Roadmap, генерация Tasks/Plan, вычисление прогресса и включение в урок остаются следующими SP.

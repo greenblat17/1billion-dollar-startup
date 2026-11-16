@@ -63,6 +63,7 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now, preserveTelegramFrom)
+        connection.update("DELETE FROM learning_task WHERE student_id=?", student)
         connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
         connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
@@ -125,6 +126,8 @@ internal class FoundationMaintenance {
             connection.update("INSERT INTO learning_goal(student_id,revision,content,created_at) VALUES (?,?,'{}',?)",
                 student, connection.goalRevision(student) + 1, now)
         } else {
+            // Free-text rationale may paraphrase a personal fact; preserve all structured task work.
+            connection.update("UPDATE learning_task_history SET reason='' WHERE student_id=?", student)
             StudentLearningPrivacy().forgetPersonalFact(connection, student, category, key, now)
             connection.update("UPDATE memory_fact SET value=NULL,forgotten_at=?,revision=revision+1,source_event_id=NULL WHERE student_id=? AND category=? AND fact_key=?",
                 now, student, category, key)
@@ -132,6 +135,7 @@ internal class FoundationMaintenance {
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
         if (category == "learning" && key in setOf("goal", "state")) {
+            connection.update("DELETE FROM learning_task WHERE student_id=?", student)
             connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
             connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
         }

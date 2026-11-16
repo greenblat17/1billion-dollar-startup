@@ -69,6 +69,42 @@ class FoundationClient:
             raise BackendFailure('unsupported_catalog_schema', 502)
         return result
 
+    async def learning_tasks(self, scope: str, *, topic_id: str | None = None,
+                             problem_id: str | None = None, lifecycle: str | None = None, offset: int = 0) -> dict:
+        params = {key: value for key, value in {
+            'topicId': topic_id, 'problemId': problem_id, 'lifecycle': lifecycle, 'offset': str(offset),
+        }.items() if value is not None}
+        return await self._task_request('/learning-tasks', scope, params=params)
+
+    async def learning_task(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:
+        from urllib.parse import quote
+        path = '/learning-tasks/' + quote(task_id, safe='') + ('/history' if history else '')
+        return await self._task_request(path, scope, params={'offset': str(offset)} if history else {})
+
+    async def _task_request(self, path: str, scope: str, **kwargs) -> dict:
+        result = await self._request('GET', path, scope, **kwargs)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_task_schema', 502)
+        return result
+
+    async def create_learning_task(self, scope: str, operation_id: str, *, goal_revision: int,
+                                   catalog_version: str, skill_id: str, topic_id: str, problem_id: str,
+                                   component: str, reason: str | None = None, sources: list[dict] | None = None) -> dict:
+        # Trusted integrations only; not exposed as an AI tool.
+        args = {'goalRevision': goal_revision, 'catalogVersion': catalog_version, 'skillId': skill_id,
+                'topicId': topic_id, 'problemId': problem_id, 'component': component, 'sources': sources or []}
+        if reason is not None:
+            args['reason'] = reason
+        return await self.command(scope, operation_id, 'learning.task.create', args)
+
+    async def change_learning_task(self, scope: str, operation_id: str, *, task_id: str,
+                                   expected_revision: int, action: str, component: str, **changes) -> dict:
+        if action not in {'update', 'transition', 'progress'}:
+            raise ValueError('invalid_task_action')
+        return await self.command(scope, operation_id, 'learning.task.' + action, {
+            'taskId': task_id, 'expectedRevision': expected_revision, 'component': component, **changes,
+        })
+
     async def learning_state(self, scope: str) -> dict:
         result = await self._request('GET', '/learning-state', scope)
         if result.get('schemaVersion') != 1:

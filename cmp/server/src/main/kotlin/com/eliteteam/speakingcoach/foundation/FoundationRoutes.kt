@@ -56,6 +56,7 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
                 service.command(scope, foundationJson.parseToJsonElement(body).jsonObject)
             }
         }
+        learningTaskRoutes(service, internalToken)
         get("/learning-state") {
             foundationResponse(internalToken) { scope ->
                 if (call.request.queryParameters.names().isNotEmpty()) reject("invalid_learning_query")

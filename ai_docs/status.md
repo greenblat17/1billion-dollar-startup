@@ -2,6 +2,32 @@
 
 Срез документации: 2026-11-16. Разделы нового SP-02/03 относятся к локальной ветке `bb/sp-02-v5-5-thr_7zefuwzvsp`; сведения о прежней поставке ниже относятся к базе `origin/dev` `44f7e03db7e9261228f5cb7b48dd12894d360bf0` и проверялись отдельно.
 
+## Новый SP-04 v5.5: Learning Tasks
+
+Реализован локально в `bb/sp-04-learning-tasks-thr_8dgv8pie5x` на базе `9815aed`, после явного утверждения плана.
+
+- Персональная Task связывает Goal revision + Skill + Topic + Problem. Проверяются опубликованный каталог,
+  совместимость Skill и принадлежность цели ученику. Создание всегда Identified/0%, Plan/Actions/Homework необязательны.
+- Lifecycle Identified → In Progress → Mastered → Reopened → In Progress, внешний Progress 0–100,
+  nullable priority и поздние ссылки сохраняются с устойчивым ID и историей before/after.
+- Повторное создание возвращает существующую Task, включая Mastered; разные Problems одного Topic независимы.
+  Student lock, revisions, receipts и DB constraint защищают конкурирующие записи и повторы.
+- Внутренние API и FoundationClient доступны; запись только operator, без новых AI tools.
+  Task Progress не меняет Topic Knowledge; SP-04 не рассчитывает освоение, порядок или Learning Plan.
+- Personal forget убирает свободные пояснения истории, сохраняя учебную работу и Progress.
+  Полный learning.forget, delete, новый /start и deletion replay удаляют Tasks и историю.
+- Проверки: 692 Python tests, 309 Kotlin unit, buildFatJar и detekt — passed.
+  12 реальных HTTP checks (Python → Ktor → PostgreSQL) — passed, без моделей и пользовательских данных.
+  Полный PostgreSQL-прогон: 88 tests — passed; включает 8 новых Task-сценариев.
+  После дополнения проверки завершения урока все 8 Task-сценариев повторно passed.
+- V51 применялась только к отдельному временному PostgreSQL 14.10. Каталог публиковался как синтетическая тестовая версия.
+  Commit/push/PR/deploy не выполнялись; DEV/PROD и живой диалог не проверялись.
+- Следующие SP: генерация и адаптация Roadmap, Plan/Stages, Observations, scoring, уроки, Homework и UI.
+  Plan/Action/Homework refs пока непрозрачные идентификаторы; проверка существования в их доменах — часть будущих интеграций.
+  Знакомство SP-05 не создаёт Tasks. Смена цели не перестраивает их автоматически.
+
+[Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55).
+
 ## Новый SP-03 v5.5: учебное состояние
 
 Утверждённый foundation реализован локально поверх `32de1e0` в ветке `bb/sp-02-v5-5-thr_7zefuwzvsp`.
