@@ -1,4 +1,4 @@
-"""Personal-memory boundary for the active foundation runtime. No learning writer is exposed to the model."""
+"""Personal-memory boundary and restricted onboarding tool contract for the foundation runtime."""
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -69,3 +69,27 @@ def learning_context(snapshot: dict, budget: int) -> tuple[dict | None, dict | N
         topics['detailsEndpoint'] = '/learning-state/topics'
         topics['missingItemsAreNotUnknown'] = True
     return state, topics
+
+
+class OnboardingChange(Strict):
+    field: Literal['goal', 'selfAssessment', 'targetLevel', 'deadline']
+    value: str | None = Field(max_length=2000)
+    explanation: str | None = Field(max_length=2000)
+    evidence: str = Field(min_length=1, max_length=2000)
+
+
+class UpdateOnboarding(Strict):
+    expectedRevision: int = Field(ge=0)
+    changes: list[OnboardingChange] = Field(min_length=1, max_length=4)
+
+
+ONBOARDING_TOOL = {'type': 'function', 'function': {
+    'name': 'update_onboarding',
+    'description': 'Save explicit learner goal, overall self-assessment, target CEFR or deadline. '
+        'Use learningState.revision. Levels are A1/A2/B1/B2/C1/Unknown; never infer a measured level. '
+        'Unknown self-assessment can retain the learner description in explanation. '
+        'Deadline is YYYY-MM-DD or null; clarify ambiguous dates. Null clears goal/deadline only. '
+        'Omit unchanged fields. Each change needs verbatim evidence from the current message. '
+        'A short acceptance can confirm the preceding unambiguous level proposal. '
+        'No system assessment, Topic Knowledge, intensity or Homework writes.',
+    'parameters': UpdateOnboarding.model_json_schema(), 'strict': True}}

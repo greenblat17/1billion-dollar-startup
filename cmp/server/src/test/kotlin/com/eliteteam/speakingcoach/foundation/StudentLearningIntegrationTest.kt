@@ -54,6 +54,44 @@ class StudentLearningIntegrationTest {
         "sources" to JsonArray(listOf(source)))
 
     @Test
+    fun onboardingWritesOnlyReportedFieldsWithCurrentSourceAndReceipts() = runTest {
+        store { service, _ ->
+            val student = service.identity.resolve("telegram", "93501")
+            val input = service.history.accept(student, "intro", "I want B2 for work", Instant.now(), false)
+            val scope = service.identity.issue(student, "text", "intro")
+            service.op(scope, "run.claim", json())
+            fun args(field: String, value: String, revision: Long = 0) = json(
+                "sourceId" to input.text("event_id"), "expectedRevision" to revision,
+                "changes" to JsonArray(listOf(json("field" to field, "value" to value,
+                    "explanation" to null, "evidence" to "B2"))))
+            val saved = service.op(scope, "onboarding.update", args("targetLevel", "B2"), "save")
+            assertEquals(saved, service.op(scope, "onboarding.update", args("targetLevel", "B2"), "save"))
+            assertEquals(1L, saved.number("revision"))
+            assertEquals("B2", saved.obj("profile").text("targetLevel"))
+            assertEquals("Unknown", saved.obj("profile").obj("currentLevels").obj("speaky").obj("overall").text("level"))
+            assertEquals("version_conflict", assertFailsWith<FoundationFailure> {
+                service.op(scope, "onboarding.update", args("targetLevel", "C1"))
+            }.code)
+            for (field in listOf("speaky", "topicKnowledge", "homework", "intensity")) {
+                assertEquals("onboarding_field_not_allowed", assertFailsWith<FoundationFailure> {
+                    service.op(scope, "onboarding.update", args(field, "B2", 1))
+                }.code)
+            }
+            assertEquals("not_permitted", assertFailsWith<FoundationFailure> {
+                service.op(scope, "learning.update", update(json()))
+            }.code)
+            val other = service.identity.resolve("telegram", "93502")
+            val otherSource = service.source(other)
+            assertEquals("source_expired", assertFailsWith<FoundationFailure> {
+                service.op(scope, "onboarding.update", JsonObject(args("targetLevel", "C1", 1) +
+                    json("sourceId" to otherSource.text("id"))))
+            }.code)
+            val context = service.snapshot(scope, "text")
+            assertEquals("B2", context.obj("learningState").obj("profile").text("targetLevel"))
+        }
+    }
+
+    @Test
     fun profileSurvivesRestartAndMemoryIsPersonalOnly() = runTest {
         store { service, url ->
             val student = service.identity.resolve("telegram", "93001")

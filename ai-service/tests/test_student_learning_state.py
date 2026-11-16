@@ -81,3 +81,30 @@ def test_bounded_context_marks_omissions_and_does_not_mutate_storage():
     assert len(snapshot['learningState']['profile']['currentLevels']['speaky']['overall']['explanation']) == 500
     assert topics['items'] == [] and topics['nextOffset'] == 0
     assert topics['missingItemsAreNotUnknown'] is True
+
+
+@pytest.mark.asyncio
+async def test_onboarding_writer_uses_current_source_and_stable_receipt():
+    backend = SimpleNamespace(command=AsyncMock(return_value={'revision': 1}))
+    tutor = FoundationTutor(backend, None, None)
+    args = {'expectedRevision': 0, 'changes': [
+        {'field': 'targetLevel', 'value': 'B2', 'explanation': None, 'evidence': 'B2'}]}
+    source = {'id': 'current', 'body': 'I want B2'}
+    first = await tutor.execute('scope', 'request', source, 'update_onboarding', args)
+    await tutor.execute('scope', 'request', source, 'update_onboarding', args)
+    assert first == {'ok': True, 'saved': True, 'learningState': {'revision': 1}}
+    assert backend.command.call_args_list[0] == backend.command.call_args_list[1]
+    assert backend.command.call_args.args[2] == 'onboarding.update'
+    assert backend.command.call_args.args[3]['sourceId'] == 'current'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field,evidence', [('speaky', 'B2'), ('targetLevel', 'not in message')])
+async def test_onboarding_rejects_forbidden_fields_and_unbacked_evidence(field, evidence):
+    backend = SimpleNamespace(command=AsyncMock())
+    tutor = FoundationTutor(backend, None, None)
+    result = await tutor.execute('scope', 'request', {'id': 'current', 'body': 'B2'}, 'update_onboarding', {
+        'expectedRevision': 0, 'changes': [
+            {'field': field, 'value': 'B2', 'explanation': None, 'evidence': evidence}]})
+    assert result['ok'] is False
+    backend.command.assert_not_called()

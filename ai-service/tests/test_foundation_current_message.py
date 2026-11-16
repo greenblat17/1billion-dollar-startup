@@ -110,7 +110,10 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'First explore all five topics' not in system
     assert 'Current mode: introduction.' in system
     assert 'Do not sustain an unrelated topic.' in system
-    assert 'Previous learning experience is OPTIONAL' in system
+    assert 'Do not collect a separate learning history' in system
+    assert 'current overall self-assessment and desired overall CEFR' in system
+    assert 'Do not proactively ask about lesson frequency' in system
+    assert 'Do not exclude beginners or exam-oriented learners' in system
     assert 'not a proficiency test' in system
     assert 'no answer-choice buttons' in system
     assert 'without finishing the consultation' in system

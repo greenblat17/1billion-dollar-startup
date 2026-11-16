@@ -70,6 +70,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "learning.task.create" -> LearningTasks().create(connection, scope, args, now)
         "learning.task.update", "learning.task.transition", "learning.task.progress" ->
             LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
+        "onboarding.update" -> OnboardingLearning().update(connection, scope, args, now)
         "learning.update" -> StudentLearningState().update(connection, scope, args, now)
         "learning.topic.record" -> StudentTopicKnowledge().record(connection, scope, args, now)
         "learning.forget" -> maintenance.forgetLearning(connection, scope, args, now)

@@ -305,9 +305,12 @@ V50 добавляет `student_learning_state` и `student_topic_knowledge`. Ц
 | command `learning.topic.record` | catalogVersion, topicId, expectedRevision, status, explanation, component, sources |
 | command `learning.forget` | expectedRevision; явное удаление учебного состояния и его производных копий с epoch/deletion ledger |
 
-Записи доступны только operator scope, через общий механизм student lock, operationId и receipts.
-Text/voice/learning scopes могут читать, но не записывать новую модель. Python `FoundationClient` содержит
-адаптеры для будущих доверенных компонентов; native tools текущего AI их не предоставляют.
+Общие записи доступны только operator scope, через student lock, operationId и receipts.
+SP-05 добавляет узкую команду `onboarding.update` для text scope: goal, overall selfAssessment,
+targetLevel и deadline. `OnboardingLearning` проверяет текущий вход, цитату для каждого изменения,
+разрешённые поля и revision; backend формирует provenance и вызывает общий writer SP-03.
+Native tool `update_onboarding` не получает operator scope и не может менять системный CEFR,
+Topic Knowledge, интенсивность или Homework. Voice/learning scopes по-прежнему только читают.
 `memory.record`, personal candidates и `tutor.update_context` отклоняют учебные поля.
 Telegram schema и Memory tools теперь принимают только персональные факты; legacy TutorStore не меняется.
 
@@ -340,7 +343,8 @@ ContextBuilder передаёт их независимо от MemorySelector, �
 Поле `goal` для существующих planners — проекция той же цели, без fallback на Memory.
 Изменения отзывают будущую подготовку через learning_revision; начатый урок сохраняет execution snapshot.
 
-Onboarding, Post-Trial Assessment и Post-Lesson Review ещё не заполняют новую модель автоматически.
+Onboarding заполняет перечисленные пользовательские поля через native tool;
+Post-Trial Assessment и Post-Lesson Review ещё не заполняют новую модель автоматически.
 Новый UI, педагогические переходы и назначение Homework не входят в SP-03.
 [Утверждённый план](ai_docs/plans/2026-11-15-sp03-student-learning-state.md), [проверки и поставка](ai_docs/status.md).
 
@@ -387,3 +391,16 @@ Personal forget очищает свободные reason во всей исто�
 но сохраняет ID, lifecycle, Progress, Plan и историю структурированных изменений.
 `learning.forget`, delete, новый `/start` и deletion replay удаляют Tasks и их историю.
 Доставка Roadmap, генерация Tasks/Plan, вычисление прогресса и включение в урок остаются следующими SP.
+
+## Telegram Onboarding: SP-05 v5.5
+
+Активные `text_tutor_policy.py`, `TrialTutorModel` и `FoundationTutor` ведут знакомство:
+практическая цель, текущая самооценка, целевой CEFR A1–C1/Unknown, трудности и необязательный дедлайн.
+Краткие описания помогают выбрать уровень; предложенная моделью метка становится самооценкой
+только после согласия ученика. Unknown с описанием допустим. Трудности сохраняются как
+пользовательский факт `difficulty` существующей Personal Memory, не диагностическая Observation.
+Отдельная история обучения не собирается; частота/длительность и Homework обсуждаются на Trial (SP-06).
+Прямой запрос Trial выполняется без заполнения профиля. После будущей записи репетитор завершает
+разговор; дальнейшая беседа начинается по инициативе ученика. Отказы по уровню/цели исключены,
+гарантии результата не даются. Trial остаётся 15 минут до отдельной реализации SP-06.
+Контекст передаётся через существующий snapshot/ContextBuilder, без новой модели ученика или Tasks.

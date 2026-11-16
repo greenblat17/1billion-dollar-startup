@@ -14,7 +14,7 @@ from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import TutorRequest
 from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
 from app.tutor_tools import MODELS as LEGACY_MODELS, resolve_time, zone
-from app.student_learning_state import UpdatePersonalContext
+from app.student_learning_state import UpdatePersonalContext, UpdateOnboarding
 
 MODELS = {**LEGACY_MODELS, "update_learner_context": UpdatePersonalContext}
 from app.trial_policy import TEXT_CAPABILITIES
@@ -88,7 +88,7 @@ class FoundationTutor:
             if committed:
                 bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
                 schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
-                memory_committed = any(operation["action"].startswith("memory.") or operation["action"] == "tutor.update_context" for operation in committed)
+                memory_committed = any(operation["action"].startswith("memory.") or operation["action"] in ("tutor.update_context", "onboarding.update") for operation in committed)
                 payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
                 raise RuntimeError('recovering_committed_operation')
@@ -114,7 +114,7 @@ class FoundationTutor:
                                         booking=None, bookingText=None, degraded=False)
                         if result.get('ok') is False or (result.get('skipped') and not result.get('saved')):
                             rejected_tools += 1
-                        if function['name'] == 'update_learner_context' and result.get('saved'):
+                        if function['name'] in ('update_learner_context', 'update_onboarding') and result.get('saved'):
                             memory_committed = True
                         if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
                             memory_committed = True
@@ -185,6 +185,14 @@ class FoundationTutor:
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         stage = 'validate_arguments'
         try:
+            if name == 'update_onboarding':
+                args = UpdateOnboarding.model_validate(arguments)
+                if any(change.evidence not in source['body'] for change in args.changes):
+                    raise ValueError('invalid_evidence')
+                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                result = await self.backend.command(scope, identity, 'onboarding.update',
+                    {'sourceId': source['id'], **args.model_dump()})
+                return {'ok': True, 'saved': True, 'learningState': result}
             if name in MEMORY_MODELS:
                 return await execute_memory(self.backend, scope, request_id, source, name, arguments)
             if name == 'get_subscription':

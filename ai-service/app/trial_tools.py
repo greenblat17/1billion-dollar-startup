@@ -111,6 +111,7 @@ SCHEDULE_TOOLS += [{'type': 'function', 'function': {'name': name, 'description'
 
 
 from app.memory_tools import MEMORY_TOOLS
+from app.student_learning_state import ONBOARDING_TOOL
 
 
 class TrialTutorModel:
@@ -136,7 +137,7 @@ class TrialTutorModel:
                 function['description'] += (' For minutes from the current message use after_minutes with delayMinutes; no timezone is required. '
                     'shift_minutes is ONLY a shift of an existing booking. Choose exactly one schedule mode; never mix fields.')
             tools.append({'type': 'function', 'function': function})
-        return await self.llm.complete_tools(messages, tools + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)
+        return await self.llm.complete_tools(messages, tools + [ONBOARDING_TOOL] + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)
 
 
     async def finalize(self, messages):
