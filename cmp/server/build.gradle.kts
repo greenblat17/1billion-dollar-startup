@@ -48,7 +48,9 @@ dependencies {
 
 // PostgreSQL suites run only in foundationIntegrationTest. Missing DB configuration there is a failure, not a skip.
 tasks.test {
+    exclude("**/LearningObservationsIntegrationTest*")
     exclude("**/LearningTasksIntegrationTest*")
+    exclude("**/LearningPlansIntegrationTest*")
     exclude("**/StudentLearningIntegrationTest*")
     exclude("**/LearningCatalogIntegrationTest*")
     exclude("**/FoundationIntegrationTest*")
@@ -62,6 +64,8 @@ val foundationIntegrationTest by tasks.registering(Test::class) {
     include("**/FoundationIntegrationTest*")
     include("**/TrialIntegrationTest*")
     include("**/LearningTasksIntegrationTest*")
+    include("**/LearningObservationsIntegrationTest*")
+    include("**/LearningPlansIntegrationTest*")
     include("**/StudentLearningIntegrationTest*")
     include("**/LearningCatalogIntegrationTest*")
     outputs.upToDateWhen { false }

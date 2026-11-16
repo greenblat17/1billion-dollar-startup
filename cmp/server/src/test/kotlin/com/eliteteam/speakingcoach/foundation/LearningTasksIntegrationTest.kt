@@ -59,8 +59,11 @@ class LearningTasksIntegrationTest {
             val id = task.text("id")
             assertEquals("Identified", task.text("lifecycle"))
             assertEquals(0.0, LearningTaskModel.progress(task["progress"]))
+            s.command(scope, json("version" to 1, "operationId" to newId(), "action" to "learning.plan.create", "args" to
+                json("taskId" to id, "expectedTaskRevision" to task.number("revision"), "definition" to planFixture(), "component" to "test")))
+            task = s.learningTask(scope, id).obj("task")
             task = s.op(scope, "update", change(task, "patch" to json("priority" to 7,
-                "plan" to json("id" to "plan-1", "revision" to 1), "homework" to JsonArray(listOf(json("id" to "homework-1")))))).obj("task")
+                "homework" to JsonArray(listOf(json("id" to "homework-1")))))).obj("task")
             for ((state, progress) in listOf("In Progress" to 25, "Mastered" to 100, "Reopened" to 100, "In Progress" to 40)) {
                 task = s.op(scope, "transition", change(task, "lifecycle" to state, "progress" to progress, "decisionId" to newId())).obj("task")
             }
@@ -69,7 +72,7 @@ class LearningTasksIntegrationTest {
             assertEquals(before["progress"], task["progress"])
             assertEquals(before.obj("details")["plan"], task.obj("details")["plan"])
             val history = s.learningTask(scope, id, true)["items"]!!.jsonArray
-            assertEquals(7, history.size)
+            assertEquals(8, history.size)
             assertTrue(history.any { it.jsonObject.obj("state").text("lifecycle") == "Mastered" })
             // A prepared in-progress lesson fixture; exercise the real completion operation without AI.
             val lesson = s.command(scope, json("version" to 1, "operationId" to newId(), "action" to "lesson.create", "args" to
@@ -199,7 +202,10 @@ class LearningTasksIntegrationTest {
     fun retentionAndGoalChangePreserveWorkAndDeletionReplayRemovesIt() = runTest {
         store { s, _ ->
             val (scope, args) = setup(s)
-            val task = s.op(scope, "create", args).obj("task")
+            var task = s.op(scope, "create", args).obj("task")
+            s.command(scope, json("version" to 1, "operationId" to newId(), "action" to "learning.plan.create", "args" to
+                json("taskId" to task.text("id"), "expectedTaskRevision" to 1, "definition" to planFixture(), "component" to "test")))
+            task = s.learningTask(scope, task.text("id")).obj("task")
             val student = task.text("student_id")
             s.database.transaction { c, now ->
                 c.update("UPDATE conversation_event SET expires_at=? WHERE student_id=?", now.minusSeconds(1), student)
@@ -208,7 +214,7 @@ class LearningTasksIntegrationTest {
                     student, json("value" to "A new goal"), now)
             }
             assertEquals(task, s.learningTask(scope, task.text("id")).obj("task"))
-            val history = s.learningTask(scope, task.text("id"), true)["items"]!!.jsonArray.single().jsonObject
+            val history = s.learningTask(scope, task.text("id"), true)["items"]!!.jsonArray.last().jsonObject
             assertEquals("true", history["sources"]!!.jsonArray.single().jsonObject.text("sourceContentExpired"))
             // Simulate the external deletion ledger imported after restoring an earlier database snapshot.
             s.database.transaction { c, now ->
@@ -219,6 +225,10 @@ class LearningTasksIntegrationTest {
             assertEquals(1L, s.command(scope, replay).number("replayed"))
             val fresh = s.identity.issue(student, "operator")
             assertTrue(s.learningTasks(fresh, null, null, null, 0)["items"]!!.jsonArray.isEmpty())
+            s.database.transaction(readOnly = true) { c, _ ->
+                assertEquals(0L, c.rows("SELECT count(*) FROM learning_plan_revision") { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM learning_plan_history") { it.getLong(1) }.single())
+            }
             assertEquals(0L, s.command(fresh, JsonObject(replay + json("operationId" to newId()))).number("replayed"))
         }
     }
@@ -228,6 +238,8 @@ class LearningTasksIntegrationTest {
         store { s, _ ->
             val (scope, args) = setup(s)
             val task = s.op(scope, "create", args).obj("task")
+            s.command(scope, json("version" to 1, "operationId" to newId(), "action" to "learning.plan.create", "args" to
+                json("taskId" to task.text("id"), "expectedTaskRevision" to 1, "definition" to planFixture(), "component" to "test")))
             val old = task.text("student_id")
             val subject = s.database.transaction(readOnly = true) { c, _ ->
                 c.rows("SELECT subject FROM student_identity WHERE student_id=?", old) { it.getString(1) }.single()
@@ -244,6 +256,9 @@ class LearningTasksIntegrationTest {
             s.database.transaction(readOnly = true) { c, _ ->
                 assertEquals(0L, c.rows("SELECT count(*) FROM learning_task WHERE student_id=?", old) { it.getLong(1) }.single())
                 assertEquals(0L, c.rows("SELECT count(*) FROM learning_task_history WHERE student_id=?", old) { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM learning_plan") { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM learning_plan_revision") { it.getLong(1) }.single())
+                assertEquals(0L, c.rows("SELECT count(*) FROM learning_plan_history") { it.getLong(1) }.single())
             }
         }
     }

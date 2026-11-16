@@ -7,12 +7,15 @@ Telegram служит перепиской; приложение в целево
 
 | Вопрос | Документ |
 | --- | --- |
+| Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |
+| SP-12A v5.5: Task Learning Plan / Stage | [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |
 | Новый SP-02: учебные каталоги | [Темы по CEFR и навыку](product/2026-11-15-learning-catalog-review.md), [исходный JSON](../learning-catalog/v1/catalog.json), [готовность](status.md#новый-sp-02-v55-учебные-каталоги) |
 | Новый SP-04 v5.5: Learning Tasks | [Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55) |
 | Новый SP-03 v5.5: учебное состояние | [Утверждённый план](plans/2026-11-15-sp03-student-learning-state.md), [контракт и владение данными](../architecture.md#student-learning-state-sp-03-v55) |
 | Актуальная продуктовая модель персонального обучения, уроков и Roadmap | [Продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
 | Исходная концепция Саши, интерфейсов и жизненного цикла | [Продукт v0.5 — исторический источник](product/2026-11-08-ai-tutor-experience-v0.5.md) |
 | Общий фундамент и исходная матрица проверок | [SP-00](plans/2026-11-10-sp00-foundation.md) |
+| Новый SP-06 v5.5: 30-минутный Trial | [Исполнение и handoff](integrations/trial-v55.md), [утверждённый план](plans/2026-11-16-sp06-trial-lesson-v55.md) |
 | Целевой пробный урок | [Продукт v5.5, раздел 7](product/2026-11-14-personalized-learning-v5.5.md) |
 | Как был реализован прежний пробный урок | [SP-02](plans/2026-11-11-sp02-trial-lesson.md) |
 | Исходное UX-ТЗ от Start до записи на пробный | [Первое знакомство](product/2026-11-13-first-acquaintance-ux.md) |

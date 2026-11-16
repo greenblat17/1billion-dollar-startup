@@ -1,6 +1,6 @@
 # Архитектура Speaky
 
-Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02/SP-03/SP-04 v5.5.
+Единственный справочник реализованной архитектуры прежних SP-00–SP-08 и новых SP-02–06/SP-12A/SP-17A v5.5.
 Он описывает код рабочего дерева, а не текущую конфигурацию сервера.
 Результаты локальных проверок и границы готовности — в [статусе](ai_docs/status.md),
 команды оператора — в [эксплуатации](ai_docs/integrations/operations.md#sp-00-новый-runtime-и-перенос-текущего-чата).
@@ -363,7 +363,8 @@ Progress=100 не завершает Task автоматически; Task Maste
 
 `details` содержит nullable целочисленный priority, nullable plan reference и массивы actions/homework references.
 Ссылки имеют `{id, revision?}`; это непрозрачные идентификаторы будущих доменов, без их контента и статусов.
-Реальная проверка существования Plan/Action/Homework добавляется владельцами этих доменов при интеграции;
+SP-12A проверяет существование Plan, принадлежность той же Task/ученику и явную текущую revision;
+реальная проверка существования Action/Homework добавляется владельцами этих доменов при интеграции;
 сами ссылки не предоставляют доступ к объектам другого ученика.
 Значение приоритета задаёт внешний компонент; SP-04 не сортирует маршрут педагогически.
 
@@ -390,7 +391,29 @@ Progress=100 не завершает Task автоматически; Task Maste
 Personal forget очищает свободные reason во всей истории ученика, где факт мог быть пересказан,
 но сохраняет ID, lifecycle, Progress, Plan и историю структурированных изменений.
 `learning.forget`, delete, новый `/start` и deletion replay удаляют Tasks и их историю.
-Доставка Roadmap, генерация Tasks/Plan, вычисление прогресса и включение в урок остаются следующими SP.
+Доставка Roadmap, генерация Tasks и педагогический выбор Plan, вычисление прогресса и включение в урок остаются следующими SP.
+
+## Task Learning Plan: SP-12A v5.5
+
+`LearningPlans`/`LearningPlanModel` в Ktor хранят структуру плана конкретной SP-04 Task.
+V54 добавляет `learning_plan`, неизменяемые `learning_plan_revision` и историю выбора текущего этапа.
+Plan не заменяет существующие `lesson_plan`, `LessonPlanner` или Trial phases.
+
+Один Stage на выбранный Teaching Method: Conversation, Explanation, Exercises, Exposure.
+Numeric weights неотрицательны, сумма точно 1 при наличии numeric stages; binary condition
+`understanding_demonstrated` не имеет веса. В Plan входят только необходимые методы (`required=true`).
+Состав по Problem выбирает будущая SP-12B; SP-12A не генерирует материал и не считает Score.
+
+StageRef — `taskId + planId + planRevision + stageId`. Исторический resolver проверяет владельца,
+Task и membership в указанной revision, включая удалённые из текущей версии этапы.
+Reorder/reweight сохраняет Stage ID; смена method/kind/condition требует нового ID.
+Cursor имеет отдельную stateRevision; переход/возврат не сбрасывает Progress и не создаёт попытку SP-19.
+
+Create/revise атомарно обновляют Plan и Task.details.plan под student lock/receipts/expected revisions.
+Запись только operator, чтение в student scope через internal API и FoundationClient.
+Plan не содержит личного текста/материалов. Полный reset/delete/learning.forget/deletion replay удаляет
+его вместе с Task по FK cascade; personal forget и retention сохраняют учебную структуру.
+Подробный [контракт API и handoff](ai_docs/integrations/learning-plan.md), [проверки](ai_docs/status.md).
 
 ## Telegram Onboarding: SP-05 v5.5
 
@@ -402,5 +425,56 @@ Personal forget очищает свободные reason во всей исто�
 Отдельная история обучения не собирается; частота/длительность и Homework обсуждаются на Trial (SP-06).
 Прямой запрос Trial выполняется без заполнения профиля. После будущей записи репетитор завершает
 разговор; дальнейшая беседа начинается по инициативе ученика. Отказы по уровню/цели исключены,
-гарантии результата не даются. Trial остаётся 15 минут до отдельной реализации SP-06.
+гарантии результата не даются. На базе SP-05 Trial оставался 15 минут; локальный SP-06 v5.5 ниже переводит новые звонки на 30 минут.
 Контекст передаётся через существующий snapshot/ContextBuilder, без новой модели ученика или Tasks.
+
+
+## Trial Lesson: SP-06 v5.5
+
+`FoundationTutor` создаёт Trial на 30 минут; `LessonManagement` отмечает его `trial_version=v5.5`.
+V52 добавляет phase/clock fields и отдельный raw `trial_call_event`, без Observation или Learning Plan.
+`TrialExecution` суммирует подключённое время, хранит фазу и ограничивает reconnect исходным слотом.
+Вернувшийся вовремя ученик использует оставшиеся минуты после конца слота. End button завершает Lesson;
+отключённый Lesson после конца слота закрывает worker. Regular сохраняет прежние правила времени.
+
+`trial_v55.py` задаёт RU warm-up → EN conversation → RU wrap-up; Realtime получает мягкие cues,
+native phase/preferences tools и общий контекст. `TrialPreferences` проверяет active voice scope,
+user source, evidence, revision и allowlist нагрузки, затем пишет через SP-03.
+CEFR, Topic Knowledge, Homework assignment и расписание этим tools недоступны.
+
+`TrialCallEvents` хранит ссылки на conversation_event, техническую identity/revision и transport metadata.
+`TrialEventRoutes` отдаёт scoped paginated raw events и реальный audio manifest для будущего SP-17B.
+ASR confidence остаётся null; детектор ASR ошибок отсутствует. Transcript correction сохраняет source identity.
+Retention и privacy cleanup включают новую таблицу. Архивирование до пересылки сохраняется.
+
+Новый Trial использует memory-only extraction; backend запрещает старые educational observations/notes,
+а старый RoadmapPreparation исключает Trial v5.5. CEFR/Observations/Roadmap delivery ожидают SP-17B/07/08/11A.
+Контракт, ограничения и обязательный список последующего удаления legacy — [Trial v5.5](ai_docs/integrations/trial-v55.md).
+
+## Observation Contract & Core: SP-17A v5.5
+
+`LearningObservations` в Ktor — журнал доказательных наблюдений; он не вызывает модель и не рассчитывает Score.
+V53 добавляет `learning_observation`, `learning_observation_revision` и `learning_observation_source`.
+Стабильная identity отделена от версии интерпретации. Student lock, receipts и DB uniqueness защищают повторы;
+исправление сохраняет исходное происхождение и заменяет текущую интерпретацию, а не создаёт вторую попытку.
+
+`LearningObservationModel` проверяет классификацию, исход, самостоятельность и структуру качества.
+`LearningObservationSources` проверяет реальные conversation sources, их Student/Lesson/revision/span и доступность.
+Unknown Topic/Problem остаются null. Каталожные ссылки требуют опубликованной версии и совместимого Skill.
+Исходная ошибка и помощь сохраняются раздельно. ASR detector и автоматическая классификация в core отсутствуют.
+
+Внутренние read/history endpoints и record/revise/invalidate commands доступны через `FoundationClient`.
+Запись только operator; native tools не добавлены. `ObservationStageResolver` позволяет подключить historical
+Plan resolver SP-12A; локальная интеграция подключает его по точной исторической ревизии.
+Action refs остаются unresolved до их собственного домена; binary Stage не допускается к numeric scoring.
+JSON-примеры и Python wire types закрепляют handoff для SP-17B/C, SP-07 и SP-18/19.
+
+SP-03 принимает новый source type `learning_observation` с observation revision и всеми исходными event IDs.
+Старые `event`/`observation` сохраняют семантику. Personal forget учитывает источники всех ревизий;
+связанные observations удаляются, свободные пояснения остальных очищаются. Full learning reset/delete/replay
+удаляют журнал. Retention показывает недоступность источников, но сам не меняет оценки знаний.
+
+Прежний `memory_observation`/post-call pipeline сохранён. Автоматического backfill или второго классификатора нет.
+Реальный Trial producer — SP-17B; Teaching Actions и regular Topic Knowledge inference — SP-17C;
+Score — SP-18/19, применение регулярных выводов — SP-20. Запись evidence не меняет эти состояния.
+[Точный контракт, примеры и ограничения интеграции](ai_docs/integrations/learning-observations.md).

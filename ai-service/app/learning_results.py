@@ -73,6 +73,11 @@ class LessonNote(LearningResult):
     sourceIds: list[str] = Field(min_length=1, max_length=10)
 
 
+class PersonalMemoryResult(LearningResult):
+    facts: list[ExtractedFact] = Field(max_length=20)
+    candidates: list[PersonalCandidate] = Field(max_length=10)
+
+
 class MemoryEvaluation(LessonEvaluation):
     facts: list[ExtractedFact] = Field(max_length=20)
     candidates: list[PersonalCandidate] = Field(max_length=10)

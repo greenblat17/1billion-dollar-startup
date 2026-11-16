@@ -57,6 +57,9 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
             }
         }
         learningTaskRoutes(service, internalToken)
+        trialEventRoutes(service, internalToken)
+        learningObservationRoutes(service, internalToken)
+        learningPlanRoutes(service, internalToken)
         get("/learning-state") {
             foundationResponse(internalToken) { scope ->
                 if (call.request.queryParameters.names().isNotEmpty()) reject("invalid_learning_query")
@@ -111,7 +114,7 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
         RuntimeDiagnostics.record("foundation_failed", "command", error)
         val status = when (error.code) {
             "scope_expired", "not_permitted", "not_owned" -> HttpStatusCode.Forbidden
-            "version_conflict", "operation_conflict", "stale_job", "active_booking_exists", "active_episode", "not_ready", "conversation_busy", "stale_run" -> HttpStatusCode.Conflict
+            "version_conflict", "operation_conflict", "plan_already_exists", "stale_job", "active_booking_exists", "active_episode", "not_ready", "conversation_busy", "stale_run" -> HttpStatusCode.Conflict
             else -> HttpStatusCode.BadRequest
         }
         call.respondText(json("ok" to false, "error" to error.code).toString(), ContentType.Application.Json, status)

@@ -146,7 +146,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 val student = lesson.text("student_id")
                 val id = lesson.text("id")
                 val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", student) { it.getLong(1) }.single()
-                val expired = c.update("UPDATE call_session SET status='disconnected',end_reason='technical_disconnect',ended_at=? WHERE lesson_id=? AND status='connected' AND lease_until<=?", now, id, now)
+                val expired = TrialExecution().expire(c, lesson, now)
                 if (expired > 0 && lesson.text("kind") == "trial") c.trialNotice(student, id, epoch, "technical_disconnect", now.plusSeconds(30))
                 val start = java.time.Instant.parse(lesson.text("starts_at"))
                 val end = start.plusSeconds(lesson.number("duration_minutes") * 60)
@@ -161,6 +161,11 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 }
                 if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(600) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
                 if (lesson.text("status") == "scheduled" && now >= end) c.update("UPDATE lesson SET status='missed',version=version+1 WHERE id=? AND status='scheduled'", id)
+                if (trialV55(lesson) && lesson.text("status") == "in_progress" && now >= end &&
+                    c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", id) == null) {
+                    TrialExecution().complete(c, lesson, "technical_disconnect", now)
+                    c.trialNotice(student, id, epoch, "technical_disconnect", now)
+                }
                 val last = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", id)
                 if (lesson.text("status") == "in_progress" && now >= end && last?.optionalText("end_reason") == "end_button") {
                     c.update("UPDATE lesson SET status='completed',ended_early=TRUE,outcome_reason='end_button',version=version+1 WHERE id=?", id)

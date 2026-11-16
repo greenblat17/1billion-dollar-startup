@@ -80,6 +80,9 @@ internal class LearningTasks {
             ?: old.number("goal_revision")
         val details = if (args.containsKey("patch")) LearningTaskModel.details(old.obj("details"),
             args["patch"] as? JsonObject ?: reject("invalid_task_patch")) else old.obj("details")
+        if ((args["patch"] as? JsonObject)?.containsKey("plan") == true) (details["plan"] as? JsonObject)?.let {
+            LearningPlans().validateTaskLink(c, scope.studentId, old.text("id"), it)
+        }
         if (state == old.text("lifecycle") && progress == LearningTaskModel.progress(old["progress"]) &&
             goal == old.number("goal_revision") && details == old.obj("details")) return json("schemaVersion" to 1, "task" to old)
         c.update("""UPDATE learning_task SET goal_revision=?,lifecycle=?,progress=?,details=?::jsonb,revision=revision+1,updated_at=?

@@ -33,7 +33,8 @@ class TrialJournal:
                 log_event('audio_archive_failed', error=cleanup_error, stage='rollback')
             raise
 
-    async def append(self, role, text, source=None):
+    async def append(self, role, text, source=None, metadata=None, occurred_at=None):
         return await self.command('voice.append', sourceId=source or uuid4().hex, role=role,
-                                  body=text[:12000], occurredAt=timestamp())
+                                  body=text[:12000], occurredAt=occurred_at or timestamp(),
+                                  **({'metadata': metadata, 'revision': 1} if metadata is not None else {}))
 

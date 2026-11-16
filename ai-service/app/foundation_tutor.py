@@ -280,7 +280,7 @@ class FoundationTutor:
                 command.update(startsAt=starts, timezone=zone, timing=timing)
                 if name == 'create_trial_booking':
                     action = 'lesson.create'
-                    command.update(kind='trial', launchMode='executable', durationMinutes=15, timing=timing)
+                    command.update(kind='trial', launchMode='executable', durationMinutes=30, timing=timing)
                 else:
                     action = 'lesson.reschedule'
                     command['launchMode'] = 'executable'

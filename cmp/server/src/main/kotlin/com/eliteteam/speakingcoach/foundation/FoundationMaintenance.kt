@@ -9,6 +9,7 @@ internal class FoundationMaintenance {
         requireRole(scope, "operator")
         val student = scope.studentId
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}' WHERE student_id=? AND expires_at<=? AND status<>'deleted'", student, now)
+        connection.update("DELETE FROM trial_call_event WHERE student_id=? AND expires_at<=?", student, now)
         val events = connection.update("UPDATE conversation_event SET body=NULL,metadata='{}' WHERE student_id=? AND expires_at<=? AND body IS NOT NULL", student, now)
         connection.update("UPDATE tutor_inbox SET response=NULL WHERE student_id=? AND expires_at<=?", student, now)
         connection.update("UPDATE foundation_operation SET result='{}' WHERE student_id=? AND expires_at<=?", student, now)
@@ -63,6 +64,7 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now, preserveTelegramFrom)
+        connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
         connection.update("DELETE FROM learning_task WHERE student_id=?", student)
         connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
         connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
@@ -82,6 +84,7 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM telegram_introduction WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_telegram_card WHERE student_id=?", student)
+        connection.update("DELETE FROM trial_call_event WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_event WHERE student_id=?", student)
         connection.update("DELETE FROM trial_notice WHERE student_id=?", student)
         connection.update("DELETE FROM trial_demo_receipt WHERE student_id=?", student)
@@ -136,6 +139,7 @@ internal class FoundationMaintenance {
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
         if (category == "learning" && key in setOf("goal", "state")) {
             connection.update("DELETE FROM learning_task WHERE student_id=?", student)
+            connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
             connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
             connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
         }
@@ -149,6 +153,7 @@ internal class FoundationMaintenance {
     }
 
     private fun invalidateCopies(connection: Connection, student: String, now: Instant, preserveTelegramFrom: Long = Long.MAX_VALUE) {
+        connection.update("DELETE FROM trial_call_event WHERE student_id=?", student)
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
         connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)

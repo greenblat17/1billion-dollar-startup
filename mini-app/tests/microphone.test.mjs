@@ -41,6 +41,9 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(vm.runInContext('started',context),originalStarted);
  assert.equal(element('mute')['aria-pressed'],'false');
  assert.equal(element('mic-action').textContent,'Выключить');
+ await sockets.at(-1).onmessage({data:JSON.stringify({type:'trial_clock',trialExecution:{connectedSeconds:900}})});
+ const backendStarted=vm.runInContext('started',context);
+ assert.ok(Math.abs(Date.now()-backendStarted-900000)<100);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'ended',reason:'memory_forgotten'})});
  assert.equal(track.stopped,true);
  assert.equal(sockets.length,2);

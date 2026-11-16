@@ -7,7 +7,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /** Authoritative commands. No model/provider call is made in this layer. */
-internal class FoundationService(val database: FoundationDatabase, val billingConfig: BillingConfig? = null) : AutoCloseable {
+internal class FoundationService(val database: FoundationDatabase, val billingConfig: BillingConfig? = null,
+    private val observationStages: ObservationStageResolver = learningPlanObservationStage) : AutoCloseable {
     val billing = SubscriptionBilling(billingConfig)
     val identity = FoundationIdentity(database)
     val history = ConversationHistory(database)
@@ -67,9 +68,18 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
     }
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
+        "learning.observation.record", "learning.observation.revise" ->
+            LearningObservations(observationStages).write(connection, scope, action.substringAfterLast('.'), args, now)
+        "learning.observation.invalidate" -> LearningObservations(observationStages).invalidate(connection, scope, args, now)
+        "learning.plan.create" -> LearningPlans().create(connection, scope, args, now)
+        "learning.plan.revise" -> LearningPlans().revise(connection, scope, args, now)
+        "learning.plan.select-stage" -> LearningPlans().select(connection, scope, args, now)
         "learning.task.create" -> LearningTasks().create(connection, scope, args, now)
         "learning.task.update", "learning.task.transition", "learning.task.progress" ->
             LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
+        "trial.preferences" -> TrialPreferences().update(connection, scope, args, now)
+        "trial.ready" -> TrialExecution().ready(connection, scope, args, now)
+        "trial.phase" -> TrialExecution().phase(connection, scope, args, now)
         "onboarding.update" -> OnboardingLearning().update(connection, scope, args, now)
         "learning.update" -> StudentLearningState().update(connection, scope, args, now)
         "learning.topic.record" -> StudentTopicKnowledge().record(connection, scope, args, now)
@@ -173,7 +183,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
                 FROM foundation_job j JOIN lesson l ON l.id=j.target_id WHERE j.student_id=? AND l.id=?
                 AND j.kind='lesson.evaluate' AND (j.input_refs->>'transcriptRevision')::bigint=l.transcript_revision
                 ORDER BY j.created_at DESC LIMIT 1""", scope.studentId, it) },
-            "trialResult" to connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE student_id=? ORDER BY created_at DESC LIMIT 1", scope.studentId),
+            "trialResult" to connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE student_id=? AND analyzer_version<>'trial-memory-v55' ORDER BY created_at DESC LIMIT 1", scope.studentId),
             "progress" to LearningProgress().read(connection, scope.studentId),
             "progressEvidence" to if (purpose == "learning" && lessonId == null) LearningProgress().evidence(connection, scope.studentId) else null,
             "roadmap" to roadmap, "roadmapPreparation" to RoadmapPreparation().state(connection, scope.studentId), "events" to JsonArray(events), "analysisSources" to JsonArray(analysisSources.take(1000)),
@@ -181,10 +191,36 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }
 
+    suspend fun learningPlan(token: String, id: String, revision: Long? = null, history: Boolean = false, offset: Int = 0): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            if (history) LearningPlans().history(c, scope.studentId, id, offset)
+            else LearningPlans().read(c, scope.studentId, id, revision)
+        }
+
+    suspend fun learningStage(token: String, task: String, plan: String, revision: Long, stage: String): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            LearningPlans().resolve(c, scope.studentId, task, plan, revision, stage)
+        }
+
     suspend fun learningTasks(token: String, topic: String?, problem: String?, state: String?, offset: Int): JsonObject =
         database.transaction(readOnly = true) { c, now ->
             val scope = authenticateScope(c, token, now)
             LearningTasks().list(c, scope.studentId, topic, problem, state, offset)
+        }
+
+    suspend fun learningObservations(token: String, filters: Map<String, String> = emptyMap(), offset: Int = 0): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            LearningObservations(observationStages).list(c, scope.studentId, filters, offset, now)
+        }
+
+    suspend fun learningObservation(token: String, id: String, history: Boolean = false, offset: Int = 0): JsonObject =
+        database.transaction(readOnly = true) { c, now ->
+            val scope = authenticateScope(c, token, now)
+            if (history) LearningObservations(observationStages).history(c, scope.studentId, id, offset, now)
+            else LearningObservations(observationStages).read(c, scope.studentId, id, now)
         }
 
     suspend fun learningTask(token: String, id: String, history: Boolean = false, offset: Int = 0): JsonObject =

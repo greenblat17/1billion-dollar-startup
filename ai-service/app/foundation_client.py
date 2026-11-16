@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 from app.diagnostics import context_fields, diagnostic_context, event
+from app.learning_observations import LearningObservation
 
 
 @dataclass
@@ -69,6 +70,42 @@ class FoundationClient:
             raise BackendFailure('unsupported_catalog_schema', 502)
         return result
 
+    async def learning_observations(self, scope: str, *, lesson_id: str | None = None,
+                                    task_id: str | None = None, skill_id: str | None = None,
+                                    topic_id: str | None = None, problem_id: str | None = None,
+                                    offset: int = 0) -> dict:
+        params = {k: v for k, v in {'lessonId': lesson_id, 'taskId': task_id, 'skillId': skill_id,
+                  'topicId': topic_id, 'problemId': problem_id, 'offset': str(offset)}.items() if v is not None}
+        return await self._observation_request('/learning-observations', scope, params=params)
+
+    async def learning_observation(self, scope: str, observation_id: str, *, history: bool = False,
+                                   offset: int = 0) -> dict:
+        from urllib.parse import quote
+        path = '/learning-observations/' + quote(observation_id, safe='') + ('/history' if history else '')
+        return await self._observation_request(path, scope, params={'offset': str(offset)} if history else {})
+
+    async def _observation_request(self, path: str, scope: str, **kwargs) -> dict:
+        result = await self._request('GET', path, scope, **kwargs)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_observation_schema', 502)
+        return result
+
+    async def record_learning_observation(self, scope: str, operation_id: str, observation: 'LearningObservation') -> dict:
+        # Trusted integrations only. No native tool or implicit grading.
+        return await self.command(scope, operation_id, 'learning.observation.record', {'observation': observation})
+
+    async def revise_learning_observation(self, scope: str, operation_id: str, *, observation_id: str,
+                                         expected_revision: int, observation: 'LearningObservation', reason: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.observation.revise', {
+            'observationId': observation_id, 'expectedRevision': expected_revision,
+            'observation': observation, 'reason': reason})
+
+    async def invalidate_learning_observation(self, scope: str, operation_id: str, *, observation_id: str,
+                                             expected_revision: int, component: str, reason: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.observation.invalidate', {
+            'observationId': observation_id, 'expectedRevision': expected_revision,
+            'component': component, 'reason': reason})
+
     async def learning_tasks(self, scope: str, *, topic_id: str | None = None,
                              problem_id: str | None = None, lifecycle: str | None = None, offset: int = 0) -> dict:
         params = {key: value for key, value in {
@@ -103,6 +140,61 @@ class FoundationClient:
             raise ValueError('invalid_task_action')
         return await self.command(scope, operation_id, 'learning.task.' + action, {
             'taskId': task_id, 'expectedRevision': expected_revision, 'component': component, **changes,
+        })
+
+    async def trial_events(self, scope: str, lesson_id: str, *, offset: int = 0) -> dict:
+        return await self._request('GET', '/trial/events', scope, params={'lessonId': lesson_id, 'offset': offset})
+
+    async def trial_audio(self, scope: str, lesson_id: str, *, cursor: str = '') -> dict:
+        return await self._request('GET', '/trial/audio', scope, params={'lessonId': lesson_id, 'cursor': cursor})
+    async def learning_plan(self, scope: str, plan_id: str, *, revision: int | None = None,
+                            history: bool = False, offset: int = 0) -> dict:
+        from urllib.parse import quote
+        path = '/learning-plans/' + quote(plan_id, safe='') + ('/history' if history else '')
+        params = {'offset': str(offset)} if history else ({'revision': str(revision)} if revision is not None else {})
+        return await self._plan_request(path, scope, params=params)
+
+    async def learning_stage(self, scope: str, *, task_id: str, plan_id: str,
+                             plan_revision: int, stage_id: str) -> dict:
+        from urllib.parse import quote
+        path = '/learning-plans/' + quote(plan_id, safe='') + '/stages/' + quote(stage_id, safe='')
+        return await self._plan_request(path, scope, params={'taskId': task_id, 'revision': str(plan_revision)})
+
+    async def _plan_request(self, path: str, scope: str, **kwargs) -> dict:
+        result = await self._request('GET', path, scope, **kwargs)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_plan_schema', 502)
+        return result
+
+    async def create_learning_plan(self, scope: str, operation_id: str, *, task_id: str,
+                                   expected_task_revision: int, definition: dict, component: str,
+                                   current_stage_id: str | None = None) -> dict:
+        # Trusted backend integrations only; no AI/native tool and no pedagogical method selection.
+        return await self.command(scope, operation_id, 'learning.plan.create', {
+            'taskId': task_id, 'expectedTaskRevision': expected_task_revision, 'definition': definition,
+            'component': component, 'currentStageId': current_stage_id,
+        })
+
+    async def revise_learning_plan(self, scope: str, operation_id: str, *, task_id: str, plan_id: str,
+                                   expected_task_revision: int, expected_plan_revision: int,
+                                   expected_state_revision: int, definition: dict, component: str,
+                                   **changes) -> dict:
+        # Omit currentStageId to retain it; explicit None clears it.
+        if set(changes) - {'currentStageId'}:
+            raise ValueError('invalid_plan_change')
+        return await self.command(scope, operation_id, 'learning.plan.revise', {
+            'taskId': task_id, 'planId': plan_id, 'expectedTaskRevision': expected_task_revision,
+            'expectedPlanRevision': expected_plan_revision, 'expectedStateRevision': expected_state_revision,
+            'definition': definition, 'component': component, **changes,
+        })
+
+    async def select_learning_stage(self, scope: str, operation_id: str, *, plan_id: str,
+                                    expected_plan_revision: int, expected_state_revision: int,
+                                    current_stage_id: str | None, reason: str, component: str) -> dict:
+        return await self.command(scope, operation_id, 'learning.plan.select-stage', {
+            'planId': plan_id, 'expectedPlanRevision': expected_plan_revision,
+            'expectedStateRevision': expected_state_revision, 'currentStageId': current_stage_id,
+            'reason': reason, 'component': component,
         })
 
     async def learning_state(self, scope: str) -> dict:

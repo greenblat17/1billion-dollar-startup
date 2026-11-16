@@ -21,11 +21,20 @@ internal class StudentLearningPrivacy {
         fun affected(value: JsonElement?): Boolean = (value as? JsonArray).orEmpty().any { element ->
             val ref = StudentLearningModel.objectValue(element)
             val event = ref.optionalText("sourceEventId") ?: if (ref.text("type") == "event") ref.text("id") else observations[ref.text("id")]
-            event in events
+            event in events || (ref["sourceEventIds"] as? JsonArray).orEmpty().any {
+                (it as? kotlinx.serialization.json.JsonPrimitive)?.content in events
+            }
         }
         redactProfile(c, student, now, ::affected)
         redactGoals(c, student, now, events, ::affected)
         redactTopics(c, student, now, ::affected)
+        // Collect lineage before removing evidence; SP-03 sources persist every event ID, including hints.
+        c.update("""DELETE FROM learning_observation WHERE student_id=? AND id IN
+            (SELECT observation_id FROM learning_observation_source WHERE student_id=? AND event_id=ANY(?))""",
+            student, student, c.createArrayOf("text", events.toTypedArray()))
+        // Rationale and component-supplied explanations can paraphrase facts outside declared source links.
+        c.update("UPDATE learning_observation SET document=jsonb_set(document,'{rationale}','\"\"') WHERE student_id=?", student)
+        c.update("UPDATE learning_observation_revision SET reason='',document=jsonb_set(document,'{rationale}','\"\"') WHERE student_id=?", student)
     }
 
     private fun redactProfile(c: Connection, student: String, now: Instant, affected: (JsonElement?) -> Boolean) {

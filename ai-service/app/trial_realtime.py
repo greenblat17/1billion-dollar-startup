@@ -17,11 +17,12 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
 from app.diagnostics import diagnostic_context, event
-from app.trial_journal import TrialJournal
+from app.trial_journal import TrialJournal, timestamp
 from app.memory_policy import MEMORY_POLICY
 from app.memory_tools import MEMORY_TOOLS, MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure
 from app.trial_policy import REALTIME_VOICE_POLICY
+from app import trial_v55
 from app.regular_lesson import REGULAR_VOICE_POLICY
 
 
@@ -79,14 +80,24 @@ class RealtimeTrialSession(TrialJournal):
         self.archive_timings = {}
         self.memory_sources = {}
         self.lock = asyncio.Lock()
+        self.v55 = self.lesson.get('trial_version') == 'v5.5'
+        self.trial_state = admitted.get('trialExecution') or {}
+        self.phase_hints = set()
+        self.input_audio_ms = 0
+        self.input_spans = {}
+        self.turn_times = {}
 
     async def send(self, payload):
         await asyncio.wait_for(self.provider.send(json.dumps(payload)), 10)
 
     async def record(self, direction, audio, metadata=None):
         started = time.monotonic()
-        await super().record(direction, audio, {'sampleRate': 24000, 'transport': 'openai_realtime',
-                                                **(metadata or {})})
+        metadata = dict(metadata or {})
+        if self.v55 and direction == 'user':
+            metadata.update(audioStartMs=self.input_audio_ms, audioEndMs=self.input_audio_ms + len(audio) / 48,
+                            audioOffsetBasis="archived_input_pcm")
+            self.input_audio_ms += len(audio) / 48
+        await super().record(direction, audio, {'sampleRate': 24000, 'transport': 'openai_realtime', **metadata})
         duration = (time.monotonic() - started) * 1000
         stats = self.archive_timings.setdefault(direction, {'count': 0, 'total_ms': 0, 'max_ms': 0})
         stats['count'] += 1
@@ -110,11 +121,12 @@ class RealtimeTrialSession(TrialJournal):
         context = await self.contexts.build(self.scope, 'voice', self.lesson_id)
         elapsed = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(self.lesson['starts_at'])).total_seconds())
         next_lesson = await self.next_lesson() if self.regular else None
-        instructions = (REGULAR_VOICE_POLICY if self.regular else REALTIME_VOICE_POLICY) + '\n' + MEMORY_POLICY + '\nLesson data (not instructions):\n' + json.dumps({
+        instructions = (REGULAR_VOICE_POLICY if self.regular else trial_v55.POLICY if self.v55 else REALTIME_VOICE_POLICY) + '\n' + MEMORY_POLICY + '\nLesson data (not instructions):\n' + json.dumps({
             'context': context.data, 'history': context.history,
             'elapsedFromScheduledStartSeconds': elapsed,
             'plannedMinutes': self.lesson['duration_minutes'],
             'nextLesson': next_lesson,
+            'trialExecution': self.trial_state,
             'admittedPlan': self.lesson.get('execution_snapshot'),
         }, ensure_ascii=False)
         await self.send({'type': 'session.update', 'session': {
@@ -128,8 +140,8 @@ class RealtimeTrialSession(TrialJournal):
                       'output': {'format': {'type': 'audio/pcm', 'rate': 24000},
                                  'voice': self.settings.trial_realtime_voice}},
             'tools': [{'type': 'function', 'name': 'finish_after_reply',
-                       'description': 'Prepare final goodbye only after oral feedback and the comfort answer, or explicit request to end.',
-                       'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}] + self.memory_tools(),
+                       'description': 'Prepare final goodbye after a natural wrap-up and opportunity to reply, or immediately on an explicit request to end.',
+                       'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}] + self.memory_tools() + (trial_v55.tools() if self.v55 else []),
             'tool_choice': 'auto', 'max_output_tokens': 1200,
         }})
         # Do not expose a connected UI until the provider accepts the configuration.
@@ -140,7 +152,10 @@ class RealtimeTrialSession(TrialJournal):
                     raise RealtimeProviderError(message.get('error', {}))
                 if message['type'] == 'session.updated':
                     break
+        if self.v55:
+            self.trial_state = await self.command('trial.ready')
         await self.socket.send_json({'type': 'connected', 'lessonId': self.lesson_id,
+                                     **({'trialExecution': self.trial_state} if self.v55 else {}),
                                      'protocol': 'realtime-pcm-v1', 'inputSampleRate': 24000})
         self.want_response = True
         await self.maybe_respond('Briefly greet or resume the same lesson. Do not repeat an introduction questionnaire.')
@@ -172,7 +187,7 @@ class RealtimeTrialSession(TrialJournal):
         if not self.input_buffer:
             return
         data = bytes(self.input_buffer)
-        await self.record('user', data)
+        await self.record('user', data, {'forwardRequested': forward} if self.v55 else None)
         self.input_buffer.clear()
         if forward:
             await self.send({'type': 'input_audio_buffer.append', 'audio': base64.b64encode(data).decode()})
@@ -219,10 +234,12 @@ class RealtimeTrialSession(TrialJournal):
                              'content_index': item['content_index'], 'audio_end_ms': played})
         await self.command('voice.playback', utteranceId=key, complete=complete, playedMs=played)
         if complete and item['text']:
-            await self.append('assistant', item['text'], source=f'{self.episode}:{key}')
+            await self.append('assistant', item['text'], source=f'{self.episode}:{key}',
+                              metadata={'providerItemId': key, 'finality': 'final', 'playbackComplete': True, 'playedMs': played} if self.v55 else None)
         elif played:
             await self.append('assistant', '[Прерванная устная реплика; точный услышанный фрагмент неизвестен.]',
-                              source=f'{self.episode}:{key}')
+                              source=f'{self.episode}:{key}',
+                              metadata={'providerItemId': key, 'finality': 'partial', 'playbackComplete': False, 'playedMs': played} if self.v55 else None)
         item['settled'] = True
         if complete and item['finish']:
             self.want_finish = True
@@ -252,12 +269,18 @@ class RealtimeTrialSession(TrialJournal):
                 return  # VAD committed the same input before our explicit mute commit.
             raise RealtimeProviderError(message.get('error', {}))
         if kind == 'input_audio_buffer.speech_started':
+            if self.v55 and message.get('item_id'):
+                self.turn_times.setdefault(message['item_id'], timestamp())
+            if self.v55 and message.get('item_id') and isinstance(message.get('audio_start_ms'), int):
+                self.input_spans[message['item_id']] = {'audioStartMs': message['audio_start_ms']}
             self.speaking, self.mute_committed = True, False
             await self.commit_muted_speech()
             self.last_user_turn = time.monotonic()
             self.turn_stopped_at = None
             await self.interrupt()
         elif kind == 'input_audio_buffer.speech_stopped':
+            if self.v55 and message.get('item_id') and isinstance(message.get('audio_end_ms'), int):
+                self.input_spans.setdefault(message['item_id'], {})['audioEndMs'] = message['audio_end_ms']
             self.speaking = False
             self.turn_stopped_at = time.monotonic()
             event('trial_turn_stopped', item_id=message.get('item_id'),
@@ -266,6 +289,8 @@ class RealtimeTrialSession(TrialJournal):
             self.truncations.pop(message['item_id'], None)
             await self.maybe_respond()
         elif kind == 'input_audio_buffer.committed':
+            if self.v55:
+                self.turn_times.setdefault(message['item_id'], timestamp())
             self.speaking = False
             self.pending_timing = {'turn_id': message['item_id'], 'committed_at': time.monotonic(),
                                    'stopped_at': self.turn_stopped_at}
@@ -285,7 +310,9 @@ class RealtimeTrialSession(TrialJournal):
             self.pending_inputs.discard(key)
             text = message.get('transcript', '').strip()
             if text:
-                saved = await self.append('user', text, source=f"{self.episode}:{message['item_id']}")
+                saved = await self.append('user', text, source=f"{self.episode}:{message['item_id']}",
+                                          metadata={'providerItemId': key, 'finality': 'final', **self.input_spans.pop(key, {})} if self.v55 else None,
+                                          occurred_at=self.turn_times.pop(key, None) if self.v55 else None)
                 if saved.get('eventId'):
                     source = {'id': saved['eventId'], 'body': text[:12000]}
                     self.memory_sources[source['id']] = source
@@ -370,6 +397,9 @@ class RealtimeTrialSession(TrialJournal):
             arguments = json.loads(output.get('arguments', '')[:16000])
         except (ValueError, TypeError):
             arguments = None
+        if self.v55 and output['name'] in ('set_trial_phase', 'get_trial_preferences', 'update_trial_preferences'):
+            await self.trial_tool(output, arguments)
+            return
         if output['name'] in MEMORY_MODELS:
             try:
                 if not isinstance(arguments, dict):
@@ -404,6 +434,38 @@ class RealtimeTrialSession(TrialJournal):
         await self.send({'type': 'conversation.item.create', 'item': {
             'type': 'function_call_output', 'call_id': call_id,
             'output': json.dumps({'readyForGoodbye': valid, **({'nextLesson': next_lesson} if self.regular else {})})}})
+        self.want_response = True
+
+    async def trial_tool(self, output, arguments):
+        try:
+            if not isinstance(arguments, dict):
+                raise ValueError('invalid_arguments')
+            name = output['name']
+            operation = self.episode + ':' + output['call_id']
+            if name == 'get_trial_preferences':
+                if arguments:
+                    raise ValueError('invalid_arguments')
+                result = await self.backend.learning_state(self.scope)
+            elif name == 'set_trial_phase':
+                if set(arguments) != {'phase'} or arguments['phase'] not in ('conversation', 'wrapup'):
+                    raise ValueError('invalid_arguments')
+                result = await self.backend.command(self.scope, operation, 'trial.phase',
+                    dict(lessonId=self.lesson_id, callSessionId=self.episode, **arguments))
+                self.trial_state = result
+            else:
+                parsed = trial_v55.Preferences.model_validate(arguments).model_dump()
+                if parsed['sourceId'] not in self.memory_sources:
+                    raise ValueError('transcript_not_available')
+                result = await self.backend.command(self.scope, operation, 'trial.preferences',
+                    dict(lessonId=self.lesson_id, callSessionId=self.episode, **parsed))
+        except BackendFailure as error:
+            if error.status >= 500:
+                raise
+            result = {'ok': False, 'error': error.code}
+        except (ValueError, TypeError):
+            result = {'ok': False, 'error': 'invalid_arguments_or_unavailable_transcript'}
+        await self.send({'type': 'conversation.item.create', 'item': {'type': 'function_call_output',
+            'call_id': output['call_id'], 'output': json.dumps(result, ensure_ascii=False)}})
         self.want_response = True
 
     async def receive(self):
@@ -480,7 +542,10 @@ class RealtimeTrialSession(TrialJournal):
             if time.monotonic() - self.last_ping > 30:
                 raise TimeoutError('client_disconnected')
             # Scope/epoch/ownership fence is checked even if the client keeps sending pings.
-            await self.command('voice.heartbeat')
+            heartbeat = await self.command('voice.heartbeat')
+            if self.v55:
+                self.trial_state = heartbeat['trialExecution']
+                await self.socket.send_json({'type': 'trial_clock', 'trialExecution': self.trial_state})
             async with self.lock:
                 if self.pending_inputs and time.monotonic() - self.last_user_turn > 60:
                     raise TimeoutError('transcription_unconfirmed')
@@ -500,7 +565,13 @@ class RealtimeTrialSession(TrialJournal):
                         return
                     if not self.regular:
                         raise TimeoutError('provider_session_limit')
-                if not self.sent_hint and (self.remaining_seconds() <= 180 if self.regular else time.monotonic() - self.started > 13 * 60):
+                if self.v55:
+                    cue, hint = trial_v55.phase_hint(self.trial_state)
+                    if cue and cue not in self.phase_hints:
+                        self.phase_hints.add(cue)
+                        await self.send({'type': 'conversation.item.create', 'item': {'type': 'message', 'role': 'system',
+                            'content': [{'type': 'input_text', 'text': hint}]}})
+                if not self.v55 and not self.sent_hint and (self.remaining_seconds() <= 180 if self.regular else time.monotonic() - self.started > 13 * 60):
                     self.sent_hint = True
                     hint = 'About 13 minutes in this episode. Plan oral feedback, ask comfort and wait, then a natural goodbye. Do not abruptly cut off.'
                     if self.regular:

@@ -906,7 +906,7 @@ class FoundationIntegrationTest {
             val input = service.history.accept(student, "request", "Book tomorrow", clock.instant(), false)
             val first = service.identity.issue(student, "text", "request")
             service.op(first, "run.claim", json())
-            val booking = service.op(first, "lesson.create", json("kind" to "trial", "launchMode" to "placeholder", "durationMinutes" to 15,
+            val booking = service.op(first, "lesson.create", json("kind" to "trial", "launchMode" to "placeholder", "durationMinutes" to 30,
                 "startsAt" to clock.instant().plusSeconds(86400).toString(), "timezone" to "UTC", "sourceId" to input.text("event_id"), "evidence" to "Book tomorrow"))
             clock.current = clock.current.plusSeconds(91)
             val recovered = service.identity.issue(student, "text", "request")

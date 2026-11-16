@@ -79,7 +79,7 @@ class Flow:
     async def lesson(self, kind='regular', future=False):
         return await self.command('lesson.create', {'kind': kind, 'launchMode': 'executable',
             'startsAt': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat() if future else now(),
-            'timezone': 'UTC', 'durationMinutes': 30})
+            'timezone': 'UTC', 'durationMinutes': 15 if kind == 'trial' else 30})
 
     async def claim(self, kind):
         return (await self.command('job.claim', {'kind': kind}))['job']

@@ -45,7 +45,7 @@ async def test_profile_survives_booking_replay_and_reaches_voice_context():
         tutor = FoundationTutor(backend, model, ContextBuilder(backend))
         payload = TutorRequest(sessionId=subject, requestId=request, text=body, receivedAt=time.time())
         first = await tutor.respond(payload, owner['scope'])
-        assert first['booking']['durationMinutes'] == 15
+        assert first['booking']['durationMinutes'] == 30
         assert first['booking']['timing'] == 'now'
         assert first['reply'] == ''
         assert await tutor.respond(payload, owner['scope']) == first

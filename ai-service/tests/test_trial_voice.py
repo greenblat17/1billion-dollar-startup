@@ -63,7 +63,8 @@ async def test_analyzer_rejects_invented_source_id():
 async def test_preparation_does_not_require_roadmap_or_invent_evaluation():
     result = await TrialPlanner().prepare(SimpleNamespace(data={}), {})
     assert set(result) == {'objective', 'topic', 'strategy'}
-    assert 'No roadmap or exam' in result['strategy']
+    assert 'RU warm-up' in result['strategy'] and 'EN conversation' in result['strategy']
+    assert 'no CEFR, scores, timelines or exam' in result['strategy']
 
 
 @pytest.mark.asyncio

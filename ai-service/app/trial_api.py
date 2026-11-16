@@ -142,6 +142,16 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             }.get(kind)
             if directive is None:
                 raise HTTPException(400)
+        if (context.data.get('lesson') or {}).get('trial_version') == 'v5.5' and kind in ('followup', 'end_button', 'technical_disconnect'):
+            # New educational delivery belongs to SP-07/08/11A. Never substitute the old roadmap.
+            if kind == 'technical_disconnect':
+                lesson = context.data['lesson']
+                from datetime import datetime, timezone, timedelta
+                deadline = datetime.fromisoformat(lesson['starts_at']) + timedelta(minutes=lesson['duration_minutes'])
+                if lesson['status'] == 'in_progress' and datetime.now(timezone.utc) < deadline:
+                    return {'reply': 'Связь прервалась. Можно вернуться в тот же урок до конца согласованного времени встречи.'}
+                return {'reply': 'Связь прервалась, и время для возвращения в эту встречу прошло. Можем договориться о новом бесплатном пробном уроке.'}
+            return {'reply': 'Спасибо за разговор! Если захочешь что-то добавить или обсудить, напиши мне здесь.'}
         text = await model.complete_json(
             'You are Sasha, the same AI tutor. Return JSON {"reply":string}: 1–3 natural Russian sentences (up to 6 when explaining the saved roadmap), or an empty reply when the directive requests suppression. '
             + directive + ' Executable lessons are real agreed meetings. Payment is discussed in Telegram. Only backend billing status proves subscription access; the current mock provider never charges real money. '

@@ -15,24 +15,25 @@ internal object StudentLearningSources {
         return JsonArray(sources.map { element ->
             val source = StudentLearningModel.objectValue(element)
             source.only("type", "id", "revision")
-            val type = StudentLearningModel.enum(source["type"], setOf("event", "observation"))
+            val type = StudentLearningModel.enum(source["type"], setOf("event", "observation", "learning_observation"))
             val id = StudentLearningModel.requiredString(source["id"], 250)
             val revision = source["revision"] as? JsonPrimitive ?: reject("invalid_source_revision")
             if (revision.isString || (revision.longOrNull ?: 0) <= 0) reject("invalid_source_revision")
             if (!identities.add(type to id)) reject("duplicate_learning_source")
-            val stored = resolve(c, student, type, id) ?: reject("learning_source_not_owned")
+            val stored = resolve(c, student, type, id, now) ?: reject("learning_source_not_owned")
             if (stored.number("revision") != revision.longOrNull) reject("stale_learning_source")
             if (stored.optionalText("body") == null || Instant.parse(stored.text("expires_at")) <= now) reject("source_expired")
             if (stored.optionalText("current_revision")?.toLong() != null && stored.number("current_revision") != stored.number("revision")) {
                 reject("stale_learning_source")
             }
-            JsonObject(source + json("sourceEventId" to stored.text("event_id"), "lessonId" to stored.optionalText("lesson_id")))
+            JsonObject(source + json("sourceEventId" to stored.text("event_id"), "lessonId" to stored.optionalText("lesson_id")) +
+                if (type == "learning_observation") json("sourceEventIds" to stored["sourceEventIds"]) else json())
         })
     }
 
     fun project(c: Connection, student: String, sources: JsonArray, now: Instant): JsonArray = JsonArray(sources.map { element ->
         val source = StudentLearningModel.objectValue(element)
-        val stored = resolve(c, student, source.text("type"), source.text("id"))
+        val stored = resolve(c, student, source.text("type"), source.text("id"), now)
         json("type" to source["type"], "id" to source["id"], "revision" to source["revision"],
             "lessonId" to (source.optionalText("lessonId") ?: stored?.optionalText("lesson_id")),
             "sourceEventId" to (source.optionalText("sourceEventId") ?: stored?.optionalText("event_id")),
@@ -41,7 +42,8 @@ internal object StudentLearningSources {
                 (stored.optionalText("current_revision") == null || stored.number("current_revision") == source.number("revision"))))
     })
 
-    private fun resolve(c: Connection, student: String, type: String, id: String): JsonObject? = when (type) {
+    private fun resolve(c: Connection, student: String, type: String, id: String, now: Instant): JsonObject? = when (type) {
+        "learning_observation" -> LearningObservationSources.summary(c, student, id, now)
         "event" -> c.document("""SELECT jsonb_build_object('event_id',e.id,'revision',e.sequence,'body',e.body,'expires_at',e.expires_at,
             'lesson_id',le.lesson_id) FROM conversation_event e LEFT JOIN lesson_event le ON le.event_id=e.id
             WHERE e.student_id=? AND e.id=? AND e.role='user'""", student, id)

@@ -3,6 +3,74 @@
 Срез документации: 2026-11-16. Новые SP-02–05 объединены локально в ветке `bb/sp-02-05-v5-5` на базе `origin/dev` `6b3dfbe`. Сведения о прежней поставке ниже относятся к историческим проверкам.
 Ветка опубликована в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; merge и deploy не выполнялись.
 
+## Совместная интеграция волны 2
+
+SP-06, SP-17A и SP-12A собраны от `7e3800b` и добавлены в общую ветку
+`bb/sp-02-05-v5-5` / draft PR #58. Три исходные ветки сохранены. V52–V54 применены к отдельной PostgreSQL 14.10.
+Observation StageRef разрешается по исторической ревизии реального Learning Plan.
+
+Совместно прошли 705 Python, 321 Kotlin unit, 115 PostgreSQL integration, 44 HTTP integration и
+16 Mini App tests; `buildFatJar`, `detekt` и Mini App build прошли. HTTP проверял Python → Ktor → PostgreSQL.
+Старые HTTP-сценарии образовательного Trial проверены на синтетическом 15-минутном legacy-уроке,
+новый 30-минутный Trial — отдельным сценарием. Это не перенос пользовательских записей.
+Педагогический каталог опубликован только как синтетический test fixture.
+
+Интеграция опубликована в draft PR #58; merge и deploy не выполнялись. Живой звонок, Telegram, S3, визуальная приёмка,
+DEV/PROD и полная цепочка Trial → Assessment → Roadmap не проверены.
+
+## Новый SP-06 v5.5: Trial Lesson
+
+План утверждён пользователем 2026-11-16. Работа началась в отдельной ветке
+`bb/sp-06-trial-lesson-v5-5-thr_tvbpxhm5dn` от `7e3800b`; результат включён в draft PR #58.
+
+- Новый Trial: 30 минут подключённого времени, RU warm-up → EN conversation → RU wrap-up.
+  Мягкие фазы и таймер сохраняются между подключениями; модель не должна называть CEFR/баллы/сроки.
+- Reconnect возможен до конца исходного слота; остаток времени можно использовать после его конца.
+  Кнопка завершает Trial окончательно; оставшийся отключённым урок закрывается как прерванный.
+- Native tool сохраняет intensity/Homework через SP-03 с цитатой, source ownership и revision.
+  Нет разрешения писать CEFR, Goal, Topics или расписание. Unknown/null и Homework no допустимы.
+- V52 хранит clock/phase и raw call metadata. Scoped GET events/audio доступны будущему SP-17B.
+  Stable IDs/revisions, nullable ASR confidence, реальные audio references; детектор ASR ошибок отсутствует.
+- Новый Trial отделён от старого educational evaluation/Roadmap. Personal Memory extraction сохранён.
+  Полная цепочка Assessment → Roadmap → Telegram ещё не реализована; SP-06 не закрывает её приёмку.
+- Локально: Python 701 passed; Kotlin 309 unit + 96 PostgreSQL integration passed;
+  после последнего ограничения read-scope повторно прошли 7 Trial integration tests.
+  HTTP Python → Ktor → PostgreSQL: 11 passed. Mini App: 16 tests + production build passed.
+  `buildFatJar`, `detekt`, `git diff --check` и локальные ссылки проверены.
+- Browser Automation не открылся из-за `EATTESTATIONVERIFY`; визуальная приёмка не подтверждена.
+  Живая 30-минутная модель/Realtime/Telegram/S3 приёмка, DEV readiness и доставка Roadmap не проверены.
+- Обязательное последующее удаление старых обработчиков и их потребители перечислены в
+  [контракте/handoff](integrations/trial-v55.md#handoff-и-старый-pipeline); интеграцию ведёт родитель.
+
+[Утверждённый план](plans/2026-11-16-sp06-trial-lesson-v55.md). В Notion 12 AC отмечены по проверке кода; общий статус In progress.
+
+## SP-12A v5.5: Learning Plan Contract
+
+Реализован локально после явного утверждения в отдельной ветке `bb/sp-12a-learning-plan-contract-thr_kdrsx7xmdj`,
+от `7e3800b` общей SP-02–05. Результат включён в draft PR #58.
+
+- V54 хранит Plan конкретной Task, immutable definitions и историю текущего Stage.
+  Четыре Teaching Methods; один Stage на выбранный method. Binary condition без веса;
+  numeric weights неотрицательны и в сумме 1 при наличии numeric stages. Ненужные методы отсутствуют.
+- Создание/ревизия атомарно связывает Plan с Task, не меняет Skill/Topic/Problem, цель, lifecycle или Progress.
+  Task без Plan допустима. Generic task.update проверяет владельца, Task и текущую Plan revision.
+- StageRef = taskId/planId/planRevision/stageId; historical resolver сохраняет старую привязку после reorder/reweight/removal.
+  Смена method/kind/condition требует нового ID. Cursor revision отделена от definition revision;
+  повтор/возврат/выбор ученика не сбрасывает результаты и не создаёт новую попытку прохождения.
+- Internal API и FoundationClient: чтение в student scope, запись только operator, общий lock/receipts/revisions.
+  Нет новых native tools. SP-12A не выбирает методы по Problem, не создаёт content и не считает Score.
+- Plan не содержит личного текста/контента. Personal forget и retention сохраняют структуру;
+  learning.forget/reset/delete/replay удаляют Plan/revisions/history каскадом от Task.
+- Проверки: 697 Python, 314 Kotlin unit, 95 PostgreSQL integration, 20 реальных HTTP tests — passed.
+  `buildFatJar`, `detekt` — passed. HTTP проверяет Python → Ktor → PostgreSQL и регрессии SP-02–05;
+  7 новых HTTP-сценариев и 6 новых PostgreSQL-сценариев относятся к SP-12A.
+  После дополнения /start и deletion replay с заполненным Plan все 14 Plan/Task PostgreSQL-сценариев повторно passed.
+- V54 применена только к отдельному временному PostgreSQL 14.10; каталог синтетический, без пользовательских данных.
+  StageRef подключён к SP-17A в общей ветке. SP-13A/19A получают документированный контракт и fixtures,
+  это не подтверждение будущей AI/Voice/Score интеграции. DEV/PROD, merge и deploy не выполнялись.
+
+[Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md).
+
 ## Совместная проверка SP-02–05
 
 В общей ветке прошли 695 Python, 309 Kotlin unit, 89 PostgreSQL integration и 13 HTTP integration-тестов.
@@ -11,6 +79,33 @@
 отдельными синтетическими тестовыми ресурсами; тестовые процессы остановлены.
 Педагогическое содержание Topic Map ещё ждёт приёмки; реальный каталог не опубликован.
 Живой диалог модели, Telegram, DEV/PROD и 30-минутный Trial не проверялись и не поставлялись.
+
+## Новый SP-17A: Observation Contract & Core
+
+План утверждён пользователем 2026-11-16. Реализация в отдельной ветке
+`bb/sp-17a-observation-contract-thr_3yyacry6cr` от `7e3800b`; результат включён в draft PR #58.
+
+- Единый evidence journal: источники и spans, Skill/nullable Topic/Problem, optional Task/Stage/Action,
+  independent/error/self-corrected/hinted, явные признаки качества и происхождение.
+- Устойчивые identities, защита retry/concurrent writes, revisions и invalidation без второй попытки.
+  Unknown classification не получает выдуманных ID. Нет автономного CEFR, Topic Knowledge или Score.
+- Внутренние API и Python types/client; запись operator-only, без новых native tools и production extractor.
+  Старый post-call analysis сохранён. SP-03 принимает `learning_observation` sources, включая все исходные event IDs.
+- V53 согласована с родителем, независима от V52/V54. Stage resolver — integration port;
+  в общей ветке он подключён к историческому Plan SP-12A. Binary Stage не становится numeric evidence.
+- Privacy, retention и полный reset/delete включают новый журнал и его историю.
+- Проверки: 697 Python tests, финальные 316 Kotlin unit, buildFatJar и detekt passed.
+  Полный PostgreSQL regression — 99 tests passed; после уточнения source availability и добавления
+  reset/replay сценариев все 12 Observation integration tests повторно passed.
+  36 реальных HTTP checks Python → Ktor → PostgreSQL passed, включая новый журнал и прежние consumers.
+  JSON handoff examples проверены backend validator и Python adapter; ссылки и diff проверены.
+- V53 применяется только к отдельному временному PostgreSQL 14.10 с синтетическими данными.
+  Тестовые backend и PostgreSQL остановлены после проверки.
+  Реальные Trial→Observation (SP-17B), Actions (SP-17C), live scoring и качество tagging/ASR не проверены.
+  Детектор ошибок ASR не добавлен. В Notion отмечены 5 AC дочерней SP-17A; основная SP-17 остаётся открытой. Merge/deploy не выполнялись.
+
+[Утверждённый план](plans/2026-11-16-sp17a-observation-contract.md),
+[контракт и handoff](integrations/learning-observations.md).
 
 ## Новый SP-04 v5.5: Learning Tasks
 
@@ -33,7 +128,8 @@
 - V51 применялась только к отдельному временному PostgreSQL 14.10. Каталог публиковался как синтетическая тестовая версия.
   DEV/PROD и живой диалог не проверялись.
 - Следующие SP: генерация и адаптация Roadmap, Plan/Stages, Observations, scoring, уроки, Homework и UI.
-  Plan/Action/Homework refs пока непрозрачные идентификаторы; проверка существования в их доменах — часть будущих интеграций.
+  В общей ветке SP-12A проверяет Plan (см. выше); Action/Homework refs остаются
+  непрозрачными идентификаторами до реализации их доменов.
   Знакомство SP-05 не создаёт Tasks. Смена цели не перестраивает их автоматически.
 
 [Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55).
@@ -50,7 +146,7 @@
   трудности остаются пользовательскими фактами, не диагнозом. История обучения отдельно не собирается.
 - Частота/длительность и Homework обсуждаются на Trial (SP-06). По уровню или цели не отказываем,
   результат не гарантируем. После записи разговор завершается до инициативы ученика.
-- Trial остаётся 15 минут: SP-06 отдельно меняет длительность, исполнение и обещания.
+- На срезе SP-05 Trial был 15 минут; локальный SP-06 выше переводит новые записи на 30 минут.
 - Проверки: 693 Python tests, Kotlin unit, buildFatJar и detekt — passed.
   HTTP-сценарий Python → Ktor → PostgreSQL проверил запись профиля, немедленный Trial,
   replay без повторного вызова модели и передачу профиля в голосовой контекст.

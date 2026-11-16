@@ -146,6 +146,9 @@ internal class FoundationJobs {
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
         if (connection.document("SELECT to_jsonb(e) FROM lesson_evaluation e WHERE lesson_id=? AND source_revision=? AND analyzer_version=?",
             lessonId, inputs.number("transcriptRevision"), inputs.text("analyzerVersion")) != null) return true
+        if (trialV55(lesson) && (inputs.text("analyzerVersion") != "trial-memory-v55" ||
+            (result["observations"] as? JsonArray)?.isNotEmpty() != false ||
+            (result["notes"] as? JsonArray)?.isNotEmpty() == true)) reject("legacy_trial_assessment_forbidden")
         LessonEvidence().notes(connection, scope, lessonId, result, now)
         val observations = result["observations"]?.jsonArray ?: reject("invalid_result")
         if (observations.size > 30) reject("invalid_result")
