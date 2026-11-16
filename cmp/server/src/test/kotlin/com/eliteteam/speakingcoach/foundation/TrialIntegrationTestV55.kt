@@ -260,9 +260,9 @@ class TrialIntegrationTestV55 {
             s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "end_button")))
             val operator = s.identity.issue(l.text("student_id"), "operator")
             val prior = s.op(operator, "learning.update", json("expectedRevision" to 0,
-                "patch" to json("currentLevels" to json("selfAssessment" to json("skills" to json(
+                "patch" to json("targetLevel" to "B2", "currentLevels" to json("selfAssessment" to json("skills" to json(
                     "listening" to json("level" to "B2", "explanation" to "Student report"))))),
-                "component" to "onboarding", "sources" to JsonArray(listOf(json(
+                "goal" to "B2 for work", "component" to "onboarding", "sources" to JsonArray(listOf(json(
                     "type" to "event", "id" to sources.first().text("eventId"),
                     "revision" to sources.first().number("sequence"))))))
             val observe = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
@@ -306,6 +306,24 @@ class TrialIntegrationTestV55 {
             assertEquals("Known", s.topicKnowledge(operator, catalog.version, grammarTopic, 0, false)
                 ["items"]!!.jsonArray.single().jsonObject.text("status"))
             assertEquals("succeeded", events(s, l, operator).text("assessmentStatus"))
+            val roadmapJob = s.op(operator, "job.claim", json("kind" to "roadmap.generate")).obj("job")
+            assertEquals(state.number("revision"), roadmapJob.obj("input_refs").number("learningRevision"))
+            val speakingTopic = catalog.topics.first { it.skillId == "speaking" }
+            val candidate = json("topicId" to speakingTopic.id, "skillId" to "speaking", "cefr" to speakingTopic.cefr,
+                "problemId" to "speaking_barrier", "knowledge" to "Unknown", "provisional" to true,
+                "reason" to "Coverage hypothesis; verify in practice.", "orderReason" to "Level proposal.",
+                "goalFocus" to false, "taskId" to null, "order" to 1)
+            val proposal = json("schemaVersion" to 1, "catalogVersion" to catalog.version,
+                "goalRevision" to 1, "targetLevel" to "B2", "goal" to "B2 for work", "provisional" to true,
+                "sequence" to JsonArray(listOf(candidate)), "taskCount" to 1, "assumptions" to JsonArray(emptyList()),
+                "history" to JsonArray(emptyList()), "scope" to "initial_roadmap", "timeline" to null)
+            val roadmapApply = json("jobId" to roadmapJob.text("id"), "fence" to roadmapJob.number("fence"), "result" to proposal)
+            assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
+            assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
+            val storedRoadmap = s.learningRoadmap(operator).obj("roadmap").obj("document")
+            val taskId = storedRoadmap["sequence"]!!.jsonArray.single().jsonObject.text("taskId")
+            assertEquals(0.0, LearningTaskModel.progress(s.learningTask(operator, taskId).obj("task")["progress"]))
+            assertEquals(1, s.learningTasks(operator, null, null, null, 0)["items"]!!.jsonArray.size)
             items.forEach { item ->
                 val row = item.jsonObject
                 s.op(operator, "learning.observation.invalidate", json("observationId" to row.text("id"),
@@ -330,6 +348,15 @@ class TrialIntegrationTestV55 {
             assertEquals("Unknown", s.topicKnowledge(operator, catalog.version, grammarTopic, 0, false)
                 ["items"]!!.jsonArray.single().jsonObject.text("status"))
             assertEquals(2, s.topicKnowledge(operator, catalog.version, grammarTopic, 0, true)["items"]!!.jsonArray.size)
+            val regenerated = s.op(operator, "job.claim", json("kind" to "roadmap.generate")).obj("job")
+            assertEquals(s.learningState(operator).number("revision"), regenerated.obj("input_refs").number("learningRevision"))
+            val revised = JsonObject(proposal + json("sequence" to JsonArray(listOf(
+                JsonObject(candidate + json("reason" to "Reassessment kept this provisional."))))))
+            assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to regenerated.text("id"),
+                "fence" to regenerated.number("fence"), "result" to revised)).text("status"))
+            assertEquals(2, s.learningRoadmap(operator).obj("roadmap").number("revision"))
+            assertEquals(1, s.learningRoadmapHistory(operator, 0)["items"]!!.jsonArray.size)
+            assertEquals(1, s.learningTasks(operator, null, null, null, 0)["items"]!!.jsonArray.size)
         }
     }
 

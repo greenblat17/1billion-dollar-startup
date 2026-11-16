@@ -36,13 +36,14 @@ class LearningEngine:
     def __init__(self, backend: FoundationClient, contexts: ContextBuilder,
                  analyzer: LessonAnalyzer | None = None, planner: LessonPlanner | None = None,
                  extractor: PersonalCandidateExtractor | None = None, roadmap: LessonPlanner | None = None,
-                 trial_observations=None, trial_assessment=None):
+                 trial_observations=None, trial_assessment=None, personalized_roadmap=None):
         self.backend, self.contexts = backend, contexts
         self.analyzer, self.planner = analyzer, planner
         self.extractor = extractor
         self.roadmap = roadmap
         self.trial_observations = trial_observations
         self.trial_assessment = trial_assessment
+        self.personalized_roadmap = personalized_roadmap
 
     async def compute(self, scope: str, job: dict) -> dict:
         if job.get('schema_version') != 1:
@@ -51,6 +52,8 @@ class LearningEngine:
             return await self.trial_observations.extract(scope, job['target_id'], job['input_refs'])
         if job['kind'] == 'trial.assess' and self.trial_assessment is not None:
             return await self.trial_assessment.assess(scope, job['target_id'], job['input_refs'])
+        if job['kind'] == 'roadmap.generate' and self.personalized_roadmap is not None:
+            return await self.personalized_roadmap.plan(scope, catalog_version=job['input_refs']['catalogVersion'])
         context = await self.contexts.build(scope, 'learning', job.get('target_id'))
         if job['kind'] == 'roadmap.prepare' and self.roadmap is not None:
             return await self.roadmap.prepare(context, job['input_refs'])

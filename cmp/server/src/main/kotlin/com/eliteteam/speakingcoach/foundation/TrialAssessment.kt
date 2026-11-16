@@ -133,6 +133,18 @@ internal class TrialAssessment {
                 "expectedRevision" to revision, "status" to item.text("status"), "explanation" to item.text("explanation"),
                 "component" to "post-trial-assessment", "sources" to sourceArray(refs(item["observationRefs"]))), now)
         }
+        val assessed = StudentLearningState().read(c, scope.studentId, now)
+        val targetLevel = assessed.obj("profile").text("targetLevel")
+        val goal = assessed["goal"] as? JsonObject
+        if (targetLevel in LearningCatalogModel.levels && goal?.obj("content")?.optionalText("value")?.isNotBlank() == true) {
+            val learningRevision = assessed.number("revision")
+            val knowledgeDigest = PersonalizedRoadmap().knowledgeDigest(c, scope.studentId, catalogVersion)
+            c.enqueueJob(scope.studentId, "roadmap.generate",
+                "$lessonId:${inputs.number("transcriptRevision")}:$learningRevision:$knowledgeDigest:personalized-roadmap-v1", lessonId,
+                json("transcriptRevision" to inputs.number("transcriptRevision"),
+                    "learningRevision" to learningRevision, "goalRevision" to goal.number("revision"),
+                    "catalogVersion" to catalogVersion, "knowledgeDigest" to knowledgeDigest), now)
+        }
         return true
     }
 

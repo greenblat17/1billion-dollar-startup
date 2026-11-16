@@ -1,6 +1,21 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. Волны 1–4, включая SP-07, SP-13B и SP-19A, объединены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Merge и deploy не выполнялись. Волны 5–9 ещё не начаты. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-17. Волны 1–4 отправлены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Волна 5 (SP-08/14/15) объединена локально, ещё не отправлена. Merge и deploy не выполнялись. Волны 6–9 впереди; 10–11 исключены из текущего поручения.
+
+## Совместная интеграция волны 5
+
+SP-08 создаёт первую персональную Roadmap после SP-07 Assessment: четыре MVP Skills,
+отдельные стартовые уровни, явные гипотезы, сохраняемые версии и Tasks с начальным
+Progress 0%. SP-14 исполняет Explanation/Exercises, SP-15 — Exposure/Conversation.
+Оба передают предложения evidence без расчёта Stage Score. Обычный Voice Agent имеет
+hook для выданного Content, но SP-16 ещё должен передать его при admission и вести урок;
+SP-17C должен сохранить результаты как Observations.
+
+После объединения прошли 783 Python и 328 Kotlin unit tests, `buildFatJar` и `detekt`.
+Новый PostgreSQL тест Roadmap зарегистрирован в отдельном integration suite; локальный
+PostgreSQL сейчас не стартует из-за общего лимита shared memory. Миграция V59 и
+сквозной Roadmap ещё требуют PostgreSQL/HTTP проверки. Живая модель и голос не проверены.
+Решения и ограничения: [implementation-decisions.md](../implementation-decisions.md).
 
 ## Совместная интеграция волны 4
 
@@ -14,8 +29,9 @@ fixture-событиям; реальный Observation consumer остаётся
 и 15 HTTP тестов Python → Ktor → PostgreSQL. `buildFatJar`, `detekt` и миграция V58
 прошли. Тестовая PostgreSQL 14.10 и Ktor harness использовались изолированно.
 Живая модель, Voice Agent, Telegram, DEV/PROD и сквозной Roadmap не проверены.
-Три старых timeout и один `introduction.claim` сбой в CI волны 3 требуют повторной
-проверки после закрепления PostgreSQL-клиента 16 и runner Ubuntu 24.04.
+CI волны 4 после закрепления PostgreSQL-клиента 16 прошёл сборки, но три старых
+Telegram/PostgreSQL теста исчерпали минутный `runTest` timeout. Лимит увеличен
+точечно, повторный CI ещё выполняется.
 
 ## Совместная интеграция волны 3
 

@@ -231,6 +231,8 @@ def issued_handoff(content: dict) -> dict:
     return {'schemaVersion': 1,
             'contentRef': {'contentId': content['id'], 'revision': content['revision']},
             'lessonId': content['issuedLessonId'], 'taskId': document['taskId'],
+            'catalogVersion': document['catalogVersion'], 'skillId': document['skillId'],
+            'topicId': document['topicId'], 'problemId': document['problemId'],
             'stageRef': document['stageRef'], 'method': document['method'],
             'actionKind': document['actionKind'], 'cefr': document['cefr'],
             'objective': document['objective'], 'spokenInstruction': document['spokenInstruction'],

@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -31,7 +31,7 @@ internal class FoundationJobs {
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
-               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'trial.assess' THEN 2 WHEN 'roadmap.prepare' THEN 3 ELSE 4 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
+               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'trial.assess' THEN 2 WHEN 'roadmap.generate' THEN 3 WHEN 'roadmap.prepare' THEN 4 ELSE 5 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
         ) ?: return json("job" to null)
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
@@ -100,6 +100,7 @@ internal class FoundationJobs {
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
             "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
                 result.only("candidates")
@@ -125,7 +126,7 @@ internal class FoundationJobs {
         }
         val status = if (applied) "succeeded" else "superseded"
         connection.update("UPDATE foundation_job SET status=?,lease_until=NULL,result=?::jsonb WHERE id=?", status,
-            if (job.text("kind") in setOf("roadmap.prepare", "trial.assess") && applied) result else null, job.text("id"))
+            if (job.text("kind") in setOf("roadmap.prepare", "trial.assess", "roadmap.generate") && applied) result else null, job.text("id"))
         connection.update("UPDATE foundation_job_attempt SET finished_at=?,outcome=? WHERE job_id=? AND fence=?", now, status, job.text("id"), job.number("fence"))
         return json("status" to status)
     }

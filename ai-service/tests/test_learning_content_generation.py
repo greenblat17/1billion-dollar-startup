@@ -179,6 +179,9 @@ async def test_issued_handoff_and_defect_signal_preserve_exact_revision():
     handoff = issued_handoff(content)
     assert handoff['contentRef'] == {'contentId': 'content', 'revision': 3}
     assert handoff['lessonId'] == 'lesson' and handoff['answerGuide'] == prepared.document['answerGuide']
+    assert {key: handoff[key] for key in ('catalogVersion', 'skillId', 'topicId', 'problemId')} == {
+        'catalogVersion': 'published-v1', 'skillId': 'grammar', 'topicId': 'past',
+        'problemId': 'grammar_application'}
     assert 'score' not in handoff and 'learnerOutcome' not in handoff
     with pytest.raises(ContentGenerationError, match='content_not_issued'):
         issued_handoff({**content, 'status': 'prepared'})

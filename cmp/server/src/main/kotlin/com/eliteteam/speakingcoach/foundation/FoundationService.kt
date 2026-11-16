@@ -80,6 +80,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "learning.content.issue" -> LearningContent().issue(connection, scope, args, now)
         "learning.content.mark-defective" -> LearningContent().markDefective(connection, scope, args, now)
         "learning.task.create" -> LearningTasks().create(connection, scope, args, now)
+        "learning.roadmap.save" -> PersonalizedRoadmap().save(connection, scope, args, now)
         "learning.task.update", "learning.task.transition", "learning.task.progress" ->
             LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
         "trial.preferences" -> TrialPreferences().update(connection, scope, args, now)
@@ -228,6 +229,16 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             val scope = authenticateScope(c, token, now)
             LearningTasks().list(c, scope.studentId, topic, problem, state, offset)
         }
+
+    suspend fun learningRoadmap(token: String): JsonObject = database.transaction(readOnly = true) { c, now ->
+        val scope = authenticateScope(c, token, now)
+        json("schemaVersion" to 1, "roadmap" to PersonalizedRoadmap().read(c, scope.studentId))
+    }
+
+    suspend fun learningRoadmapHistory(token: String, offset: Int): JsonObject = database.transaction(readOnly = true) { c, now ->
+        val scope = authenticateScope(c, token, now)
+        PersonalizedRoadmap().history(c, scope.studentId, offset)
+    }
 
     suspend fun learningObservations(token: String, filters: Map<String, String> = emptyMap(), offset: Int = 0): JsonObject =
         database.transaction(readOnly = true) { c, now ->

@@ -114,6 +114,18 @@ class FoundationClient:
         }.items() if value is not None}
         return await self._task_request('/learning-tasks', scope, params=params)
 
+    async def learning_roadmap(self, scope: str) -> dict:
+        result = await self._request('GET', '/learning-roadmap', scope)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_roadmap_schema', 502)
+        return result
+
+    async def learning_roadmap_history(self, scope: str, *, offset: int = 0) -> dict:
+        result = await self._request('GET', '/learning-roadmap/history', scope, params={'offset': str(offset)})
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_roadmap_schema', 502)
+        return result
+
     async def learning_task(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:
         from urllib.parse import quote
         path = '/learning-tasks/' + quote(task_id, safe='') + ('/history' if history else '')

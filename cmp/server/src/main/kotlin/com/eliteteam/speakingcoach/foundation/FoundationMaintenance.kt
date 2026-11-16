@@ -65,6 +65,7 @@ internal class FoundationMaintenance {
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now, preserveTelegramFrom)
         connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
+        connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
         connection.update("DELETE FROM learning_task WHERE student_id=?", student)
         connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
         connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
@@ -115,9 +116,11 @@ internal class FoundationMaintenance {
         if (job.optionalText("error_code") == "delivery_unknown") reject("delivery_reconciliation_required")
         if (job.number("data_epoch") != scope.epoch || Instant.parse(job.text("deadline")) <= now) reject("source_expired")
         val inputs = job.obj("input_refs")
-        if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
+        if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare", "roadmap.generate") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
                 inputs.number("learningRevision") != connection.learningRevision(scope.studentId))) reject("stale_job")
-        if (job.text("kind") in setOf("lesson.evaluate", "trial.observe", "trial.assess") && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
+        if (job.text("kind") in setOf("lesson.evaluate", "trial.observe", "trial.assess", "roadmap.generate") && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
+        if (job.text("kind") == "roadmap.generate" && PersonalizedRoadmap().knowledgeDigest(connection,
+                scope.studentId, inputs.text("catalogVersion")) != inputs.text("knowledgeDigest")) reject("stale_job")
         connection.update("UPDATE foundation_job SET status='queued',due_at=?,max_attempts=attempts+3,error_code=NULL WHERE id=?", now, job.text("id"))
         return json("queued" to true)
     }
@@ -130,6 +133,7 @@ internal class FoundationMaintenance {
                 student, connection.goalRevision(student) + 1, now)
         } else {
             // Free-text rationale may paraphrase a personal fact; preserve all structured task work.
+            connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
             connection.update("UPDATE learning_task_history SET reason='' WHERE student_id=?", student)
             StudentLearningPrivacy().forgetPersonalFact(connection, student, category, key, now)
             connection.update("UPDATE memory_fact SET value=NULL,forgotten_at=?,revision=revision+1,source_event_id=NULL WHERE student_id=? AND category=? AND fact_key=?",
@@ -138,6 +142,7 @@ internal class FoundationMaintenance {
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
         if (category == "learning" && key in setOf("goal", "state")) {
+            connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
             connection.update("DELETE FROM learning_task WHERE student_id=?", student)
             connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
             connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)

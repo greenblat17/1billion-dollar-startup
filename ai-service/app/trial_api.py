@@ -93,7 +93,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                         'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
                         'attemptId': request['attemptId'],
                     })
-                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings)
+                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings, model)
                     stage = 'session'
                     with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
                         await session.run()
