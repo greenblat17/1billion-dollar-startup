@@ -1,0 +1,34 @@
+{
+  "steps": [
+    {"name": "state_before", "request": {"kind": "read", "resource": "state"}},
+    {"name": "roadmap_before", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority_before", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "tasks_before_0", "request": {"kind": "read", "resource": "tasks", "offset": 0}},
+    {"name": "tasks_before_50", "request": {"kind": "read", "resource": "tasks", "offset": 50}},
+    {"name": "tasks_before_100", "request": {"kind": "read", "resource": "tasks", "offset": 100}},
+    {"name": "tasks_before_150", "request": {"kind": "read", "resource": "tasks", "offset": 150}},
+    {"name": "source", "request": {"kind": "source", "operationId": {"$uuid": true}, "occurredAt": {"$now": true}}},
+    {"name": "no_homework", "request": {"kind": "command", "operationId": {"$uuid": true},
+      "action": "learning.update", "args": {
+        "expectedRevision": {"$ref": "state_before.response.result.revision"},
+        "patch": {"homework": {"consent": "no"}},
+        "component": "foundation-acceptance-synthetic",
+        "sources": {"$ref": "source.response.result.sources"}}}},
+    {"name": "state_without_homework", "request": {"kind": "read", "resource": "state"}},
+    {"name": "roadmap_without_homework", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority_without_homework", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "four_lessons", "request": {"kind": "command", "operationId": {"$uuid": true},
+      "action": "learning.update", "args": {
+        "expectedRevision": {"$ref": "state_without_homework.response.result.revision"},
+        "patch": {"intensity": {"lessonsPerWeek": 4, "lessonDurationMinutes": 30}},
+        "component": "foundation-acceptance-synthetic",
+        "sources": {"$ref": "source.response.result.sources"}}}},
+    {"name": "state_four_lessons", "request": {"kind": "read", "resource": "state"}},
+    {"name": "roadmap_four_lessons", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority_four_lessons", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "tasks_after_0", "request": {"kind": "read", "resource": "tasks", "offset": 0}},
+    {"name": "tasks_after_50", "request": {"kind": "read", "resource": "tasks", "offset": 50}},
+    {"name": "tasks_after_100", "request": {"kind": "read", "resource": "tasks", "offset": 100}},
+    {"name": "tasks_after_150", "request": {"kind": "read", "resource": "tasks", "offset": 150}}
+  ]
+}

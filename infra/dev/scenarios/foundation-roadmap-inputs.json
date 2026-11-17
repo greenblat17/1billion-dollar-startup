@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {"name": "catalog", "request": {"kind": "catalog", "args": {"topicId": "grammar-b2-third-conditional"}}},
+    {"name": "empty_state", "request": {"kind": "read", "resource": "state"}},
+    {"name": "source", "request": {"kind": "source", "operationId": {"$uuid": true}, "occurredAt": {"$now": true}}},
+    {"name": "profile", "request": {"kind": "command", "operationId": {"$uuid": true},
+      "action": "learning.update", "args": {
+        "expectedRevision": {"$ref": "empty_state.response.result.revision"},
+        "goal": "Use English for work and reach B2",
+        "patch": {
+          "targetLevel": "B2",
+          "currentLevels": {
+            "selfAssessment": {"overall": {"level": "A2", "explanation": "Synthetic self-report"},
+              "skills": {
+                "speaking": {"level": "A2", "explanation": "Synthetic self-report"},
+                "listening": {"level": "A2", "explanation": "Synthetic self-report"},
+                "grammar": {"level": "A2", "explanation": "Synthetic self-report"},
+                "vocabulary": {"level": "A2", "explanation": "Synthetic self-report"}}},
+            "speaky": {"overall": {"level": "A2", "explanation": "Synthetic fixture, not assessment"},
+              "skills": {
+                "speaking": {"level": "A2", "explanation": "Synthetic fixture, not assessment"},
+                "grammar": {"level": "B1", "explanation": "Synthetic fixture, not assessment"},
+                "vocabulary": {"level": "A2", "explanation": "Synthetic fixture, not assessment"}}}},
+          "intensity": {"lessonsPerWeek": 3, "lessonDurationMinutes": 30},
+          "homework": {"consent": "yes", "minutes": 20, "period": "day"},
+          "deadline": "2026-12-18"},
+        "component": "foundation-acceptance-synthetic",
+        "sources": {"$ref": "source.response.result.sources"}}}},
+    {"name": "profile_read", "request": {"kind": "read", "resource": "state"}},
+    {"name": "known", "request": {"kind": "command", "operationId": {"$uuid": true},
+      "action": "learning.topic.record", "args": {
+        "catalogVersion": {"$ref": "catalog.response.result.version"},
+        "topicId": "grammar-b2-third-conditional", "expectedRevision": 0,
+        "status": "Known", "explanation": "Synthetic fixture; no pedagogical claim",
+        "component": "foundation-acceptance-synthetic",
+        "sources": {"$ref": "source.response.result.sources"}}}},
+    {"name": "after_known", "request": {"kind": "read", "resource": "state"}},
+    {"name": "roadmap_before_trial", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority_before_trial", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "tasks_before_trial", "request": {"kind": "read", "resource": "tasks"}}
+  ]
+}
