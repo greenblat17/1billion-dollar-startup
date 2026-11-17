@@ -104,9 +104,29 @@ async def test_four_methods_produce_scoped_voice_handoff(method, action):
     assert document['answerGuide']['alternatives'][1] == 'Yesterday, I went to my job.'
     assert model.calls[0][1]['topic']['scope'] == 'Everyday past events'
     assert model.calls[0][1]['learnerContext'] == 'Likes commuting by bike.'
-    example_instruction = ('In payload.examples, provide 1 to 4 unique short examples, each at most 300 characters. '
-                           'Aim for exactly two examples.')
-    assert (example_instruction in model.calls[0][0]) == (method == 'Explanation')
+    prompt = model.calls[0][0]
+    for limit in (
+        'objective: nonblank string, at most 1000 characters',
+        'spokenInstruction: nonblank string, at most 400 characters',
+        'answerGuide.criteria: 1–8 unique nonblank strings, at most 300 characters each',
+        'answerGuide.alternatives: 0–8 unique nonblank strings, at most 300 characters each',
+        'answerGuide.unacceptable: 0–8 unique nonblank strings, at most 300 characters each',
+        'including metadata must fit 16000 characters',
+        'one short sentence for objective',
+    ):
+        assert limit in prompt
+    payload_limits = {
+        'Explanation': ('explanation: nonblank string, at most 1200 characters',
+                        'examples: 1–4 unique nonblank strings, at most 300 characters each'),
+        'Exercises': ('stimulus: nonblank string, at most 300 characters',
+                      'targetOperation: nonblank string, at most 300 characters'),
+        'Exposure': ('segments: 1–8 unique nonblank strings, at most 250 characters each',
+                     'checks: 1–2 unique nonblank strings, at most 40 characters each'),
+        'Conversation': ('openingPrompt: nonblank string, at most 400 characters',
+                         'targetOpportunities: 1–6 unique nonblank strings, at most 250 characters each'),
+    }[method]
+    assert all(f'payload.{limit}' in prompt for limit in payload_limits)
+    assert ('Aim for exactly two short examples.' in prompt) == (method == 'Explanation')
     response_format = model.calls[0][2]['response_format']
     assert response_format['type'] == 'json_schema' and response_format['json_schema']['strict'] is True
     schema = response_format['json_schema']['schema']
@@ -259,6 +279,62 @@ async def test_repair_cannot_bypass_shape_or_semantic_gate_or_retry(failed_repai
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('audit_passed', [True, False])
+async def test_overlong_instruction_uses_shared_repair_before_audit(audit_passed, caplog):
+    backend = Backend('Explanation')
+    repaired = draft_for('Explanation')
+    draft = dict(repaired, spokenInstruction='S' * 786)
+    model = Model(draft)
+    verdict = dict(model.review, passed=audit_passed, reasons=[] if audit_passed else ['wrong_topic'])
+    model.complete_json = AsyncMock(side_effect=map(json.dumps, [draft, repaired, verdict]))
+    caplog.set_level('INFO', logger='app.diagnostics')
+    service = LearningContentGenerator(backend, model)
+    if audit_passed:
+        result = await service.prepare('student-scope', request('comparison'))
+        assert result.document['spokenInstruction'] == repaired['spokenInstruction']
+    else:
+        with pytest.raises(ContentGenerationError, match='semantic_validation_failed'):
+            await service.prepare('student-scope', request('comparison'))
+    generate, repair, audit = model.complete_json.await_args_list
+    assert [call.kwargs['operation'] for call in (generate, repair, audit)] == [
+        'learning_content_generate', 'learning_content_repair', 'learning_content_validate_repair',
+    ]
+    feedback = json.loads(repair.args[1])
+    assert feedback['validationIssue'] == {'field': 'spokenInstruction', 'rule': 'too_long', 'type': 'str',
+                                           'length': 786, 'count': None, 'maxLength': 400}
+    assert feedback['draft'] == draft
+    assert generate.kwargs['response_format'] == repair.kwargs['response_format']
+    assert 'spokenInstruction: nonblank string, at most 400 characters' in repair.args[0]
+    assert json.loads(audit.args[1]) == {'context': feedback['context'], 'draft': repaired}
+    assert backend.writes == []
+    assert draft['spokenInstruction'] not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_serialized_size_failure_stops_after_single_repair_before_audit(caplog):
+    backend = Backend('Explanation')
+    draft = draft_for('Explanation')
+    # Escaped quotes can hit the serialized cap while each field fits its own limit.
+    draft['payload'] = {'explanation': '"' * 1200,
+                        'examples': [f'{index}' + '"' * 299 for index in range(4)]}
+    draft['answerGuide'] = {field: [f'{index}' + '"' * 299 for index in range(8)]
+                            for field in ('criteria', 'alternatives', 'unacceptable')}
+    model = Model(draft)
+    model.complete_json = AsyncMock(return_value=json.dumps(draft))
+    caplog.set_level('INFO', logger='app.diagnostics')
+    with pytest.raises(ContentGenerationError, match='content_too_large'):
+        await LearningContentGenerator(backend, model).prepare('student-scope', request('comparison'))
+    assert [call.kwargs['operation'] for call in model.complete_json.await_args_list] == [
+        'learning_content_generate', 'learning_content_repair',
+    ]
+    events = [json.loads(record.getMessage().removeprefix('runtime_event ')) for record in caplog.records]
+    for attempt, event in enumerate(events, start=1):
+        assert event['field'] == 'document' and event['rule'] == 'too_long' and event['attempt'] == attempt
+        assert event['length'] > event['maxLength'] == 16000
+    assert len(events) == 2 and backend.writes == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(('override', 'field', 'rule'), [
     ({'PRIVATE_KEY': 'PRIVATE_VALUE'}, 'review', 'unexpected_fields'),
     ({'passed': 1}, 'passed', 'expected_boolean'),
@@ -307,9 +383,13 @@ async def test_screen_or_external_link_rejected_even_when_model_calls_it_valid()
     draft = draft_for('Exercises')
     draft['payload']['stimulus'] = 'Watch https://example.com/video and describe it.'
     model = Model(draft)
+    model.complete_json = AsyncMock(return_value=json.dumps(draft))
     with pytest.raises(ContentGenerationError, match='invalid_generated_material'):
         await LearningContentGenerator(backend, model).prepare('student-scope', request())
-    assert len(model.calls) == 1 and backend.writes == []
+    assert [call.kwargs['operation'] for call in model.complete_json.await_args_list] == [
+        'learning_content_generate', 'learning_content_repair',
+    ]
+    assert backend.writes == []
 
 
 @pytest.mark.asyncio
@@ -337,19 +417,21 @@ async def test_invalid_draft_logs_only_validation_metadata(section, field, value
     target = draft if section is None else draft[section]
     target[field] = value
     backend, model = Backend('Explanation'), Model(draft)
+    model.complete_json = AsyncMock(return_value=json.dumps(draft))
 
     with diagnostic_context(trace_id='draft-test-trace'):
         with pytest.raises(ContentGenerationError, match='invalid_generated_material'):
             await LearningContentGenerator(backend, model).prepare('student-scope', request('comparison'))
 
-    assert len(model.calls) == 1 and backend.writes == []
-    [record] = caplog.records
-    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
-    assert metadata['event'] == 'learning_content_draft_rejected'
-    assert metadata['stage'] == 'compute_validation'
-    assert metadata['trace_id'] == 'draft-test-trace'
-    assert metadata['method'] == 'Explanation'
-    assert {key: metadata[key] for key in expected} == expected
+    assert model.complete_json.await_count == 2 and backend.writes == []
+    assert len(caplog.records) == 2
+    for attempt, record in enumerate(caplog.records, start=1):
+        metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+        assert metadata['event'] == 'learning_content_draft_rejected'
+        assert metadata['stage'] == 'compute_validation'
+        assert metadata['trace_id'] == 'draft-test-trace'
+        assert metadata['method'] == 'Explanation' and metadata['attempt'] == attempt
+        assert {key: metadata[key] for key in expected} == expected
     assert 'PRIVATE_VALUE' not in caplog.text
     assert 'PRIVATE_KEY' not in caplog.text
     assert 'private.invalid' not in caplog.text
