@@ -61,6 +61,8 @@ python3 infra/dev/agent-dialogue.py --message 'Я боюсь говорить н
 
 Сначала создайте отдельного `agent_test` ученика через текстовый CLI выше, дождитесь реальной записи Trial и возьмите `lesson.id` из его snapshot. Для regular lesson нужен настоящий admission: активный entitlement и готовая подготовка урока. Клиент их не обходит. Если текстовый агент создал mock checkout, `POST /internal/agent-test/v1/{student}/mock-payment` с `{ "checkoutId": "UUID" }` на loopback проводит его через существующий mock billing adapter. Он работает только при настроенном mock provider и только для checkout этого `agent_test` ученика; реальные деньги не списываются. После этого дождитесь реальной записи и подготовки regular lesson. Запускайте урок только после его `starts_at`. Оба origin должны быть loopback DEV-хоста. Токен передаётся через окружение, не через аргументы или файлы.
 
+Если DEV billing выключен и checkout не существует, локально подготовлен отдельный `POST /internal/agent-test/v1/{student}/regular-entitlement`. Он пока **не поставлен на DEV**. Маршрут зарегистрирован только с `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true`; запрос требует loopback и `X-Internal-Token`. В транзакции проверяются владелец `agent_test` и отсутствие Telegram identity, затем создаётся двухдневный test entitlement без автопродления. Повтор при действующем entitlement возвращает его ID. Это тестовый вход к обычному `TrialAccess.open`, а не успешная оплата или проверка биллинга. После поставки вызов без тела выполняется на DEV-хосте через закрытый loopback; ответ не содержит token.
+
 ```sh
 AI_INTERNAL_TOKEN=... python3 infra/dev/agent-voice.py infra/dev/scenarios/voice-short.json \
   --ktor https://127.0.0.1:DEV_SERVER_PORT --ai http://127.0.0.1:AI_PORT \

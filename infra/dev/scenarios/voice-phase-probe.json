@@ -1,0 +1,16 @@
+{
+  "turns": [
+    {"text": "Привет, я работаю в IT и боюсь говорить на встречах. Давай начнём спокойно."},
+    {"atConnectedSeconds": 300, "text": "I need to explain a problem to my team in a meeting. Could we practise that?"},
+    {"atConnectedSeconds": 480, "text": "Yesterday I try to explain a bug, but I couldn't find the words."},
+    {"atConnectedSeconds": 660, "text": "Could you ask me a simpler question? I'm a little nervous."},
+    {"atConnectedSeconds": 840, "text": "I want to tell my manager that the deadline is risky, but politely."},
+    {"atConnectedSeconds": 1020, "text": "Maybe I can say: We need more time because the tests are not finished."},
+    {"atConnectedSeconds": 1200, "text": "Can we switch topic and talk about my weekend for a moment?"},
+    {"atConnectedSeconds": 1380, "text": "I visited my friends and we cooked dinner together. It was relaxing."},
+    {"atConnectedSeconds": 1510, "text": "Спасибо. В будущем я хотел бы заниматься два-три раза в неделю и делать немного домашки."},
+    {"atConnectedSeconds": 1640, "text": "Давай два занятия в неделю по 30 минут. Домашку не хочу."},
+    {"atConnectedSeconds": 1760, "text": "Спасибо за разговор. Можешь завершить урок и потом прислать мой план в Telegram?"}
+  ],
+  "expectFinished": true
+}

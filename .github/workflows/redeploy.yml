@@ -43,6 +43,14 @@ on:
         description: Owned executable lesson UUID for the voice test
         type: string
         default: ''
+      agent_voice_scenario:
+        description: Synthetic voice scenario (short, early-exit, phase-probe)
+        type: choice
+        options:
+          - short
+          - early-exit
+          - phase-probe
+        default: short
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -291,7 +299,7 @@ jobs:
     if: ${{ inputs.agent_voice }}
     runs-on: ubuntu-latest
     environment: deploy-dev
-    timeout-minutes: 12
+    timeout-minutes: 40
     env:
       CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
       CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
@@ -301,6 +309,7 @@ jobs:
       AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
       STUDENT_ID: ${{ inputs.agent_voice_student_id }}
       LESSON_ID: ${{ inputs.agent_voice_lesson_id }}
+      VOICE_SCENARIO: ${{ inputs.agent_voice_scenario }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -369,8 +378,12 @@ jobs:
           python3 -m pip install --quiet websockets==15.0.1
           sudo apt-get update -qq
           sudo apt-get install -y -qq espeak-ng ffmpeg
+          case "$VOICE_SCENARIO" in
+            short|early-exit|phase-probe) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
+            *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
+          esac
           AI_INTERNAL_TOKEN="$token" python3 infra/dev/agent-voice.py \
-            infra/dev/scenarios/voice-short.json \
+            "$scenario" \
             --ktor https://127.0.0.1:18443 --ai http://127.0.0.1:18090 \
             --student "$STUDENT_ID" --lesson "$LESSON_ID" \
             --output "$RUNNER_TEMP/agent-voice-run"

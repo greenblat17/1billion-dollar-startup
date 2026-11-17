@@ -41,6 +41,25 @@ def test_prepared_audio_is_24khz_pcm_with_vad_silence(tmp_path):
     assert pcm[-48000:] == bytes(48000)
 
 
+def test_cyrillic_synthetic_turn_selects_russian_voice(tmp_path, monkeypatch):
+    commands = []
+    monkeypatch.setattr(voice.shutil, 'which', lambda name: 'espeak-ng' if name == 'espeak-ng' else None)
+
+    def synthesize(command, **_):
+        commands.append(command)
+        with wave.open(command[command.index('-w') + 1], 'wb') as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(24000)
+            output.writeframes(b'\0\0' * 2400)
+
+    monkeypatch.setattr(voice.subprocess, 'run', synthesize)
+    pcm, mode = voice.pcm_for_turn({'text': 'Привет'}, tmp_path)
+    assert commands[0][1:3] == ['-v', 'ru']
+    assert mode == 'synthesized_espeak_ng'
+    assert len(pcm) > 48000
+
+
 def test_report_contains_source_ids_without_grant(tmp_path):
     class Args:
         output = tmp_path
@@ -54,7 +73,8 @@ def test_report_contains_source_ids_without_grant(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which('ffmpeg') is None, reason='ffmpeg unavailable')
-def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path):
+@pytest.mark.parametrize('expect_finished', [False, True])
+def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, expect_finished):
     events = []
     grants = []
     acks = []
@@ -124,13 +144,16 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path):
                 if control.get('type') == 'played':
                     acks.append(control)
                     events.append({'id': str(uuid.uuid4()), 'role': 'assistant', 'body': control['id']})
+                    if expect_finished and control['id'] == 'reply-2-more':
+                        await socket.send(json.dumps({'type': 'finished'}))
 
     async def exercise():
         async with serve(relay, '127.0.0.1', 0) as server:
             args = SimpleNamespace(ktor=f'http://127.0.0.1:{http.server_port}',
                                    ai=f'http://127.0.0.1:{server.sockets[0].getsockname()[1]}',
                                    student=uuid.uuid4(), lesson=uuid.uuid4(), output=tmp_path / 'report')
-            scenario = {'turns': [{'audio': str(source)}, {'audio': str(source)}], 'reconnectAfterTurn': 1}
+            scenario = {'turns': [{'audio': str(source)}, {'audio': str(source)}], 'reconnectAfterTurn': 1,
+                        'expectFinished': expect_finished}
             report = {'attempts': [], 'turns': [{'input': turn, 'responseAudioIds': []} for turn in scenario['turns']],
                       'audio': []}
             await voice.run(args, scenario, report, 'test-token')
@@ -142,6 +165,7 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path):
             assert all(audio['playbackAck'] == 'simulated_timing' for audio in report['audio'])
             assert [audio['audioAttribution'] for audio in report['audio'][-2:]] == ['ambiguous_overlap'] * 2
             assert len(list(args.output.glob('*.wav'))) == 5
+            assert report.get('finished', False) == expect_finished
 
     try:
         asyncio.run(exercise())

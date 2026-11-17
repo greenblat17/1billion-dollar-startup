@@ -1,0 +1,420 @@
+{
+  "runId": 44126530255,
+  "runnerSha": "ecbe949c83d26a5e00c8ea1a27665d3cc14dc15f",
+  "devKtorSha": "7e416da659bfdaaa98318cf83f2c3b3d5299cd91",
+  "devAiSha": "e308902d1cdf903aee00bebcd1a4825f4820f478",
+  "devMiniAppSha": "2f38856",
+  "studentIdentityId": "9e5d6bcd-6bdf-441d-a1b6-890505a2a227",
+  "foundationStudentId": "ec7c104b-3a19-4803-a0b6-9cb3118bf20b",
+  "lessonId": "605e6ea7-2519-4773-959c-509a84885bb9",
+  "result": "completed_transport",
+  "attempts": [
+    {
+      "id": "acf641d6-13c4-4b2f-9ffe-0ab78a84f5ee",
+      "disconnect": "reconnect_scenario",
+      "events": [
+        {
+          "at": 1794933080.2668898,
+          "type": "connected",
+          "id": null,
+          "connectedSeconds": 0,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933081.2417529,
+          "type": "audio_start",
+          "id": "item_ElGNUt5cKakyD3R1HCPlW",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933082.8643982,
+          "type": "audio_end",
+          "id": "item_ElGNUt5cKakyD3R1HCPlW",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933085.2869425,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 5,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933090.3057475,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 10,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933095.325315,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 15,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933096.2676623,
+          "type": "user_turn_complete",
+          "id": null,
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933097.6616206,
+          "type": "audio_start",
+          "id": "item_ElGNko8lh3nm9MDpLxQ23",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933100.3440433,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 20,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933103.4079552,
+          "type": "audio_end",
+          "id": "item_ElGNko8lh3nm9MDpLxQ23",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933105.3566067,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 25,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933110.3728228,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 30,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933115.3851957,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 35,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933120.4074662,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 40,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933125.426311,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 45,
+          "phase": "warmup"
+        }
+      ]
+    },
+    {
+      "id": "b3e4e6fc-8f4e-481b-9dee-f7ff3e783c6a",
+      "disconnect": null,
+      "events": [
+        {
+          "at": 1794933138.864001,
+          "type": "connected",
+          "id": null,
+          "connectedSeconds": 54,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933139.810404,
+          "type": "audio_start",
+          "id": "item_ElGOQIVkExp4fPzNICFzA",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933141.4811244,
+          "type": "audio_end",
+          "id": "item_ElGOQIVkExp4fPzNICFzA",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933143.8768835,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 59,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933148.9018624,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 64,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933153.9131958,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 69,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933153.9161456,
+          "type": "user_turn_complete",
+          "id": null,
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933154.7864754,
+          "type": "audio_start",
+          "id": "item_ElGOfRhe4aKJKRc7o1xyU",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933156.2242703,
+          "type": "audio_start",
+          "id": "item_ElGOherI3ntrtcW2yi0It",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933158.9247723,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 74,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933162.4936948,
+          "type": "audio_end",
+          "id": "item_ElGOfRhe4aKJKRc7o1xyU",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933162.494061,
+          "type": "audio_end",
+          "id": "item_ElGOherI3ntrtcW2yi0It",
+          "connectedSeconds": null,
+          "phase": null
+        },
+        {
+          "at": 1794933163.940363,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 79,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933168.9521267,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 84,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933173.9664018,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 89,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933178.9916983,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 94,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933184.007723,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 99,
+          "phase": "warmup"
+        },
+        {
+          "at": 1794933191.6761625,
+          "type": "trial_clock",
+          "id": null,
+          "connectedSeconds": 104,
+          "phase": "warmup"
+        }
+      ]
+    }
+  ],
+  "turns": [
+    {
+      "input": {
+        "text": "Hello, I want to practise speaking about my work."
+      },
+      "inputMode": "synthesized_espeak_ng",
+      "responseAudioIds": [
+        "item_ElGNko8lh3nm9MDpLxQ23"
+      ],
+      "readAfterWriteConfirmed": true
+    },
+    {
+      "input": {
+        "text": "I feel nervous when I speak in meetings."
+      },
+      "inputMode": "synthesized_espeak_ng",
+      "responseAudioIds": [
+        "item_ElGOfRhe4aKJKRc7o1xyU",
+        "item_ElGOherI3ntrtcW2yi0It"
+      ],
+      "readAfterWriteConfirmed": true
+    }
+  ],
+  "audio": [
+    {
+      "providerItemId": "item_ElGNUt5cKakyD3R1HCPlW",
+      "file": "attempt-1-audio-1.wav",
+      "durationMs": 8050.0,
+      "playbackAck": "simulated_timing",
+      "audioAttribution": "single_active"
+    },
+    {
+      "providerItemId": "item_ElGNko8lh3nm9MDpLxQ23",
+      "file": "attempt-1-audio-2.wav",
+      "durationMs": 25400.0,
+      "playbackAck": "simulated_timing",
+      "audioAttribution": "single_active"
+    },
+    {
+      "providerItemId": "item_ElGOQIVkExp4fPzNICFzA",
+      "file": "attempt-2-audio-3.wav",
+      "durationMs": 8350.0,
+      "playbackAck": "simulated_timing",
+      "audioAttribution": "single_active"
+    },
+    {
+      "providerItemId": "item_ElGOfRhe4aKJKRc7o1xyU",
+      "file": "attempt-2-audio-4.wav",
+      "durationMs": 4100.0,
+      "playbackAck": "simulated_timing",
+      "audioAttribution": "ambiguous_overlap"
+    },
+    {
+      "providerItemId": "item_ElGOherI3ntrtcW2yi0It",
+      "file": "attempt-2-audio-5.wav",
+      "durationMs": 26500.0,
+      "playbackAck": "simulated_timing",
+      "audioAttribution": "ambiguous_overlap"
+    }
+  ],
+  "savedConversationEvents": [
+    {
+      "id": "f9cecc01-4a8a-4807-85e7-4c3ebd4d06ac",
+      "sequence": 1,
+      "role": "assistant",
+      "body": "Hi there, welcome back. What would you like to work on today—conversation practice, a quick question, or something you’ve been stuck on?",
+      "sourceId": "c3e6b673-229b-44e7-afa1-15a8bc63869c:c3e6b673-229b-44e7-afa1-15a8bc63869c:item_ElGNUt5cKakyD3R1HCPlW"
+    },
+    {
+      "id": "9cca15a5-c8f5-4c2c-8302-ad6fdb265d69",
+      "sequence": 2,
+      "role": "user",
+      "body": "Hello, I want to practice speaking about my work.",
+      "sourceId": "c3e6b673-229b-44e7-afa1-15a8bc63869c:c3e6b673-229b-44e7-afa1-15a8bc63869c:item_ElGNgKbOuuXrv4XFya8pe"
+    },
+    {
+      "id": "ac6f1b38-c0b3-4429-bba0-764c392d45c3",
+      "sequence": 3,
+      "role": "assistant",
+      "body": "Отлично, давай начнём спокойно, без экзамена. Мы просто поговорим: сначала короткий разогрев, потом в основном будем обсуждать работу в формате живого диалога. Если где-то будет сложно, я помогу, можно смешивать русский и английский и постепенно возвращаться к английскому. Расскажи, чем ты занимаешься в IT и в каких ситуациях на работе обычно нужно говорить по-английски.",
+      "sourceId": "c3e6b673-229b-44e7-afa1-15a8bc63869c:c3e6b673-229b-44e7-afa1-15a8bc63869c:item_ElGNko8lh3nm9MDpLxQ23"
+    },
+    {
+      "id": "58b3f991-121c-40a2-a230-9f9b15988a15",
+      "sequence": 4,
+      "role": "assistant",
+      "body": "Hey, nice to be back with you. What would you like to talk about today—something you’re learning, planning, or just curious about?",
+      "sourceId": "4be385fb-df88-41a1-960e-055ff548421f:4be385fb-df88-41a1-960e-055ff548421f:item_ElGOQIVkExp4fPzNICFzA"
+    },
+    {
+      "id": "25b4d836-d057-4f06-af26-c5f8a7cb0668",
+      "sequence": 5,
+      "role": "user",
+      "body": "I feel nervous when I speak in meeting.",
+      "sourceId": "4be385fb-df88-41a1-960e-055ff548421f:4be385fb-df88-41a1-960e-055ff548421f:item_ElGOdxoZNqGKnCMEvLBnQ"
+    },
+    {
+      "id": "3096a9a0-4997-4aea-8aa3-035b47927561",
+      "sequence": 6,
+      "role": "assistant",
+      "body": "Понимаю, давай спокойно и без спешки разберёмся с этим вместе.",
+      "sourceId": "4be385fb-df88-41a1-960e-055ff548421f:4be385fb-df88-41a1-960e-055ff548421f:item_ElGOfRhe4aKJKRc7o1xyU"
+    },
+    {
+      "id": "ba5afb0f-b0a7-4b3b-8966-587c5562c72a",
+      "sequence": 7,
+      "role": "assistant",
+      "body": "Это очень нормально. Многие люди в такой ситуации напрягаются, особенно если нужно говорить перед коллегами. Мы сделаем это мягко: сначала коротко обсудим, что именно тебя пугает, а потом потренируем простые фразы для встреч, можно смешивать русский и английский, и постепенно перейти на английский. Что для тебя самое неприятное: начать говорить, ответить на вопрос или когда тебя перебивают?",
+      "sourceId": "4be385fb-df88-41a1-960e-055ff548421f:4be385fb-df88-41a1-960e-055ff548421f:item_ElGOherI3ntrtcW2yi0It"
+    }
+  ],
+  "postRunState": {
+    "lesson": {
+      "id": "605e6ea7-2519-4773-959c-509a84885bb9",
+      "status": "in_progress",
+      "trial_phase": "warmup",
+      "duration_minutes": 30,
+      "transcript_revision": 7,
+      "ended_early": false,
+      "outcome_reason": null
+    },
+    "learningRevision": 0,
+    "speakyLevels": {
+      "overall": {
+        "level": "Unknown",
+        "explanation": null
+      },
+      "skills": {
+        "speaking": {
+          "level": "Unknown",
+          "explanation": null
+        },
+        "listening": {
+          "level": "Unknown",
+          "explanation": null
+        },
+        "grammar": {
+          "level": "Unknown",
+          "explanation": null
+        },
+        "vocabulary": {
+          "level": "Unknown",
+          "explanation": null
+        },
+        "reading": {
+          "level": "Unknown",
+          "explanation": null
+        },
+        "writing": {
+          "level": "Unknown",
+          "explanation": null
+        }
+      }
+    },
+    "observationCount": 0,
+    "roadmap": null,
+    "trialResult": null,
+    "storedAudioMetadataRows": 258
+  },
+  "limits": [
+    "Synthetic espeak-ng input; no microphone or human listening",
+    "Relay binary PCM carries no provider item ID during overlapping audio items",
+    "Lesson still in progress; no post-Trial jobs triggered"
+  ]
+}

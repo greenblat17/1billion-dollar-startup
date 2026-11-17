@@ -53,7 +53,8 @@ def pcm_for_turn(turn, directory):
             engine = 'macos_say'
         elif shutil.which('espeak-ng'):
             source = directory / 'speech.wav'
-            subprocess.run(['espeak-ng', '-w', str(source), speech], check=True, timeout=30)
+            voice = 'ru' if any('\u0400' <= char <= '\u04ff' for char in speech) else 'en'
+            subprocess.run(['espeak-ng', '-v', voice, '-w', str(source), speech], check=True, timeout=30)
             engine = 'espeak_ng'
         else:
             raise RuntimeError('Install say or espeak-ng, or provide a prepared audio file')
@@ -132,6 +133,7 @@ async def run(args, scenario, report, token):
             last_activity = time.monotonic()
             last_audio_end = None
             greeting_done = False
+            connected_seconds = 0
             sender = None
             before_events = set()
             async def acknowledge(item_id, milliseconds):
@@ -149,7 +151,7 @@ async def run(args, scenario, report, token):
                     for offset in range(0, len(pcm), 4800):
                         await socket.send(pcm[offset:offset + 4800])
                         await asyncio.sleep(.1)
-            while next_turn < len(turns):
+            while next_turn < len(turns) or (scenario.get('expectFinished') and not episode.get('finished')):
                 while not acked.empty():
                     item_id = acked.get_nowait()
                     pending_ack.discard(item_id)
@@ -175,7 +177,8 @@ async def run(args, scenario, report, token):
                         episode['disconnect'] = 'reconnect_scenario'
                 if episode.get('disconnect'):
                     break
-                if greeting_done and sender is None and next_turn < len(turns):
+                scheduled_at = turns[next_turn].get('atConnectedSeconds', 0) if next_turn < len(turns) else 0
+                if greeting_done and sender is None and next_turn < len(turns) and connected_seconds >= scheduled_at:
                     greeting_done = False
                     prior, _ = await persisted_reply(ktor, token, root, str(args.lesson), set())
                     before_events = {event.get('id') for event in prior.get('state', {}).get('events', [])}
@@ -209,6 +212,10 @@ async def run(args, scenario, report, token):
                             or message.get('lessonId') != str(args.lesson)):
                         raise RuntimeError('Relay protocol mismatch')
                     episode['lessonId'] = message.get('lessonId')
+                elif kind == 'trial_clock':
+                    execution = message.get('trialExecution') or {}
+                    connected_seconds = execution.get('connectedSeconds', connected_seconds)
+                    episode['lastTrialExecution'] = execution
                 elif kind == 'audio_start':
                     if message.get('sampleRate') != 24000:
                         raise RuntimeError('Relay output sample rate mismatch')
@@ -251,6 +258,25 @@ async def run(args, scenario, report, token):
                 elif kind == 'user_turn_complete' and sender is not None:
                     report['turns'][next_turn]['userTurnCompleteAt'] = time.time()
                 elif kind == 'finished':
+                    episode['finished'] = True
+                    if scenario.get('expectFinished') and sender is not None:
+                        await sender
+                        while not acked.empty():
+                            item_id = acked.get_nowait()
+                            pending_ack.discard(item_id)
+                            audio_records[item_id]['playbackAck'] = 'simulated_timing'
+                            report['turns'][next_turn]['responseAudioIds'].append(item_id)
+                        turn_record = report['turns'][next_turn]
+                        current, confirmed = await persisted_reply(ktor, token, root, str(args.lesson), before_events,
+                                                                   len(turn_record['responseAudioIds']), stable=True)
+                        turn_record['readAfterWrite'] = current
+                        turn_record['readAfterWriteConfirmed'] = confirmed
+                        next_turn += 1
+                        sender = None
+                    if scenario.get('expectFinished') and next_turn == len(turns) and not active and not pending_ack:
+                        report['finished'] = True
+                        episode['disconnect'] = 'finished'
+                        break
                     raise RuntimeError('Lesson finished before the scenario ended')
                 elif kind == 'reconnect':
                     episode['disconnect'] = 'relay_reconnect'
@@ -264,6 +290,8 @@ async def run(args, scenario, report, token):
             # Closing without `end` models a dropped transport and keeps the lesson recoverable.
         if next_turn < len(turns):
             await asyncio.sleep(3)
+    if scenario.get('expectFinished') and not report.get('finished'):
+        raise RuntimeError('Lesson did not report finished after the final turn')
     report['finalState'] = await state(ktor, token, root, str(args.lesson))
 
 
@@ -305,8 +333,11 @@ def main():
         local_origin(args.ai)
         scenario = json.loads(args.scenario.read_text())
         turns = scenario['turns']
-        if not isinstance(turns, list) or not 1 <= len(turns) <= 5 or any(not isinstance(t, dict) or not (t.get('text') or t.get('audio')) for t in turns):
-            raise ValueError('Scenario needs 1–5 turns with text or audio')
+        if not isinstance(turns, list) or not 1 <= len(turns) <= 40 or any(not isinstance(t, dict) or not (t.get('text') or t.get('audio')) for t in turns):
+            raise ValueError('Scenario needs 1–40 turns with text or audio')
+        times = [t.get('atConnectedSeconds', 0) for t in turns]
+        if any(type(t) is not int or t < 0 or t > 1800 for t in times) or times != sorted(times):
+            raise ValueError('atConnectedSeconds must be ordered whole seconds from 0 to 1800')
         reconnect_at = scenario.get('reconnectAfterTurn')
         if reconnect_at is not None and (type(reconnect_at) is not int or reconnect_at not in range(1, len(turns))):
             raise ValueError('reconnectAfterTurn must be between turns')

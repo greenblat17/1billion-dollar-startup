@@ -7,7 +7,7 @@ Telegram служит перепиской; приложение в целево
 
 | Вопрос | Документ |
 | --- | --- |
-| DEV-приёмка волн 1–9 и диалоги агента с Сашей | [Матрица AC](acceptance/dev-waves-1-9-matrix.md), [результаты и реплики](acceptance/runs/text-ac-results.md), [оставшиеся проверки](acceptance/remaining-ac-execution.md) |
+| DEV-приёмка волн 1–9 и диалоги агента с Сашей | [Матрица AC](acceptance/dev-waves-1-9-matrix.md), [текстовые результаты](acceptance/runs/text-ac-results.md), [regular lesson AC](acceptance/runs/regular-lesson-ac-2026-11-17.md), [оставшиеся проверки](acceptance/remaining-ac-execution.md) |
 | SP-19A/B: Stage Score и реальные Observations | [Контракт и границы проверки](integrations/learning-score.md), [статус](status.md#совместная-интеграция-волны-7) |
 | SP-20: Post-Lesson Review | [Контракт и границы проверки](integrations/post-lesson-review.md), [статус](status.md#совместная-интеграция-волны-9) |
 | Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |

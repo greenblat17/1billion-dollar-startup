@@ -11,7 +11,9 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
+import java.time.Duration
 import java.time.temporal.ChronoUnit
+import java.time.Instant
 import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.UUID
@@ -24,6 +26,124 @@ import kotlinx.serialization.json.doubleOrNull
 /** Opt-in DEV adapter. Its identity has no Telegram recipient, so workers cannot message a real chat. */
 internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClient, token: String) {
     route("/internal/agent-test/v1/{id}") {
+        post("/regular-entitlement") {
+            if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
+                call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
+                return@post
+            }
+            if (!agentLoopbackPeer(call.request.local.remoteHost)) {
+                call.respondText(json("error" to "invalid_test_peer").toString(), ContentType.Application.Json, HttpStatusCode.Forbidden)
+                return@post
+            }
+            try {
+                val id = agentId(call.parameters["id"])
+                val student = service.identity.resolve("agent_test", id)
+                val result = service.database.transaction { c, now ->
+                    c.lockStudent(student)
+                    val identities = c.rows("SELECT provider, subject FROM student_identity WHERE student_id=?", student) {
+                        it.getString(1) to it.getString(2)
+                    }
+                    if (!agentTestOnlyIdentity(identities, id)) reject("not_owned")
+                    val existing = c.activeEntitlement(student, now)
+                    if (existing != null) json("status" to "already_active", "entitlementId" to existing.text("id"),
+                        "validUntil" to existing.text("valid_until"))
+                    else {
+                        val epoch = c.rows("SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL", student) { it.getLong(1) }
+                            .singleOrNull() ?: reject("not_owned")
+                        val subscription = newId()
+                        val receipt = "agent-test:${newId()}"
+                        val validUntil = now.plus(Duration.ofDays(2))
+                        c.update("INSERT INTO subscription(id,student_id,status,provider,valid_from,valid_until,auto_renew) VALUES (?,?,'active','agent_test',?,?,FALSE)",
+                            subscription, student, now, validUntil)
+                        c.update("INSERT INTO payment_receipt(provider,external_id,student_id,subscription_id,input_digest,confirmed_at) VALUES ('agent_test',?,?,?,?,?)",
+                            receipt, student, subscription, digest("$receipt:$epoch"), now)
+                        val entitlement = newId()
+                        c.update("INSERT INTO entitlement(id,student_id,subscription_id,valid_from,valid_until,source_provider,source_external_id) VALUES (?,?,?,?,?,'agent_test',?)",
+                            entitlement, student, subscription, now, validUntil, receipt)
+                        json("status" to "created", "entitlementId" to entitlement, "validUntil" to validUntil.toString())
+                    }
+                }
+                call.respondText(result.toString(), ContentType.Application.Json)
+            } catch (error: FoundationFailure) {
+                call.respondText(json("error" to error.code).toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+            }
+        }
+        /** Synthetic Foundation contract probe. Scope stays inside Ktor and the route stays on DEV loopback. */
+        post("/foundation-check") {
+            if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
+                call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
+                return@post
+            }
+            if (!agentLoopbackPeer(call.request.local.remoteHost)) {
+                call.respondText(json("error" to "invalid_test_peer").toString(), ContentType.Application.Json, HttpStatusCode.Forbidden)
+                return@post
+            }
+            try {
+                val id = agentId(call.parameters["id"])
+                val body = call.receiveText()
+                if (body.length > 64_000) reject("request_too_large")
+                val input = foundationJson.parseToJsonElement(body).jsonObject
+                input.only("kind", "operationId", "action", "args", "resource", "resourceId", "history", "revision", "offset", "occurredAt")
+                val student = service.identity.resolve("agent_test", id)
+                requireAgentTestOnlyStudent(service, student, id)
+                val scope = service.identity.issue(student, "operator")
+                val result = when (input.text("kind")) {
+                    "catalog" -> {
+                        val filters = input.obj("args")
+                        filters.only("version", "skill", "cefr", "topicId")
+                        LearningCatalog(service.database).read(filters.optionalText("version"), filters.optionalText("skill"),
+                            filters.optionalText("cefr"), filters.optionalText("topicId"))
+                    }
+                    "source" -> {
+                        val requestId = agentId(input.text("operationId"))
+                        val at = Instant.parse(input.text("occurredAt"))
+                        if (at.isBefore(Instant.now().minusSeconds(86400)) || at.isAfter(Instant.now().plusSeconds(60))) reject("invalid_receivedAt")
+                        service.history.accept(student, "foundation-check:$requestId", "Synthetic foundation acceptance event", at, false)
+                    }
+                    "command" -> {
+                        val action = input.text("action")
+                        if (action !in setOf("learning.update", "learning.topic.record", "learning.task.create", "learning.task.update",
+                                "learning.task.transition", "learning.task.progress",
+                                "learning.roadmap.save", "learning.roadmap.priority.save",
+                                "learning.plan.create", "learning.plan.revise", "learning.plan.select-stage", "learning.content.create",
+                                "learning.content.revise", "learning.content.issue", "learning.content.mark-defective",
+                                "learning.observation.record", "learning.observation.revise", "learning.observation.invalidate",
+                                "learning.score.fixture")) reject("not_permitted")
+                        service.command(scope, json("version" to 1, "operationId" to agentId(input.text("operationId")),
+                            "action" to action, "args" to input.obj("args")))
+                    }
+                    "read" -> {
+                        val resource = input.text("resource")
+                        val resourceId = input.optionalText("resourceId")?.let(::agentId)
+                        val history = input["history"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                        val offset = input["offset"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+                        if (offset !in 0..10000) reject("invalid_offset")
+                        when (resource) {
+                            "state" -> service.learningState(scope)
+                            "tasks" -> service.learningTasks(scope, null, null, null, offset)
+                            "task" -> service.learningTask(scope, resourceId ?: reject("invalid_identity"), history, offset)
+                            "plan" -> service.learningPlan(scope, resourceId ?: reject("invalid_identity"),
+                                input["revision"]?.jsonPrimitive?.content?.toLongOrNull(), history, offset)
+                            "content" -> service.learningContent(scope, resourceId ?: reject("invalid_identity"),
+                                input["revision"]?.jsonPrimitive?.content?.toLongOrNull(), history, offset)
+                            "observations" -> service.learningObservations(scope, offset = offset)
+                            "observation" -> service.learningObservation(scope, resourceId ?: reject("invalid_identity"), history, offset)
+                            "score" -> service.learningScore(scope, resourceId ?: reject("invalid_identity"), history, offset)
+                            "receipt" -> service.receipt(scope, resourceId ?: reject("invalid_identity"))
+                            else -> reject("invalid_resource")
+                        }
+                    }
+                    else -> reject("invalid_probe_kind")
+                }
+                call.respondText(json("result" to result).toString(), ContentType.Application.Json)
+            } catch (error: FoundationFailure) {
+                call.respondText(json("error" to error.code).toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+            } catch (error: SerializationException) {
+                call.respondText(json("error" to "invalid_payload").toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+            } catch (error: java.time.format.DateTimeParseException) {
+                call.respondText(json("error" to "invalid_receivedAt").toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
+            }
+        }
         post("/mock-payment") {
             if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
                 call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
@@ -61,11 +181,19 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                 val id = agentId(call.parameters["id"])
                 val lessonId = agentId(call.request.queryParameters["lessonId"])
                 val student = service.identity.resolve("agent_test", id)
-                val state = service.snapshot(service.identity.issue(student, "operator"), "voice", lessonId)
-                val audio = service.database.transaction(readOnly = true) { c, _ ->
-                    JsonArray(c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND status='stored' ORDER BY object_key LIMIT 500", student, lessonId))
+                val scopeToken = service.identity.issue(student, "operator")
+                val state = service.snapshot(scopeToken, "voice", lessonId)
+                val evidence = service.database.transaction(readOnly = true) { c, now ->
+                    val scope = authenticateScope(c, scopeToken, now)
+                    val events = TrialCallEvents().read(c, scope, json("lessonId" to lessonId, "offset" to 0), now)
+                    val audio = JsonArray(c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND status='stored' ORDER BY object_key LIMIT 500", student, lessonId))
+                    val jobs = JsonArray(c.documents("""SELECT jsonb_build_object('id',id,'kind',kind,'status',status,'inputRefs',input_refs,'result',result)
+                        FROM foundation_job WHERE student_id=? AND target_id=? AND kind IN ('trial.observe','trial.assess','roadmap.generate')
+                        ORDER BY created_at,id LIMIT 30""", student, lessonId))
+                    json("trialEvents" to events, "audio" to audio, "jobs" to jobs)
                 }
-                call.respondText(json("state" to state, "audio" to audio).toString(), ContentType.Application.Json)
+                call.respondText(json("state" to state, "trialEvents" to evidence["trialEvents"],
+                    "audio" to evidence["audio"], "jobs" to evidence["jobs"]).toString(), ContentType.Application.Json)
             } catch (error: FoundationFailure) {
                 call.respondText(json("error" to error.code).toString(), ContentType.Application.Json, HttpStatusCode.BadRequest)
             }
@@ -170,6 +298,18 @@ private fun agentLoopbackPeer(host: String): Boolean = runCatching {
 private fun agentId(value: String?): String = value?.takeIf {
     runCatching { UUID.fromString(it).toString() == it }.getOrDefault(false)
 } ?: reject("invalid_identity")
+
+internal fun agentTestOnlyIdentity(identities: List<Pair<String, String>>, subject: String): Boolean =
+    identities.size == 1 && identities.single() == ("agent_test" to subject)
+
+internal suspend fun requireAgentTestOnlyStudent(service: FoundationService, student: String, subject: String) {
+    val identities = service.database.transaction(readOnly = true) { c, _ ->
+        c.rows("SELECT provider, subject FROM student_identity WHERE student_id=?", student) {
+            it.getString(1) to it.getString(2)
+        }
+    }
+    if (!agentTestOnlyIdentity(identities, subject)) reject("not_owned")
+}
 
 private suspend fun agentState(service: FoundationService, id: String): kotlinx.serialization.json.JsonObject {
     val student = service.identity.resolve("agent_test", id)
