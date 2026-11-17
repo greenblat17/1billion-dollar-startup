@@ -1,0 +1,15 @@
+{
+  "studentId": "3d3db392-5ea8-45e7-b415-fd63aceb4b08",
+  "mode": "regular_entitlement",
+  "steps": [
+    {
+      "name": "regular_entitlement",
+      "httpStatus": 200,
+      "response": {
+        "status": "created",
+        "entitlementId": "0eef18ec-1bb5-48b5-86a0-9f1bc472ec06",
+        "validUntil": "2026-11-19T16:55:24.346407874Z"
+      }
+    }
+  ]
+}
