@@ -316,15 +316,29 @@ async def test_trial_opening_uses_saved_context_and_resume_phase(connected_secon
     admitted = {**ADMITTED, 'lesson': {**ADMITTED['lesson'], 'trial_version': 'v5.5'},
                 'trialExecution': {'phase': 'warmup', 'connectedSeconds': connected_seconds}}
     base = session()
+    goal = 'Выйти на B2, чтобы уверенно объяснять проблемы и обсуждать сроки на английском на рабочих встречах'
+    base.contexts.build.return_value = SimpleNamespace(
+        data={'goal': {'content': {'value': goal}}, 'learningState': {'profile': {'targetLevel': 'B2'}}},
+        history=[{'role': 'user', 'content': 'Расскажем о рабочих встречах'}] if connected_seconds else [],
+    )
     s = RealtimeTrialSession(base.socket, base.backend, base.contexts, base.store, admitted, SETTINGS)
     s.backend.command.return_value = admitted['trialExecution']
     s.provider = FakeProvider()
     await s.configure()
-    instruction = next(item['response']['instructions'] for item in s.provider.sent
-                       if item['type'] == 'response.create')
+    response = next(item['response'] for item in s.provider.sent if item['type'] == 'response.create')
+    instruction = response['instructions']
     assert expected in instruction
     assert 'learner goal or concern in context' in instruction
-    assert 'topic' in instruction
+    if connected_seconds:
+        assert s.trial_learner_has_spoken
+        assert 'topic' in instruction
+        assert 'tool_choice' not in response
+    else:
+        assert not s.trial_learner_has_spoken
+        assert goal in instruction and '"targetLevel": "B2"' in instruction
+        assert 'first spoken sentence' in instruction
+        assert 'wait for the learner to answer in warm-up' in instruction
+        assert response['tool_choice'] == 'none'
 
 
 @pytest.mark.asyncio

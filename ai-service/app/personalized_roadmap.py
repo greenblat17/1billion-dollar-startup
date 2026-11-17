@@ -18,7 +18,7 @@ PROBLEMS = {
     'vocabulary': 'vocabulary_active',
 }
 WORK_MARKERS = frozenset(('work', 'job', 'career', 'professional', 'interview', 'office',
-                          'работ', 'карьер', 'собесед', 'професс'))
+                          'работ', 'рабоч', 'карьер', 'собесед', 'професс'))
 
 
 @dataclass(frozen=True)

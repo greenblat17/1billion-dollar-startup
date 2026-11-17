@@ -7,7 +7,7 @@ import pytest
 from app.trial_realtime import RealtimeTrialSession
 from app.trial_policy import TrialAnalyzer
 from app.trial_v55 import phase_hint
-from tests.test_trial_realtime import ADMITTED, SETTINGS, session, sent
+from tests.test_trial_realtime import ADMITTED, SETTINGS, output, session, sent
 
 
 def v55_session():
@@ -32,6 +32,69 @@ async def test_v55_configuration_restores_phase_and_exposes_only_narrow_learning
     assert 'learning.update' not in names and 'update_onboarding' not in names
     connected = s.socket.send_json.call_args_list[0].args[0]
     assert connected['trialExecution']['connectedSeconds'] == 800
+
+
+@pytest.mark.asyncio
+async def test_phase_call_at_two_seconds_waits_for_saved_first_learner_reply():
+    s = v55_session()
+    # The DEV phase event occurred at 2.519s. Foundation reports whole connected seconds.
+    s.trial_state = {'phase': 'warmup', 'connectedSeconds': 2}
+    transition = {'type': 'function_call', 'name': 'set_trial_phase',
+                  'call_id': 'premature', 'arguments': '{"phase":"conversation"}'}
+    await s.provider_event({'type': 'response.done',
+                            'response': {'status': 'completed', 'output': [transition]}})
+    s.backend.command.assert_not_awaited()
+    assert json.loads(sent(s)[-1]['item']['output']) == {'ok': False, 'error': 'learner_turn_required'}
+    assert not any(event['type'] == 'response.create' for event in sent(s))
+
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner-turn'})
+    assert not any(event['type'] == 'response.create' for event in sent(s))
+    s.backend.command.return_value = {'eventId': 'saved-reply'}
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner-turn', 'transcript': 'Да, давайте поговорим о встречах.'})
+    assert sent(s)[-1] == {'type': 'response.create', 'response': {}}
+
+    s.backend.command.return_value = {'phase': 'conversation', 'connectedSeconds': 10}
+    await s.provider_event({'type': 'response.done', 'response': {
+        'status': 'completed', 'output': [dict(transition, call_id='after-learner')],
+    }})
+    assert s.backend.command.call_args.args[2] == 'trial.phase'
+    assert s.trial_state['phase'] == 'conversation'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('phase,seconds,explain_roadmap', [
+    ('wrapup', 1844, True),
+    ('conversation', 1800, True),
+    ('warmup', 20, False),
+])
+async def test_finish_tool_sets_roadmap_handoff_only_for_normal_wrapup(phase, seconds, explain_roadmap):
+    s = v55_session()
+    s.trial_state = {'phase': phase, 'connectedSeconds': seconds}
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': [
+        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'finish', 'arguments': '{}'},
+    ]}})
+    response = sent(s)[-1]['response']
+    if explain_roadmap:
+        assert response['tool_choice'] == 'none'
+        assert 'После урока мы разберём наш разговор' in response['instructions']
+        assert 'Вы получите в Telegram персональный план занятий' in response['instructions']
+        assert 'даже если вы решите заниматься самостоятельно' in response['instructions']
+    else:
+        assert response == {}
+
+    await output(s, 'goodbye', finish=s.finish_next)
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': 'goodbye'})
+    goodbye = ('Вы получите в Telegram персональный план занятий. До встречи!'
+               if explain_roadmap else 'До встречи!')
+    await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': 'goodbye',
+                            'transcript': goodbye})
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': []}})
+    assert not s.ended
+    await s.settle('goodbye', {'complete': True, 'playedMs': 100})
+    assert s.ended
+    assert s.backend.command.call_args_list[-2].args[3]['body'] == goodbye
+    assert s.backend.command.call_args.args[3]['reason'] == 'natural_goodbye'
 
 
 @pytest.mark.asyncio

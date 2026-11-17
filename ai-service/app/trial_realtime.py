@@ -104,6 +104,7 @@ class RealtimeTrialSession(TrialJournal):
         self.lock = asyncio.Lock()
         self.v55 = self.lesson.get('trial_version') == 'v5.5'
         self.trial_state = admitted.get('trialExecution') or {}
+        self.trial_learner_has_spoken = False
         self.phase_hints = set()
         self.input_audio_ms = 0
         self.input_spans = {}
@@ -243,17 +244,19 @@ class RealtimeTrialSession(TrialJournal):
                                      **({'trialExecution': self.trial_state} if self.v55 else {}),
                                      'protocol': 'realtime-pcm-v1', 'inputSampleRate': 24000})
         self.want_response = True
-        if self.v55 and self.trial_state.get('connectedSeconds', 0) > 0:
+        if self.v55:
+            self.trial_learner_has_spoken = any(item['role'] == 'user' for item in context.history)
+        fresh_trial = (self.v55 and self.trial_state.get('phase') == 'warmup'
+                       and not self.trial_state.get('connectedSeconds') and not context.history)
+        if fresh_trial:
+            opening = trial_v55.opening(context.data)
+        elif self.v55:
             opening = ('Resume the active Trial in its saved phase. Continue the latest exchange in history '
                        'and refer naturally to the learner goal or concern in context when available. '
                        'Do not give a generic welcome-back greeting or ask the learner to choose a topic again.')
-        elif self.v55:
-            opening = ('Begin the Trial in Russian. Refer naturally to the learner goal or concern in context '
-                       'when available, then ask one specific conversational follow-up. '
-                       'Do not restart onboarding or ask for a topic already present in context.')
         else:
             opening = 'Briefly greet or resume the same lesson. Start a natural conversation; do not repeat an introduction questionnaire.'
-        await self.maybe_respond(opening)
+        await self.maybe_respond(opening, allow_tools=not fresh_trial)
 
     @staticmethod
     def regular_tools():
@@ -296,10 +299,12 @@ class RealtimeTrialSession(TrialJournal):
             tools.append({'type': 'function', **tool})
         return tools
 
-    async def maybe_respond(self, instructions=None):
+    async def maybe_respond(self, instructions=None, *, allow_tools=True):
         if self.ended or not self.want_response or self.response_active:
             return
-        if self.action is not None and self.pending_inputs:
+        waiting_for_warmup_reply = (self.v55 and self.trial_state.get('phase') == 'warmup'
+                                    and not self.trial_learner_has_spoken)
+        if self.pending_inputs and (self.action is not None or waiting_for_warmup_reply):
             return  # The saved transcript must be interpreted before speaking again.
         if self.truncations or any(not item['settled'] for item in self.items.values()):
             return  # Truncation and history must settle before the next response.
@@ -316,7 +321,14 @@ class RealtimeTrialSession(TrialJournal):
                 self.phase_hints.add('wrap_up')
                 instructions = ('At a natural pause, wrap up only what actually happened. Ask for feedback, '
                                 'confirm only the backend nextLesson, then say goodbye.')
+        if self.v55 and self.finish_next and (
+            self.trial_state.get('phase') == 'wrapup' or self.trial_state.get('connectedSeconds', 0) >= 1500
+        ):
+            instructions = trial_v55.GOODBYE
+            allow_tools = False
         response = {} if instructions is None else {'instructions': instructions}
+        if not allow_tools:
+            response['tool_choice'] = 'none'
         self.response_timing = {**(self.pending_timing or {}), 'requested_at': time.monotonic()}
         self.pending_timing = None
         self.response_active, self.want_response = True, False
@@ -511,6 +523,8 @@ class RealtimeTrialSession(TrialJournal):
                                           metadata={'providerItemId': key, 'finality': 'final', **self.input_spans.pop(key, {})} if self.v55 else None,
                                           occurred_at=occurred_at)
                 if saved.get('eventId'):
+                    if self.v55:
+                        self.trial_learner_has_spoken = True
                     source = {'id': saved['eventId'], 'body': text[:12000]}
                     self.memory_sources[source['id']] = source
                     while len(self.memory_sources) > 20:
@@ -739,9 +753,13 @@ class RealtimeTrialSession(TrialJournal):
             elif name == 'set_trial_phase':
                 if set(arguments) != {'phase'} or arguments['phase'] not in ('conversation', 'wrapup'):
                     raise ValueError('invalid_arguments')
-                result = await self.backend.command(self.scope, operation, 'trial.phase',
-                    dict(lessonId=self.lesson_id, callSessionId=self.episode, **arguments))
-                self.trial_state = result
+                if (arguments['phase'] == 'conversation' and self.trial_state.get('phase') == 'warmup'
+                        and not self.trial_learner_has_spoken):
+                    result = {'ok': False, 'error': 'learner_turn_required'}
+                else:
+                    result = await self.backend.command(self.scope, operation, 'trial.phase',
+                        dict(lessonId=self.lesson_id, callSessionId=self.episode, **arguments))
+                    self.trial_state = result
             else:
                 parsed = trial_v55.Preferences.model_validate(arguments).model_dump()
                 if parsed['sourceId'] not in self.memory_sources:
@@ -756,7 +774,8 @@ class RealtimeTrialSession(TrialJournal):
             result = {'ok': False, 'error': 'invalid_arguments_or_unavailable_transcript'}
         await self.send({'type': 'conversation.item.create', 'item': {'type': 'function_call_output',
             'call_id': output['call_id'], 'output': json.dumps(result, ensure_ascii=False)}})
-        self.want_response = True
+        if result.get('error') != 'learner_turn_required':
+            self.want_response = True
 
     async def receive(self):
         while not self.ended:

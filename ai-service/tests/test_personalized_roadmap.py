@@ -44,6 +44,23 @@ def test_skill_levels_are_independent_and_earlier_recorded_gap_is_retained():
                and row['provisional'] for row in grammar)
 
 
+def test_work_meeting_goal_from_trial_focuses_eligible_topics():
+    goal = 'Выйти на B2, чтобы уверенно объяснять проблемы и обсуждать сроки на английском на рабочих встречах'
+    student = state(level='Unknown', goal=goal)
+    student['profile']['currentLevels']['speaky']['skills'].update(
+        speaking={'level': 'B1'}, grammar={'level': 'A2'},
+    )
+    knowledge = [{'topic_id': 'speaking-b1-problem-solving', 'status': 'Known'}]
+
+    sequence = build_roadmap(student, CATALOG, knowledge, [])['sequence']
+
+    focused = {row['topicId'] for row in sequence if row['goalFocus']}
+    assert {'vocabulary-a2-work', 'vocabulary-b1-work-communication', 'speaking-b1-interview',
+            'vocabulary-b2-professional', 'speaking-b2-negotiation'} <= focused
+    assert all(row['skillId'] != 'grammar' for row in sequence if row['goalFocus'])
+    assert 'speaking-a2-work-basics' not in {row['topicId'] for row in sequence}
+
+
 def test_known_is_excluded_unknown_remains_hypothesis_and_reopened_survives():
     known = 'speaking-a2-work-basics'
     unknown = 'speaking-a2-social'
