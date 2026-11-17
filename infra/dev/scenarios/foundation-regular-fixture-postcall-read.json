@@ -1,0 +1,18 @@
+{
+  "steps": [
+    {
+      "name": "task",
+      "request": {"kind": "read", "resource": "task", "resourceId": "fe2c4e8c-8649-4a56-898f-bb54078b61ae"}
+    },
+    {
+      "name": "score",
+      "request": {"kind": "read", "resource": "score", "resourceId": "fe2c4e8c-8649-4a56-898f-bb54078b61ae"}
+    },
+    {
+      "name": "score_history",
+      "request": {"kind": "read", "resource": "score", "resourceId": "fe2c4e8c-8649-4a56-898f-bb54078b61ae", "history": true}
+    },
+    {"name": "observations", "request": {"kind": "read", "resource": "observations"}},
+    {"name": "jobs", "request": {"kind": "read", "resource": "jobs"}}
+  ]
+}
