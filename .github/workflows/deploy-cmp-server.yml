@@ -79,7 +79,8 @@ jobs:
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
           if [ "$DESTINATION" = dev ]; then
             tmp=$(mktemp)
-            grep -v '^AGENT_TEST_ENABLED=' vps-upload/.env > "$tmp" || true
+            grep -v -e '^AGENT_TEST_ENABLED=' -e '^SPEAKY_ENV=' vps-upload/.env > "$tmp" || true
+            printf 'SPEAKY_ENV=dev\n' >> "$tmp"
             printf 'AGENT_TEST_ENABLED=%s\n' "$AGENT_TEST" >> "$tmp"
             mv "$tmp" vps-upload/.env
           fi
