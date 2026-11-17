@@ -173,6 +173,8 @@ async def run(args, scenario, report, token):
                     turn_record['readAfterWriteConfirmed'] = confirmed
                     next_turn += 1
                     sender = None
+                    if next_turn == len(turns) and scenario.get('expectFinished'):
+                        episode['terminalWaitStartedAt'] = time.time()
                     if reconnect_at == next_turn and next_turn < len(turns):
                         episode['disconnect'] = 'reconnect_scenario'
                 if episode.get('disconnect'):
@@ -192,6 +194,9 @@ async def run(args, scenario, report, token):
                 except asyncio.TimeoutError:
                     if time.monotonic() - last_activity > 90:
                         raise TimeoutError('No relay event for 90 seconds')
+                    if (scenario.get('expectFinished') and next_turn == len(turns)
+                            and time.time() - episode.get('terminalWaitStartedAt', time.time()) > 120):
+                        raise TimeoutError('No terminal finished event within 120 seconds of the last reply')
                     continue
                 last_activity = time.monotonic()
                 if isinstance(raw, bytes):
