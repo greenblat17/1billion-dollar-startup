@@ -9,7 +9,9 @@ export SP00_TEST_URL="http://127.0.0.1:${SP00_TEST_PORT}"
 export SP02_TEST_CATALOG="$foundation_root/learning-catalog/v1/catalog.json"
 foundation_log="$(mktemp -t speaky-foundation.XXXXXX)"
 cd "$foundation_root/cmp"
-./gradlew :server:foundationIntegrationTest --console=plain
+if [[ "${FOUNDATION_TEST_SUITE:-runtime}" == "runtime" ]]; then
+  ./gradlew :server:foundationIntegrationTest --console=plain
+fi
 "$foundation_python" - <<'PY'
 import os
 import socket
