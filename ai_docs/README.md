@@ -7,12 +7,14 @@ Telegram служит перепиской; приложение в целево
 
 | Вопрос | Документ |
 | --- | --- |
-| SP-19A: математика Score и хранение попыток | [Контракт и граница fixture-проверки](integrations/learning-score.md) |
+| SP-19A/B: Stage Score и реальные Observations | [Контракт и границы проверки](integrations/learning-score.md), [статус](status.md#совместная-интеграция-волны-7) |
 | Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |
 | SP-17B: Trial → Observations | [Контракт](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
 | SP-07: Post-Trial Assessment | [Диагностический handoff](integrations/trial-assessment.md), [продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
 | SP-08: первая Roadmap | [Контракт и границы проверки](plans/2026-11-17-sp08-roadmap-handoff.md), [готовность](status.md#совместная-интеграция-волны-5) |
 | SP-09/10: приоритеты и сроки Roadmap | [Готовность и границы проверки](status.md#совместная-интеграция-волны-6) |
+| SP-11A: первая доставка Roadmap в Telegram | [Статус и границы проверки](status.md#совместная-интеграция-волны-7) |
+| SP-18: предложения новых Learning Tasks | [Статус и границы проверки](status.md#совместная-интеграция-волны-7) |
 | SP-14/15: Teaching Actions | [Готовность и граница SP-16/17C](status.md#совместная-интеграция-волны-5) |
 | SP-17C: результаты Teaching Actions | [Observation contract](integrations/learning-observations.md), [готовность](status.md#совместная-интеграция-волны-6) |
 | SP-12A v5.5: Task Learning Plan / Stage | [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |

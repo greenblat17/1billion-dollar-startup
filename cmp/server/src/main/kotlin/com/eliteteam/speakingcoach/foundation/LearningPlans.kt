@@ -92,6 +92,7 @@ internal class LearningPlans {
         c.update("UPDATE learning_plan SET revision=?,state_revision=state_revision+1,current_stage_id=?,updated_at=? WHERE id=?",
             revision, cursor, now, id)
         attach(c, scope, task, id, revision, component, now)
+        LearningScores().reconcilePlanRevision(c, scope, task.text("id"), now)
         record(c, head(c, scope.studentId, id), "revise", component, "definition", now)
         return read(c, scope.studentId, id)
     }

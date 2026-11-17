@@ -163,3 +163,20 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             json.dumps({'context': context.data, 'history': context.history}, ensure_ascii=False),
             operation='trial_followup', retry=False)
         return {'reply': json.loads(text)['reply']}
+
+    @app.post('/internal/trial/initial-roadmap')
+    async def initial_roadmap(request: Request, x_execution_scope: str = Header()):
+        from app.roadmap_delivery import prepare_initial_roadmap
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, 'invalid_roadmap_revision')
+        revision = body.get('roadmapRevision')
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise HTTPException(400, 'invalid_roadmap_revision')
+        try:
+            reply = await prepare_initial_roadmap(backend, x_execution_scope, revision)
+        except ValueError as error:
+            if str(error) in {'stale_roadmap', 'initial_priority_not_ready', 'incomplete_roadmap_order'}:
+                raise HTTPException(409, str(error)) from error
+            raise
+        return {'reply': reply, 'roadmapRevision': revision}

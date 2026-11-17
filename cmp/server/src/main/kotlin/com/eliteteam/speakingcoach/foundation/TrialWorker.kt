@@ -36,6 +36,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
 
     suspend fun tick() {
         sweep()
+        InitialRoadmapDelivery(service, http, aiRoot, internalToken, botToken, miniUrl).tick()
         clarifyTime()
         val notice = service.database.transaction { c, now ->
             val row = c.document("""SELECT to_jsonb(n) FROM trial_notice n WHERE status IN ('pending','ready') AND due_at<=?

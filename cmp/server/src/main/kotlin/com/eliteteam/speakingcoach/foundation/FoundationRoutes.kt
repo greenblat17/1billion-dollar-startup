@@ -60,6 +60,7 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
         personalizedRoadmapRoutes(service, internalToken)
         trialEventRoutes(service, internalToken)
         learningObservationRoutes(service, internalToken)
+        learningProblemRoutes(service, internalToken)
         learningPlanRoutes(service, internalToken)
         learningScoreRoutes(service, internalToken)
         learningContentRoutes(service, internalToken)

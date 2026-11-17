@@ -153,6 +153,17 @@ class FoundationClient:
             raise BackendFailure('unsupported_score_schema', 502)
         return result
 
+    async def learning_problems(self, scope: str, *, topic_id: str | None = None,
+                                problem_id: str | None = None, offset: int = 0) -> dict:
+        """Read SP-18 evidence scores and proposals. A proposal never creates a Task."""
+        params = {key: value for key, value in {
+            'topicId': topic_id, 'problemId': problem_id, 'offset': str(offset),
+        }.items() if value is not None}
+        result = await self._request('GET', '/learning-problems', scope, params=params)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_problem_schema', 502)
+        return result
+
     async def _task_request(self, path: str, scope: str, **kwargs) -> dict:
         result = await self._request('GET', path, scope, **kwargs)
         if result.get('schemaVersion') != 1:

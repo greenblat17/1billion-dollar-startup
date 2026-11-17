@@ -60,7 +60,7 @@ internal data class TutorTextRequest(
     @SerialName("chat_id") val chatId: Long,
     val text: String,
     val entities: List<TutorTextEntity>,
-    @SerialName("reply_markup") val markup: kotlinx.serialization.json.JsonObject,
+    @SerialName("reply_markup") val markup: kotlinx.serialization.json.JsonObject?,
     @SerialName("reply_parameters") val reply: TutorReplyParameters? = null,
 ) : SimpleRequest<JsonElement> {
     override fun method() = "sendMessage"

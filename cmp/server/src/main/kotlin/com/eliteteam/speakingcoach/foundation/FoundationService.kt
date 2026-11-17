@@ -68,9 +68,19 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
     }
 
     private fun dispatch(connection: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject = when (action) {
-        "learning.observation.record", "learning.observation.revise" ->
-            LearningObservations(observationStages).write(connection, scope, action.substringAfterLast('.'), args, now)
-        "learning.observation.invalidate" -> LearningObservations(observationStages).invalidate(connection, scope, args, now)
+        "learning.observation.record", "learning.observation.revise", "learning.observation.invalidate" -> {
+            val observations = LearningObservations(observationStages)
+            val old = args.optionalText("observationId")?.let { observations.get(connection, scope.studentId, it).obj("document") }
+            val result = if (action == "learning.observation.invalidate") observations.invalidate(connection, scope, args, now)
+                else observations.write(connection, scope, action.substringAfterLast('.'), args, now)
+            val updated = result.obj("observation").obj("document")
+            val detection = ProblemDetection()
+            detection.refresh(connection, scope.studentId, old?.optionalText("topicId"), old?.optionalText("problemId"), now)
+            if (old?.optionalText("topicId") != updated.optionalText("topicId") ||
+                old?.optionalText("problemId") != updated.optionalText("problemId"))
+                detection.refresh(connection, scope.studentId, updated.optionalText("topicId"), updated.optionalText("problemId"), now)
+            result
+        }
         "learning.plan.create" -> LearningPlans().create(connection, scope, args, now)
         "learning.plan.revise" -> LearningPlans().revise(connection, scope, args, now)
         "learning.plan.select-stage" -> LearningPlans().select(connection, scope, args, now)
@@ -91,7 +101,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "onboarding.update" -> OnboardingLearning().update(connection, scope, args, now)
         "learning.update" -> StudentLearningState().update(connection, scope, args, now)
         "learning.topic.record" -> StudentTopicKnowledge().record(connection, scope, args, now)
-        "learning.forget" -> maintenance.forgetLearning(connection, scope, args, now)
+        "learning.forget" -> maintenance.forgetLearning(connection, scope, args, now).also {
+            connection.update("DELETE FROM learning_problem_score WHERE student_id=?", scope.studentId)
+        }
         "subscription.get" -> { requireRole(scope, "text", "operator"); args.only(); billing.read(connection, scope.studentId, now) }
         "subscription.checkout" -> billing.checkout(connection, scope, args, now)
         "subscription.cancel_renewal" -> billing.cancelRenewal(connection, scope, args, now)
@@ -109,11 +121,25 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "trial.schedule_cancel" -> TrialSchedule().cancel(connection, scope, args, now)
         "trial.schedule" -> TrialSchedule().save(connection, scope, args, now)
         "trial.schedules" -> TrialSchedule().read(connection, scope)
-        "retention.prune" -> maintenance.prune(connection, scope, now)
+        "retention.prune" -> maintenance.prune(connection, scope, now).also {
+            ProblemDetection().reconcileStudent(connection, scope.studentId, now)
+        }
         "memory.reject" -> maintenance.rejectCandidate(connection, scope, args)
-        "memory.forget" -> maintenance.forget(connection, scope, args, now)
-        "student.delete" -> maintenance.deleteStudent(connection, scope, now)
-        "deletion.replay" -> maintenance.replayDeletions(connection, scope, now)
+        "memory.forget" -> maintenance.forget(connection, scope, args, now).also {
+            ProblemDetection().reconcileStudent(connection, scope.studentId, now)
+        }
+        "student.delete" -> maintenance.deleteStudent(connection, scope, now).also {
+            connection.update("DELETE FROM learning_problem_score WHERE student_id=?", scope.studentId)
+        }
+        "deletion.replay" -> {
+            val clearLearning = connection.document("""SELECT to_jsonb(d) FROM foundation_deletion d
+                WHERE student_id=? AND resulting_epoch>? AND (kind='delete_student' OR
+                (category='learning' AND fact_key='state')) LIMIT 1""", scope.studentId, scope.epoch) != null
+            val result = maintenance.replayDeletions(connection, scope, now)
+            if (clearLearning) connection.update("DELETE FROM learning_problem_score WHERE student_id=?", scope.studentId)
+            else ProblemDetection().reconcileStudent(connection, scope.studentId, now)
+            result
+        }
         "job.retry" -> maintenance.retry(connection, scope, args, now)
         "tutor.update_context" -> tutorContext.update(connection, scope, args, now)
         "run.claim" -> runs.claim(connection, scope, now)
@@ -123,7 +149,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "memory.discuss" -> MemoryOperations().read(connection, scope, args, now, candidates = true)
         "memory.policy" -> MemoryOperations().policy(connection, scope, args, now)
         "memory.review" -> MemoryOperations().review(connection, scope, args, now)
-        "memory.forget_requested" -> MemoryOperations().forget(connection, scope, args, now)
+        "memory.forget_requested" -> MemoryOperations().forget(connection, scope, args, now).also {
+            ProblemDetection().reconcileStudent(connection, scope.studentId, now)
+        }
         "memory.record" -> memory.record(connection, scope, args, now)
         "memory.propose" -> memory.propose(connection, scope, args, now)
         "memory.confirm" -> memory.confirm(connection, scope, args, now)
@@ -251,6 +279,12 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         database.transaction(readOnly = true) { c, now ->
             val scope = authenticateScope(c, token, now)
             LearningObservations(observationStages).list(c, scope.studentId, filters, offset, now)
+        }
+
+    suspend fun learningProblems(token: String, topic: String?, problem: String?, offset: Int): JsonObject =
+        database.transaction(readOnly = true) { c, _ ->
+            val scope = authenticateScope(c, token, database.clock.instant())
+            ProblemDetection().read(c, scope.studentId, topic, problem, offset)
         }
 
     suspend fun learningObservation(token: String, id: String, history: Boolean = false, offset: Int = 0): JsonObject =

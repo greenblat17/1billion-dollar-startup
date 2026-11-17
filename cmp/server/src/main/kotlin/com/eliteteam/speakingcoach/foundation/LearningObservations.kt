@@ -51,6 +51,7 @@ internal class LearningObservations(private val stages: ObservationStageResolver
         else c.update("UPDATE learning_observation SET revision=?,document=?::jsonb,updated_at=? WHERE student_id=? AND id=?",
             revision, d, now, scope.studentId, id)
         recordRevision(c, scope.studentId, id, revision, "active", d, d.obj("provenance").text("component"), reason, now)
+        LearningScores().reconcileObservation(c, scope, id, now, stages)
         return response(c, get(c, scope.studentId, id), now, old == null)
     }
 
@@ -65,6 +66,7 @@ internal class LearningObservations(private val stages: ObservationStageResolver
         val revision = old.number("revision") + 1
         c.update("UPDATE learning_observation SET revision=?,status='invalidated',updated_at=? WHERE student_id=? AND id=?", revision, now, scope.studentId, old.text("id"))
         recordRevision(c, scope.studentId, old.text("id"), revision, "invalidated", old.obj("document"), component, reason, now)
+        LearningScores().reconcileObservation(c, scope, old.text("id"), now, stages)
         return response(c, get(c, scope.studentId, old.text("id")), now, false)
     }
 

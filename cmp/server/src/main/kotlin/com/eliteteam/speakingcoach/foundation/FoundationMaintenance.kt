@@ -17,6 +17,7 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM tutor_summary WHERE student_id=? AND expires_at<=?", student, now)
         connection.update("UPDATE foundation_job SET status='failed',error_code='source_expired' WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')", student, now)
         connection.update("DELETE FROM execution_scope WHERE student_id=? AND expires_at<=?", student, now)
+        LearningScores().reconcileStored(connection, scope, now)
         return json("eventsPruned" to events)
     }
 
@@ -42,6 +43,7 @@ internal class FoundationMaintenance {
             newId(), scope.studentId, category, key, now, scope.epoch + 1)
         eraseFact(connection, scope.studentId, category, key, now)
         invalidateCopies(connection, scope.studentId, now)
+        LearningScores().reconcileStored(connection, scope, now)
         return json("forgotten" to true)
     }
 
@@ -88,6 +90,7 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM trial_call_event WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_event WHERE student_id=?", student)
         connection.update("DELETE FROM trial_notice WHERE student_id=?", student)
+        connection.update("DELETE FROM initial_roadmap_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM trial_demo_receipt WHERE student_id=?", student)
         connection.update("DELETE FROM call_session WHERE student_id=?", student)
         connection.update("DELETE FROM schedule_exception WHERE student_id=?", student)
@@ -162,6 +165,7 @@ internal class FoundationMaintenance {
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
         connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
+        connection.update("UPDATE initial_roadmap_delivery SET status='cancelled',body=NULL WHERE student_id=?", student)
         connection.update("UPDATE telegram_introduction SET status='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE student SET data_epoch=data_epoch+1,telegram_intro_eligible=FALSE WHERE id=?", student)
         connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',result=NULL,error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
@@ -188,6 +192,7 @@ internal class FoundationMaintenance {
                 eraseFact(connection, scope.studentId, record.text("category"), record.text("fact_key"),
                     Instant.parse(record.text("deleted_at")))
                 invalidateCopies(connection, scope.studentId, now)
+                LearningScores().reconcileStored(connection, scope, now)
             }
             connection.update("UPDATE student SET data_epoch=GREATEST(data_epoch,?) WHERE id=?", record.number("resulting_epoch"), scope.studentId)
         }
