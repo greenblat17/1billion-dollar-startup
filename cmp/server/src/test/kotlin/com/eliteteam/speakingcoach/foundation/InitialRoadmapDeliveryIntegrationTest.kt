@@ -30,7 +30,7 @@ class InitialRoadmapDeliveryIntegrationTest {
                             student, json("value" to "Speak at work"), now)
                         c.update("""INSERT INTO lesson(id,student_id,kind,status,starts_at,duration_minutes,timezone,
                             launch_mode,trial_version) VALUES (?,?,'trial','completed',?,30,'UTC','executable','v5.5')""",
-                            lesson, now.minusSeconds(3600))
+                            lesson, student, now.minusSeconds(3600))
                         c.update("""INSERT INTO learning_roadmap(student_id,revision,goal_revision,learning_revision,
                             knowledge_digest,catalog_version,document,created_at) VALUES (?,1,1,1,'fixture',?,?::jsonb,?)""",
                             student, manifest.version, json("goal" to "Speak at work", "targetLevel" to "B2"), now)
