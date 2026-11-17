@@ -1,13 +1,16 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. PR не слит. DEV получил Ktor из `2513429`, AI service из `5ee2476` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44077386023) прошла. Первый живой текстовый ход агентского ученика [прошёл](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44078898852); полная приёмка AC продолжается. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `7ba2bb6` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44081678986) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). Голос, Telegram-доставка и Mini App не приняты. Волны 10–11 исключены из текущего поручения.
 
-Изолированный DEV-адаптер агентской текстовой приёмки подготовлен в отдельной ветке:
-`agent_test` Student, живой AI/Foundation pipeline, чтение PostgreSQL snapshot и CLI transcript.
-CLI поддерживает воспроизводимые реплики и управление по одному ходу агентом BB, который играет ученика;
-смысл и корректность состояния оцениваются после прогона, автоматической оценки качества нет.
-DEV deploy, включение маршрута и платный модельный сценарий не выполнялись.
-Проверки и точные границы: [агентская приёмка](integrations/agent-acceptance.md).
+Изолированный `agent_test` Student на DEV проводит текстовые реплики через живой
+AI/Foundation pipeline и возвращает состояние PostgreSQL. BB агент проверил
+естественное знакомство, прямую запись Trial, уточнение нагрузки и исправление цели.
+Ложное обещание сохранить нагрузку/Homework исправлено в текстовой политике и
+повторно проверено; поля останутся Unknown до Trial. При исправлении цели запись
+прошла, но ответ один раз деградировал до шаблона; причина не установлена.
+Полная [матрица AC](acceptance/dev-waves-1-9-matrix.md), [диалоги](acceptance/runs/text-ac-results.md)
+и [следующие интерфейсы приёмки](acceptance/remaining-ac-execution.md) сохраняют
+отдельные статусы `pass/fail/blocked`. Описание адаптера: [агентская приёмка](integrations/agent-acceptance.md).
 
 ## Совместная интеграция волны 9
 
