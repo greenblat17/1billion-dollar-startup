@@ -82,6 +82,24 @@ async def test_two_rejections_finish_with_tools_disabled():
 
 
 @pytest.mark.asyncio
+async def test_model_cannot_confirm_trial_without_committed_booking():
+    body = 'Хочу пробный урок сейчас.'
+    source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-17T12:45:00+00:00'}
+    saved = {'conversationId': 'conversation',
+             'reply': 'Пробный пока не записан. Я не смог подтвердить действие. Напиши ещё раз, и я проверю запись.',
+             'degraded': True}
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
+        {'status': 'claimed', 'input': source}, saved]))
+    model = SimpleNamespace(complete=AsyncMock(return_value={'content':
+        '{"reply":"Сейчас запускаю пробный урок!","trialOffered":true,"claimedTrialAction":"create"}'}))
+    result = await FoundationTutor(backend, model, ContextBuilder(backend)).respond(
+        TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794919500), 'scope')
+    assert result['booking'] is None
+    assert result['reply'] == saved['reply']
+    assert backend.command.call_args.args[3]['degraded'] is True
+
+
+@pytest.mark.asyncio
 async def test_extracted_personal_keys_are_stable_and_match_backend_contract():
     model = SimpleNamespace(update_person_once=AsyncMock(return_value={'facts': ['Люблю походы', 'Люблю музыку']}))
     context = SimpleNamespace(data={'sourceEvents': [{'id': 'source', 'body': 'Люблю походы и музыку'}]})

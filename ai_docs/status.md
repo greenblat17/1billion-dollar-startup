@@ -1,13 +1,17 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `7ba2bb6` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44081678986) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). Голос, Telegram-доставка и Mini App не приняты. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `9db20c6` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44085984487) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила доставку `/start`, но выявила ложное подтверждение прямой записи Trial без кнопки. Голос и Mini App не приняты. Волны 10–11 исключены из текущего поручения.
 
 Изолированный `agent_test` Student на DEV проводит текстовые реплики через живой
 AI/Foundation pipeline и возвращает состояние PostgreSQL. BB агент проверил
 естественное знакомство, прямую запись Trial, уточнение нагрузки и исправление цели.
 Ложное обещание сохранить нагрузку/Homework исправлено в текстовой политике и
 повторно проверено; поля останутся Unknown до Trial. При исправлении цели запись
-прошла, но ответ один раз деградировал до шаблона; причина не установлена.
+прошла, но ответ один раз деградировал до шаблона из-за provider 429.
+Telegram Trial не был записан после двух прямых запросов: сначала отвергнуты
+аргументы booking, затем модель дважды неверно вызвала onboarding update.
+Защита от неподтверждённого обещания записи локально проверена; повтор на DEV
+после её поставки ещё требуется.
 Полная [матрица AC](acceptance/dev-waves-1-9-matrix.md), [диалоги](acceptance/runs/text-ac-results.md)
 и [следующие интерфейсы приёмки](acceptance/remaining-ac-execution.md) сохраняют
 отдельные статусы `pass/fail/blocked`. Описание адаптера: [агентская приёмка](integrations/agent-acceptance.md).

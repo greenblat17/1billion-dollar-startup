@@ -69,6 +69,9 @@ class FoundationTutor:
             'that supports the requested action, not a quote from history or a paraphrase. '
             'A matching quote alone does not authorize an action: determine the current intent. '
             'An explicit current request needs no additional confirmation. '
+            'In every final reply, set claimedTrialAction to create, reschedule, or cancel if your words '
+            'say that trial action is happening or has happened. Set none otherwise. The backend verifies '
+            'this claim against a successful tool result; never claim an action before the tool succeeds. '
             'The Telegram adapter may have delivered part or all of a fixed introduction; '
             'its confirmed messages are in history. Respond to the current message immediately, '
             'without continuing or repeating the introduction or asking for an already stated goal. '
@@ -84,6 +87,7 @@ class FoundationTutor:
         degraded = False
         rejected_tools = 0
         rejected_trial_change = None
+        claimed_trial_action = 'none'
         try:
             committed = claim.get('committed', [])
             if committed:
@@ -100,6 +104,7 @@ class FoundationTutor:
                     if not calls:
                         final = json.loads(message.get('content') or '{}')
                         reply = final['reply'].strip()
+                        claimed_trial_action = final.get('claimedTrialAction', 'none')
                         if not reply:
                             raise ValueError('empty_reply')
                         break
@@ -142,6 +147,7 @@ class FoundationTutor:
                         if final.get('tool_calls'):
                             raise ValueError('unexpected_final_tool_call')
                         reply = json.loads(final.get('content') or '{}')['reply'].strip()
+                        claimed_trial_action = json.loads(final.get('content') or '{}').get('claimedTrialAction', 'none')
                         if not reply:
                             raise ValueError('empty_reply')
                         break
@@ -170,6 +176,9 @@ class FoundationTutor:
                 'reschedule_trial_booking': 'Не удалось подтвердить перенос пробного. Проверь «Мои встречи» и напиши ещё раз.',
                 'cancel_trial_booking': 'Не удалось подтвердить отмену пробного. Проверь «Мои встречи» и напиши ещё раз.',
             }[rejected_trial_change]
+            degraded = True
+        elif claimed_trial_action != 'none' and changed is None:
+            reply = 'Пробный пока не записан. Я не смог подтвердить действие. Напиши ещё раз, и я проверю запись.'
             degraded = True
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
             'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded,
