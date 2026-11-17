@@ -94,6 +94,10 @@ class RealtimeTrialSession(TrialJournal):
         self.last_ping = self.started = time.monotonic()
         self.last_user_turn = self.started
         self.received_bytes = 0
+        self.forwarded_input_bytes = 0
+        self.forwarded_silence_bytes = 0
+        self.last_input_forwarded_at = None
+        self.last_input_stage = None
         self.sent_hint = False
         self.provider = None
         self.turn_stopped_at = None
@@ -391,6 +395,13 @@ class RealtimeTrialSession(TrialJournal):
         self.input_buffer.clear()
         if forward:
             await self.send({'type': 'input_audio_buffer.append', 'audio': base64.b64encode(data).decode()})
+            self.forwarded_input_bytes += len(data)
+            trailing_silence_bytes = (len(data) - len(data.rstrip(b'\0'))) & ~1
+            if trailing_silence_bytes == len(data):
+                self.forwarded_silence_bytes += trailing_silence_bytes
+            else:
+                self.forwarded_silence_bytes = trailing_silence_bytes
+            self.last_input_forwarded_at = time.monotonic()
 
     async def commit_muted_speech(self):
         if self.muted and self.speaking and not self.mute_committed:
@@ -477,6 +488,7 @@ class RealtimeTrialSession(TrialJournal):
                 return  # VAD committed the same input before our explicit mute commit.
             raise RealtimeProviderError(message.get('error', {}))
         if kind == 'input_audio_buffer.speech_started':
+            self.last_input_stage = 'speech_started'
             if self.v55 and message.get('item_id'):
                 self.turn_times.setdefault(message['item_id'], timestamp())
             if self.v55 and message.get('item_id') and isinstance(message.get('audio_start_ms'), int):
@@ -487,6 +499,7 @@ class RealtimeTrialSession(TrialJournal):
             self.turn_stopped_at = None
             await self.interrupt()
         elif kind == 'input_audio_buffer.speech_stopped':
+            self.last_input_stage = 'speech_stopped'
             if self.v55 and message.get('item_id') and isinstance(message.get('audio_end_ms'), int):
                 self.input_spans.setdefault(message['item_id'], {})['audioEndMs'] = message['audio_end_ms']
             self.speaking = False
@@ -497,6 +510,7 @@ class RealtimeTrialSession(TrialJournal):
             self.truncations.pop(message['item_id'], None)
             await self.maybe_respond()
         elif kind == 'input_audio_buffer.committed':
+            self.last_input_stage = 'committed'
             if self.v55:
                 self.turn_times.setdefault(message['item_id'], timestamp())
             self.speaking = False
@@ -508,6 +522,7 @@ class RealtimeTrialSession(TrialJournal):
             self.want_response = True
             await self.maybe_respond()
         elif kind == 'conversation.item.input_audio_transcription.completed':
+            self.last_input_stage = 'transcribed'
             key = message['item_id']
             if key in self.transcribed:
                 return
@@ -930,4 +945,10 @@ class RealtimeTrialSession(TrialJournal):
                             await self.socket.send_json({'type': 'reconnect'})
                     except Exception as error:
                         event('trial_cleanup_failed', error=error, stage='voice_end')
-                event('trial_session', outcome='closed', transport='realtime_relay')
+                event('trial_session', outcome='closed', transport='realtime_relay',
+                      last_input_stage=self.last_input_stage, speaking=self.speaking,
+                      pending_input_count=len(self.pending_inputs), received_input_bytes=self.received_bytes,
+                      forwarded_input_bytes=self.forwarded_input_bytes,
+                      trailing_silence_ms=self.forwarded_silence_bytes // 48,
+                      last_input_forwarded_ms_ago=(None if self.last_input_forwarded_at is None else
+                                                   round(1000 * (time.monotonic() - self.last_input_forwarded_at))))

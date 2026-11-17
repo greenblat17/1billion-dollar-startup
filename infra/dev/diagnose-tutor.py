@@ -93,7 +93,9 @@ if call_session:
     def session_event(at, data):
         safe = {key: data.get(key) for key in
                 ('event', 'outcome', 'stage', 'status_reason', 'status_error_code', 'output_tokens',
-                 'error_type', 'error_code') if data.get(key) is not None}
+                 'error_type', 'error_code', 'last_input_stage', 'speaking', 'pending_input_count',
+                 'received_input_bytes', 'forwarded_input_bytes', 'trailing_silence_ms',
+                 'last_input_forwarded_ms_ago') if data.get(key) is not None}
         return {'at': at, **safe}
     print(json.dumps({'callSessionId': call_session, 'found': bool(matching),
                       'eventCount': len(matching), 'relevantCount': len(relevant),
