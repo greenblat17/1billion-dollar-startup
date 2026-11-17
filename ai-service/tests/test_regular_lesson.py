@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.context_builder import TutorContext
+from app.learning_results import LessonPlan
 from app.regular_lesson import LessonPlanner
 from tests.test_trial_realtime import session, sent, output
 
@@ -22,9 +23,9 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
     assert await LessonPlanner(model).prepare(context, {}) == plan
     payload = json.loads(model.complete_json.call_args.args[1])
     assert payload == context.data
-    from app.learning_results import LessonPlan
     assert model.complete_json.call_args.kwargs == {'operation': 'regular_lesson_prepare', 'retry': False,
         'response_format': LessonPlan.response_format()}
+    model.complete_json.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -32,10 +33,39 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
     {'objective': 'x', 'topic': 'x', 'strategy': ['bad']},
     {'objective': 'x', 'topic': 'x', 'strategy': 'x' * 3001},
     {'objective': 'x', 'topic': 'x', 'strategy': 'x', 'invented': 'x'}])
-async def test_planner_rejects_invalid_results_without_fallback(result):
+async def test_planner_rejects_invalid_results_after_one_repair(result):
     model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(result)))
     with pytest.raises(ValueError, match='invalid_plan'):
         await LessonPlanner(model).prepare(TutorContext({'lesson': {'kind': 'regular'}}, [], False), {})
+    assert [call.kwargs['operation'] for call in model.complete_json.await_args_list] == [
+        'regular_lesson_prepare', 'regular_lesson_prepare_repair']
+    assert all(not call.kwargs['retry'] for call in model.complete_json.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field,value,field_type,length,reason', [
+    ('objective', '   ', 'str', 3, 'blank'),
+    ('topic', ['PRIVATE_INVALID_TOPIC'], 'list', None, 'expected_string'),
+    ('strategy', 'PRIVATE_INVALID_STRATEGY' * 200, 'str', 4800, 'too_long'),
+])
+async def test_planner_repairs_invalid_field_with_metadata_only(field, value, field_type, length, reason, caplog):
+    caplog.set_level('INFO', logger='app.diagnostics')
+    valid = {'objective': 'Explain a release delay clearly', 'topic': 'Work updates',
+             'strategy': 'Discuss the cause and agree on one next step.'}
+    invalid = dict(valid, **{field: value})
+    model = SimpleNamespace(complete_json=AsyncMock(side_effect=[json.dumps(invalid), json.dumps(valid)]))
+    context = TutorContext({'lesson': {'kind': 'regular'}, 'goal': 'B2 for work'}, [], False)
+
+    assert await LessonPlanner(model).prepare(context, {}) == valid
+    _, repair = model.complete_json.await_args_list
+    issue = {'field': field, 'type': field_type, 'length': length, 'reason': reason}
+    assert json.dumps(issue) in repair.args[0]
+    assert json.loads(repair.args[1]) == context.data
+    assert repair.kwargs == {'operation': 'regular_lesson_prepare_repair', 'retry': False,
+                             'response_format': LessonPlan.response_format()}
+    assert '"event": "regular_lesson_plan_rejected"' in caplog.text
+    assert json.dumps(issue) in caplog.text
+    assert 'PRIVATE_INVALID' not in repair.args[0] + caplog.text
 
 
 @pytest.mark.asyncio
