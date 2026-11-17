@@ -106,8 +106,10 @@ def test_report_contains_source_ids_without_grant(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which('ffmpeg') is None, reason='ffmpeg unavailable')
-@pytest.mark.parametrize('reconnect,expect_finished', [(True, False), (True, True), (False, False), (False, True)])
-def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_finished):
+@pytest.mark.parametrize('reconnect,expect_finished,early_terminal',
+                         [(True, False, None), (True, True, None), (False, False, None),
+                          (False, True, None), (False, True, 'open'), (False, True, 'close')])
+def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_finished, early_terminal):
     events = []
     grants = []
     acks = []
@@ -155,6 +157,16 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_fi
         await socket.send(json.dumps({'type': 'audio_end', 'id': f'greeting-{attempt}'}))
         received = 0
         reply_index = 0
+        async def send_last_audio_and_finish():
+            await socket.send(json.dumps({'type': 'audio_start', 'id': 'reply-2-more', 'sampleRate': 24000}))
+            await socket.send(bytes(4800))
+            await socket.send(json.dumps({'type': 'audio_end', 'id': 'reply-2-more'}))
+            if early_terminal == 'close':
+                events.append({'id': str(uuid.uuid4()), 'role': 'assistant', 'body': 'reply-2-more'})
+            await socket.send(json.dumps({'type': 'finished'}))
+            if early_terminal == 'close':
+                await socket.close()
+
         async for frame in socket:
             if isinstance(frame, bytes):
                 received += len(frame)
@@ -175,12 +187,16 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_fi
                         asyncio.create_task(delayed_more())
                     else:
                         await socket.send(json.dumps({'type': 'audio_end', 'id': reply_id}))
+                        if early_terminal == 'open' and reply_index == 2:
+                            await send_last_audio_and_finish()
             else:
                 control = json.loads(frame)
                 if control.get('type') == 'played':
                     acks.append(control)
                     events.append({'id': str(uuid.uuid4()), 'role': 'assistant', 'body': control['id']})
-                    if expect_finished and control['id'] == ('reply-2-more' if reconnect else 'reply-2'):
+                    if early_terminal == 'close' and control['id'] == 'reply-2':
+                        await send_last_audio_and_finish()
+                    elif expect_finished and not early_terminal and control['id'] == ('reply-2-more' if reconnect else 'reply-2'):
                         await socket.send(json.dumps({'type': 'finished'}))
 
     async def exercise():
@@ -198,12 +214,17 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_fi
             assert len(report['attempts']) == (2 if reconnect else 1)
             assert all(turn['readAfterWriteConfirmed'] for turn in report['turns'])
             assert [turn['responseAudioIds'][0] for turn in report['turns']] == ['reply-1', 'reply-2']
-            assert report['turns'][1]['responseAudioIds'] == (['reply-2', 'reply-2-more'] if reconnect else ['reply-2'])
-            assert len([ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]) == (3 if reconnect else 2)
-            assert all(audio['playbackAck'] == 'simulated_timing' for audio in report['audio'])
+            final_ids = ['reply-2', 'reply-2-more'] if reconnect or early_terminal else ['reply-2']
+            assert report['turns'][1]['responseAudioIds'] == final_ids
+            wire_acks = [ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]
+            assert len(wire_acks) == (3 if reconnect or early_terminal == 'open' else 2)
+            playback = [audio['playbackAck'] for audio in report['audio']]
+            if early_terminal == 'close':
+                assert playback.pop() == 'unverified_closed_after_finished'
+            assert all(ack == 'simulated_timing' for ack in playback)
             if reconnect:
                 assert [audio['audioAttribution'] for audio in report['audio'][-2:]] == ['ambiguous_overlap'] * 2
-            assert len(list(args.output.glob('*.wav'))) == (5 if reconnect else 3)
+            assert len(list(args.output.glob('*.wav'))) == len(final_ids) + 2 + int(reconnect)
             assert report.get('finished', False) == expect_finished
 
     try:

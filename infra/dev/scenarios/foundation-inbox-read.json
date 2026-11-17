@@ -1,0 +1,5 @@
+{
+  "steps": [
+    {"name": "inbox", "request": {"kind": "read", "resource": "inbox"}}
+  ]
+}

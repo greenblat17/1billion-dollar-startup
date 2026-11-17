@@ -98,12 +98,7 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                         val requestId = agentId(input.text("operationId"))
                         val at = Instant.parse(input.text("occurredAt"))
                         if (at.isBefore(Instant.now().minusSeconds(86400)) || at.isAfter(Instant.now().plusSeconds(60))) reject("invalid_receivedAt")
-                        val accepted = service.history.accept(student, "foundation-check:$requestId",
-                            "Synthetic foundation acceptance event", at, false)
-                        val event = service.database.transaction(readOnly = true) { c, _ ->
-                            c.document("SELECT to_jsonb(e) FROM conversation_event e WHERE student_id=? AND id=?",
-                                student, accepted.text("event_id")) ?: reject("source_expired")
-                        }
+                        val event = appendAgentFixtureSource(service, student, requestId, at)
                         json("sourceEventId" to event.text("id"), "sourceSequence" to event.number("sequence"),
                             "sources" to JsonArray(listOf(json("type" to "event", "id" to event.text("id"),
                                 "revision" to event.number("sequence")))))
@@ -137,6 +132,40 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                             "observations" -> service.learningObservations(scope, offset = offset)
                             "observation" -> service.learningObservation(scope, resourceId ?: reject("invalid_identity"), history, offset)
                             "score" -> service.learningScore(scope, resourceId ?: reject("invalid_identity"), history, offset)
+                            "roadmap", "priority" -> try {
+                                if (resource == "roadmap") service.learningRoadmap(scope) else service.learningRoadmapPriority(scope)
+                            } catch (error: FoundationFailure) {
+                                if (error.code != "roadmap_not_found") throw error
+                                json("schemaVersion" to 1, "status" to "roadmap_not_found")
+                            }
+                            "jobs" -> service.database.transaction(readOnly = true) { c, now ->
+                                val authorized = authenticateScope(c, scope, now)
+                                json("schemaVersion" to 1, "jobs" to JsonArray(c.documents("""SELECT jsonb_build_object(
+                                    'id',id,'kind',kind,'status',status,'targetId',target_id,'errorCode',error_code)
+                                    FROM foundation_job WHERE student_id=? AND data_epoch=?
+                                    ORDER BY created_at DESC,id DESC LIMIT 100""",
+                                    authorized.studentId, authorized.epoch)))
+                            }
+                            "inbox" -> service.database.transaction(readOnly = true) { c, now ->
+                                val authorized = authenticateScope(c, scope, now)
+                                json("schemaVersion" to 1, "inbox" to JsonArray(c.documents("""SELECT jsonb_build_object(
+                                    'requestId',i.request_id,'eventId',i.event_id,'status',i.status,
+                                    'leaseUntil',i.lease_until,'expiresAt',i.expires_at,'sequence',e.sequence)
+                                    FROM tutor_inbox i JOIN conversation_event e ON e.student_id=i.student_id AND e.id=i.event_id
+                                    WHERE i.student_id=? ORDER BY e.sequence DESC,i.request_id LIMIT 100 OFFSET ?""",
+                                    authorized.studentId, offset)))
+                            }
+                            "contents" -> service.database.transaction(readOnly = true) { c, now ->
+                                val authorized = authenticateScope(c, scope, now)
+                                json("schemaVersion" to 1, "contents" to JsonArray(c.documents("""SELECT jsonb_build_object(
+                                    'contentId',content.id,'taskId',content.task_id,'revision',revision.revision,
+                                    'status',revision.status,'stageRef',revision.document->'stageRef',
+                                    'issuedLessonId',revision.issued_lesson_id)
+                                    FROM learning_content content JOIN learning_content_revision revision
+                                      ON revision.content_id=content.id AND revision.revision=content.current_revision
+                                    WHERE content.student_id=? ORDER BY content.updated_at DESC,content.id DESC LIMIT 100""",
+                                    authorized.studentId)))
+                            }
                             "receipt" -> service.receipt(scope, resourceId ?: reject("invalid_identity"))
                             else -> reject("invalid_resource")
                         }
@@ -309,6 +338,13 @@ private fun agentId(value: String?): String = value?.takeIf {
 
 internal fun agentTestOnlyIdentity(identities: List<Pair<String, String>>, subject: String): Boolean =
     identities.size == 1 && identities.single() == ("agent_test" to subject)
+
+internal suspend fun appendAgentFixtureSource(service: FoundationService, student: String, requestId: String, at: Instant) =
+    service.database.transaction { c, now ->
+        c.lockStudent(student)
+        val conversation = c.conversation(student, "telegram")
+        c.appendEvent(student, conversation, "foundation-check:$requestId", "user", "Synthetic foundation acceptance event", at, now)
+    }
 
 internal suspend fun requireAgentTestOnlyStudent(service: FoundationService, student: String, subject: String) {
     val identities = service.database.transaction(readOnly = true) { c, _ ->

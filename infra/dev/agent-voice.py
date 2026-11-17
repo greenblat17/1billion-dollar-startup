@@ -18,6 +18,7 @@ from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 from urllib.error import HTTPError
 
 from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosedOK
 
 
 def local_origin(value):
@@ -136,15 +137,22 @@ async def run(args, scenario, report, token):
             last_activity = time.monotonic()
             last_audio_end = None
             greeting_done = False
+            relay_closed = False
             connected_seconds = 0
             regular_connected_at = None
             sender = None
             before_events = set()
             async def acknowledge(item_id, milliseconds):
                 await asyncio.sleep(milliseconds / 1000)
-                await socket.send(json.dumps({'type': 'played', 'id': item_id, 'complete': True,
-                                              'playedMs': milliseconds}))
-                await acked.put(item_id)
+                try:
+                    await socket.send(json.dumps({'type': 'played', 'id': item_id, 'complete': True,
+                                                  'playedMs': milliseconds}))
+                except ConnectionClosedOK:
+                    if not episode.get('finished'):
+                        raise
+                    await acked.put((item_id, 'unverified_closed_after_finished'))
+                else:
+                    await acked.put((item_id, 'simulated_timing'))
             async def send_turn(index):
                 turn = turns[index]
                 with tempfile.TemporaryDirectory() as temporary:
@@ -155,11 +163,15 @@ async def run(args, scenario, report, token):
                     for offset in range(0, len(pcm), 4800):
                         await socket.send(pcm[offset:offset + 4800])
                         await asyncio.sleep(.1)
-            while next_turn < len(turns) or (scenario.get('expectFinished') and not episode.get('finished')):
+            while next_turn < len(turns) or (scenario.get('expectFinished') and not report.get('finished')):
+                completed_acks = {task for task in ack_tasks if task.done()}
+                ack_tasks.difference_update(completed_acks)
+                for task in completed_acks:
+                    task.result()
                 while not acked.empty():
-                    item_id = acked.get_nowait()
+                    item_id, playback_ack = acked.get_nowait()
                     pending_ack.discard(item_id)
-                    audio_records[item_id]['playbackAck'] = 'simulated_timing'
+                    audio_records[item_id]['playbackAck'] = playback_ack
                     if sender is None:
                         greeting_done = True
                     else:
@@ -168,7 +180,7 @@ async def run(args, scenario, report, token):
                 # every item is acknowledged, then allow a short interval for another item.
                 if (sender is not None and sender.done() and report['turns'][next_turn]['responseAudioIds']
                         and not active and not pending_ack and last_audio_end is not None
-                        and time.monotonic() - last_audio_end >= 3):
+                        and (episode.get('finished') or time.monotonic() - last_audio_end >= 3)):
                     sender.result()
                     turn_record = report['turns'][next_turn]
                     current, confirmed = await persisted_reply(ktor, token, root, str(args.lesson), before_events,
@@ -182,8 +194,21 @@ async def run(args, scenario, report, token):
                         episode['terminalWaitStartedAt'] = time.time()
                     if reconnect_at == next_turn and next_turn < len(turns):
                         episode['disconnect'] = 'reconnect_scenario'
+                if (episode.get('finished') and next_turn == len(turns)
+                        and not active and not pending_ack):
+                    report['finished'] = True
+                    episode['disconnect'] = 'finished'
+                    break
                 if episode.get('disconnect'):
                     break
+                if relay_closed:
+                    if ack_tasks:
+                        await asyncio.wait(ack_tasks, return_when=asyncio.FIRST_COMPLETED)
+                    elif sender is not None and not sender.done():
+                        await sender
+                    else:
+                        raise RuntimeError('Relay closed without a complete final reply')
+                    continue
                 scheduled_at = turns[next_turn].get('atConnectedSeconds', 0) if next_turn < len(turns) else 0
                 elapsed = (time.monotonic() - regular_connected_at
                            if regular_connected_at is not None else connected_seconds)
@@ -194,20 +219,27 @@ async def run(args, scenario, report, token):
                     prior, _ = await persisted_reply(ktor, token, root, str(args.lesson), set())
                     before_events = {event.get('id') for event in prior.get('state', {}).get('events', [])}
                     sender = asyncio.create_task(send_turn(next_turn))
-                if time.monotonic() - last_ping > 5:
+                if not episode.get('finished') and time.monotonic() - last_ping > 5:
                     await socket.send(json.dumps({'type': 'ping', 'audio': {'capturedFrames': 0, 'sentFrames': 0,
                                                                            'muted': False, 'playing': len(active)}}))
                     last_ping = time.monotonic()
                 try:
                     raw = await asyncio.wait_for(socket.recv(), timeout=1)
+                except ConnectionClosedOK:
+                    if not episode.get('finished') or active:
+                        raise
+                    relay_closed = True
+                    continue
                 except asyncio.TimeoutError:
                     # Regular voice has no clock frames during a scripted pause.
                     regular_pause = regular_connected_at is not None and waiting_for_turn
                     if not regular_pause and time.monotonic() - last_activity > 90:
                         raise TimeoutError('No relay event for 90 seconds')
-                    if (scenario.get('expectFinished') and next_turn == len(turns)
+                    if (scenario.get('expectFinished') and not episode.get('finished') and next_turn == len(turns)
                             and time.time() - episode.get('terminalWaitStartedAt', time.time()) > 120):
                         raise TimeoutError('No terminal finished event within 120 seconds of the last reply')
+                    if (episode.get('finished') and time.time() - episode['terminalReceivedAt'] > 120):
+                        raise TimeoutError('Final audio was not acknowledged within 120 seconds of finished')
                     continue
                 last_activity = time.monotonic()
                 if isinstance(raw, bytes):
@@ -260,7 +292,6 @@ async def run(args, scenario, report, token):
                     # A headless client observes the full PCM duration before acknowledging playback.
                     task = asyncio.create_task(acknowledge(message['id'], duration))
                     ack_tasks.add(task)
-                    task.add_done_callback(ack_tasks.discard)
                     pending_ack.add(message['id'])
                     record = {'providerItemId': message['id'], 'file': filename,
                               'durationMs': duration, 'playbackAck': 'pending',
@@ -276,26 +307,13 @@ async def run(args, scenario, report, token):
                 elif kind == 'user_turn_complete' and sender is not None:
                     report['turns'][next_turn]['userTurnCompleteAt'] = time.time()
                 elif kind == 'finished':
+                    if (not scenario.get('expectFinished') or next_turn < len(turns) - 1
+                            or (next_turn < len(turns) and sender is None)):
+                        raise RuntimeError('Lesson finished before the scenario ended')
                     episode['finished'] = True
-                    if scenario.get('expectFinished') and sender is not None:
-                        await sender
-                        while not acked.empty():
-                            item_id = acked.get_nowait()
-                            pending_ack.discard(item_id)
-                            audio_records[item_id]['playbackAck'] = 'simulated_timing'
-                            report['turns'][next_turn]['responseAudioIds'].append(item_id)
-                        turn_record = report['turns'][next_turn]
-                        current, confirmed = await persisted_reply(ktor, token, root, str(args.lesson), before_events,
-                                                                   len(turn_record['responseAudioIds']), stable=True)
-                        turn_record['readAfterWrite'] = current
-                        turn_record['readAfterWriteConfirmed'] = confirmed
-                        next_turn += 1
-                        sender = None
-                    if scenario.get('expectFinished') and next_turn == len(turns) and not active and not pending_ack:
-                        report['finished'] = True
-                        episode['disconnect'] = 'finished'
-                        break
-                    raise RuntimeError('Lesson finished before the scenario ended')
+                    episode.setdefault('terminalReceivedAt', time.time())
+                    # Terminal may precede the final item playback acknowledgement. The
+                    # next loop pass drains acknowledgements and verifies persisted text.
                 elif kind == 'reconnect':
                     episode['disconnect'] = 'relay_reconnect'
                     break

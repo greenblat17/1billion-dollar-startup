@@ -773,6 +773,26 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun agentFixtureSourceReplaysWithoutBlockingRealText() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val student = service.identity.resolve("agent_test", "385c9b0d-ad6a-49e2-a14b-dd29f1261a99")
+            val at = clock.instant()
+            val event = appendAgentFixtureSource(service, student, "fixture-1", at)
+            val replay = appendAgentFixtureSource(service, student, "fixture-1", at)
+            assertEquals(event.text("id"), replay.text("id"))
+            assertEquals(event.number("sequence"), replay.number("sequence"))
+            assertEquals("operation_conflict", assertFailsWith<FoundationFailure> {
+                appendAgentFixtureSource(service, student, "fixture-1", at.plusSeconds(1))
+            }.code)
+
+            service.history.accept(student, "learner-1", "Hello", at, false)
+            val scope = service.identity.issue(student, "text", request = "learner-1")
+            assertEquals("Hello", service.op(scope, "run.claim", json()).obj("input").text("body"))
+        }
+    }
+
+    @Test
     fun telegramBridgePersistsInputAndDeliveryAndRejectsAGroupIdentity() = runTest {
         withStore { service ->
             val bridge = FoundationChat(service)
