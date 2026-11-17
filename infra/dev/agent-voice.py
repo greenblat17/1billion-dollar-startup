@@ -108,6 +108,9 @@ async def run(args, scenario, report, token):
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(args.output, 0o700)
     root = f'/internal/agent-test/v1/{args.student}'
+    if scenario.get('readOnly'):
+        report['finalState'] = await state(ktor, token, root, str(args.lesson))
+        return
     ws_url = ai.replace('https:', 'wss:').replace('http:', 'ws:') + '/miniapp/voice'
     context = ssl._create_unverified_context() if ws_url.startswith('wss:') else None
     turns = scenario['turns']
@@ -324,7 +327,7 @@ def write_report(args, report):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('scenario', type=Path, help='JSON with turns: [{text or audio}], optional reconnectAfterTurn')
+    parser.add_argument('scenario', type=Path, help='JSON with turns: [{text or audio}], optional reconnectAfterTurn; or readOnly: true')
     parser.add_argument('--ktor', required=True, help='DEV Ktor loopback origin')
     parser.add_argument('--ai', required=True, help='DEV AI service loopback origin')
     parser.add_argument('--student', required=True, type=uuid.UUID, help='existing agent_test student UUID')
@@ -339,8 +342,9 @@ def main():
         local_origin(args.ai)
         scenario = json.loads(args.scenario.read_text())
         turns = scenario['turns']
-        if not isinstance(turns, list) or not 1 <= len(turns) <= 40 or any(not isinstance(t, dict) or not (t.get('text') or t.get('audio')) for t in turns):
-            raise ValueError('Scenario needs 1–40 turns with text or audio')
+        read_only = scenario.get('readOnly') is True
+        if not isinstance(turns, list) or (len(turns) != 0 if read_only else not 1 <= len(turns) <= 40) or any(not isinstance(t, dict) or not (t.get('text') or t.get('audio')) for t in turns):
+            raise ValueError('Scenario needs 1–40 turns with text or audio, or zero turns when readOnly')
         times = [t.get('atConnectedSeconds', 0) for t in turns]
         if any(type(t) is not int or t < 0 or t > 1800 for t in times) or times != sorted(times):
             raise ValueError('atConnectedSeconds must be ordered whole seconds from 0 to 1800')
@@ -353,14 +357,14 @@ def main():
               'result': 'incomplete', 'attempts': [], 'turns': [{'input': t, 'responseAudioIds': []} for t in turns], 'audio': []}
     try:
         asyncio.run(run(args, scenario, report, token))
-        report['result'] = 'completed_transport'
+        report['result'] = 'completed_read_only' if read_only else 'completed_transport'
     except Exception as error:
         report['result'] = 'failed'
         report['error'] = str(error)
     write_report(args, report)
     print(json.dumps({'result': report['result'], 'studentId': report['studentId'], 'lessonId': report['lessonId'],
                       'report': str(args.output / 'dialogue.json')}))
-    return 0 if report['result'] == 'completed_transport' else 1
+    return 0 if report['result'] in ('completed_transport', 'completed_read_only') else 1
 
 
 if __name__ == '__main__':

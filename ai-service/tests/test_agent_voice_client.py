@@ -60,6 +60,39 @@ def test_cyrillic_synthetic_turn_selects_russian_voice(tmp_path, monkeypatch):
     assert len(pcm) > 48000
 
 
+def test_read_only_voice_snapshot_does_not_request_grant(tmp_path):
+    calls = []
+
+    class Foundation(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            calls.append(('GET', self.path))
+            data = json.dumps({'state': {'events': []}, 'trialEvents': {'events': []},
+                               'jobs': [{'kind': 'trial.observe', 'status': 'failed'}]}).encode()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    http = ThreadingHTTPServer(('127.0.0.1', 0), Foundation)
+    thread = threading.Thread(target=http.serve_forever, daemon=True)
+    thread.start()
+    try:
+        args = SimpleNamespace(ktor=f'http://127.0.0.1:{http.server_port}',
+                               ai='http://127.0.0.1:18090', student=uuid.uuid4(), lesson=uuid.uuid4(),
+                               output=tmp_path / 'snapshot')
+        report = {'attempts': [], 'turns': [], 'audio': []}
+        asyncio.run(voice.run(args, {'turns': [], 'readOnly': True}, report, 'test-token'))
+        assert report['finalState']['jobs'][0]['status'] == 'failed'
+        assert len(calls) == 1 and calls[0][0] == 'GET'
+    finally:
+        http.shutdown()
+        thread.join(timeout=2)
+
+
 def test_report_contains_source_ids_without_grant(tmp_path):
     class Args:
         output = tmp_path
