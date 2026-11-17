@@ -1,7 +1,14 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.ai.TutorClient
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import com.eliteteam.speakingcoach.speakyModule
 import com.eliteteam.speakingcoach.AppConfig
@@ -30,6 +37,73 @@ class FoundationIntegrationTest {
 
     private fun introRequest(chat: Long, message: Long, text: String, at: Instant) =
         com.eliteteam.speakingcoach.ai.TutorRequest("tg-$chat", "message:$message", text, at.epochSecond.toDouble())
+
+    @Test
+    fun agentVoiceStateReadsOwnedRegularAndPreservesTrialEvidence() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val subject = newId()
+            val student = service.identity.resolve("agent_test", subject)
+            val operator = service.identity.issue(student, "operator")
+            suspend fun lesson(kind: String) = service.op(operator, "lesson.create", json("kind" to kind,
+                "launchMode" to "executable", "startsAt" to clock.instant().toString(),
+                "durationMinutes" to 30, "timezone" to "UTC")).text("id")
+
+            val regular = lesson("regular")
+            val trial = lesson("trial")
+            val regularCall = newId()
+            val trialCall = newId()
+            service.database.transaction { c, now ->
+                for ((lessonId, callId) in listOf(regular to regularCall, trial to trialCall)) {
+                    c.update("""INSERT INTO call_session(id,student_id,lesson_id,attempt_id,status,started_at)
+                        VALUES (?,?,?,?,'connected',?)""", callId, student, lessonId, newId(), now)
+                }
+                c.update("""INSERT INTO trial_audio(object_key,student_id,lesson_id,call_session_id,data_epoch,direction,
+                    sequence,created_at,expires_at,status) VALUES ('regular-greeting',?,?,?,1,'assistant',1,?,?,'stored')""",
+                    student, regular, regularCall, now, now.plusSeconds(600))
+                TrialCallEvents().lifecycle(c, ExecutionScope(student, "operator", 1),
+                    json("id" to trialCall, "lesson_id" to trial), "connected", json(), now)
+                c.enqueueJob(student, "lesson.content.prepare", "content", regular, json(), now)
+                c.enqueueJob(student, "lesson.evaluate", "evaluation", regular, json(), now)
+                c.enqueueJob(student, "lesson.review", "review", regular, json(), now)
+                c.enqueueJob(student, "trial.observe", "observations", trial, json(), now)
+            }
+            val greeting = service.op(operator, "lesson.append", json("lessonId" to regular, "callSessionId" to regularCall,
+                "sourceId" to "greeting", "role" to "assistant", "body" to "Welcome", "occurredAt" to clock.instant().toString()))
+            val token = "agent-test-token"
+            HttpClient(MockEngine { error("voice-state must not call the tutor") }).use { tutorHttp ->
+                testApplication {
+                    application { routing { agentTestRoutes(service, TutorClient("http://ai.local", tutorHttp, token), token) } }
+                    suspend fun read(owner: String, lessonId: String, status: HttpStatusCode): JsonObject {
+                        val response = client.get("/internal/agent-test/v1/$owner/voice-state?lessonId=$lessonId") {
+                            header("X-Internal-Token", token)
+                        }
+                        val body = response.bodyAsText()
+                        assertEquals(status, response.status, body)
+                        return foundationJson.parseToJsonElement(body).jsonObject
+                    }
+                    val regularState = read(subject, regular, HttpStatusCode.OK)
+                    assertEquals(regular, regularState.obj("state").obj("lesson").text("id"))
+                    assertEquals(greeting.text("eventId"), regularState.obj("state")["events"]!!.jsonArray.single().jsonObject.text("id"))
+                    val envelope = regularState.obj("trialEvents")
+                    assertEquals(1L, envelope.number("schemaVersion"))
+                    assertEquals(regular, envelope.obj("lesson").text("id"))
+                    assertEquals(JsonArray(emptyList()), envelope["events"])
+                    assertEquals("regular-greeting", regularState["audio"]!!.jsonArray.single().jsonObject.text("object_key"))
+                    assertEquals(setOf("lesson.prepare", "lesson.content.prepare", "lesson.evaluate", "lesson.review"),
+                        regularState["jobs"]!!.jsonArray.map { it.jsonObject.text("kind") }.toSet())
+                    assertEquals("not_owned", read(newId(), regular, HttpStatusCode.BadRequest).text("error"))
+
+                    val trialState = read(subject, trial, HttpStatusCode.OK)
+                    val trialEvents = trialState.obj("trialEvents")
+                    assertEquals("warmup", trialEvents.obj("execution").text("phase"))
+                    assertEquals("connected", trialEvents["events"]!!.jsonArray.single().jsonObject.text("kind"))
+                    assertEquals("trial.observe", trialState["jobs"]!!.jsonArray.single().jsonObject.text("kind"))
+                    assertEquals(JsonArray(emptyList()), trialState["audio"])
+                }
+            }
+        }
+    }
 
     @Test
     fun firstStartDeliversFourSeparateMessagesAndOnlyConfirmedHistory() = runTest {

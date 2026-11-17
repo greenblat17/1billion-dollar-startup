@@ -220,13 +220,24 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                 val student = service.identity.resolve("agent_test", id)
                 val scopeToken = service.identity.issue(student, "operator")
                 val state = service.snapshot(scopeToken, "voice", lessonId)
+                val lesson = state.obj("lesson")
+                val regular = lesson.text("kind") == "regular"
                 val evidence = service.database.transaction(readOnly = true) { c, now ->
                     val scope = authenticateScope(c, scopeToken, now)
-                    val events = TrialCallEvents().read(c, scope, json("lessonId" to lessonId, "offset" to 0), now)
+                    val events = when {
+                        regular -> json("schemaVersion" to 1, "lesson" to lesson, "execution" to null,
+                            "events" to JsonArray(emptyList()), "nextOffset" to null,
+                            "assessmentStatus" to "not_started", "observationStatus" to "not_started")
+                        lesson.text("kind") == "trial" && trialV55(lesson) ->
+                            TrialCallEvents().read(c, scope, json("lessonId" to lessonId, "offset" to 0), now)
+                        else -> reject("not_v55_trial")
+                    }
                     val audio = JsonArray(c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND status='stored' ORDER BY object_key LIMIT 500", student, lessonId))
                     val jobs = JsonArray(c.documents("""SELECT jsonb_build_object('id',id,'kind',kind,'status',status,'inputRefs',input_refs,'result',result)
-                        FROM foundation_job WHERE student_id=? AND target_id=? AND kind IN ('trial.observe','trial.assess','roadmap.generate')
-                        ORDER BY created_at,id LIMIT 30""", student, lessonId))
+                        FROM foundation_job WHERE student_id=? AND target_id=?
+                        AND ((? AND kind IN ('lesson.prepare','lesson.content.prepare','lesson.evaluate','lesson.review'))
+                          OR (NOT ? AND kind IN ('trial.observe','trial.assess','roadmap.generate')))
+                        ORDER BY created_at,id LIMIT 30""", student, lessonId, regular, regular))
                     json("trialEvents" to events, "audio" to audio, "jobs" to jobs)
                 }
                 call.respondText(json("state" to state, "trialEvents" to evidence["trialEvents"],
