@@ -36,7 +36,7 @@ class FoundationCheckRemoteTest(unittest.TestCase):
         self.student = "00000000-0000-0000-0000-000000000001"
 
     def test_regular_entitlement_returns_only_safe_fields(self):
-        (self.work / "input.json").write_text(json.dumps({"mode": "regular_entitlement", "studentId": self.student}))
+        (self.work / "foundation-input.json").write_text(json.dumps({"mode": "regular_entitlement", "studentId": self.student}))
         opener = Opener({"status": "created", "entitlementId": "receipt-id", "validUntil": "tomorrow",
                          "token": "must-not-appear", "scope": "must-not-appear"})
         result = MODULE.run(self.work, env_path=self.env, opener=opener)
@@ -47,7 +47,7 @@ class FoundationCheckRemoteTest(unittest.TestCase):
         self.assertNotIn("secret-local-only", json.dumps(result))
 
     def test_repo_scenario_keeps_topic_scope_but_redacts_auth_scope(self):
-        (self.work / "input.json").write_text(json.dumps({"mode": "scenario", "studentId": self.student,
+        (self.work / "foundation-input.json").write_text(json.dumps({"mode": "scenario", "studentId": self.student,
                                                           "scenario": "foundation-read.json"}))
         (self.work / "foundation-read.json").write_text(json.dumps({"steps": [
             {"name": "catalog", "request": {"kind": "catalog", "args": {}}}]}))
@@ -59,7 +59,7 @@ class FoundationCheckRemoteTest(unittest.TestCase):
         self.assertTrue(opener.requests[0].full_url.endswith("/foundation-check"))
 
     def test_rejects_scenario_path_escape(self):
-        (self.work / "input.json").write_text(json.dumps({"mode": "scenario", "studentId": self.student,
+        (self.work / "foundation-input.json").write_text(json.dumps({"mode": "scenario", "studentId": self.student,
                                                           "scenario": "../private.json"}))
         with self.assertRaisesRegex(ValueError, "invalid_scenario"):
             MODULE.run(self.work, env_path=self.env, opener=Opener({}))

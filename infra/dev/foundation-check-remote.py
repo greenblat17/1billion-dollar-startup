@@ -40,7 +40,7 @@ def run(work, env_path=Path("/opt/speaking-coach/.env"), opener=None):
     token, port = values.get("AI_INTERNAL_TOKEN"), values.get("SERVER_PORT")
     if not token or not port or not port.isdecimal():
         raise ValueError("agent_test_config_incomplete")
-    config = json.loads((work / "input.json").read_text())
+    config = json.loads((work / "foundation-input.json").read_text())
     mode = config.get("mode")
     raw_id = config.get("studentId") or (str(uuid.uuid4()) if mode == "scenario" else "")
     student_id = str(uuid.UUID(raw_id))
