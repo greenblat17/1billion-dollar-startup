@@ -31,6 +31,18 @@ on:
         description: Existing agent-test student UUID (blank starts a dialogue)
         type: string
         default: ''
+      agent_voice:
+        description: Run a short synthetic voice lesson on deployed DEV services
+        type: boolean
+        default: false
+      agent_voice_student_id:
+        description: Existing agent-test student UUID for the voice lesson
+        type: string
+        default: ''
+      agent_voice_lesson_id:
+        description: Owned executable lesson UUID for the voice test
+        type: string
+        default: ''
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -57,7 +69,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.verify_only }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.agent_voice && !inputs.verify_only }}
         run: |
           echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
@@ -270,6 +282,104 @@ jobs:
             ${{ runner.temp }}/agent-transcript.json
             ${{ runner.temp }}/agent-transcript.md
             ${{ runner.temp }}/agent-error.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  agent-voice:
+    name: Test synthetic voice lesson on DEV
+    needs: require-target
+    if: ${{ inputs.agent_voice }}
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    timeout-minutes: 12
+    env:
+      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+      AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+      AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+      STUDENT_ID: ${{ inputs.agent_voice_student_id }}
+      LESSON_ID: ${{ inputs.agent_voice_lesson_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run voice client through private loopback tunnels
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CMP_HOST:?}" "${CMP_USER:?}" "${CMP_KEY:?}"
+          : "${AI_HOST:?}" "${AI_USER:?}" "${AI_KEY:?}"
+          python3 - <<'PY'
+          import os, uuid
+          uuid.UUID(os.environ['STUDENT_ID'])
+          uuid.UUID(os.environ['LESSON_ID'])
+          PY
+          cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
+          ai_key="$RUNNER_TEMP/agent-voice-ai-key"
+          install -m 600 /dev/null "$cmp_key"
+          install -m 600 /dev/null "$ai_key"
+          printf '%s\n' "$CMP_KEY" > "$cmp_key"
+          printf '%s\n' "$AI_KEY" > "$ai_key"
+          cmp_opts=(-i "$cmp_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+          ai_opts=(-i "$ai_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+          cmp_config="$RUNNER_TEMP/agent-voice-cmp.json"
+          ai_config="$RUNNER_TEMP/agent-voice-ai.json"
+          ssh "${cmp_opts[@]}" "$CMP_USER@$CMP_HOST" 'python3 -' > "$cmp_config" <<'PY'
+          import json, subprocess
+          info = json.loads(subprocess.check_output(['docker', 'inspect', 'speaking-coach']))[0]
+          env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
+          print(json.dumps({'running': info['State']['Running'], 'dev': env.get('SPEAKY_ENV') == 'dev',
+                            'enabled': env.get('AGENT_TEST_ENABLED') == 'true',
+                            'port': env.get('SERVER_PORT', '443'), 'token': env.get('AI_INTERNAL_TOKEN', '')}))
+          PY
+          ssh "${ai_opts[@]}" "$AI_USER@$AI_HOST" 'python3 -' > "$ai_config" <<'PY'
+          import json, subprocess
+          info = json.loads(subprocess.check_output(['docker', 'inspect', 'ai-service']))[0]
+          env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
+          print(json.dumps({'running': info['State']['Running'], 'dev': env.get('SPEAKY_ENV') == 'dev',
+                            'enabled': env.get('AGENT_TEST_ENABLED') == 'true',
+                            'port': info['NetworkSettings']['Ports']['8090/tcp'][0]['HostPort']}))
+          PY
+          chmod 600 "$cmp_config" "$ai_config"
+          python3 - "$cmp_config" "$ai_config" <<'PY'
+          import json, sys
+          cmp, ai = [json.load(open(path)) for path in sys.argv[1:]]
+          assert all(cmp[key] for key in ('running', 'dev', 'enabled', 'token'))
+          assert all(ai[key] for key in ('running', 'dev', 'enabled'))
+          assert str(cmp['port']).isdigit() and str(ai['port']).isdigit()
+          print('DEV CMP and AI voice gates: ready')
+          PY
+          cmp_port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$cmp_config")
+          ai_port=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["port"])' "$ai_config")
+          token=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["token"])' "$cmp_config")
+          ssh "${cmp_opts[@]}" -o ExitOnForwardFailure=yes -N \
+            -L "127.0.0.1:18443:127.0.0.1:$cmp_port" "$CMP_USER@$CMP_HOST" &
+          cmp_tunnel=$!
+          ssh "${ai_opts[@]}" -o ExitOnForwardFailure=yes -N \
+            -L "127.0.0.1:18090:127.0.0.1:$ai_port" "$AI_USER@$AI_HOST" &
+          ai_tunnel=$!
+          trap 'kill "$cmp_tunnel" "$ai_tunnel" 2>/dev/null || true; rm -f "$cmp_config" "$ai_config" "$cmp_key" "$ai_key"' EXIT
+          sleep 2
+          kill -0 "$cmp_tunnel" "$ai_tunnel"
+          python3 -m pip install --quiet websockets==15.0.1
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq espeak-ng ffmpeg
+          AI_INTERNAL_TOKEN="$token" python3 infra/dev/agent-voice.py \
+            infra/dev/scenarios/voice-short.json \
+            --ktor https://127.0.0.1:18443 --ai http://127.0.0.1:18090 \
+            --student "$STUDENT_ID" --lesson "$LESSON_ID" \
+            --output "$RUNNER_TEMP/agent-voice-run"
+      - name: Upload synthetic voice dialogue
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: agent-voice-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-voice-run/
           if-no-files-found: ignore
           retention-days: 7
 
