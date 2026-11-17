@@ -39,6 +39,8 @@ def install_foundation_api(app: FastAPI, tutor: FoundationTutor, learning: Learn
                 raise HTTPException(503, detail='handler_unavailable') from None
             if str(error) == 'source_expired':
                 raise HTTPException(410, detail='source_expired') from None
+            if str(error) == 'missing_action_template':
+                raise HTTPException(422, detail='missing_action_template') from None
             raise HTTPException(400, detail='invalid_job') from None
         except Exception as error:
             event('foundation_failed', error=error, stage='compute')

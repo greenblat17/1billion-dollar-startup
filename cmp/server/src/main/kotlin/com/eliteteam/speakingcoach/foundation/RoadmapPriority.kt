@@ -186,6 +186,7 @@ internal class RoadmapPriority {
             c.update("""INSERT INTO learning_roadmap_priority(student_id,revision,roadmap_revision,document,updated_at)
                 VALUES (?,1,?,?::jsonb,?)""", scope.studentId, roadmap.number("revision"), decision, now)
         }
+        c.refreshRegularTeachingPreparation(scope.studentId, "priority:${(previous?.number("revision") ?: 0) + 1}", now)
         return read(c, scope.studentId)
     }
 }

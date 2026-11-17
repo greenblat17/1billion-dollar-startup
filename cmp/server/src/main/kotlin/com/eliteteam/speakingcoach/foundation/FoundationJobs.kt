@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "lesson.review", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "lesson.review", "trial.observe", "trial.assess", "lesson.prepare", "lesson.content.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -41,8 +41,11 @@ internal class FoundationJobs {
         if (selected.text("kind") == "lesson.prepare") {
             val target = selected.text("target_id")
             val roadmap = if (connection.lesson(scope, target).text("kind") == "regular") RoadmapPreparation().state(connection, scope.studentId) else null
+            val priorityPending = roadmap != null && connection.document(
+                """SELECT to_jsonb(j) FROM foundation_job j WHERE j.student_id=? AND j.kind='roadmap.prioritize'
+                   AND j.status IN ('queued','running','retry_wait') LIMIT 1""", scope.studentId) != null
             if (connection.pendingEvaluations(scope.studentId, target).isNotEmpty() ||
-                roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed")) {
+                roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed") || priorityPending) {
                 connection.update("UPDATE foundation_job SET due_at=? WHERE id=?", now.plusSeconds(5), id)
                 return json("job" to null)
             }
@@ -65,7 +68,7 @@ internal class FoundationJobs {
         args.only("jobId", "fence", "code")
         val job = ownedRunning(connection, scope, args, now)
         val code = args.text("code")
-        if (code !in setOf("provider_timeout", "provider_error", "budget_exhausted", "handler_unavailable", "invalid_result", "source_expired")) reject("invalid_error_code")
+        if (code !in setOf("provider_timeout", "provider_error", "budget_exhausted", "handler_unavailable", "invalid_result", "source_expired", "missing_action_template")) reject("invalid_error_code")
         if (job.text("kind") == "notification.reminder" && code == "handler_unavailable") {
             connection.update("UPDATE reminder_delivery SET outcome='not_sent' WHERE job_id=?", job.text("id"))
         }
@@ -116,6 +119,7 @@ internal class FoundationJobs {
                 }
             }
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "lesson.content.prepare" -> prepareTeachingContent(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
                 result.only("candidates")
                 sourceMessage(connection, scope, inputs.text("sourceId"), now)
@@ -251,7 +255,7 @@ internal class FoundationJobs {
     }
 
     private fun prepare(connection: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
-        result.only("objective", "topic", "strategy")
+        result.only("objective", "topic", "strategy", "teachingPlan")
         listOf("objective", "topic", "strategy").forEach { if (result.text(it).isBlank() || result.text(it).length > 3000) reject("invalid_result") }
         val lesson = connection.lesson(scope, lessonId)
         if (inputs.optionalText("lessonVersion")?.toLong()?.let { it != lesson.number("version") } == true ||
@@ -267,12 +271,100 @@ internal class FoundationJobs {
             """SELECT jsonb_build_object('lessonId',e.lesson_id,'sourceRevision',e.source_revision,'analyzerVersion',e.analyzer_version)
                FROM lesson_evaluation e JOIN lesson l ON l.id=e.lesson_id WHERE e.student_id=? AND e.source_revision=l.transcript_revision""", scope.studentId,
         )
+        if (lesson.text("kind") == "regular" && result["teachingPlan"] != null &&
+            !prepareTeachingPlan(connection, scope, lesson, result.obj("teachingPlan"), now)) return false
         connection.update("UPDATE lesson_plan SET status='stale' WHERE lesson_id=?", lessonId)
         connection.update(
             """INSERT INTO lesson_plan(student_id,lesson_id,revision,goal_revision,learning_revision,roadmap_revision,evaluation_refs,status,content,created_at)
-               VALUES (?,?,?,?,?,?,?::jsonb,'ready',?::jsonb,?)""", scope.studentId, lessonId, revision, inputs.number("goalRevision"), inputs.number("learningRevision"), connection.roadmapRevision(scope.studentId), JsonArray(evaluations), result, now,
+               VALUES (?,?,?,?,?,?,?::jsonb,'ready',?::jsonb,?)""", scope.studentId, lessonId, revision, inputs.number("goalRevision"), inputs.number("learningRevision"), connection.roadmapRevision(scope.studentId), JsonArray(evaluations), JsonObject(result - "teachingPlan"), now,
         )
         return true
+    }
+
+    private fun prepareTeachingPlan(c: Connection, scope: ExecutionScope, lesson: JsonObject,
+                                    choice: JsonObject, now: Instant): Boolean {
+        choice.only("taskId", "taskRevision", "priorityRevision", "status", "planProposal")
+        if (choice.text("status") !in setOf("ready", "template_missing")) reject("invalid_result")
+        val priority = c.currentTeachingPriority(scope.studentId) ?: return false
+        if (priority.number("revision") != choice.number("priorityRevision") ||
+            priority.obj("document").optionalText("nextTaskId") != choice.text("taskId")) return false
+        val task = LearningTasks().get(c, scope.studentId, choice.text("taskId"))
+        if (task.number("revision") != choice.number("taskRevision") || task.text("lifecycle") == "Mastered") return false
+        if (choice.text("status") == "template_missing") {
+            if (choice["planProposal"] is JsonObject || task.obj("details")["plan"] is JsonObject) reject("invalid_result")
+            return true
+        }
+        val linked = task.obj("details")["plan"] as? JsonObject
+        val proposed = choice["planProposal"] as? JsonObject
+        val plan = if (linked == null) {
+            if (proposed == null) reject("invalid_result")
+            proposed.only("definition", "currentStageId")
+            LearningPlans().create(c, scope.copy(role = "operator"), json(
+                "taskId" to task.text("id"), "expectedTaskRevision" to task.number("revision"),
+                "definition" to proposed.obj("definition"), "currentStageId" to proposed.text("currentStageId"),
+                "component" to "sp12b.pedagogical_plan"), now).obj("plan")
+        } else {
+            if (proposed != null) reject("invalid_result")
+            LearningPlans().read(c, scope.studentId, linked.text("id")).obj("plan")
+        }
+        val state = plan.obj("currentState")
+        val stageId = state.optionalText("currentStageId") ?: return true
+        val key = listOf(lesson.text("id"), lesson.number("version"), plan.text("id"),
+            plan.number("revision"), state.number("stateRevision"), stageId, priority.number("revision")).joinToString(":")
+        c.enqueueJob(scope.studentId, "lesson.content.prepare", key, lesson.text("id"),
+            json("lessonVersion" to lesson.number("version"), "taskId" to task.text("id"),
+                "planId" to plan.text("id"), "planRevision" to plan.number("revision"), "planStateRevision" to state.number("stateRevision"),
+                "stageId" to stageId, "priorityRevision" to priority.number("revision")), now)
+        return true
+    }
+
+    private fun prepareTeachingContent(c: Connection, scope: ExecutionScope, lessonId: String,
+                                       inputs: JsonObject, result: JsonObject, now: Instant): Boolean {
+        result.only("document")
+        val lesson = c.lesson(scope, lessonId)
+        if (lesson.text("kind") != "regular" || lesson.text("status") !in setOf("scheduled", "in_progress") ||
+            lesson.number("version") != inputs.number("lessonVersion")) return false
+        val priority = c.currentTeachingPriority(scope.studentId) ?: return false
+        if (priority.number("revision") != inputs.number("priorityRevision") ||
+            priority.obj("document").optionalText("nextTaskId") != inputs.text("taskId")) return false
+        val task = LearningTasks().get(c, scope.studentId, inputs.text("taskId"))
+        val linked = task.obj("details")["plan"] as? JsonObject ?: return false
+        if (linked.text("id") != inputs.text("planId") || linked.number("revision") != inputs.number("planRevision")) return false
+        val plan = LearningPlans().read(c, scope.studentId, inputs.text("planId")).obj("plan")
+        val state = plan.obj("currentState")
+        if (state.optionalText("currentStageId") != inputs.text("stageId") ||
+            state.number("stateRevision") != inputs.number("planStateRevision")) return false
+        val document = result.obj("document")
+        val ref = document.obj("stageRef")
+        if (document.text("taskId") != inputs.text("taskId") || ref.text("taskId") != inputs.text("taskId") ||
+            ref.text("planId") != inputs.text("planId") || ref.number("planRevision") != inputs.number("planRevision") ||
+            ref.text("stageId") != inputs.text("stageId") ||
+            document.obj("validation").text("component") != "sp13b.content_generation" ||
+            document.obj("validation").text("status") != "passed") reject("invalid_result")
+        val exists = c.document("""SELECT to_jsonb(h) FROM learning_content h JOIN learning_content_revision v
+            ON v.content_id=h.id AND v.revision=h.current_revision WHERE h.student_id=? AND h.task_id=?
+            AND v.document->'stageRef'=?::jsonb AND v.document->'validation'->>'status'='passed'
+            AND (v.status='prepared' OR v.status='issued' AND v.issued_lesson_id=?) LIMIT 1""",
+            scope.studentId, inputs.text("taskId"), ref.toString(), lessonId)
+        if (exists == null) LearningContent().create(c, scope.copy(role = "operator"),
+            json("document" to document, "component" to "sp13b.content_generation"), now)
+        return true
+    }
+}
+
+internal fun Connection.currentTeachingPriority(student: String): JsonObject? = document(
+    """SELECT to_jsonb(p) FROM learning_roadmap_priority p JOIN learning_roadmap r
+       ON r.student_id=p.student_id AND r.revision=p.roadmap_revision
+       WHERE p.student_id=? AND p.stale_at IS NULL""", student,
+)
+
+internal fun Connection.refreshRegularTeachingPreparation(student: String, reason: String, now: Instant) {
+    val lessons = rows("""SELECT id FROM lesson WHERE student_id=? AND kind='regular'
+        AND status='scheduled' AND launch_mode='executable'""", student) { it.getString(1) }
+    lessons.forEach { lesson ->
+        update("""UPDATE foundation_job SET status='superseded' WHERE student_id=? AND target_id=?
+            AND kind IN ('lesson.prepare','lesson.content.prepare') AND status IN ('queued','running','retry_wait')""", student, lesson)
+        enqueueJob(student, "lesson.prepare", "$lesson:teaching:$reason", lesson, planInputs(student, lesson), now)
     }
 }
 

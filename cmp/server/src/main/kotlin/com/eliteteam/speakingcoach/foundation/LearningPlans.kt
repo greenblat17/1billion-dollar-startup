@@ -94,6 +94,7 @@ internal class LearningPlans {
         attach(c, scope, task, id, revision, component, now)
         LearningScores().reconcilePlanRevision(c, scope, task.text("id"), now)
         record(c, head(c, scope.studentId, id), "revise", component, "definition", now)
+        refreshTeachingIfSelected(c, scope.studentId, plan, now)
         return read(c, scope.studentId, id)
     }
 
@@ -110,8 +111,16 @@ internal class LearningPlans {
             c.update("UPDATE learning_plan SET current_stage_id=?,state_revision=state_revision+1,updated_at=? WHERE id=?",
                 cursor, now, plan.text("id"))
             record(c, head(c, scope.studentId, plan.text("id")), "select-stage", component, reason, now)
+            refreshTeachingIfSelected(c, scope.studentId, plan, now)
         }
         return read(c, scope.studentId, plan.text("id"))
+    }
+
+    private fun refreshTeachingIfSelected(c: Connection, student: String, previous: JsonObject, now: Instant) {
+        val taskId = c.currentTeachingPriority(student)?.obj("document")?.optionalText("nextTaskId")
+        if (taskId == previous.text("task_id")) {
+            c.refreshRegularTeachingPreparation(student, "plan:${previous.text("id")}:${previous.number("state_revision") + 1}", now)
+        }
     }
 
     private fun task(c: Connection, scope: ExecutionScope, args: JsonObject): JsonObject {

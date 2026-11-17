@@ -36,6 +36,11 @@ internal class HttpLearningComputer(private val http: HttpClient, private val ro
         if (response.status.value == 402) reject("budget_exhausted")
         if (response.status.value == 410) reject("source_expired")
         if (response.status.value == 400) reject("invalid_result")
+        if (response.status.value == 422) {
+            val detail = runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
+            if (detail == "missing_action_template") reject("missing_action_template")
+            reject("invalid_result")
+        }
         if (response.status.value == 503) {
             val detail = runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
             reject(if (detail in setOf("handler_unavailable", "provider_timeout")) detail!! else "provider_error")
@@ -104,7 +109,7 @@ internal class FoundationWorker(
                     mapOf("job_id" to job.text("id"), "trace_id" to RuntimeDiagnostics.trace(job.text("id")), "attempt" to job.number("attempts").toString()))
                 val failure = (error as? FoundationFailure)?.code
                 val code = when (failure) {
-                    "budget_exhausted", "handler_unavailable", "source_expired", "invalid_result", "provider_timeout" -> failure
+                    "budget_exhausted", "handler_unavailable", "source_expired", "invalid_result", "provider_timeout", "missing_action_template" -> failure
                     "invalid_evidence", "insufficient_evidence", "confirmation_required", "invalid_steps", "invalid_reason" -> "invalid_result"
                     else -> "provider_error"
                 }

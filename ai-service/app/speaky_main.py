@@ -24,6 +24,7 @@ from app.logging_setup import configure_process_logging
 from app.provider_call_log import configure_user_id_hash_key
 from app.trial_policy import TrialAnalyzer
 from app.regular_lesson import LessonPlanner
+from app.regular_teaching import RegularTeachingPreparation
 from app.roadmap import RoadmapPlanner
 from app.personalized_roadmap import PersonalizedRoadmap
 from app.roadmap_priority import RoadmapPriorityService
@@ -57,7 +58,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                               trial_observations=TrialObservationExtractor(backend, voice_model),
                               trial_assessment=TrialAssessment(backend, voice_model),
                               personalized_roadmap=PersonalizedRoadmap(backend),
-                              roadmap_priority=RoadmapPriorityService(backend))
+                              roadmap_priority=RoadmapPriorityService(backend),
+                              regular_teaching=RegularTeachingPreparation(backend, voice_model))
     audio_store = TrialAudioStore(settings.trial_audio_bucket, settings.trial_s3_endpoint) if settings.trial_audio_bucket else None
 
     @asynccontextmanager

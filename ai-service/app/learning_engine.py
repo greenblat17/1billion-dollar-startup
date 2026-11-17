@@ -37,7 +37,7 @@ class LearningEngine:
                  analyzer: LessonAnalyzer | None = None, planner: LessonPlanner | None = None,
                  extractor: PersonalCandidateExtractor | None = None, roadmap: LessonPlanner | None = None,
                  trial_observations=None, trial_assessment=None, personalized_roadmap=None,
-                 roadmap_priority=None):
+                 roadmap_priority=None, regular_teaching=None):
         self.backend, self.contexts = backend, contexts
         self.analyzer, self.planner = analyzer, planner
         self.extractor = extractor
@@ -46,6 +46,7 @@ class LearningEngine:
         self.trial_assessment = trial_assessment
         self.personalized_roadmap = personalized_roadmap
         self.roadmap_priority = roadmap_priority
+        self.regular_teaching = regular_teaching
 
     async def compute(self, scope: str, job: dict) -> dict:
         if job.get('schema_version') != 1:
@@ -58,6 +59,8 @@ class LearningEngine:
             return await self.personalized_roadmap.plan(scope, catalog_version=job['input_refs']['catalogVersion'])
         if job['kind'] == 'roadmap.prioritize' and self.roadmap_priority is not None:
             return await self.roadmap_priority.plan(scope, trigger=job['input_refs'].get('trigger', 'initial'))
+        if job['kind'] == 'lesson.content.prepare' and self.regular_teaching is not None:
+            return await self.regular_teaching.content_document(scope, job['input_refs'])
         if job['kind'] == 'lesson.review':
             return {}
         context = await self.contexts.build(scope, 'learning', job.get('target_id'))
@@ -68,7 +71,12 @@ class LearningEngine:
         if job['kind'] == 'lesson.evaluate' and self.analyzer is not None:
             return await self.analyzer.evaluate(context, job['input_refs'])
         if job['kind'] == 'lesson.prepare' and self.planner is not None:
-            return await self.planner.prepare(context, job['input_refs'])
+            result = await self.planner.prepare(context, job['input_refs'])
+            if context.data.get('lesson', {}).get('kind') == 'regular' and self.regular_teaching is not None:
+                proposal = await self.regular_teaching.plan_proposal(scope)
+                if proposal is not None:
+                    result['teachingPlan'] = proposal
+            return result
         raise ValueError('handler_unavailable')
 
     async def apply(self, scope: str, job: dict, result: dict) -> dict:
