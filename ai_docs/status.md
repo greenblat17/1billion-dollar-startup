@@ -14,8 +14,9 @@ Observations, предложения Problems и Stage Score, не вводя в
 
 SP-17C пока не выдаёт утверждённый вывод Known/Not Known. SP-20 не меняет Topic
 Knowledge без него. SP-11B и SP-21 остаются вне волн 1–9. После объединения прошли
-821 Python tests, Kotlin unit, `buildFatJar` и `detekt`. PostgreSQL сценарий SP-20
-и живой цикл урока ещё не подтверждены; CI проверит миграцию V64 и тест.
+821 Python tests, Kotlin unit, `buildFatJar` и `detekt`. CI применил V64 и прошёл
+127 PostgreSQL integration tests, Redis migration rehearsal и HTTP-проверки.
+Живой цикл урока и качество решений модели ещё не подтверждены.
 
 ## Совместная интеграция волны 8
 
