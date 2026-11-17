@@ -11,6 +11,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.UUID
 import kotlinx.serialization.SerializationException
@@ -22,12 +23,13 @@ import kotlinx.serialization.json.doubleOrNull
 internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClient, token: String) {
     route("/internal/agent-test/v1/{id}") {
         post("/turn") {
-            if (call.request.local.remoteHost !in setOf("127.0.0.1", "::1")) {
-                call.respondText("not found", status = HttpStatusCode.NotFound)
-                return@post
-            }
             if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
                 call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
+                return@post
+            }
+            if (!agentLoopbackPeer(call.request.local.remoteHost)) {
+                call.respondText(json("error" to "invalid_test_peer",
+                    "peer" to call.request.local.remoteHost).toString(), ContentType.Application.Json, HttpStatusCode.Forbidden)
                 return@post
             }
             try {
@@ -58,12 +60,13 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
             }
         }
         get("/state") {
-            if (call.request.local.remoteHost !in setOf("127.0.0.1", "::1")) {
-                call.respondText("not found", status = HttpStatusCode.NotFound)
-                return@get
-            }
             if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
                 call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
+                return@get
+            }
+            if (!agentLoopbackPeer(call.request.local.remoteHost)) {
+                call.respondText(json("error" to "invalid_test_peer",
+                    "peer" to call.request.local.remoteHost).toString(), ContentType.Application.Json, HttpStatusCode.Forbidden)
                 return@get
             }
             try {
@@ -77,6 +80,10 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
 
 private fun agentAuthorized(token: String, supplied: String?): Boolean = token.isNotBlank() &&
     MessageDigest.isEqual(token.toByteArray(), supplied.orEmpty().toByteArray())
+
+private fun agentLoopbackPeer(host: String): Boolean = runCatching {
+    InetAddress.getByName(host).isLoopbackAddress
+}.getOrDefault(false)
 
 private fun agentId(value: String?): String = value?.takeIf {
     runCatching { UUID.fromString(it).toString() == it }.getOrDefault(false)
