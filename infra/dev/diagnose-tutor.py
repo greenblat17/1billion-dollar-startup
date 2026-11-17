@@ -16,6 +16,7 @@ if result.returncode:
     raise SystemExit("ai_log_unavailable")
 
 events = []
+tool_events = []
 for line in result.stdout.splitlines():
     marker = next((item for item in ("tutor_tool ", "runtime_event ") if item in line), None)
     if marker is None:
@@ -25,6 +26,9 @@ for line in result.stdout.splitlines():
     except (ValueError, IndexError):
         continue
     if marker == "tutor_tool ":
+        tool_events.append({"at": line[:19], **{key: data.get(key) for key in
+                            ("tool", "stage", "outcome", "ok", "booking_present", "request_key")
+                            if data.get(key) is not None}})
         if data.get("outcome") not in ("failed", "rejected", "degraded"):
             continue
         safe = {key: data.get(key) for key in
@@ -41,5 +45,6 @@ for line in result.stdout.splitlines():
         continue
     events.append({"at": line[:19], **safe})
 
-print(json.dumps({"window": "20m", "failure_count": len(events), "last_failures": events[-40:]},
+print(json.dumps({"window": "20m", "failure_count": len(events), "last_failures": events[-40:],
+                  "last_tool_events": tool_events[-40:]},
                  ensure_ascii=True))
