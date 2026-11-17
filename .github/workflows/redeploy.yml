@@ -638,7 +638,7 @@ jobs:
             -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
             "$AI_USER@$AI_HOST" "python3 - '$ERROR_ID' '$CALL_SESSION_ID'" < infra/dev/diagnose-tutor.py
       - name: Inspect safe Ktor error codes
-        if: ${{ inputs.diagnose_tutor_at != '' }}
+        if: ${{ !cancelled() && inputs.diagnose_tutor_at != '' }}
         shell: bash
         env:
           DIAGNOSTIC_AT: ${{ inputs.diagnose_tutor_at }}
