@@ -1,0 +1,14 @@
+{
+  "steps": [
+    { "name": "catalog_topic", "request": { "kind": "catalog", "args": { "version": "speaky-v55-v2", "topicId": "grammar-a2-past-simple" } } },
+    { "name": "catalog_skill_cefr", "request": { "kind": "catalog", "args": { "version": "speaky-v55-v2", "skill": "grammar", "cefr": "A2" } } },
+    { "name": "state", "request": { "kind": "read", "resource": "state" } },
+    { "name": "tasks", "request": { "kind": "read", "resource": "tasks" } },
+    { "name": "task_history", "request": { "kind": "read", "resource": "task", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd", "history": true } },
+    { "name": "plan", "request": { "kind": "read", "resource": "plan", "resourceId": "b5a3dd58-ab07-4414-9a6d-f58e1c38c414" } },
+    { "name": "content_history", "request": { "kind": "read", "resource": "content", "resourceId": "9f026660-843c-4410-8da9-471b4bc6786b", "history": true } },
+    { "name": "observations", "request": { "kind": "read", "resource": "observations" } },
+    { "name": "observation", "request": { "kind": "read", "resource": "observation", "resourceId": "6ca0655b-4c85-48a9-ac9a-288d50d51564" } },
+    { "name": "score_history", "request": { "kind": "read", "resource": "score", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd", "history": true } }
+  ]
+}
