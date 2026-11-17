@@ -7,7 +7,7 @@ import pytest
 from openai import APIStatusError
 
 from app.learning_content_generation import (
-    COMPONENT, ContentGenerationError, ContentRequest, LearningContentGenerator, issued_handoff,
+    COMPONENT, REASONS, ContentGenerationError, ContentRequest, LearningContentGenerator, issued_handoff,
 )
 
 
@@ -112,7 +112,17 @@ async def test_four_methods_produce_scoped_voice_handoff(method, action):
                                  (properties['answerGuide'], document['answerGuide'])):
         assert set(object_schema['required']) == set(object_schema['properties']) == set(value)
         assert object_schema['additionalProperties'] is False
-    assert 'response_format' not in model.calls[1][2]
+    review_format = model.calls[1][2]['response_format']
+    assert review_format['type'] == 'json_schema' and review_format['json_schema']['strict'] is True
+    review_schema = review_format['json_schema']['schema']
+    assert review_schema['additionalProperties'] is False
+    assert set(review_schema['required']) == set(model.review)
+    assert review_schema['properties'] == {
+        'passed': {'type': 'boolean'},
+        'reasons': {'type': 'array', 'items': {'type': 'string', 'enum': sorted(REASONS)}},
+        'checkedAlternatives': {'type': 'boolean'},
+        'rationale': {'type': 'string'},
+    }
     assert model.calls[1][1]['draft'] == draft_for(method)
     stored = await service.create('student-scope', 'operation-1', prepared)
     assert stored['content']['document'] == document
@@ -130,23 +140,37 @@ async def test_malformed_structured_draft_does_not_reach_review_or_storage():
 
 
 @pytest.mark.asyncio
+async def test_malformed_structured_review_does_not_store_content():
+    backend, model = Backend(), Model(draft_for('Exercises'))
+    model.complete_json = AsyncMock(side_effect=[json.dumps(model.draft), '{"passed":'])
+    service = LearningContentGenerator(backend, model)
+    with pytest.raises(ContentGenerationError, match='invalid_validation_json'):
+        await service.prepare('student-scope', request())
+    assert [call.kwargs['operation'] for call in model.complete_json.await_args_list] == [
+        'learning_content_generate', 'learning_content_validate']
+    assert backend.writes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('phase', ['draft', 'review'])
 @pytest.mark.parametrize('status', [400, 401, 402, 403, 404, 408, 422, 429, 503])
-async def test_draft_provider_rejection_is_distinct_and_preserves_budget_and_transient_errors(status):
+async def test_content_provider_rejection_is_distinct_and_preserves_other_statuses(phase, status):
     backend, model = Backend(), Model(draft_for('Exercises'))
     response = httpx.Response(status, request=httpx.Request('POST', 'https://example.test/chat/completions'))
     error = APIStatusError('provider rejected the request', response=response, body=None)
-    model.complete_json = AsyncMock(side_effect=error)
+    results = [json.dumps(model.draft), error] if phase == 'review' else [error]
+    model.complete_json = AsyncMock(side_effect=results)
     generator = LearningContentGenerator(backend, model)
     if status in {400, 422}:
-        with pytest.raises(ContentGenerationError, match='draft_provider_rejected') as failure:
+        with pytest.raises(ContentGenerationError, match=f'{phase}_provider_rejected') as failure:
             await generator.prepare('student-scope', request())
         assert failure.value.__cause__ is error
     else:
         with pytest.raises(APIStatusError) as failure:
             await generator.prepare('student-scope', request())
         assert failure.value is error
-    model.complete_json.assert_awaited_once()
-    assert model.complete_json.await_args.kwargs['retry'] is False
+    assert model.complete_json.await_count == len(results)
+    assert all(call.kwargs['retry'] is False for call in model.complete_json.await_args_list)
     assert backend.writes == []
 
 
@@ -159,6 +183,15 @@ async def test_reviewer_rejects_ambiguous_condition_and_invalid_alternative_with
     with pytest.raises(ContentGenerationError, match='semantic_validation_failed') as failure:
         await LearningContentGenerator(backend, model).prepare('student-scope', request())
     assert failure.value.review['reasons'] == ['ambiguous_condition', 'invalid_alternative']
+    assert backend.writes == []
+
+
+@pytest.mark.asyncio
+async def test_review_must_have_checked_alternatives_even_when_it_passes():
+    backend, model = Backend(), Model(draft_for('Exercises'))
+    model.review['checkedAlternatives'] = False
+    with pytest.raises(ContentGenerationError, match='semantic_validation_failed'):
+        await LearningContentGenerator(backend, model).prepare('student-scope', request())
     assert backend.writes == []
 
 
