@@ -53,8 +53,10 @@ internal class PostLessonReview {
             val sources = observations.filter { it.text("evidenceUsable") == "true" && it.optionalText("taskId") == id }.take(20).map {
                 json("type" to "learning_observation", "id" to it.text("id"), "revision" to it.number("revision"))
             }
-            val realScore = c.document("""SELECT jsonb_build_object('count',count(*)) FROM learning_score_event e
-                WHERE e.student_id=? AND e.task_id=? AND e.observation_id IS NOT NULL""", scope.studentId, id)?.number("count") ?: 0
+            val realScore = if (score == null) 0 else c.document("""SELECT jsonb_build_object('count',count(*)) FROM learning_score_event e
+                WHERE e.student_id=? AND e.task_id=? AND e.plan_id=? AND e.plan_revision=?
+                AND e.observation_id IS NOT NULL""", scope.studentId, id,
+                score.text("planId"), score.number("planRevision"))?.number("count") ?: 0
             val syntheticStages = if (score == null) 0 else c.rows("""SELECT count(*) FROM learning_score_stage
                 WHERE student_id=? AND task_id=? AND plan_id=? AND plan_revision=? AND score_source='fixture'""",
                 scope.studentId, id, score.text("planId"), score.number("planRevision")) { it.getLong(1) }.single()
