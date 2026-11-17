@@ -53,7 +53,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             val interrupted = c.rows("SELECT EXISTS(SELECT 1 FROM telegram_text_intake WHERE chat_id=? AND message_id>?)", chat, message) { it.getBoolean(1) }.single()
             c.update("""INSERT INTO telegram_introduction(student_id,chat_id,request_id,message_id,input_digest,data_epoch,status,due_at,expires_at)
                 SELECT id,?,?,?,?,data_epoch,?,?,? FROM student WHERE id=?""", chat, request.requestId, message, fingerprint,
-                if (interrupted) "cancelled" else "active", now, now.plusSeconds(7 * 86400), student)
+                if (interrupted) "cancelled" else "active", now.minusMillis(1), now.plusSeconds(7 * 86400), student)
             true
         }
 
