@@ -105,7 +105,8 @@ async def test_conversation_modes_emit_unscored_transfer_evidence(kind, mode):
 
 @pytest.mark.asyncio
 async def test_direct_change_and_stop_take_precedence_over_action():
-    for request, expected in [('change_topic', 'switch'), ('stop', 'stop')]:
+    for request, expected in [('change_topic', 'switch_conversation'),
+                              ('change_activity', 'switch_action'), ('stop', 'stop')]:
         action = TeachingActionSession(handoff('Conversation'), model(verdict(request=request, decision='none')))
         result = await action.respond(answer(1, 'Can we do something else?'), [])
         assert result['next'] == expected and result['event'] is None and action.done

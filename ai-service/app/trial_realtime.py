@@ -26,7 +26,8 @@ from app.trial_policy import REALTIME_VOICE_POLICY
 from app import trial_v55
 from app.regular_lesson import REGULAR_VOICE_POLICY
 from app.teaching_observations import observation_from_action, observation_operation_id
-from app.learning_content_generation import issued_handoff
+from app.learning_content_generation import issued_handoff, LearningContentGenerator, ContentRequest
+from app.regular_teaching import ACTION_FOR_STAGE, ALTERNATE_ACTION_FOR_STAGE
 from app.regular_evidence import InvalidProblemDetection, detect_problem
 
 
@@ -119,6 +120,7 @@ class RealtimeTrialSession(TrialJournal):
         self.action_history = []
         self.action_events = []  # Recorded observations retained for this connection's diagnostics.
         self.action_response = None
+        self.action_transition = None
         self.action_reply_purpose = 'context'
         self.regular_execution = admitted.get('regularExecution') or {}
         self.practice_started = False
@@ -313,8 +315,20 @@ class RealtimeTrialSession(TrialJournal):
         if self.truncations or any(not item['settled'] for item in self.items.values()):
             return  # Truncation and history must settle before the next response.
         if self.action_response is not None:
-            instructions = 'Continue the prepared teaching action. Say this naturally without adding a judgment: ' + self.action_response
+            if self.action_transition == 'switch_conversation':
+                instructions = ('The learner chose free conversation outside the Task. Do not resume the old '
+                                'Action, change Stage, or claim Progress. Say naturally: ' + self.action_response)
+            elif self.action_transition == 'switch':
+                instructions = 'Ask which activity the learner wants next. Do not resume the old Action or claim Progress.'
+            elif self.action_transition == 'unavailable':
+                instructions = ('The requested replacement could not be safely prepared or confirmed. '
+                                'Tell the learner plainly and continue the call outside this Task. '
+                                'Do not resume the old Action, invent an exercise, change Stage, or claim Progress. '
+                                'Say naturally: ' + self.action_response)
+            else:
+                instructions = 'Continue the prepared teaching action. Say this naturally without adding a judgment: ' + self.action_response
             self.action_response = None
+            self.action_transition = None
         if self.regular:
             phase = self.regular_phase()
             if phase == 'practice' and self.action is not None and not self.practice_started:
@@ -473,6 +487,57 @@ class RealtimeTrialSession(TrialJournal):
         self.ended = True
         await self.socket.send_json({'type': 'finished'})
 
+    async def replace_teaching_action(self, saved: dict, previous: dict) -> None:
+        """Issue one independently reviewed replacement for the same Task Stage."""
+        ref = previous['stageRef']
+        key = (previous['method'], previous['problemId'])
+        kind = ALTERNATE_ACTION_FOR_STAGE.get(key)
+        if kind == previous['actionKind']:
+            kind = ACTION_FOR_STAGE.get(key)
+        if kind is None or kind == previous['actionKind']:
+            raise ValueError('replacement_action_unavailable')
+        operation = f"{self.episode}:{saved['eventId']}:action-replacement"
+        receipt = await self.backend.receipt(self.scope, operation)
+        if receipt is not None:
+            issued = receipt['content']
+        else:
+            plan = (await self.backend.learning_plan(self.scope, ref['planId']))['plan']
+            if (plan['revision'] != ref['planRevision'] or
+                    plan['currentState']['currentStageId'] != ref['stageId']):
+                raise ValueError('stale_action_stage')
+            state = await self.backend.learning_state(self.scope)
+            levels = state['profile']['currentLevels']['speaky']
+            skill_level = levels['skills'][previous['skillId']]['level']
+            cefr = skill_level if skill_level != 'Unknown' else levels['overall']['level']
+            prepared = await LearningContentGenerator(self.backend, self.model).prepare(self.scope, ContentRequest(
+                task_id=ref['taskId'], plan_id=ref['planId'], plan_revision=ref['planRevision'],
+                stage_id=ref['stageId'], action_kind=kind, cefr=cefr, reason='follow_up_question'))
+            arguments = {
+                'lessonId': self.lesson_id, 'sourceId': saved['eventId'],
+                'previousContentId': previous['contentRef']['contentId'],
+                'previousRevision': previous['contentRef']['revision'],
+                'expectedPlanStateRevision': plan['currentState']['stateRevision'],
+                'document': prepared.document, 'review': prepared.review}
+            try:
+                result = await self.backend.command(self.scope, operation, 'learning.action.request', arguments)
+            except BackendFailure as error:
+                if error.status < 500:
+                    raise
+                # Replay the exact operation and reviewed document after an uncertain write.
+                result = await self.backend.command(self.scope, operation, 'learning.action.request', arguments)
+            issued = result['content']
+        handoff = issued_handoff(issued)
+        if handoff['stageRef'] != ref or handoff['lessonId'] != self.lesson_id:
+            raise ValueError('replacement_action_mismatch')
+        if handoff['method'] in ('Exposure', 'Conversation'):
+            from app.listening_conversation import TeachingActionSession
+        else:
+            from app.explanation_exercises import TeachingActionSession
+        self.action = TeachingActionSession(handoff, self.model)
+        self.action_history = []
+        self.action_reply_purpose = 'context'
+        self.action_response = self.action.start()
+
     async def provider_event(self, message):
         kind = message.get('type')
         event_id = message.get('event_id')
@@ -560,7 +625,25 @@ class RealtimeTrialSession(TrialJournal):
                         self.action_history.append({**user_event, 'role': 'user', 'purpose': 'answer'})
                         self.action_response = outcome['spokenFeedback']
                         self.action_reply_purpose = 'hint' if outcome['next'] == 'help' else 'context'
-                        if outcome['next'] in ('switch', 'stop') or getattr(self.action, 'done', False):
+                        if outcome['next'] == 'switch_action':
+                            previous = self.action.handoff
+                            self.action = None
+                            try:
+                                await self.replace_teaching_action(saved, previous)
+                            except BackendFailure as error:
+                                event('regular_action_replacement_failed', error=error, lesson_id=self.lesson_id)
+                                self.action_transition = 'unavailable'
+                                self.action_response = ('Новое упражнение пока не готово. '
+                                                        'Остановим эту задачу и можем просто поговорить.')
+                            except Exception as error:
+                                event('regular_action_replacement_failed', error=error, lesson_id=self.lesson_id)
+                                self.action_transition = 'unavailable'
+                                self.action_response = ('Новое упражнение пока не готово. '
+                                                        'Остановим эту задачу и можем просто поговорить.')
+                        elif outcome['next'] in ('switch_conversation', 'switch', 'stop'):
+                            self.action_transition = outcome['next']
+                            self.action = None
+                        elif getattr(self.action, 'done', False):
                             self.action = None
                     elif self.regular and self.regular_phase() == 'conversation':
                         if type(saved.get('sequence')) is not int:

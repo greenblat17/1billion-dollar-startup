@@ -7,12 +7,16 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import httpx
+from openai import APIStatusError
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.foundation_client import BackendFailure
 from app.trial_api import install_trial_api
 from app.trial_realtime import RealtimeTrialSession, RealtimeProviderError, open_realtime
+from app.learning_content_generation import ContentGenerationError
+from tests.test_explanation_exercises import handoff as exercise_handoff
 
 SETTINGS = SimpleNamespace(openai_realtime_api_key='test-never-live', trial_realtime_model='gpt-realtime-2.1', trial_realtime_voice='marin')
 ADMITTED = {'scope': 'private-scope', 'lesson': {'id': 'lesson', 'starts_at': '2026-11-12T12:00:00+00:00', 'duration_minutes': 15}, 'callSessionId': 'episode'}
@@ -30,6 +34,75 @@ def session():
 
 def sent(s):
     return [json.loads(c.args[0]) for c in s.provider.send.call_args_list]
+
+
+@pytest.mark.asyncio
+async def test_requested_replacement_issues_reviewed_action_in_same_stage(monkeypatch):
+    s = session()
+    s.lesson = {**s.lesson, 'kind': 'regular'}
+    previous = exercise_handoff()
+    previous['lessonId'] = 'lesson'
+    replacement = {**previous, 'actionKind': 'sentence_construction'}
+    document = {key: value for key, value in replacement.items()
+                if key not in ('schemaVersion', 'contentRef', 'lessonId')}
+    document['schemaVersion'] = 1
+    document['validation'] = {'status': 'passed', 'component': 'sp13b.content_generation', 'reasons': []}
+    review = {'passed': True, 'checkedAlternatives': True, 'reasons': [], 'rationale': 'Valid.'}
+    monkeypatch.setattr('app.trial_realtime.LearningContentGenerator', lambda *_:
+        SimpleNamespace(prepare=AsyncMock(return_value=SimpleNamespace(document=document, review=review))))
+    s.backend.receipt = AsyncMock(return_value=None)
+    s.backend.learning_plan = AsyncMock(return_value={'plan': {'revision': 2,
+        'currentState': {'currentStageId': 'stage-1', 'stateRevision': 4}}})
+    s.backend.learning_state = AsyncMock(return_value={'profile': {'currentLevels': {'speaky': {
+        'skills': {'grammar': {'level': 'A2'}}, 'overall': {'level': 'Unknown'}}}}})
+    issued = {'content': {'id': 'content-2', 'revision': 1,
+        'status': 'issued', 'issuedLessonId': 'lesson', 'document': document}}
+    s.backend.command.side_effect = [BackendFailure('temporary', 503), issued]
+    await s.replace_teaching_action({'eventId': 'saved-request'}, previous)
+    action, args = s.backend.command.call_args.args[2:]
+    assert action == 'learning.action.request'
+    assert args['sourceId'] == 'saved-request'
+    assert args['expectedPlanStateRevision'] == 4
+    assert args['document']['stageRef'] == previous['stageRef']
+    assert s.action.handoff['actionKind'] == 'sentence_construction'
+    assert s.action.handoff['stageRef'] == previous['stageRef']
+    assert s.backend.command.await_count == 2
+    assert s.backend.command.call_args_list[0].args == s.backend.command.call_args_list[1].args
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', [402, 429, 'semantic_reject'])
+async def test_unavailable_optional_replacement_keeps_call_alive_and_task_unchanged(failure):
+    s = session()
+    s.lesson = {**s.lesson, 'kind': 'regular'}
+    s.regular_phase = lambda: 'practice'
+    s.practice_started = True
+    previous = exercise_handoff()
+    s.action = SimpleNamespace(handoff=previous, respond=AsyncMock(return_value={
+        'spokenFeedback': 'Другое упражнение.', 'event': None, 'next': 'switch_action'}))
+    s.append = AsyncMock(return_value={'eventId': 'saved', 'sequence': 1})
+    s.finish_if_ready = AsyncMock()
+    if failure == 'semantic_reject':
+        error = ContentGenerationError('semantic_validation_failed')
+    else:
+        response = httpx.Response(failure, request=httpx.Request('POST', 'https://example.test/chat/completions'))
+        error = APIStatusError('provider unavailable', response=response, body=None)
+    s.replace_teaching_action = AsyncMock(side_effect=error)
+    s.maybe_respond = AsyncMock()
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner-switch', 'transcript': 'Дай другое упражнение'})
+    assert not s.ended and s.action is None and s.action_transition == 'unavailable'
+    assert s.action_response and 'не готово' in s.action_response
+    assert not any(call.args[2].startswith(('learning.plan.', 'learning.task.'))
+                   for call in s.backend.command.call_args_list)
+
+    s.maybe_respond = RealtimeTrialSession.maybe_respond.__get__(s)
+    s.want_response = True
+    await s.maybe_respond()
+    reply = sent(s)[-1]
+    assert reply['type'] == 'response.create'
+    assert 'Новое упражнение пока не готово' in reply['response']['instructions']
+    assert 'Do not resume the old Action' in reply['response']['instructions']
 
 
 async def output(s, key='reply', finish=False):

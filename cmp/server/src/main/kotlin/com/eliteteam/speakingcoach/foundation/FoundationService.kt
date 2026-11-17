@@ -51,7 +51,8 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         if (scope.jobId != null && action !in setOf("job.apply", "job.renew", "job.fail")) reject("not_permitted")
         if (scope.role == "text" && action != "run.claim") assertRun(connection, scope, now)
         val fingerprint = digest(canonical(json("action" to action, "args" to args, "role" to scope.role,
-            "requestId" to scope.requestId, "jobId" to scope.jobId)))
+            "requestId" to scope.requestId, "jobId" to scope.jobId,
+            "voiceScope" to if (action == "learning.action.request") scope.tokenDigest else null)))
         val previous = connection.document("SELECT to_jsonb(o) FROM foundation_operation o WHERE student_id=? AND operation_id=?", scope.studentId, id)
         if (previous != null) {
             if (previous.text("input_digest") != fingerprint) reject("operation_conflict")
@@ -94,6 +95,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "learning.content.create" -> LearningContent().create(connection, scope, args, now)
         "learning.content.revise" -> LearningContent().revise(connection, scope, args, now)
         "learning.content.issue" -> LearningContent().issue(connection, scope, args, now)
+        "learning.action.request" -> RequestedTeachingAction().issue(connection, scope, args, now)
         "learning.content.mark-defective" -> LearningContent().markDefective(connection, scope, args, now)
         "learning.task.create" -> LearningTasks().create(connection, scope, args, now)
         "learning.roadmap.save" -> PersonalizedRoadmap().save(connection, scope, args, now)

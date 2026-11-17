@@ -23,6 +23,20 @@ ACTION_FOR_STAGE = {
     ('Conversation', 'speaking_barrier'): 'topic_driven',
 }
 
+# A different Action stays in the same Stage and uses a reviewed SP-13 kind.
+ALTERNATE_ACTION_FOR_STAGE = {
+    ('Explanation', 'grammar_unknown'): 'comparison',
+    ('Exercises', 'grammar_unknown'): 'sentence_transformation',
+    ('Exercises', 'grammar_application'): 'sentence_construction',
+    ('Exercises', 'vocabulary_passive'): 'meaning_matching',
+    ('Exercises', 'vocabulary_active'): 'rapid_response',
+    ('Exposure', 'listening_comprehension'): 'listening_comprehension',
+    ('Conversation', 'grammar_unknown'): 'situational',
+    ('Conversation', 'grammar_application'): 'situational',
+    ('Conversation', 'vocabulary_active'): 'situational',
+    ('Conversation', 'speaking_barrier'): 'situational',
+}
+
 
 class RegularTeachingPreparation:
     def __init__(self, backend, model):

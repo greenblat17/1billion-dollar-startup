@@ -45,6 +45,114 @@ class LearningContentIntegrationTest {
         return Triple(scope, s.learningTask(scope, task.text("id")).obj("task"), plan.text("id"))
     }
 
+    private suspend fun requestedActionContext(s: FoundationService): RequestedActionContext {
+        val (operator, task, planId) = setup(s)
+        val initial = s.learningPlan(operator, planId).obj("plan")
+        val selected = op(s, operator, "learning.plan.select-stage", json("planId" to planId,
+            "expectedPlanRevision" to initial.number("revision"),
+            "expectedStateRevision" to initial.obj("currentState").number("stateRevision"),
+            "currentStageId" to "exercise", "component" to "test", "reason" to "plan_transition")).obj("plan")
+        val lesson = op(s, operator, "lesson.create", json("kind" to "regular", "launchMode" to "placeholder",
+            "startsAt" to Instant.now().plusSeconds(3600).toString(), "durationMinutes" to 30,
+            "timezone" to "UTC")).text("id")
+        val original = op(s, operator, "learning.content.create", json("document" to contentFixture(task, planId),
+            "component" to "fixture")).obj("content")
+        val issued = op(s, operator, "learning.content.issue", json("contentId" to original.text("id"),
+            "expectedRevision" to 1, "lessonId" to lesson)).obj("content")
+        val student = task.text("student_id")
+        val voice = s.identity.issue(student, "voice", lesson = lesson)
+        val source = s.history.accept(student, newId(), "Can I have another exercise?", Instant.now(), false)
+        val sourceId = source.text("event_id")
+        s.database.transaction { c, now ->
+            c.update("UPDATE lesson SET status='in_progress' WHERE id=?", lesson)
+            val callId = newId()
+            c.update("""INSERT INTO call_session(id,student_id,lesson_id,attempt_id,status,started_at,lease_until,scope_digest)
+                VALUES (?,?,?,?,'connected',?,?,?)""", callId, student, lesson, newId(), now,
+                now.plusSeconds(600), digest(voice))
+            val sequence = c.rows("SELECT sequence FROM conversation_event WHERE id=?", sourceId) { it.getLong(1) }.single()
+            c.update("""INSERT INTO lesson_event(student_id,lesson_id,call_session_id,event_id,source_id,sequence)
+                VALUES (?,?,?,?,?,?)""", student, lesson, callId, sourceId, sourceId, sequence)
+        }
+        val replacement = JsonObject(contentFixture(task, planId) + json(
+            "actionKind" to "sentence_construction", "spokenInstruction" to "Build a new past-tense sentence.",
+            "validation" to json("status" to "passed", "component" to "sp13b.content_generation",
+                "reasons" to JsonArray(emptyList()))))
+        val args = json("lessonId" to lesson, "sourceId" to sourceId,
+            "previousContentId" to issued.text("id"), "previousRevision" to issued.number("revision"),
+            "expectedPlanStateRevision" to selected.obj("currentState").number("stateRevision"),
+            "document" to replacement, "review" to json("passed" to true,
+                "checkedAlternatives" to true, "reasons" to JsonArray(emptyList()), "rationale" to "Different exercise"))
+        return RequestedActionContext(operator, voice, task, planId, lesson, issued, args)
+    }
+
+    private data class RequestedActionContext(val operator: String, val voice: String, val task: JsonObject,
+        val planId: String, val lessonId: String, val original: JsonObject, val args: JsonObject)
+
+    private suspend fun contentCount(s: FoundationService): Long = s.database.transaction(readOnly = true) { c, _ ->
+        c.rows("SELECT count(*) FROM learning_content") { it.getLong(1) }.single()
+    }
+
+    @Test
+    fun requestedActionIsPinnedToVoiceLessonStageAndExactReplay() = runTest {
+        store { s ->
+            val ctx = requestedActionContext(s)
+            val beforeTask = s.learningTask(ctx.operator, ctx.task.text("id")).obj("task")
+            val beforePlan = s.learningPlan(ctx.operator, ctx.planId).obj("plan")
+            val beforeCount = contentCount(s)
+            val operation = newId()
+            val issued = op(s, ctx.voice, "learning.action.request", ctx.args, operation).obj("content")
+            assertEquals("issued", issued.text("status"))
+            assertEquals(ctx.lessonId, issued.text("issuedLessonId"))
+            assertEquals(ctx.original.obj("document").obj("stageRef"), issued.obj("document").obj("stageRef"))
+            assertEquals("sentence_construction", issued.obj("document").text("actionKind"))
+            assertEquals(issued, op(s, ctx.voice, "learning.action.request", ctx.args, operation).obj("content"))
+            val otherVoice = s.identity.issue(ctx.task.text("student_id"), "voice", lesson = ctx.lessonId)
+            assertEquals("operation_conflict", assertFailsWith<FoundationFailure> {
+                op(s, otherVoice, "learning.action.request", ctx.args, operation)
+            }.code)
+            assertEquals("operation_conflict", assertFailsWith<FoundationFailure> {
+                op(s, ctx.voice, "learning.action.request", JsonObject(ctx.args + json("previousRevision" to 2)), operation)
+            }.code)
+            assertEquals(beforeCount + 1, contentCount(s))
+            assertEquals(beforeTask, s.learningTask(ctx.operator, ctx.task.text("id")).obj("task"))
+            assertEquals(beforePlan, s.learningPlan(ctx.operator, ctx.planId).obj("plan"))
+        }
+    }
+
+    @Test
+    fun foreignSessionStalePinsAndRejectedReviewDoNotChangeContentOrTask() = runTest {
+        store { s ->
+            val ctx = requestedActionContext(s)
+            val beforeTask = s.learningTask(ctx.operator, ctx.task.text("id")).obj("task")
+            val beforePlan = s.learningPlan(ctx.operator, ctx.planId).obj("plan")
+            val beforeContent = s.learningContent(ctx.operator, ctx.original.text("id")).obj("content")
+            val beforeCount = contentCount(s)
+            val foreignLesson = op(s, ctx.operator, "lesson.create", json("kind" to "regular", "launchMode" to "placeholder",
+                "startsAt" to Instant.now().plusSeconds(7200).toString(), "durationMinutes" to 30,
+                "timezone" to "UTC")).text("id")
+            val foreignVoice = s.identity.issue(ctx.task.text("student_id"), "voice", lesson = foreignLesson)
+            val sameLessonOtherSession = s.identity.issue(ctx.task.text("student_id"), "voice", lesson = ctx.lessonId)
+            val invalid = listOf(
+                Triple(foreignVoice, ctx.args, "not_owned"),
+                Triple(sameLessonOtherSession, ctx.args, "not_owned"),
+                Triple(ctx.voice, JsonObject(ctx.args + json("previousRevision" to 2)), "version_conflict"),
+                Triple(ctx.voice, JsonObject(ctx.args + json("expectedPlanStateRevision" to 99)), "stale_content_stage"),
+                Triple(ctx.voice, JsonObject(ctx.args + json("review" to json("passed" to false,
+                    "checkedAlternatives" to true, "reasons" to JsonArray(emptyList()),
+                    "rationale" to "Rejected"))), "content_not_validated"),
+            )
+            for ((voice, args, code) in invalid) {
+                assertEquals(code, assertFailsWith<FoundationFailure> {
+                    op(s, voice, "learning.action.request", args)
+                }.code)
+                assertEquals(beforeCount, contentCount(s))
+                assertEquals(beforeContent, s.learningContent(ctx.operator, ctx.original.text("id")).obj("content"))
+                assertEquals(beforeTask, s.learningTask(ctx.operator, ctx.task.text("id")).obj("task"))
+                assertEquals(beforePlan, s.learningPlan(ctx.operator, ctx.planId).obj("plan"))
+            }
+        }
+    }
+
     @Test
     fun versionedMaterialKeepsTheIssuedWordsAndNeverChangesTaskProgress() = runTest {
         store { s ->

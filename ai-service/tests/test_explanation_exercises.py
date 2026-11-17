@@ -7,15 +7,16 @@ from app.learning_content_generation import issued_handoff
 
 
 class Model:
-    def __init__(self, verdict='correct', *, previous_wrong=False):
-        self.verdict, self.previous_wrong = verdict, previous_wrong
+    def __init__(self, verdict='correct', *, previous_wrong=False, switch_target=None):
+        self.verdict, self.previous_wrong, self.switch_target = verdict, previous_wrong, switch_target
         self.calls = []
 
     async def complete_json(self, system, data, **kwargs):
         self.calls.append((system, json.loads(data), kwargs))
         return json.dumps({'verdict': self.verdict, 'feedback': 'That conveys the past event well.',
                            'rationale': 'The meaning satisfies the past-event criterion.',
-                           'previousAnswerWasIncorrect': self.previous_wrong})
+                           'previousAnswerWasIncorrect': self.previous_wrong,
+                           **({'switchTarget': self.switch_target} if self.switch_target else {})})
 
 
 def handoff(method='Exercises', kind='sentence_transformation'):
@@ -107,6 +108,14 @@ async def test_hint_takes_precedence_over_self_correction():
 async def test_learner_control_is_not_graded(verdict, next_action):
     result = await TeachingActionSession(handoff(), Model(verdict)).respond(answer(), [])
     assert result['event'] is None and result['next'] == next_action
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('target,expected', [
+    ('different_action', 'switch_action'), ('free_conversation', 'switch_conversation')])
+async def test_switch_destination_is_preserved_without_grading(target, expected):
+    result = await TeachingActionSession(handoff(), Model('switch', switch_target=target)).respond(answer(), [])
+    assert result['event'] is None and result['next'] == expected
 
 
 @pytest.mark.asyncio
