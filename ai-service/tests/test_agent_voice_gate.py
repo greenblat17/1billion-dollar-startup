@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.trial_api import install_trial_api
+from app import trial_api
 from app.foundation_client import BackendFailure
 
 
@@ -78,3 +79,29 @@ def test_agent_grant_needs_service_header(monkeypatch):
                               'lessonId': 'lesson', 'attemptId': 'attempt'})
             assert socket.receive_json()['code'] == 'not_permitted'
     assert backend.calls == 0
+
+
+def test_exact_docker_gateway_reaches_foundation_but_other_private_peer_does_not(monkeypatch):
+    monkeypatch.setenv('SPEAKY_ENV', 'dev')
+    monkeypatch.setenv('AGENT_TEST_ENABLED', 'true')
+    monkeypatch.setattr(trial_api, '_docker_default_gateway',
+                        lambda: trial_api.ipaddress.IPv4Address('172.17.0.1'))
+
+    class CapturingBackend:
+        calls = 0
+
+        async def _request(self, *args, **kwargs):
+            self.calls += 1
+            raise BackendFailure('not_owned', 403)
+
+    backend = CapturingBackend()
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None,
+                      SimpleNamespace(openai_realtime_api_key='configured', ai_internal_token='service-token'), Store())
+    for peer, expected in [('172.17.0.1', 'not_owned'), ('172.17.0.2', 'not_permitted')]:
+        with TestClient(app, client=(peer, 50000), headers={'X-Internal-Token': 'service-token'}) as client:
+            with client.websocket_connect('/miniapp/voice') as socket:
+                socket.send_json({'protocol': 'realtime-pcm-v1', 'agentGrant': 'one-use',
+                                  'lessonId': 'lesson', 'attemptId': 'attempt'})
+                assert socket.receive_json()['code'] == expected
+    assert backend.calls == 1

@@ -14,6 +14,32 @@ from app.foundation_client import BackendFailure
 from app.trial_realtime import RealtimeTrialSession
 from app.lesson_calendar import calendar_export
 
+
+def _docker_default_gateway():
+    """Return only the container's default gateway, never an arbitrary private peer."""
+    try:
+        with open('/proc/net/route', encoding='ascii') as routes:
+            next(routes)
+            for row in routes:
+                fields = row.split()
+                if len(fields) > 3 and fields[1] == '00000000' and int(fields[3], 16) & 2:
+                    return ipaddress.IPv4Address(bytes.fromhex(fields[2])[::-1])
+    except (OSError, ValueError, StopIteration):
+        pass
+    return None
+
+
+def _agent_voice_peer_kind(peer):
+    try:
+        address = ipaddress.ip_address(peer)
+    except ValueError:
+        return None
+    if address.is_loopback:
+        return 'loopback'
+    if address.version == 4 and address.is_private and address == _docker_default_gateway():
+        return 'docker_gateway'
+    return None
+
 def install_trial_api(app, backend, contexts, model, client, settings, audio_store, speech=None):
     @app.post('/miniapp/api')
     async def action(request: Request):
@@ -96,14 +122,15 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                                  'attemptId': request['attemptId']}
                     if 'agentGrant' in request:
                         peer = socket.client.host if socket.client else ''
-                        try:
-                            loopback = ipaddress.ip_address(peer).is_loopback
-                        except ValueError:
-                            loopback = False
-                        if (os.getenv('SPEAKY_ENV') != 'dev' or os.getenv('AGENT_TEST_ENABLED') != 'true'
-                                or not loopback or 'initData' in request or
-                                not compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
-                                                   (settings.ai_internal_token or '').encode())):
+                        peer_kind = _agent_voice_peer_kind(peer)
+                        dev = os.getenv('SPEAKY_ENV') == 'dev'
+                        enabled = os.getenv('AGENT_TEST_ENABLED') == 'true'
+                        token_valid = compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
+                                                     (settings.ai_internal_token or '').encode())
+                        if not (dev and enabled and peer_kind and token_valid) or 'initData' in request:
+                            event('agent_voice_denied', dev=dev, enabled=enabled,
+                                  peer_kind=peer_kind or 'other', token_valid=token_valid,
+                                  mixed_auth='initData' in request)
                             await socket.send_json({'type': 'error', 'code': 'not_permitted'})
                             return
                         admission['agentGrant'] = request['agentGrant']
