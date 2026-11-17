@@ -23,6 +23,14 @@ on:
         description: Enable the authenticated agent dialogue route on DEV
         type: boolean
         default: false
+      agent_message:
+        description: One synthetic learner turn on the deployed DEV Ktor host
+        type: string
+        default: ''
+      agent_student_id:
+        description: Existing agent-test student UUID (blank starts a dialogue)
+        type: string
+        default: ''
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -45,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && !inputs.verify_only }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.verify_only }}
         run: |
           echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
@@ -195,6 +203,70 @@ jobs:
             "$image" sh -c \
             'pip install --quiet --no-cache-dir webrtcvad-wheels==2.0.14.post1 && python load/speech-time-dev-benchmark.py'
           REMOTE
+
+  agent-dialogue:
+    name: Test one learner turn on DEV
+    needs: require-target
+    if: ${{ inputs.agent_message != '' }}
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    timeout-minutes: 6
+    env:
+      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      LEARNER_MESSAGE: ${{ inputs.agent_message }}
+      STUDENT_ID: ${{ inputs.agent_student_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Send one turn over SSH loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CMP_HOST:?}"
+          : "${CMP_USER:?}"
+          : "${CMP_KEY:?}"
+          key="$RUNNER_TEMP/agent-dev-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$CMP_KEY" > "$key"
+          opts=(-i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+          work="/tmp/speaky-agent-${GITHUB_RUN_ID}"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          output = Path(os.environ['RUNNER_TEMP']) / 'input.json'
+          output.write_text(json.dumps({'message': os.environ['LEARNER_MESSAGE'],
+                                        'studentId': os.environ['STUDENT_ID']}))
+          output.chmod(0o600)
+          PY
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "mkdir -m 700 '$work'"
+          scp "${opts[@]}" infra/dev/agent-dialogue.py infra/dev/agent-dialogue-remote.py \
+            "$RUNNER_TEMP/input.json" "$CMP_USER@$CMP_HOST:$work/"
+          set +e
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "python3 '$work/agent-dialogue-remote.py' '$work'"
+          result=$?
+          set -e
+          scp "${opts[@]}" "$CMP_USER@$CMP_HOST:$work/result.json" "$RUNNER_TEMP/agent-result.json" || true
+          scp "${opts[@]}" "$CMP_USER@$CMP_HOST:$work/transcript.json" "$RUNNER_TEMP/agent-transcript.json" || true
+          scp "${opts[@]}" "$CMP_USER@$CMP_HOST:$work/transcript.md" "$RUNNER_TEMP/agent-transcript.md" || true
+          scp "${opts[@]}" "$CMP_USER@$CMP_HOST:$work/error.txt" "$RUNNER_TEMP/agent-error.txt" || true
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "rm -f '$work/input.json' '$work/agent-dialogue.py' '$work/agent-dialogue-remote.py' '$work/result.json' '$work/transcript.json' '$work/transcript.md' '$work/error.txt'; rmdir '$work'" || true
+          if [ -s "$RUNNER_TEMP/agent-result.json" ]; then cat "$RUNNER_TEMP/agent-result.json"; fi
+          if [ -s "$RUNNER_TEMP/agent-error.txt" ]; then cat "$RUNNER_TEMP/agent-error.txt" >&2; fi
+          exit "$result"
+      - name: Upload learner dialogue
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: agent-dialogue-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/agent-result.json
+            ${{ runner.temp }}/agent-transcript.json
+            ${{ runner.temp }}/agent-transcript.md
+            ${{ runner.temp }}/agent-error.txt
+          if-no-files-found: ignore
+          retention-days: 7
 
   verify-tutor-dev:
     name: Verify DEV tutor readiness

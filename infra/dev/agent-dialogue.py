@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import ssl
 import sys
 import time
 import uuid
@@ -13,14 +14,15 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 
-def request(base, token, path, payload=None):
+def request(base, token, path, payload=None, *, loopback_tls=False):
     data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode()
     req = Request(base + path, data=data, headers={
         "X-Internal-Token": token,
         "Content-Type": "application/json",
     }, method="GET" if data is None else "POST")
     try:
-        with urlopen(req, timeout=150) as response:
+        context = ssl._create_unverified_context() if loopback_tls else None
+        with urlopen(req, timeout=150, context=context) as response:
             return json.load(response)
     except HTTPError as error:
         detail = error.read(1000).decode(errors="replace")
@@ -48,12 +50,16 @@ def main():
     parser.add_argument("--output", required=True, type=Path, help="JSON transcript file")
     parser.add_argument("--student-id", type=uuid.UUID, default=None, help="continue a synthetic student")
     parser.add_argument("--message", help="one learner message chosen by the BB agent")
+    parser.add_argument("--loopback-tls", action="store_true",
+                        help="permit local TLS certificate mismatch only for a loopback DEV host")
     args = parser.parse_args()
     parsed = urlparse(args.base_url)
     if parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in ("localhost", "127.0.0.1")):
         parser.error("Use HTTPS, or HTTP on localhost")
     if parsed.path not in ("", "/") or parsed.query or parsed.fragment or not parsed.netloc:
         parser.error("--base-url must be an origin")
+    if args.loopback_tls and parsed.hostname not in ("localhost", "127.0.0.1"):
+        parser.error("--loopback-tls is limited to localhost")
     token = os.environ.get("AI_INTERNAL_TOKEN", "")
     if not token:
         parser.error("AI_INTERNAL_TOKEN is required in the environment")
@@ -87,7 +93,7 @@ def main():
     try:
         for text in turns:
             payload = {"messageId": str(uuid.uuid4()), "text": text, "receivedAt": round(time.time(), 3)}
-            result = request(base, token, root + "/turn", payload)
+            result = request(base, token, root + "/turn", payload, loopback_tls=args.loopback_tls)
             response = result["response"]
             transcript["turns"].append({"input": payload, "response": response, "state": result["state"]})
             if not response.get("reply") and not response.get("booking"):

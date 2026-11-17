@@ -12,7 +12,7 @@
 
 ## Подготовленный адаптер
 
-Маршрут Ktor `/internal/agent-test/v1/{uuid}` включается только при `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true`. Оба действия требуют отдельного разрешения на DEV deploy. Запросы требуют `X-Internal-Token`; внешний reverse proxy не должен публиковать этот маршрут. UUID относится к `student_identity.provider=agent_test`, не к Telegram. У ученика нет Telegram chat ID, поэтому TrialWorker и Roadmap delivery не получают адресата.
+Маршрут Ktor `/internal/agent-test/v1/{uuid}` включается только при `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true`. Redeploy DEV получает флаг `agent_test=true`. Маршрут принимает запросы только с loopback DEV-хоста и с `X-Internal-Token`; внешний reverse proxy не используется. UUID относится к `student_identity.provider=agent_test`, не к Telegram. У ученика нет Telegram chat ID, поэтому TrialWorker и Roadmap delivery не получают адресата.
 
 `POST /turn` принимает `{messageId, text, receivedAt}`. `messageId` и ID ученика — UUID. `receivedAt` — Unix seconds в пределах суток до текущего времени или минуты после. Повторяйте тот же payload с тем же `messageId`; это ключ идемпотентности. Маршрут вызывает действующий `TutorClient` → AI service → FoundationTutor/native tools → PostgreSQL. Он возвращает ответ и сохранённый snapshot. `GET /state` читает snapshot того же ученика. Модель не заменяется fixture.
 
@@ -28,18 +28,21 @@ CLI `infra/dev/agent-dialogue.py` поддерживает два режима:
 ```sh
 AI_INTERNAL_TOKEN=... python3 infra/dev/agent-dialogue.py \
   infra/dev/scenarios/dialogue-intent.json \
-  --base-url https://DEV_KTOR_ORIGIN \
+  --base-url https://127.0.0.1:DEV_SERVER_PORT --loopback-tls \
   --output /secure/agent-dialogue-intent.json
 ```
 
-Для BB агента первый ход выглядит так:
+Для BB агента первый ход через локальный доступ выглядит так:
 
 ```sh
 python3 infra/dev/agent-dialogue.py --message 'Я боюсь говорить на рабочих встречах' \
-  --base-url https://DEV_KTOR_ORIGIN --output /secure/agent-work-anxiety.json
+  --base-url https://127.0.0.1:DEV_SERVER_PORT --loopback-tls \
+  --output /secure/agent-work-anxiety.json
 ```
 
-Команда возвращает ID тестового ученика и ответ Саши. Следующий ход агент придумывает сам и отправляет с тем же `--output` и `--student-id UUID`. В окружении команды нужен `AI_INTERNAL_TOKEN`; в саму командную строку и transcript его не записывайте. Codex может повторить сценарий с новым UUID, чтобы увидеть, как меняется диалог.
+На DEV подсессия вызывает существующий `Redeploy DEV` с `agent_message`, `agent_student_id` и выключенными флагами поставки. Отдельный job по SSH запускает `agent-dialogue.py` на DEV-хосте через loopback. Секрет остаётся в `/opt/speaking-coach/.env`; JSON transcript и читаемый Markdown возвращаются как приватный артефакт GitHub Actions. Следующий ход агент придумывает сам и передаёт тот же UUID. Код и модель не заменяются fixture. При HTTP 402 повтор не запускается.
+
+Команда локального CLI возвращает ID тестового ученика и ответ Саши. Следующий ход агент отправляет с тем же `--output` и `--student-id UUID`. В окружении команды нужен `AI_INTERNAL_TOKEN`; в саму командную строку и transcript его не записывайте.
 
 Перед запуском нужен проверенный DEV Ktor origin, service token, изолированный доступ к внутреннему маршруту и отдельно разрешённый платный вызов модели Саши. Эти данные не следует класть в git или transcript. Один новый UUID создаёт одного отдельного ученика; `--student-id UUID` продолжает его диалог. Не используйте ID реального Telegram пользователя. Не запускайте повтор после HTTP 402 без отдельного поручения.
 

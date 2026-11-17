@@ -22,6 +22,10 @@ import kotlinx.serialization.json.doubleOrNull
 internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClient, token: String) {
     route("/internal/agent-test/v1/{id}") {
         post("/turn") {
+            if (call.request.local.remoteHost !in setOf("127.0.0.1", "::1")) {
+                call.respondText("not found", status = HttpStatusCode.NotFound)
+                return@post
+            }
             if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
                 call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
                 return@post
@@ -54,6 +58,10 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
             }
         }
         get("/state") {
+            if (call.request.local.remoteHost !in setOf("127.0.0.1", "::1")) {
+                call.respondText("not found", status = HttpStatusCode.NotFound)
+                return@get
+            }
             if (!agentAuthorized(token, call.request.header("X-Internal-Token"))) {
                 call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
                 return@get
