@@ -104,6 +104,9 @@ async def test_four_methods_produce_scoped_voice_handoff(method, action):
     assert document['answerGuide']['alternatives'][1] == 'Yesterday, I went to my job.'
     assert model.calls[0][1]['topic']['scope'] == 'Everyday past events'
     assert model.calls[0][1]['learnerContext'] == 'Likes commuting by bike.'
+    example_instruction = ('In payload.examples, provide 1 to 4 unique short examples, each at most 300 characters. '
+                           'Aim for exactly two examples.')
+    assert (example_instruction in model.calls[0][0]) == (method == 'Explanation')
     response_format = model.calls[0][2]['response_format']
     assert response_format['type'] == 'json_schema' and response_format['json_schema']['strict'] is True
     schema = response_format['json_schema']['schema']
@@ -230,6 +233,8 @@ async def test_screen_or_external_link_rejected_even_when_model_calls_it_valid()
      {'field': 'answerGuide.criteria', 'rule': 'item_count', 'type': 'list', 'count': 0, 'minCount': 1, 'maxCount': 8}),
     ('payload', 'examples', ['PRIVATE_VALUE', 'PRIVATE_VALUE'],
      {'field': 'payload.examples', 'rule': 'duplicate_items', 'type': 'list', 'count': 2, 'duplicate': True}),
+    ('payload', 'examples', [f'PRIVATE_VALUE_{index}' for index in range(5)],
+     {'field': 'payload.examples', 'rule': 'item_count', 'type': 'list', 'count': 5, 'minCount': 1, 'maxCount': 4}),
     ('payload', 'explanation', 'Try https://private.invalid/PRIVATE_VALUE',
      {'field': 'payload.explanation', 'rule': 'url_present', 'type': 'str', 'urlPresent': True}),
     ('payload', 'examples', [False],

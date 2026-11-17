@@ -236,6 +236,11 @@ class LearningContentGenerator:
             'For reconstruction require close wording; meaning is a separate check. '
             'For simplify/rephrase/replace_defect/follow_up_question make a clearly different, fair action.'
         )
+        if method == 'Explanation':
+            draft_instructions += (
+                ' In payload.examples, provide 1 to 4 unique short examples, each at most 300 characters. '
+                'Aim for exactly two examples.'
+            )
         try:
             raw = await self.model.complete_json(
                 draft_instructions, json.dumps(context, ensure_ascii=False),
