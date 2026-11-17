@@ -129,6 +129,9 @@ internal class FoundationMaintenance {
     }
 
     private fun eraseFact(connection: Connection, student: String, category: String, key: String, now: Instant) {
+        // Review summaries can paraphrase either a personal fact or a learning goal.
+        connection.update("DELETE FROM post_lesson_review_history WHERE student_id=?", student)
+        connection.update("DELETE FROM post_lesson_review WHERE student_id=?", student)
         if (category == "learning" && key in setOf("goal", "state")) {
             // Keep revision identities referenced by plans; erase their private contents.
             connection.update("UPDATE learning_goal SET content='{}',source_event_id=NULL WHERE student_id=?", student)

@@ -82,6 +82,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             if (old?.optionalText("topicId") != updated.optionalText("topicId") ||
                 old?.optionalText("problemId") != updated.optionalText("problemId"))
                 detection.refresh(connection, scope.studentId, updated.optionalText("topicId"), updated.optionalText("problemId"), now)
+            updated.optionalText("lessonId")?.let { PostLessonReview().enqueue(connection, scope.studentId, it, now) }
+            if (old?.optionalText("lessonId") != updated.optionalText("lessonId"))
+                old?.optionalText("lessonId")?.let { PostLessonReview().enqueue(connection, scope.studentId, it, now) }
             result
         }
         "learning.plan.create" -> LearningPlans().create(connection, scope, args, now)
@@ -226,6 +229,8 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             "progress" to LearningProgress().read(connection, scope.studentId),
             "progressEvidence" to if (purpose == "learning" && lessonId == null) LearningProgress().evidence(connection, scope.studentId) else null,
             "roadmap" to roadmap, "roadmapPreparation" to RoadmapPreparation().state(connection, scope.studentId), "events" to JsonArray(events), "analysisSources" to JsonArray(analysisSources.take(1000)),
+            "postLessonReview" to PostLessonReview().latest(connection, scope.studentId),
+            "nextLessonContext" to PostLessonReview().nextContext(connection, scope.studentId, now),
             "analysisSourceTruncated" to (analysisSources.size > 1000), "workSource" to workSource, "lesson" to lesson, "booking" to booking,
             "preparation" to lessonId?.let { connection.preparation(scope, it) })
     }

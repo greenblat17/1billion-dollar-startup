@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "lesson.review", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -31,7 +31,7 @@ internal class FoundationJobs {
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
-               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'trial.observe' THEN 1 WHEN 'trial.assess' THEN 2 WHEN 'roadmap.generate' THEN 3 WHEN 'roadmap.prepare' THEN 4 ELSE 5 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
+               ORDER BY CASE kind WHEN 'lesson.evaluate' THEN 0 WHEN 'lesson.review' THEN 1 WHEN 'trial.observe' THEN 2 WHEN 'trial.assess' THEN 3 WHEN 'roadmap.generate' THEN 4 WHEN 'roadmap.prepare' THEN 5 ELSE 6 END,due_at,id LIMIT 1 FOR UPDATE SKIP LOCKED""", scope.studentId, scope.epoch, now, kind, kind, now, now,
         ) ?: return json("job" to null)
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
@@ -98,13 +98,18 @@ internal class FoundationJobs {
             "schedule.materialize", "notification.reminder" -> BackgroundContracts().apply(connection, scope, job, result, now)
             "roadmap.prepare" -> RoadmapPreparation().apply(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), inputs, result, now)
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "lesson.review" -> PostLessonReview().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
             "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "roadmap.prioritize" -> {
                 val current = PersonalizedRoadmap().read(connection, scope.studentId)
                 if (current.number("revision") != inputs.number("roadmapRevision") ||
-                    result.obj("decision").number("roadmapRevision") != inputs.number("roadmapRevision")) false
+                    result.obj("decision").number("roadmapRevision") != inputs.number("roadmapRevision") ||
+                    inputs.optionalText("reviewRevision")?.toLong()?.let { revision ->
+                        connection.document("SELECT to_jsonb(r) FROM post_lesson_review r WHERE student_id=? AND lesson_id=?",
+                            scope.studentId, target)?.number("revision") != revision
+                    } == true) false
                 else {
                     RoadmapPriority().save(connection, scope.copy(role = "operator"), result, now)
                     true
@@ -240,6 +245,8 @@ internal class FoundationJobs {
         LessonMemory().apply(connection, scope, lessonId, result, now)
         // Evaluation has no permission to write the goal or learning self-report fields.
         connection.invalidatePreparation(scope.studentId, now)
+        if (lesson.text("kind") == "regular" && lesson.text("status") == "completed")
+            PostLessonReview().enqueue(connection, scope.studentId, lessonId, now)
         return true
     }
 

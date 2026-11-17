@@ -57,7 +57,9 @@ class LearningEngine:
         if job['kind'] == 'roadmap.generate' and self.personalized_roadmap is not None:
             return await self.personalized_roadmap.plan(scope, catalog_version=job['input_refs']['catalogVersion'])
         if job['kind'] == 'roadmap.prioritize' and self.roadmap_priority is not None:
-            return await self.roadmap_priority.plan(scope, trigger='initial')
+            return await self.roadmap_priority.plan(scope, trigger=job['input_refs'].get('trigger', 'initial'))
+        if job['kind'] == 'lesson.review':
+            return {}
         context = await self.contexts.build(scope, 'learning', job.get('target_id'))
         if job['kind'] == 'roadmap.prepare' and self.roadmap is not None:
             return await self.roadmap.prepare(context, job['input_refs'])

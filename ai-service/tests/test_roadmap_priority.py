@@ -135,3 +135,19 @@ async def test_review_handoff_uses_current_roadmap_and_optimistic_revision():
     assert result['decision']['nextTaskId'] == 'a'
 
 
+@pytest.mark.asyncio
+async def test_post_lesson_review_drops_mastered_task_from_saved_deferrals():
+    backend = Backend()
+    backend.a['lifecycle'] = 'Mastered'
+
+    async def previous(scope):
+        return {'priority': {'revision': 2, 'document': {'deferredTaskIds': ['a']}},
+                'problemDecisions': []}
+
+    backend.learning_roadmap_priority = previous
+    result = await RoadmapPriorityService(backend).plan('scope', trigger='post_lesson_review')
+    assert result['expectedRevision'] == 2
+    assert result['decision']['nextTaskId'] == 'b'
+    assert result['decision']['deferredTaskIds'] == []
+
+

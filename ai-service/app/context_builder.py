@@ -135,6 +135,7 @@ class ContextBuilder:
             'progressEvidence': snapshot.get('progressEvidence') if purpose == 'learning' else None,
             'observations': observations, 'roadmapPreparation': snapshot.get('roadmapPreparation'),
             'trialResult': snapshot.get('trialResult'), 'lessonAnalysis': snapshot.get('lessonAnalysis'),
+            'nextLessonContext': snapshot.get('nextLessonContext'),
             'billing': snapshot.get('billing'),
             'lesson': snapshot.get('lesson'), 'booking': snapshot.get('booking'),
             'preparation': snapshot.get('preparation'),

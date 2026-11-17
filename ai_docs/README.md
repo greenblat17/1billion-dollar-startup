@@ -8,6 +8,7 @@ Telegram служит перепиской; приложение в целево
 | Вопрос | Документ |
 | --- | --- |
 | SP-19A/B: Stage Score и реальные Observations | [Контракт и границы проверки](integrations/learning-score.md), [статус](status.md#совместная-интеграция-волны-7) |
+| SP-20: Post-Lesson Review | [Контракт и границы проверки](integrations/post-lesson-review.md), [статус](status.md#совместная-интеграция-волны-9) |
 | Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |
 | SP-17B: Trial → Observations | [Контракт](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
 | SP-07: Post-Trial Assessment | [Диагностический handoff](integrations/trial-assessment.md), [продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |

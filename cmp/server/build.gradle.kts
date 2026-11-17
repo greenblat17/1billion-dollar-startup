@@ -62,6 +62,7 @@ tasks.test {
     exclude("**/LearningCatalogIntegrationTest*")
     exclude("**/FoundationIntegrationTest*")
     exclude("**/TrialIntegrationTest*")
+    exclude("**/PostLessonReviewIntegrationTest*")
 }
 val foundationIntegrationTest by tasks.registering(Test::class) {
     description = "Run foundation and trial integration contracts against real PostgreSQL"
@@ -70,6 +71,7 @@ val foundationIntegrationTest by tasks.registering(Test::class) {
     classpath = sourceSets.test.get().runtimeClasspath
     include("**/FoundationIntegrationTest*")
     include("**/TrialIntegrationTest*")
+    include("**/PostLessonReviewIntegrationTest*")
     include("**/LearningTasksIntegrationTest*")
     include("**/LearningObservationsIntegrationTest*")
     include("**/LearningPlansIntegrationTest*")

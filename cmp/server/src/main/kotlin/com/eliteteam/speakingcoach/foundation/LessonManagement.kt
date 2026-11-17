@@ -140,6 +140,7 @@ internal class LessonManagement {
         if (inserted == 1) {
             connection.update("UPDATE lesson SET transcript_revision=transcript_revision+1 WHERE id=?", lesson.text("id"))
             if (lesson.text("status") == "completed") connection.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
+            if (lesson.text("status") == "completed") PostLessonReview().enqueue(connection, scope.studentId, lesson.text("id"), now)
             connection.update("UPDATE lesson_plan SET status='stale' WHERE student_id=?", scope.studentId)
         }
         return json("eventId" to event.text("id"), "sequence" to event.number("sequence"), "duplicate" to (inserted == 0))
@@ -167,6 +168,7 @@ internal class LessonManagement {
         if (connection.document("SELECT to_jsonb(c) FROM call_session c WHERE lesson_id=? AND status='connected'", lesson.text("id")) != null) reject("active_episode")
         connection.update("UPDATE lesson SET status='completed',outcome_reason=?,version=version+1,updated_at=? WHERE id=?", args.text("reason"), now, lesson.text("id"))
         connection.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
+        PostLessonReview().enqueue(connection, scope.studentId, lesson.text("id"), now)
         return connection.lesson(scope, lesson.text("id"))
     }
 }

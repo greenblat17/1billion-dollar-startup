@@ -181,12 +181,13 @@ class RoadmapPriorityService:
         declined = [{'topicId': item['topicId'], 'problemId': item['problemId']}
                     for item in decisions if item['decision'] == 'declined']
         valid_ids = base_ids | accepted_ids
+        active_ids = {task['id'] for task in tasks if task['lifecycle'] in ACTIVE}
         previous_prerequisites = {entry['taskId']: [dep for dep in entry['prerequisiteTaskIds'] if dep in valid_ids]
                                   for entry in current.get('orderedTasks', []) if entry['taskId'] in valid_ids}
         result = prioritize(roadmap, tasks, trigger=trigger, accepted_tasks=extra,
                             requested_task_id=requested_task_id,
                             deferred_task_ids=deferred_task_ids if deferred_task_ids is not None
-                            else [id for id in current.get('deferredTaskIds', []) if id in valid_ids],
+                            else [id for id in current.get('deferredTaskIds', []) if id in valid_ids and id in active_ids],
                             prerequisite_task_ids=prerequisite_task_ids if prerequisite_task_ids is not None
                             else previous_prerequisites,
                             goal_focus_task_ids=goal_focus_task_ids, declined_problems=declined,
