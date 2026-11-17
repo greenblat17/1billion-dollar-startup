@@ -416,5 +416,1499 @@
     "Synthetic espeak-ng input; no microphone or human listening",
     "Relay binary PCM carries no provider item ID during overlapping audio items",
     "Lesson still in progress; no post-Trial jobs triggered"
-  ]
+  ],
+  "phaseProbeAttempt": {
+    "runId": 44131310435,
+    "runnerSha": "c9281421ef7968c4a926746d9dfbf8af65056c59",
+    "devKtorSha": "e3d8d09a0fc6850efb571876ad660b3b215f8598",
+    "devAiSha": "e308902d1cdf903aee00bebcd1a4825f4820f478",
+    "studentIdentityId": "70b02e68-f32d-4a42-bb52-35608eb3abb4",
+    "lessonId": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+    "result": "failed",
+    "error": "Relay error: connection_lost (46da88a39a90429e8d0b2629dec52a58)",
+    "attemptId": "db90e4cd-7a71-4ddd-922f-b24858731795",
+    "relayEvents": [
+      {
+        "at": 1794934596.78677,
+        "type": "connected",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 0,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934597.7279015,
+        "type": "audio_start",
+        "id": "item_ElGlw1Ra9BagxD86ykNTb",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934599.119907,
+        "type": "audio_end",
+        "id": "item_ElGlw1Ra9BagxD86ykNTb",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934601.8022318,
+        "type": "trial_clock",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 5,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934606.82068,
+        "type": "trial_clock",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 10,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934611.8483882,
+        "type": "trial_clock",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 15,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934614.3933167,
+        "type": "user_turn_complete",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934615.1506608,
+        "type": "audio_start",
+        "id": "item_ElGmE8OGxf2YufwkOJByt",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934616.8624403,
+        "type": "trial_clock",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 20,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934616.993717,
+        "type": "audio_start",
+        "id": "item_ElGmG15K8C4PevWjmIJpP",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934621.8778055,
+        "type": "trial_clock",
+        "id": null,
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": 25,
+        "phase": "warmup"
+      },
+      {
+        "at": 1794934625.4189467,
+        "type": "audio_end",
+        "id": "item_ElGmE8OGxf2YufwkOJByt",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934625.419505,
+        "type": "audio_end",
+        "id": "item_ElGmG15K8C4PevWjmIJpP",
+        "code": null,
+        "errorId": null,
+        "connectedSeconds": null,
+        "phase": null
+      },
+      {
+        "at": 1794934627.5887961,
+        "type": "error",
+        "id": null,
+        "code": "connection_lost",
+        "errorId": "46da88a39a90429e8d0b2629dec52a58",
+        "connectedSeconds": null,
+        "phase": null
+      }
+    ],
+    "audio": [
+      {
+        "providerItemId": "item_ElGlw1Ra9BagxD86ykNTb",
+        "file": "attempt-1-audio-1.wav",
+        "durationMs": 7950.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      },
+      {
+        "providerItemId": "item_ElGmE8OGxf2YufwkOJByt",
+        "file": "attempt-1-audio-2.wav",
+        "durationMs": 6000.0,
+        "playbackAck": "pending",
+        "audioAttribution": "ambiguous_overlap"
+      },
+      {
+        "providerItemId": "item_ElGmG15K8C4PevWjmIJpP",
+        "file": "attempt-1-audio-3.wav",
+        "durationMs": 39650.0,
+        "playbackAck": "pending",
+        "audioAttribution": "ambiguous_overlap"
+      }
+    ],
+    "turns": [
+      {
+        "input": {
+          "text": "Привет, я работаю в IT и боюсь говорить на встречах. Давай начнём спокойно."
+        },
+        "inputMode": "synthesized_espeak_ng",
+        "sentAt": 1794934608.957335,
+        "userTurnCompleteAt": 1794934614.3933215,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 300,
+          "text": "I need to explain a problem to my team in a meeting. Could we practise that?"
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 480,
+          "text": "Yesterday I try to explain a bug, but I couldn't find the words."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 660,
+          "text": "Could you ask me a simpler question? I'm a little nervous."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 840,
+          "text": "I want to tell my manager that the deadline is risky, but politely."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1020,
+          "text": "Maybe I can say: We need more time because the tests are not finished."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1200,
+          "text": "Can we switch topic and talk about my weekend for a moment?"
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1380,
+          "text": "I visited my friends and we cooked dinner together. It was relaxing."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1510,
+          "text": "Спасибо. В будущем я хотел бы заниматься два-три раза в неделю и делать немного домашки."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1640,
+          "text": "Давай два занятия в неделю по 30 минут. Домашку не хочу."
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      },
+      {
+        "input": {
+          "atConnectedSeconds": 1760,
+          "text": "Спасибо за разговор. Можешь завершить урок и потом прислать мой план в Telegram?"
+        },
+        "inputMode": null,
+        "sentAt": null,
+        "userTurnCompleteAt": null,
+        "responseAudioIds": []
+      }
+    ],
+    "finalState": null,
+    "independentWavTranscriptions": [
+      {
+        "file": "attempt-1-audio-1.wav",
+        "text": "Hey, nice to be back with you. What would you like to focus on today? A quick chat, some practice, or something you've been working on?"
+      },
+      {
+        "file": "attempt-1-audio-2.wav",
+        "text": "Хорошо. Давай спокойно начнём и немного разогреемся. Без экзамена и без давления."
+      },
+      {
+        "file": "attempt-1-audio-3.wav",
+        "text": "Это очень понятная цель, и ты не один в этом чувстве. На встречах легко застрять, когда задают вопрос, и мозг такой: \"Эм, где слова?\" Всё нормально. Формат простой. Сначала короткий разогрев по-русски, потом перейдём на английский и просто поговорим о работе, проектах, типичных ситуациях на митингах без тестов и без «правильный ответ любой ценой». Если вдруг станет тревожно, можно добавить русские слова или сделать паузу. Это ок. Для разминки: как выглядит твоя типичная рабочая встреча? Например, daily, планирование или демо."
+      }
+    ],
+    "limits": [
+      "No Foundation read-after-write snapshot after relay error",
+      "Overlapping response WAVs cannot be assigned to provider IDs from PCM"
+    ]
+  },
+  "phaseProbeReadOnlySnapshot": {
+    "runId": 44132643911,
+    "runnerSha": "230b062d4b8cc29c910de41f5d386010993d1f9b",
+    "lesson": {
+      "id": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+      "status": "in_progress",
+      "trial_phase": "warmup",
+      "transcript_revision": 2,
+      "ended_early": false,
+      "outcome_reason": null
+    },
+    "execution": {
+      "connectedSeconds": 31,
+      "phase": "warmup",
+      "plannedSeconds": 1800,
+      "reconnectBefore": "2026-11-17T17:23:57.957460Z",
+      "terminal": false
+    },
+    "rawEvents": [
+      {
+        "eventId": "47119c3a-94f7-4d30-9562-2f732d5cbb42",
+        "sourceEventId": null,
+        "sourceSequence": null,
+        "lessonId": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+        "callSessionId": "529010cd-0580-45b4-8a79-64d864933432",
+        "revision": 1,
+        "kind": "connected",
+        "occurredAt": "2026-11-17T16:56:36.698941+00:00",
+        "body": null,
+        "sourceContentAvailable": false,
+        "metadata": {}
+      },
+      {
+        "eventId": "b1fa97e8-10f3-4569-82f7-f3889ab99ba4",
+        "sourceEventId": "bbca8a26-ad6d-4be5-8269-fa0c1b7a679a",
+        "sourceSequence": 1,
+        "lessonId": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+        "callSessionId": "529010cd-0580-45b4-8a79-64d864933432",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T16:56:47.126857+00:00",
+        "body": "Hey, nice to be back with you. What would you like to focus on today—a quick chat, some practice, or something you’ve been working on?",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "529010cd-0580-45b4-8a79-64d864933432:529010cd-0580-45b4-8a79-64d864933432:item_ElGlw1Ra9BagxD86ykNTb",
+          "finality": "final",
+          "playedMs": 7950,
+          "asrConfidence": null,
+          "providerItemId": "item_ElGlw1Ra9BagxD86ykNTb",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "9987f198-d9e3-4316-81d7-10fbbaace59f",
+        "sourceEventId": "7e3b66ab-916a-439c-a039-59f324ddeb6d",
+        "sourceSequence": 2,
+        "lessonId": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+        "callSessionId": "529010cd-0580-45b4-8a79-64d864933432",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T16:56:49.166426+00:00",
+        "body": "baineet alamoed.",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "user",
+          "turnId": "529010cd-0580-45b4-8a79-64d864933432:529010cd-0580-45b4-8a79-64d864933432:item_ElGm9ex43WJIpaoWuKtDh",
+          "finality": "final",
+          "audioEndMs": 5200,
+          "audioStartMs": 0,
+          "asrConfidence": null,
+          "providerItemId": "item_ElGm9ex43WJIpaoWuKtDh",
+          "audioOffsetBasis": "provider_input_buffer",
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "93af0b98-4240-4d6f-8692-c24fa31b4204",
+        "sourceEventId": null,
+        "sourceSequence": null,
+        "lessonId": "6d563001-d0b0-4edd-846e-335b5cb7c73d",
+        "callSessionId": "529010cd-0580-45b4-8a79-64d864933432",
+        "revision": 1,
+        "kind": "ended",
+        "occurredAt": "2026-11-17T16:57:07.505382+00:00",
+        "body": null,
+        "sourceContentAvailable": false,
+        "metadata": {
+          "reason": "technical_disconnect"
+        }
+      }
+    ],
+    "jobs": [],
+    "observationStatus": "not_started",
+    "assessmentStatus": "not_started",
+    "observations": [],
+    "learningRevision": 1,
+    "speakyOverall": {
+      "level": "Unknown",
+      "explanation": null
+    },
+    "roadmap": null,
+    "trialResult": null
+  },
+  "phaseProbeErrorTrace": {
+    "runId": 44132559982,
+    "errorId": "46da88a39a90429e8d0b2629dec52a58",
+    "found": true,
+    "event": "trial_failed",
+    "stage": "session",
+    "errorType": "RealtimeProviderError",
+    "errorCode": "realtime_provider_error",
+    "lastFrame": {
+      "file": "trial_realtime.py",
+      "function": "provider_event",
+      "line": 582
+    },
+    "related": [
+      "trial_realtime_response at 16:57:05 UTC",
+      "trial_session_failed at 16:57:07 UTC",
+      "voice.end cleanup at 16:57:07 UTC"
+    ],
+    "providerErrorDetail": null,
+    "httpStatus": null,
+    "provenBoundary": "response.done status incomplete; status_details.reason, provider error detail and HTTP status were not exposed",
+    "statusDiagnosticRunId": 44133508972,
+    "providerResponseStatus": "incomplete",
+    "statusReason": null
+  },
+  "earlyExitAttempt": {
+    "runId": 44136188117,
+    "runnerSha": "d230ce9f1c14b4c1a606c04a4ecd1cb39f8d4fd2",
+    "aiDiagnosticDeploySha": "f76e755b6bcaee43fff4430ae97c5c1c44dc1a66",
+    "studentIdentityId": "28a0210a-361c-4f41-a019-2776d79a36af",
+    "foundationStudentId": "1da36023-25b1-494f-958e-e539025425c4",
+    "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+    "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+    "result": "failed",
+    "error": "No terminal finished event within 120 seconds of the last reply",
+    "relayEvents": [
+      {
+        "at": 1794936165.4683414,
+        "type": "connected",
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "trialExecution": {
+          "connectedSeconds": 0,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        },
+        "protocol": "realtime-pcm-v1",
+        "inputSampleRate": 24000
+      },
+      {
+        "at": 1794936166.4325542,
+        "type": "audio_start",
+        "id": "item_ElHBFJ7dl8vMNUvrc5n9z",
+        "sampleRate": 24000
+      },
+      {
+        "at": 1794936168.1799383,
+        "type": "audio_end",
+        "id": "item_ElHBFJ7dl8vMNUvrc5n9z"
+      },
+      {
+        "at": 1794936170.4859338,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 5,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936175.5026932,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 10,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936180.5195656,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 15,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936183.3539832,
+        "type": "user_turn_complete"
+      },
+      {
+        "at": 1794936184.6504455,
+        "type": "audio_start",
+        "id": "item_ElHBXNNoXra0H5i5eZ45i",
+        "sampleRate": 24000
+      },
+      {
+        "at": 1794936185.5550969,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 20,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936190.5653026,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 25,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936191.0210466,
+        "type": "audio_end",
+        "id": "item_ElHBXNNoXra0H5i5eZ45i"
+      },
+      {
+        "at": 1794936195.5805051,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 30,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936200.6075606,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 35,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936205.6346033,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 40,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936210.6564276,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 45,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936215.678832,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 50,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936220.701063,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 55,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936225.7130275,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 60,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936230.7223608,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 65,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936231.9783316,
+        "type": "user_turn_complete"
+      },
+      {
+        "at": 1794936233.198289,
+        "type": "audio_start",
+        "id": "item_ElHCJ9DjAXJhK0OO3EDK2",
+        "sampleRate": 24000
+      },
+      {
+        "at": 1794936235.7348247,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 70,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936237.7583523,
+        "type": "audio_end",
+        "id": "item_ElHCJ9DjAXJhK0OO3EDK2"
+      },
+      {
+        "at": 1794936240.7467742,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 75,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936245.7628238,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 80,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936250.7813628,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 85,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936255.8099456,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 90,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936262.785862,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 95,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936265.8369591,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 100,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936267.2711062,
+        "type": "user_turn_complete"
+      },
+      {
+        "at": 1794936267.9909317,
+        "type": "audio_start",
+        "id": "item_ElHCtUVmXCN13TIpfmXaa",
+        "sampleRate": 24000
+      },
+      {
+        "at": 1794936269.0269172,
+        "type": "audio_end",
+        "id": "item_ElHCtUVmXCN13TIpfmXaa"
+      },
+      {
+        "at": 1794936270.852174,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 105,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936272.8214595,
+        "type": "audio_start",
+        "id": "item_ElHCyVpnMFIhwaKq39hN4",
+        "sampleRate": 24000
+      },
+      {
+        "at": 1794936275.153678,
+        "type": "audio_end",
+        "id": "item_ElHCyVpnMFIhwaKq39hN4"
+      },
+      {
+        "at": 1794936275.864635,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 110,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936280.880239,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 115,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936285.9035683,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 120,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936290.9146535,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 125,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936295.9276848,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 130,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936300.9530222,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 135,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936305.9772048,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 141,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936310.9971652,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 146,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936316.0221858,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 151,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936321.0577416,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 156,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936326.0769198,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 161,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936331.1061838,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 166,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936336.125549,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 171,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936341.1472447,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 176,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936346.1688423,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 181,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936351.1970901,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 186,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936356.2114077,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 191,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936361.2387352,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 196,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936366.2569134,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 201,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936371.274099,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 206,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936376.2921045,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 211,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936381.3071918,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 216,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936386.3369236,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 221,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936391.3676522,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 226,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936396.3934197,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 231,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936401.4159117,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 236,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      },
+      {
+        "at": 1794936406.4329863,
+        "type": "trial_clock",
+        "trialExecution": {
+          "connectedSeconds": 241,
+          "phase": "warmup",
+          "plannedSeconds": 1800,
+          "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+          "terminal": false
+        }
+      }
+    ],
+    "lastTrialExecution": {
+      "connectedSeconds": 241,
+      "phase": "warmup",
+      "plannedSeconds": 1800,
+      "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+      "terminal": false
+    },
+    "turns": [
+      {
+        "input": {
+          "text": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?"
+        },
+        "responseAudioIds": [
+          "item_ElHBXNNoXra0H5i5eZ45i"
+        ],
+        "inputMode": "synthesized_espeak_ng",
+        "inputDurationMs": 6227,
+        "sentAt": 1794936177.2640965,
+        "userTurnCompleteAt": 1794936183.3539906,
+        "readAfterWriteConfirmed": true
+      },
+      {
+        "input": {
+          "text": "This is difficult. Could you use simpler words? And what is my level from this conversation?"
+        },
+        "responseAudioIds": [
+          "item_ElHCJ9DjAXJhK0OO3EDK2"
+        ],
+        "inputMode": "synthesized_espeak_ng",
+        "inputDurationMs": 6382,
+        "sentAt": 1794936225.683392,
+        "userTurnCompleteAt": 1794936231.978339,
+        "readAfterWriteConfirmed": true
+      },
+      {
+        "input": {
+          "text": "Thank you. I need to leave now. Please end this lesson."
+        },
+        "responseAudioIds": [
+          "item_ElHCtUVmXCN13TIpfmXaa",
+          "item_ElHCyVpnMFIhwaKq39hN4"
+        ],
+        "inputMode": "synthesized_espeak_ng",
+        "inputDurationMs": 4630,
+        "sentAt": 1794936262.866845,
+        "userTurnCompleteAt": 1794936267.2711115,
+        "readAfterWriteConfirmed": true
+      }
+    ],
+    "audio": [
+      {
+        "providerItemId": "item_ElHBFJ7dl8vMNUvrc5n9z",
+        "file": "attempt-1-audio-1.wav",
+        "durationMs": 8100.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      },
+      {
+        "providerItemId": "item_ElHBXNNoXra0H5i5eZ45i",
+        "file": "attempt-1-audio-2.wav",
+        "durationMs": 30900.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      },
+      {
+        "providerItemId": "item_ElHCJ9DjAXJhK0OO3EDK2",
+        "file": "attempt-1-audio-3.wav",
+        "durationMs": 21600.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      },
+      {
+        "providerItemId": "item_ElHCtUVmXCN13TIpfmXaa",
+        "file": "attempt-1-audio-4.wav",
+        "durationMs": 3000.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      },
+      {
+        "providerItemId": "item_ElHCyVpnMFIhwaKq39hN4",
+        "file": "attempt-1-audio-5.wav",
+        "durationMs": 11950.0,
+        "playbackAck": "simulated_timing",
+        "audioAttribution": "single_active"
+      }
+    ],
+    "savedConversationEvents": [
+      {
+        "id": "2aa54791-9bab-4218-a99c-1a4ceb982e83",
+        "role": "assistant",
+        "body": "Hey again! Nice to be back with you.\n\nWhat would you like to work on today—chatting, a quick lesson, or practicing a specific topic?",
+        "sequence": 1,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBFJ7dl8vMNUvrc5n9z"
+      },
+      {
+        "id": "c3afa848-4cf6-4970-8025-5e1f2411ce94",
+        "role": "user",
+        "body": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?",
+        "sequence": 2,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBRZ48CD8Sd4Is08wCS"
+      },
+      {
+        "id": "52387cb8-3f46-4423-b587-23a8dd3b85d1",
+        "role": "assistant",
+        "body": "Да, конечно, спокойно и без спешки. В начале немного поговорим по-русски, чтобы настроиться: вы расскажете, в каких ситуациях вам сложнее всего говорить, и чего вы хотите от этого пробного занятия. Потом плавно перейдём на английский и просто поболтаем, без экзамена. Если вдруг станет сложно, можно немного смешать языки и снова упростить. Что именно в встречах вас больше всего напрягает: представить себя, объяснить идею или ответить на вопрос?",
+        "sequence": 3,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBXNNoXra0H5i5eZ45i"
+      },
+      {
+        "id": "3d1f6090-4667-47e9-b5bb-d8c3156b1621",
+        "role": "user",
+        "body": "Mi simplifiko, konjuĝu simpla vorn, and what be my level from this conversation.",
+        "sequence": 4,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCD2McqMw9NEjtTepNB"
+      },
+      {
+        "id": "f226c608-7888-4fd2-b7bc-beb0213caf15",
+        "role": "assistant",
+        "body": "Yes, no problem. I’ll use simple words and short sentences.\n\nAbout your level: I can’t give you an official level from a short chat like this. We need a deeper analysis later. What I can say is you’re communicating clearly, and that’s a good start.\n\nIf you want, we can practice a very small meeting moment, like saying hello, your name, and one sentence about your role.",
+        "sequence": 5,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCJ9DjAXJhK0OO3EDK2"
+      },
+      {
+        "id": "1cf55bab-1966-40ad-8546-19867fca1816",
+        "role": "user",
+        "body": "Thank you, I need to leave now. Please end this lesson.",
+        "sequence": 6,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCpKBEMSgDh0Aomqxkt"
+      },
+      {
+        "id": "a0297ac0-c945-4ea3-8a61-51579521aa5f",
+        "role": "assistant",
+        "body": "Okay, I’ll wrap things up smoothly so you can go.",
+        "sequence": 7,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCtUVmXCN13TIpfmXaa"
+      },
+      {
+        "id": "e1364e6c-d886-4b2f-bcab-d4d625bcdf10",
+        "role": "assistant",
+        "body": "Понял, спасибо, что были сегодня здесь. Хорошего вам дня и спокойного вечера. Если захотите продолжить, мы снова начнём мягко и без экзамена. До встречи!",
+        "sequence": 8,
+        "sourceId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCyVpnMFIhwaKq39hN4"
+      }
+    ],
+    "limits": [
+      "English espeak-ng synthetic learner audio",
+      "Simulated playback timing",
+      "Second learner ASR differs substantially from scripted input",
+      "No human microphone or Telegram UI"
+    ]
+  },
+  "earlyExitReadOnlySnapshot": {
+    "runId": 44137291826,
+    "runnerSha": "d230ce9f1c14b4c1a606c04a4ecd1cb39f8d4fd2",
+    "lesson": {
+      "id": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+      "kind": "trial",
+      "status": "in_progress",
+      "timing": "now",
+      "version": 2,
+      "timezone": "UTC",
+      "starts_at": "2026-11-17T17:21:14.444197+00:00",
+      "created_at": "2026-11-17T17:21:14.444197+00:00",
+      "student_id": "1da36023-25b1-494f-958e-e539025425c4",
+      "updated_at": "2026-11-17T17:21:14.444197+00:00",
+      "ended_early": false,
+      "launch_mode": "executable",
+      "schedule_id": null,
+      "trial_phase": "warmup",
+      "trial_version": "v5.5",
+      "occurrence_key": null,
+      "outcome_reason": null,
+      "duration_minutes": 30,
+      "execution_snapshot": {
+        "kind": "trial",
+        "objective": "30-minute friendly Trial: Russian warm-up, English conversation, Russian wrap-up. No CEFR, scores or timelines."
+      },
+      "previous_lesson_id": null,
+      "transcript_revision": 8,
+      "admission_entitlement_id": null
+    },
+    "execution": {
+      "connectedSeconds": 248,
+      "phase": "warmup",
+      "plannedSeconds": 1800,
+      "reconnectBefore": "2026-11-17T17:51:14.444197Z",
+      "terminal": false
+    },
+    "rawEvents": [
+      {
+        "eventId": "3b561dc0-57f6-418d-9086-3b8bcfcc46ba",
+        "sourceEventId": null,
+        "sourceSequence": null,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "connected",
+        "occurredAt": "2026-11-17T17:22:45.372184+00:00",
+        "body": null,
+        "sourceContentAvailable": false,
+        "metadata": {}
+      },
+      {
+        "eventId": "761cbda3-1f84-45d9-89a1-8d56bd3d4272",
+        "sourceEventId": "2aa54791-9bab-4218-a99c-1a4ceb982e83",
+        "sourceSequence": 1,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:22:56.334755+00:00",
+        "body": "Hey again! Nice to be back with you.\n\nWhat would you like to work on today—chatting, a quick lesson, or practicing a specific topic?",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBFJ7dl8vMNUvrc5n9z",
+          "finality": "final",
+          "playedMs": 8100,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHBFJ7dl8vMNUvrc5n9z",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "b3024b4e-0584-4d8e-a075-88064e004096",
+        "sourceEventId": "c3afa848-4cf6-4970-8025-5e1f2411ce94",
+        "sourceSequence": 2,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:22:57.58014+00:00",
+        "body": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "user",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBRZ48CD8Sd4Is08wCS",
+          "finality": "final",
+          "audioEndMs": 5800,
+          "audioStartMs": 0,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHBRZ48CD8Sd4Is08wCS",
+          "audioOffsetBasis": "provider_input_buffer",
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "c0c31e15-d87d-40c2-b310-26042dc5a98a",
+        "sourceEventId": "52387cb8-3f46-4423-b587-23a8dd3b85d1",
+        "sourceSequence": 3,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:23:41.982601+00:00",
+        "body": "Да, конечно, спокойно и без спешки. В начале немного поговорим по-русски, чтобы настроиться: вы расскажете, в каких ситуациях вам сложнее всего говорить, и чего вы хотите от этого пробного занятия. Потом плавно перейдём на английский и просто поболтаем, без экзамена. Если вдруг станет сложно, можно немного смешать языки и снова упростить. Что именно в встречах вас больше всего напрягает: представить себя, объяснить идею или ответить на вопрос?",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHBXNNoXra0H5i5eZ45i",
+          "finality": "final",
+          "playedMs": 30900,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHBXNNoXra0H5i5eZ45i",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "cf0a9088-aa65-470f-a0b1-0b7b22109b59",
+        "sourceEventId": "3d1f6090-4667-47e9-b5bb-d8c3156b1621",
+        "sourceSequence": 4,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:23:45.920471+00:00",
+        "body": "Mi simplifiko, konjuĝu simpla vorn, and what be my level from this conversation.",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "user",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCD2McqMw9NEjtTepNB",
+          "finality": "final",
+          "audioEndMs": 12220,
+          "audioStartMs": 5772,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHCD2McqMw9NEjtTepNB",
+          "audioOffsetBasis": "provider_input_buffer",
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "aa15d2ca-4f64-4c78-92dd-1985a0890238",
+        "sourceEventId": "f226c608-7888-4fd2-b7bc-beb0213caf15",
+        "sourceSequence": 5,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:24:19.42025+00:00",
+        "body": "Yes, no problem. I’ll use simple words and short sentences.\n\nAbout your level: I can’t give you an official level from a short chat like this. We need a deeper analysis later. What I can say is you’re communicating clearly, and that’s a good start.\n\nIf you want, we can practice a very small meeting moment, like saying hello, your name, and one sentence about your role.",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCJ9DjAXJhK0OO3EDK2",
+          "finality": "final",
+          "playedMs": 21600,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHCJ9DjAXJhK0OO3EDK2",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "86a4bf4d-42df-4890-987a-434fb13fce27",
+        "sourceEventId": "1cf55bab-1966-40ad-8546-19867fca1816",
+        "sourceSequence": 6,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:24:23.193898+00:00",
+        "body": "Thank you, I need to leave now. Please end this lesson.",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "user",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCpKBEMSgDh0Aomqxkt",
+          "finality": "final",
+          "audioEndMs": 16700,
+          "audioStartMs": 12236,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHCpKBEMSgDh0Aomqxkt",
+          "audioOffsetBasis": "provider_input_buffer",
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "48bc5f46-1169-433d-8863-19cb52194632",
+        "sourceEventId": "a0297ac0-c945-4ea3-8a61-51579521aa5f",
+        "sourceSequence": 7,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:24:32.079512+00:00",
+        "body": "Okay, I’ll wrap things up smoothly so you can go.",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCtUVmXCN13TIpfmXaa",
+          "finality": "final",
+          "playedMs": 3000,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHCtUVmXCN13TIpfmXaa",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "bc8e027e-1761-4bd0-9c42-d83053a8e76f",
+        "sourceEventId": "e1364e6c-d886-4b2f-bcab-d4d625bcdf10",
+        "sourceSequence": 8,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "transcript",
+        "occurredAt": "2026-11-17T17:24:47.156546+00:00",
+        "body": "Понял, спасибо, что были сегодня здесь. Хорошего вам дня и спокойного вечера. Если захотите продолжить, мы снова начнём мягко и без экзамена. До встречи!",
+        "sourceContentAvailable": true,
+        "metadata": {
+          "role": "assistant",
+          "turnId": "9d9f81b5-087b-4423-8186-d89d09401601:9d9f81b5-087b-4423-8186-d89d09401601:item_ElHCyVpnMFIhwaKq39hN4",
+          "finality": "final",
+          "playedMs": 11950,
+          "asrConfidence": null,
+          "providerItemId": "item_ElHCyVpnMFIhwaKq39hN4",
+          "audioOffsetBasis": null,
+          "playbackComplete": true,
+          "uncertaintySignals": []
+        }
+      },
+      {
+        "eventId": "f0fa673a-c26c-48a4-bf5b-8df90e17ff2d",
+        "sourceEventId": null,
+        "sourceSequence": null,
+        "lessonId": "5ccdb9bd-bd32-4a44-8311-41437e9382e7",
+        "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+        "revision": 1,
+        "kind": "ended",
+        "occurredAt": "2026-11-17T17:26:53.768787+00:00",
+        "body": null,
+        "sourceContentAvailable": false,
+        "metadata": {
+          "reason": "technical_disconnect"
+        }
+      }
+    ],
+    "jobs": [],
+    "observationCount": 0,
+    "roadmap": null,
+    "trialResult": null,
+    "audioMetadataRowCount": 363
+  },
+  "earlyExitSafeAiTrace": {
+    "runId": 44138591326,
+    "diagnosticRunnerSha": "6cf367770524e5361a11a82695d9b2dbc5b68c09",
+    "callSessionId": "9d9f81b5-087b-4423-8186-d89d09401601",
+    "responses": [
+      {
+        "at": "17:22:48Z",
+        "outcome": "completed",
+        "outputTokens": 241,
+        "statusReason": null
+      },
+      {
+        "at": "17:23:10Z",
+        "outcome": "completed",
+        "outputTokens": 791,
+        "statusReason": null
+      },
+      {
+        "at": "17:23:57Z",
+        "outcome": "completed",
+        "outputTokens": 602,
+        "statusReason": null
+      },
+      {
+        "at": "17:24:28Z",
+        "outcome": "completed",
+        "outputTokens": 139,
+        "statusReason": null
+      },
+      {
+        "at": "17:24:35Z",
+        "outcome": "completed",
+        "outputTokens": 303,
+        "statusReason": null
+      }
+    ],
+    "voiceEndAt": "17:26:53Z",
+    "sessionClosedAt": "17:26:53Z",
+    "finishToolCalled": null,
+    "finishToolValid": null,
+    "boundary": "No finish-tool receipt in currently deployed runtime logs; do not infer missing model call or playback-gate rejection."
+  }
 }

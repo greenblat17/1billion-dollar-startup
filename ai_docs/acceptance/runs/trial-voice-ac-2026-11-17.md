@@ -1,115 +1,126 @@
-# DEV acceptance · Trial voice → Roadmap · 17 November 2026
+# Приёмка на DEV: голосовой Trial → Roadmap · 17 ноября 2026
 
-## Evidence boundary
+## Граница проверки
 
-This report covers SP-06, SP-17B, SP-07, SP-08, SP-11A, parent SP-11 stage A, and Trial-dependent parent SP-17. `pass` means the complete AC was observed on its required DEV interface. `fail` means the observed behavior contradicts the AC. `blocked` names the missing observation; a green code check is not a live pass.
+Отчёт охватывает SP-06, SP-17B, SP-07, SP-08, SP-11A, первый этап родительской SP-11 и критерии родительской SP-17, зависящие от Trial. **Пройдено** означает, что весь критерий наблюдался на нужном интерфейсе DEV. **Не пройдено** означает противоречие критерию. **Не проверено** указывает недостающее наблюдение. Локальные тесты не заменяют живую приёмку.
 
-- **T** — [new isolated text booking run 44126287817](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44126287817): agent identity `9e5d6bcd-6bdf-441d-a1b6-890505a2a227`, Foundation student `ec7c104b-3a19-4803-a0b6-9cb3118bf20b`, executable Trial `605e6ea7-2519-4773-959c-509a84885bb9`. It saved the learner's IT work, meeting anxiety, and B1 self-description as text context. At booking, system CEFR was Unknown and Observations/Roadmap were empty. The B1 phrase was in the conversation summary, not in structured self-assessment.
-- **V** — [synthetic voice run 44126530255](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44126530255), same student and lesson, runner SHA `ecbe949c83d26a5e00c8ea1a27665d3cc14dc15f`. DEV Ktor `7e416da659bfdaaa98318cf83f2c3b3d5299cd91`, AI `e308902d1cdf903aee00bebcd1a4825f4820f478`, Mini App `2f38856` per [status](../../status.md); this run used the relay, not the visual Mini App. [Readable saved dialogue](trial-voice-ac-dialogue-2026-11-17.md) and [sanitized raw JSON](trial-voice-ac-2026-11-17.json) preserve source IDs, relay events, timer, WAV names and playback receipts. The private Actions artifact `agent-voice-44126530255` holds five full WAVs for seven days.
-- **V result** — Two short synthetic turns, two call sessions, 5 WAVs, 5 playback acknowledgements, and both turn reads confirmed. The final lesson remained `in_progress`, phase `warmup`, transcript revision 7. Observations count 0, learning revision 0, no Roadmap or trial result. The second ASR saved “meeting” for synthesized “meetings.” No terminal event or post-Trial job was observed. The fifth audio was saved in Foundation in this run, resolving the previous test client's missing-transcript issue.
-- **V failures** — On both admissions Sasha started with a generic English “welcome back” and asked what to work on. After reconnect, she again asked for a topic despite the active Trial and saved IT/meeting context. In call session 2, `audio_start` for `item_ElGOherI3ntrtcW2yi0It` preceded `audio_end` for `item_ElGOfRhe4aKJKRc7o1xyU`; binary PCM frames carry no item ID. Both WAV-to-item assignments are `ambiguous_overlap`. Transport completion does not repair these product/protocol failures.
+**Итог: 59 критериев; 2 не пройдены, 57 не проверены до конца.** Успешное подключение и сохранение голоса не доказывают завершение Trial, диагностику или доставку Roadmap.
 
-The voice input used `espeak-ng`; playback time was simulated. No human microphone, Telegram delivery, 30-minute conversation, or direct S3 object read was verified. The first run [44106947563](agent-voice-dev-2026-11-17.md) found the same reconnect and overlap failures; V confirms they reproduce with the fixed client.
+### Наблюдения и источники
 
-## SP-06 — Trial Lesson
+- **T — контекст и запись:** [текстовый прогон 44126287817](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44126287817) создал отдельного тестового ученика, записал IT, тревогу на встречах и самоописание B1. Системный CEFR остался Unknown; Observations и Roadmap отсутствовали. B1 сохранился в краткой истории беседы, а не в структурированной самооценке.
+- **V — короткий звонок с повторным подключением:** [44126530255](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44126530255), две синтезированные реплики, две сессии, пять WAV и пять подтверждений воспроизведения. Урок остался в состоянии in_progress/warmup, ревизия расшифровки 7, Observations 0, Roadmap отсутствует. После повторного подключения Саша снова дал общее английское приветствие и спросил тему, хотя контекст был сохранён. [Читаемый диалог](trial-voice-ac-dialogue-2026-11-17.md), [очищенный JSON](trial-voice-ac-2026-11-17.json); полные WAV находятся в закрытом артефакте agent-voice-44126530255 на семь дней.
+- **V — перекрытие аудио:** начало второго ответа пришло до конца первого примерно на 6,27 секунды. Бинарные PCM кадры не содержат ID ответа. Поэтому последние WAV нельзя достоверно сопоставить с конкретными provider item ID. Отдельные текстовые события Foundation эту неоднозначность не устраняют.
+- **P — проверка фаз:** [контекст 44129019469](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44129019469) сохранил цель рабочих встреч, target B2 и self-report B1. [Запись 44130897664](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44130897664) создала 30-минутный Trial. [Звонок 44131310435](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44131310435) оборвался после первой реплики с connection_lost, ID ошибки 46da88a39a90429e8d0b2629dec52a58, на 25-й секунде фазы warmup. Из трёх WAV подтверждено воспроизведение только приветствия.
+- **P — состояние после обрыва:** [чтение 44132643911](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44132643911) показало in_progress/warmup, 31 секунду связи, ревизию 2 и техническое отключение. Не было jobs, Observations, Assessment или Roadmap. Русский синтезированный ввод был распознан как «baineet alamoed.»; это ограничение тестового звука, а не ошибка ученика. [Трасса 44133508972](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44133508972) подтвердила response.done=incomplete. Причина incomplete не поступила; лимит токенов и фильтр остаются гипотезами.
+- **E — явная просьба завершить:** [контекст 44135680222](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44135680222) сохранил цель, target B2 и self-report B1. [Запись 44135915453](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44135915453) создала Trial. [Голосовой прогон 44136188117](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44136188117) передал три английские синтезированные реплики. Пять WAV получили подтверждения воспроизведения; три чтения сохранённых ответов прошли. Закрытый артефакт agent-voice-44136188117 хранит WAV семь дней.
+- **E — подтверждённый сбой завершения:** ASR точно сохранил «Thank you, I need to leave now. Please end this lesson.» Саша ответил по-английски и попрощался по-русски. После 120 секунд ожидания событие finished не пришло. [Чтение 44137291826](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44137291826) показало in_progress, ended_early=false, warmup, 248 секунд связи, ревизию 8, техническое отключение и ноль jobs/Observations/Roadmap.
+- **E — безопасная трасса:** [44138591326](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44138591326) показала пять ответов модели со статусом completed и 241/791/602/139/303 выходными токенами. Команда voice.end прошла только после тайм-аута клиента. Текущий лог не показывает, вызвала ли модель finish_after_reply и принял ли её сервер. Код может отклонить эту команду при неподтверждённом воспроизведении, но это **не доказанная причина** данного звонка. Сбой incomplete из P в E не повторился.
+- **Отдельное условие:** [чтение каталога 44131236207](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44131236207) вернуло catalog_not_published. Это независимый блокер учебной цепочки. Без post-call job нельзя утверждать, что именно он сломал SP-07 или SP-08.
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-01][sp06] | Existing call, about 30 connected minutes, reconnect preserves time. | Two sessions reached about 100 connected seconds; same lesson survived reconnect. | T, V, `605e6ea7…` | **blocked** — 30 connected minutes and terminal Trial were not exercised. |
-| [AC-02][sp06] | Russian warm-up → natural English conversation → Russian wrap-up. | Warm-up stayed Russian after English synthetic inputs; phase remained `warmup`. | V, transcript revision 7 | **blocked** — no 5/25-minute phase boundaries or wrap-up were reached. |
-| [AC-03][sp06] | Use known Telegram context without repeating intake. | Generic English greetings asked what to work on at admission and reconnect. Known IT/meeting anxiety was in T; later responses used IT context. | T, V, greeting source IDs `f9cecc01…`, `58b3f991…` | **fail** — initial/reconnect greeting restarted topic selection and ignored active Trial context. |
-| [AC-04][sp06] | Calm, adaptive conversation without oral exam. | After learner anxiety Sasha offered gentle support; only two turns occurred. | V, saved dialogue | **blocked** — sustained English conversation and adaptation to a simplification request were not tested. |
-| [AC-05][sp06] | No spoken CEFR, scores, percentages, or target dates. | None appeared in five saved assistant utterances. | V, saved dialogue | **blocked** — the full Trial, including explicit level question and wrap-up, was not heard. |
-| [AC-06][sp06] | Handle questions, confusion, topic change, and early exit naturally. | Only work and anxiety statements were sent. | V | **blocked** — no requested behavior was exercised. |
-| [AC-07][sp06] | Russian wrap-up promises a later personal Telegram Roadmap without claiming delivery. | No wrap-up or terminal state. | V, `trial_phase=warmup` | **blocked** — wrap-up not reached. |
-| [AC-08][sp06] | Raw Trial sources available to SP-17/07 without diagnosis by SP-06. | Seven saved conversation events and 258 stored audio metadata rows; no raw-event API read, direct object read, or downstream job. | V, lesson revision 7 | **blocked** — raw event provenance and consumer handoff still need API/job evidence. |
-| [AC-09][sp06] | Do not sell regular schedule before Roadmap. | No schedule or sale in five utterances. | V | **blocked** — end-of-Trial transition was not observed. |
-| [moved SP05-AC02][sp06] | Discuss only unknown frequency, duration, Homework during Trial. | Learning profile retained null/unknown; wrap-up not reached. | T, V | **blocked** — no load discussion occurred. |
-| [moved SP05-AC04][sp06] | Clarify “2–3” and vague Homework; save only exact numbers/null. | Neither vague input nor correction was spoken. | V | **blocked** — no voice preference write or revision. |
-| [moved SP05-AC05][sp06] | Save Homework No, preserve unknowns, continue learning. | Consent remained `unknown`. | V, learning revision 0 | **blocked** — explicit refusal was not tested. |
+Ввод синтезирован через espeak-ng; время воспроизведения имитировалось. Человеческий микрофон, полный 30-минутный разговор, прямая проверка объектов S3 и Telegram-доставка в этих прогонах не проверялись.
 
-## SP-17B — Trial Observation Integration
+## SP-06 — пробный урок
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-1][sp17b] | Existing raw Trial events feed the common Observation format. | Conversation events persisted; Trial was not completed and raw-event API was not read. | V | **blocked** — no raw → Observation receipt. |
-| [AC-2][sp17b] | Speaking/Grammar/Vocabulary signals reach SP-07; no Listening Observation. | Observation list empty while Trial remained active. | V | **blocked** — post-Trial producer did not run; absence of Listening alone is insufficient. |
-| [AC-3][sp17b] | Silence creates no error; explicit source uncertainty is unusable. | No silence/uncertainty scenario or Observation was produced. | V | **blocked** — neither branch was exercised. |
-| [AC-4][sp17b] | ASR repeats do not duplicate Observations. | Two distinct user source IDs; no duplicate ASR callback or Observation. Audio item overlap is a separate protocol failure. | V | **blocked** — repeat/idempotency not exercised on DEV. |
-| [AC-5][sp17b] | SP-07 consumes Trial Observations without Teaching Engine. | No terminal Trial, Observation job, or assessment. | V | **blocked** — consumer handoff has no live receipt. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-01][sp06] | Около 30 минут связи; переподключение сохраняет время. | V: около 100 секунд; P: обрыв на 25-й; E: 248 секунд без завершения. | **Не проверено:** 30 минут и итоговый Trial не достигнуты. |
+| [AC-02][sp06] | Русское начало → английская беседа → русское завершение. | Короткие звонки остались в warmup. | **Не проверено:** границы фаз не достигнуты. |
+| [AC-03][sp06] | Использовать известный контекст без повторного знакомства. | V и P начали с общего приветствия и вопроса о теме; после reconnect вопрос повторился. | **Не пройдено:** контекст IT и тревоги был сохранён. |
+| [AC-04][sp06] | Спокойная адаптивная беседа без устного экзамена. | Поддержка была; E попросил говорить проще, но ASR исказил эту часть. | **Не проверено:** длительной беседы и надёжной адаптации не было. |
+| [AC-05][sp06] | Не произносить CEFR, Score, проценты и даты. | На вопрос об уровне в E Саша не выдала оценку. | **Не проверено:** короткий эпизод прошёл, полный урок и завершение отсутствуют. |
+| [AC-06][sp06] | Естественно отвечать на вопросы, непонимание, смену темы и просьбу уйти. | Точная просьба завершить E сохранена, Саша попрощался, урок остался активным. | **Не пройдено:** явный выход не завершил урок и не запустил обработку. |
+| [AC-07][sp06] | Русское завершение обещает Roadmap позже в Telegram. | Завершения урока не было. | **Не проверено:** нужная фаза не достигнута. |
+| [AC-08][sp06] | Сырые события доступны SP-17/07, сама SP-06 диагноз не ставит. | События и ID источников сохранились; downstream job не появился. | **Не проверено:** хранение подтверждено, передача потребителю — нет. |
+| [AC-09][sp06] | Не продавать обычное расписание до Roadmap. | В коротких ответах продажи не было. | **Не проверено:** конец Trial не наблюдался. |
+| [перенесён AC-02 SP-05][sp06] | Обсуждать неизвестную нагрузку во время Trial. | Поля остались null/unknown; разговор о нагрузке не состоялся. | **Не проверено.** |
+| [перенесён AC-04 SP-05][sp06] | Уточнять «2–3» и расплывчатое Homework. | Такой голосовой ввод не подавался. | **Не проверено.** |
+| [перенесён AC-05 SP-05][sp06] | Сохранять отказ от Homework без потери остальных данных. | Homework остался unknown; отказ не подавался. | **Не проверено.** |
 
-## SP-07 — Post-Trial Assessment
+## SP-17B — наблюдения по пробному уроку
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-01][sp07] | Diagnose Speaking/Grammar/Vocabulary from evidence; Listening Unknown. | No assessment; all system levels Unknown. | V | **blocked** — Trial not completed and no Observation producer. |
-| [AC-02][sp07] | Overall/skill CEFR each single value or Unknown. | Initial Unknown persisted. | T, V | **blocked** — no post-Trial level write to inspect. |
-| [AC-03][sp07] | Keep self-report separate from system diagnosis. | B1 text remained summary; structured self-report stayed Unknown. | T, V | **blocked** — no diagnosis applied, so non-overwrite was not challenged. |
-| [AC-04][sp07] | Distinguish Known, Not Known, Presumed Not Known, Unknown per Topic. | No Topic state generated. | V | **blocked** — no Topic assessment. |
-| [AC-05][sp07] | Unobserved Topics do not become Not Known automatically. | No Topic state generated. | V | **blocked** — negative transition cannot be checked. |
-| [AC-06][sp07] | Provenance and uncertain ASR do not make confident conclusions. | Source IDs saved; ASR changed “meetings” to “meeting”; no assessment to test its use. | V | **blocked** — evidence quality decision and provenance receipt absent. |
-| [AC-07][sp07] | State is usable as SP-08 Roadmap input. | No assessment or Roadmap. | V | **blocked** — no input handoff. |
-| [AC-08][sp07] | Sparse Trial gives partial/Unknown result without invented level. | Short Trial remained `in_progress`. | V | **blocked** — sparse terminal Trial not run. |
-| [AC-09][sp07] | SP-07 does not speak CEFR during Trial. | No spoken CEFR in observed utterances; no SP-07 job. | V | **blocked** — assessment timing/voice separation not tested at completion. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-1][sp17b] | Сырые события Trial дают Observation общего формата. | E вернул десять исходных событий с ID и ревизиями; урок не завершён. | **Не проверено:** Observation не создан. |
+| [AC-2][sp17b] | Speaking/Grammar/Vocabulary идут в SP-07; Listening не оценивается. | Список Observations пуст, post-call job не работал. | **Не проверено.** |
+| [AC-3][sp17b] | Молчание не ошибка; явная неопределённость не годится для уверенного вывода. | Эти ветви не вызваны. | **Не проверено.** |
+| [AC-4][sp17b] | Повтор ASR не создаёт второе Observation. | Повторного callback или Observation не было. | **Не проверено:** перекрытие аудио — другая проблема. |
+| [AC-5][sp17b] | SP-07 читает Observations без Teaching Engine. | Нет завершённого Trial и job диагностики. | **Не проверено.** |
 
-## SP-08 — Roadmap Generation
+## SP-07 — оценка после Trial
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-01][sp08] | Full ordered A2→B2 path across four MVP Skills. | No assessment or Roadmap. | V | **blocked** — generation did not run. |
-| [AC-02][sp08] | Separate current skill levels shape the path. | All system skill levels Unknown; no Roadmap. | V | **blocked** — differentiated input absent. |
-| [AC-03][sp08] | Known skipped with reason; Unknown stays distinct. | No Topic knowledge or Tasks. | V | **blocked** — no generated items to compare. |
-| [AC-04][sp08] | Provisional hypotheses clearly labeled. | No Roadmap. | V | **blocked** — no hypothesis output. |
-| [AC-05][sp08] | Personal order without global prerequisite graph. | No Roadmap generation. | V | **blocked** — live ordering absent. |
-| [AC-06][sp08] | Work goal changes content/priority without dropping B2 base. | IT/meeting context saved in text; structured goal null; no Roadmap. | T, V | **blocked** — no work-goal Roadmap or base comparison. |
-| [AC-07][sp08] | No duplicate active Student+Topic+Problem Task. | No Tasks created. | V | **blocked** — generation/retry not exercised. |
-| [AC-08][sp08] | New Tasks start at 0% Progress. | No Tasks created. | V | **blocked** — no Task records. |
-| [AC-09][sp08] | Output ready for SP-09/10/11 and free delivery. | No Roadmap/job/delivery receipt. | V | **blocked** — entire downstream handoff absent. |
-| [AC-10][sp08] | Generation does not calculate Stage Score or choose exercises. | No generation run. | V | **blocked** — ownership boundary not checked on DEV. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-01][sp07] | Оценить Speaking/Grammar/Vocabulary; Listening оставить Unknown. | Оценка не запускалась; системные уровни Unknown. | **Не проверено.** |
+| [AC-02][sp07] | Один CEFR или Unknown для каждого навыка и общего уровня. | Сохранилось исходное Unknown. | **Не проверено:** новой оценки нет. |
+| [AC-03][sp07] | Самооценка отдельно от системного диагноза. | В E self-report B1 и target B2 сохранены; системные уровни Unknown. | **Не проверено:** разделение до оценки видно, защита при записи диагноза не проверена. |
+| [AC-04][sp07] | Различать Known, Not Known, Presumed Not Known, Unknown для Topic. | Topic-оценка не создана; каталог не опубликован. | **Не проверено:** нет job и вывода по Topic. |
+| [AC-05][sp07] | Ненаблюдавшийся Topic не становится Not Known. | Topic-оценки нет. | **Не проверено.** |
+| [AC-06][sp07] | Хранить источники; сомнительное ASR не даёт уверенного диагноза. | ID сохранены, синтезированный ввод E частично искажён; диагностики нет. | **Не проверено:** качество свидетельства не оценивалось. |
+| [AC-07][sp07] | Результат пригоден для SP-08. | Нет Assessment или Roadmap. | **Не проверено.** |
+| [AC-08][sp07] | Короткий Trial даёт частичный результат/Unknown без выдуманного уровня. | Короткий Trial остался in_progress. | **Не проверено.** |
+| [AC-09][sp07] | SP-07 не произносит CEFR во время звонка. | Саша не назвала уровень на прямой вопрос; job SP-07 не был запущен. | **Не проверено:** граница при завершении не наблюдалась. |
 
-## SP-11A — First Roadmap delivery
+## SP-08 — построение Roadmap
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-1][sp11a] | Send Roadmap after unpaid Trial. | Synthetic student has no Telegram chat; Trial not complete. | T, V | **blocked** — requires coordinated `@alexgusev93` DEV Telegram UI and delivery receipt. |
-| [AC-2][sp11a] | Show goal, target, full path, nearest Tasks and reasons. | No Roadmap or visible message. | V | **blocked** — generation/delivery absent. |
-| [AC-3][sp11a] | Unknown/Presumed not stated as proven gaps. | No visible message. | V | **blocked** — copy not observed. |
-| [AC-4][sp11a] | Omit invented date when forecast unavailable. | No visible message. | V | **blocked** — sparse forecast copy not observed. |
-| [AC-5][sp11a] | Delivery works without SP-19/20. | No delivery. | V | **blocked** — runtime independence needs completed Trial and send receipt. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-01][sp08] | Полный путь A2→B2 по четырём навыкам MVP. | Нет Assessment/Roadmap; независимое чтение каталога вернуло catalog_not_published. | **Не проверено:** генерация не запускалась. |
+| [AC-02][sp08] | Учитывать отдельный текущий уровень каждого навыка. | Системные уровни Unknown; Roadmap нет. | **Не проверено.** |
+| [AC-03][sp08] | Пропускать Known с причиной; не путать Unknown. | Нет состояний Topic или Tasks. | **Не проверено.** |
+| [AC-04][sp08] | Явно помечать предварительные гипотезы. | Roadmap нет. | **Не проверено.** |
+| [AC-05][sp08] | Личный порядок без жёсткого общего графа. | Генерация не запускалась. | **Не проверено.** |
+| [AC-06][sp08] | Рабочая цель влияет на порядок без потери базового B2. | Цель IT/встречи и target B2 сохранены; Roadmap нет. | **Не проверено:** сравнивать нечего. |
+| [AC-07][sp08] | Не дублировать активную Task для Student+Topic+Problem. | Tasks не созданы. | **Не проверено:** повтор генерации не запускался. |
+| [AC-08][sp08] | Новые Tasks начинаются с 0% Progress. | Tasks не созданы. | **Не проверено.** |
+| [AC-09][sp08] | Результат доступен SP-09/10/11 и бесплатной доставке. | Нет Roadmap, job или квитанции доставки. | **Не проверено.** |
+| [AC-10][sp08] | Генерация не считает Stage Score и не выбирает упражнения. | Генерация не запускалась. | **Не проверено:** граница ответственности на DEV не наблюдалась. |
 
-## Parent SP-11 — stage A only
+## SP-11A — первая доставка Roadmap
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-01][sp11] | Roadmap reaches every learner after Trial. | No terminal Trial; agent identity has no Telegram recipient. | V | **blocked** — real test Telegram delivery not run. |
-| [AC-02][sp11] | Full goal/path and nearest Tasks visible. | No visible Roadmap. | V | **blocked** — generation and UI absent. |
-| [AC-03][sp11] | Next Task has an understandable reason. | No Task or visible explanation. | V | **blocked** — no output to inspect. |
-| [AC-04][sp11] | Unknown/Presumed differentiated from proven gaps. | No visible Roadmap. | V | **blocked** — copy not observed. |
-| [AC-06][sp11] | No arbitrary CEFR averaging. | No generated/delivered levels. | V | **blocked** — level presentation not observed. |
-| [AC-07][sp11] | Forecast interval or none when evidence is sparse. | No forecast. | V | **blocked** — post-Trial forecast not observed. |
-| [AC-08][sp11] | Existing My Progress accessible without mandatory home screen. | Mini App UI was not opened in V. | V | **blocked** — UI acceptance belongs to coordinated Telegram/Mini App test. |
-| [AC-09][sp11] | Payment does not hide the Roadmap. | Test student unpaid, but no Roadmap/message. | T, V | **blocked** — unpaid delivery not observed. |
-| [AC-10][sp11] | Regular schedule follows Roadmap, not Trial call. | No wrap-up or Roadmap transition. | V | **blocked** — ordering not observed. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-1][sp11a] | Отправить Roadmap после бесплатного Trial. | Синтетический ученик без Telegram chat; Trial не завершён. | **Не проверено:** нужна проверка на тестовом Telegram-аккаунте. |
+| [AC-2][sp11a] | Показать цель, уровень, полный путь, ближайшие Tasks и причины. | Roadmap и сообщение отсутствуют. | **Не проверено.** |
+| [AC-3][sp11a] | Не выдавать Unknown/Presumed за доказанный пробел. | Видимого сообщения нет. | **Не проверено.** |
+| [AC-4][sp11a] | Не выдумывать дату при отсутствии прогноза. | Видимого сообщения нет. | **Не проверено.** |
+| [AC-5][sp11a] | Доставка не зависит от SP-19/20. | Доставки нет. | **Не проверено:** нужен завершённый Trial и квитанция отправки. |
 
-## Parent SP-17 — Trial-dependent criteria
+## Родительская SP-11 — только первый этап
 
-| AC | Expected | Actual DEV result | Evidence | Verdict and exact reason |
-| --- | --- | --- | --- | --- |
-| [AC-01][sp17] | Common Observation format accepts Trial evidence. | No Observation from completed Trial. | V | **blocked** — common producer/record not observed. |
-| [AC-02][sp17] | Source and Task/Stage/Action refs retained when present. | Trial conversation IDs saved; no Observation refs. | V | **blocked** — provenance not checked in Observation record. |
-| [AC-03][sp17] | Independent/hinted/self-corrected/uncorrected distinct. | No classified Observation. | V | **blocked** — outcome variants not elicited. |
-| [AC-04][sp17] | Silence not error; uncertainty guarded. | No silence or uncertainty Observation. | V | **blocked** — branches not exercised. |
-| [AC-05][sp17] | Repeated attempt does not double count. | No replayed transcript or score. | V | **blocked** — idempotency not exercised live. |
-| [AC-08][sp17] | Missing Topic/Problem remains Unknown. | Topic Knowledge absent and no assessment. | V | **blocked** — Trial post-processing not run. |
-| [AC-09][sp17] | Detection distinct from active Task Stage Progress. | No Task/Observation route. | V | **blocked** — route not visible in Trial result. |
-| [AC-10][sp17] | SP-07 receives standardized events. | No Observation → Assessment job. | V | **blocked** — consumer receipt absent. |
-| [AC-11][sp17] | Existing post-call analysis preserved. | No terminal call or analysis. | V | **blocked** — post-call compatibility not exercised. |
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-01][sp11] | Каждый ученик получает Roadmap после Trial. | Trial не завершён; синтетический ученик без Telegram-адресата. | **Не проверено.** |
+| [AC-02][sp11] | Видны цель, полный путь и ближайшие Tasks. | Roadmap/сообщения нет. | **Не проверено.** |
+| [AC-03][sp11] | Причина следующей Task понятна ученику. | Task и объяснения нет. | **Не проверено.** |
+| [AC-04][sp11] | Unknown/Presumed отделены от подтверждённых пробелов. | Roadmap нет. | **Не проверено.** |
+| [AC-06][sp11] | Уровни не усредняются произвольно. | Нет рассчитанных или показанных уровней. | **Не проверено.** |
+| [AC-07][sp11] | Интервал прогноза либо отсутствие даты при нехватке данных. | Прогноза нет. | **Не проверено.** |
+| [AC-08][sp11] | My Progress доступен без обязательного главного экрана. | Mini App в этих звонках не открывали. | **Не проверено:** нужен отдельный просмотр интерфейса. |
+| [AC-09][sp11] | Оплата не скрывает Roadmap. | Тестовый ученик бесплатный, но Roadmap не создан. | **Не проверено.** |
+| [AC-10][sp11] | Обычное расписание обсуждается после Roadmap. | Завершения Trial и перехода нет. | **Не проверено.** |
 
-Parent SP-11 AC-05/11 belong to stage B; parent SP-17 AC-06/07 need Teaching Methods/Homework evidence. Other sessions own those interfaces.
+## Родительская SP-17 — критерии, зависящие от Trial
 
-## Test harness handoff
+| Критерий | Ожидалось | Фактически на DEV | Вывод |
+| --- | --- | --- | --- |
+| [AC-01][sp17] | Общий формат Observation принимает Trial-свидетельства. | После завершённого Trial Observation нет. | **Не проверено.** |
+| [AC-02][sp17] | Сохраняются источник и ссылки на Task/Stage/Action, когда они есть. | ID реплик есть, записей Observation нет. | **Не проверено.** |
+| [AC-03][sp17] | Различаются самостоятельный, с подсказкой, исправленный и ошибочный ответы. | Классифицированных Observations нет. | **Не проверено.** |
+| [AC-04][sp17] | Молчание не ошибка; явная неопределённость учитывается. | Нужные ветви не проверены. | **Не проверено.** |
+| [AC-05][sp17] | Повтор попытки не учитывается дважды. | Повторной расшифровки или Score нет. | **Не проверено.** |
+| [AC-08][sp17] | Отсутствующий Topic/Problem остаётся Unknown. | Topic Knowledge и Assessment отсутствуют. | **Не проверено.** |
+| [AC-09][sp17] | Обнаружение проблемы отдельно от Progress активного Stage. | Нет Task или Observation-маршрута. | **Не проверено.** |
+| [AC-10][sp17] | SP-07 получает стандартизированные события. | Нет Observation → Assessment job. | **Не проверено.** |
+| [AC-11][sp17] | Существующий анализ после звонка сохраняется. | Терминального звонка и анализа нет. | **Не проверено.** |
 
-The local patch adds `early-exit` and `phase-probe` to the DEV workflow. The phase probe uses server `connectedSeconds` and waits across natural turn boundaries. `expectFinished` requires a terminal relay event. The DEV-only `voice-state` response adds scoped raw Trial events and job receipts for the owned `agent_test` lesson. These edits require parent integration and DEV deployment before they provide live evidence. Local Python client tests: 8/8 passed. `git diff --check` passed. The short V run used the already merged fixed runner client, before this new patch.
+Критерии SP-11 AC-05/11 относятся ко второму этапу. Критерии SP-17 AC-06/07 требуют данных Teaching Methods и Homework; их проверяют другие сценарии.
+
+## Тестовый клиент и следующая диагностика
+
+Клиент фазовой проверки читает серверный connectedSeconds и ждёт завершения каждого хода. expectFinished требует терминальное событие от сервера. Закрытый DEV-маршрут voice-state отдаёт исходные события Trial и состояния jobs только для принадлежащего тестовому ученику урока. Чтение после сбоя не запускало новый звонок или модель. Локальные проверки клиента: 12/12 Python тестов, компиляция Kotlin и git diff --check.
+
+Поставленная на DEV диагностическая правка записывает разрешённые поля ответа модели: причину статуса, код ошибки и число выходных токенов. Она не записывает реплики или звук и не считает incomplete успешным ответом. В отдельной ветке готова, но **не поставлена**, дополнительная правка: записывать факт и результат вызова finish_after_reply и число ответов в ожидании воспроизведения. Её 26 локальных тестов прошли; поведение урока она не меняет. Новые звонки и поставки сейчас остановлены.
 
 [sp06]: https://app.notion.com/p/418045c3d5768175a536f196d96fa72f
 [sp17b]: https://app.notion.com/p/41a045c3d5768186b157e286e8486781
