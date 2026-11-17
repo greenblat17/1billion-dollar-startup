@@ -1,5 +1,7 @@
 # Regular lesson AC · DEV run · 2026-11-17
 
+Отчёт фиксирует первый голосовой запуск. Более поздние изменения каталога и подготовки урока указаны в [сводке DEV](../mvp-readiness-2026-11-17.md).
+
 Scope: SP-09/10, parent SP-12/13/17/19, SP-12B/13B/17C/19B, SP-14/15/16/18/20. This is a factual DEV acceptance ledger, not a Notion status update.
 
 **Revision boundary.** Initial checkout HEAD `ecbe949c83d26a5e00c8ea1a27665d3cc14dc15f`. DEV Ktor was upgraded from `7e416da` to `e3d8d09` ([deployment](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44129869756), [readiness](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44130714788)) and then `192a601` ([deployment](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44132975803), [readiness](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44133508972)); AI remains `e308902`, Mini App `2f38856`. Rows marked Ktor `e3d8d09` below use that earliest code baseline; the final lesson read and Voice test used `192a601`. The runner filename fix is workflow SHA `c928142`; it did not redeploy Ktor. Earlier [synthetic Trial Voice run](agent-voice-dev-2026-11-17.md) does not exercise a regular lesson.
