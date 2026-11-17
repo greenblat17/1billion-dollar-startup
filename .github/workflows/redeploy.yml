@@ -70,6 +70,10 @@ on:
           - read-only
           - dependencies-only
         default: short
+      agent_voice_audio_run_id:
+        description: Optional dependencies-only workflow run containing verified voice WAV
+        type: string
+        default: ''
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -492,8 +496,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: deploy-dev
     timeout-minutes: 40
+    permissions:
+      contents: read
+      actions: read
     env:
       VOICE_SCENARIO: ${{ inputs.agent_voice_scenario }}
+      VOICE_AUDIO_RUN_ID: ${{ inputs.agent_voice_audio_run_id }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -503,44 +511,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ -n "$VOICE_AUDIO_RUN_ID" ]]; then [[ "$VOICE_AUDIO_RUN_ID" =~ ^[0-9]+$ ]]; fi
           echo 'Voice preflight: pip install'
-          timeout --kill-after=5s 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
-          echo 'Voice preflight: pip ready'
-          if [[ "$VOICE_SCENARIO" != read-only ]]; then
-            audio_packages=()
-            command -v espeak-ng >/dev/null || audio_packages+=(espeak-ng)
-            command -v ffmpeg >/dev/null || audio_packages+=(ffmpeg)
-            if (( ${#audio_packages[@]} )); then
-              apt_options=(-qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10)
-              echo "Voice preflight: apt install using current lists (${audio_packages[*]})"
-              if ! timeout --kill-after=5s 90s sudo env DEBIAN_FRONTEND=noninteractive apt-get install "${apt_options[@]}" -y --no-install-recommends "${audio_packages[@]}"; then
-                echo 'Voice preflight: apt update fallback'
-                timeout --kill-after=5s 90s sudo apt-get update "${apt_options[@]}"
-                echo 'Voice preflight: apt install after refresh'
-                timeout --kill-after=5s 120s sudo env DEBIAN_FRONTEND=noninteractive apt-get install "${apt_options[@]}" -y --no-install-recommends "${audio_packages[@]}"
-              fi
-            fi
-            command -v espeak-ng >/dev/null
-            command -v ffmpeg >/dev/null
-            echo 'Voice preflight: audio packages ready'
+          if [[ "$VOICE_SCENARIO" != dependencies-only ]]; then
+            timeout --kill-after=5s 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
           fi
-      - name: Smoke test voice synthesis without DEV access
+          echo 'Voice preflight: pip ready'
+          if [[ "$VOICE_SCENARIO" == dependencies-only || ( "$VOICE_SCENARIO" != read-only && -z "$VOICE_AUDIO_RUN_ID" ) ]]; then
+            echo 'Voice preflight: install pinned eSpeak NG wheel'
+            timeout --kill-after=5s 60s python3 -m pip install --quiet --disable-pip-version-check \
+              --only-binary=:all: --no-deps --require-hashes -r <(
+                printf '%s\n' 'espeakng-loader==0.2.4 --hash=sha256:08721baf27d13d461f6be6eed9a65277e70d68234ff484fd8b9897b222cdcb6d'
+              )
+          fi
+      - name: Build full voice inputs without DEV access
         if: ${{ inputs.agent_voice_scenario == 'dependencies-only' }}
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          from runpy import run_path
-          from tempfile import TemporaryDirectory
-
-          synthesize = run_path('infra/dev/agent-voice.py')['pcm_for_turn']
-          with TemporaryDirectory() as work:
-              pcm, mode = synthesize({'text': 'This is a voice runner dependency check.'}, Path(work))
-          if mode != 'synthesized_espeak_ng' or len(pcm) <= 48000 or len(pcm) % 2:
-              raise SystemExit('Voice synthesis produced invalid PCM')
-          print(f'Voice dependency smoke passed: {mode}, {len(pcm)} PCM bytes')
-          PY
+          timeout 60s python3 infra/dev/prepare-voice-audio.py generate "$RUNNER_TEMP/voice-inputs" \
+            infra/dev/scenarios/voice-{phase-probe,regular-action,short,early-exit}.json
+      - name: Upload verified voice inputs
+        if: ${{ inputs.agent_voice_scenario == 'dependencies-only' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: voice-inputs-${{ github.run_id }}
+          path: ${{ runner.temp }}/voice-inputs/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Download prepared voice inputs
+        if: ${{ inputs.agent_voice_audio_run_id != '' && inputs.agent_voice_scenario != 'read-only' && inputs.agent_voice_scenario != 'dependencies-only' }}
+        uses: actions/download-artifact@v7
+        with:
+          name: voice-inputs-${{ inputs.agent_voice_audio_run_id }}
+          path: ${{ runner.temp }}/voice-inputs
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.agent_voice_audio_run_id }}
+      - name: Verify PCM and scenario before voice admission
+        if: ${{ inputs.agent_voice_scenario != 'read-only' && inputs.agent_voice_scenario != 'dependencies-only' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$VOICE_SCENARIO" in
+            short|early-exit|phase-probe|regular-action) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
+            *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
+          esac
+          if [[ -z "$VOICE_AUDIO_RUN_ID" ]]; then
+            timeout 60s python3 infra/dev/prepare-voice-audio.py generate "$RUNNER_TEMP/voice-inputs" "$scenario"
+          fi
+          python3 infra/dev/prepare-voice-audio.py verify "$RUNNER_TEMP/voice-inputs" "$scenario" \
+            > "$RUNNER_TEMP/verified-voice-scenario.json"
       - name: Run voice client through private loopback tunnels
         if: ${{ inputs.agent_voice_scenario != 'dependencies-only' }}
         shell: bash
@@ -562,10 +582,11 @@ jobs:
           uuid.UUID(os.environ['STUDENT_ID'])
           uuid.UUID(os.environ['LESSON_ID'])
           PY
-          case "$VOICE_SCENARIO" in
-            short|early-exit|phase-probe|regular-action|read-only) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
-            *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
-          esac
+          if [[ "$VOICE_SCENARIO" == read-only ]]; then
+            scenario=infra/dev/scenarios/voice-read-only.json
+          else
+            scenario="$RUNNER_TEMP/verified-voice-scenario.json"
+          fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
           ai_key="$RUNNER_TEMP/agent-voice-ai-key"
           install -m 600 /dev/null "$cmp_key"

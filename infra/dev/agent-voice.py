@@ -385,6 +385,8 @@ def main():
         parser.error(str(error))
     report = {'studentId': str(args.student), 'lessonId': str(args.lesson), 'scenario': str(args.scenario),
               'result': 'incomplete', 'attempts': [], 'turns': [{'input': t, 'responseAudioIds': []} for t in turns], 'audio': []}
+    if 'preparedAudio' in scenario:
+        report['preparedAudio'] = scenario['preparedAudio']
     try:
         asyncio.run(run(args, scenario, report, token))
         report['result'] = 'completed_read_only' if read_only else 'completed_transport'
