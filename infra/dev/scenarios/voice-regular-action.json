@@ -1,0 +1,10 @@
+{
+  "turns": [
+    {"text": "I need to explain a delayed release in a work meeting. Can we practise that now?"},
+    {"text": "I am not sure how to say it. Could you give me one hint?"},
+    {"text": "I want to try again myself: We need more time because the final tests are not finished."},
+    {"text": "I do not want another grammar drill. Could we continue with a short conversation instead?"},
+    {"text": "Thanks. Please end this lesson now and tell me what we should do next time."}
+  ],
+  "expectFinished": true
+}
