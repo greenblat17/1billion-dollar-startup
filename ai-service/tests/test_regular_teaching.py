@@ -31,7 +31,7 @@ class Backend:
     async def learning_roadmap_priority(self, scope):
         self.calls.append('priority')
         if not self.priority:
-            raise BackendFailure('roadmap_not_found', 404)
+            raise BackendFailure('roadmap_not_found', 400)
         return {'schemaVersion': 1, 'stale': False,
                 'priority': {'revision': 3, 'document': {'nextTaskId': self.current['id']}}}
 

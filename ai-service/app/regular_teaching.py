@@ -34,7 +34,7 @@ class RegularTeachingPreparation:
         try:
             decision = await self.backend.learning_roadmap_priority(scope)
         except BackendFailure as error:
-            if error.status == 404:
+            if error.code == 'roadmap_not_found' or error.status == 404:
                 return None
             raise
         priority = decision.get('priority')
