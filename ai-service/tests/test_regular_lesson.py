@@ -48,6 +48,9 @@ async def test_trial_preparation_does_not_start_new_paid_planner():
 
 def regular_session(minutes=30, elapsed=0):
     s = session()
+    s.backend.catalog = AsyncMock(return_value={'version': 'v1', 'topics': [], 'problems': []})
+    s.backend.learning_tasks = AsyncMock(return_value={'items': [], 'nextOffset': None})
+    s.backend.learning_problems = AsyncMock(return_value={'items': []})
     s.lesson = dict(s.lesson, kind='regular', duration_minutes=minutes,
         starts_at=(datetime.now(timezone.utc) - timedelta(seconds=elapsed)).isoformat(),
         execution_snapshot={'status': 'ready', 'plan': {'content': {
@@ -71,7 +74,7 @@ async def test_regular_configuration_uses_admitted_plan_memory_and_actual_next_m
     assert data['nextLesson'] is None
     assert 'not yet\navailable' not in config['instructions']
     assert config['audio']['output']['voice'] == 'marin'
-    assert {t['name'] for t in config['tools']} == {'finish_after_reply', 'search_memory', 'discuss_memory', 'record_memory', 'set_memory_policy', 'review_observation', 'confirm_memory', 'reject_memory', 'forget_memory'}
+    assert {t['name'] for t in config['tools']} == {'finish_after_reply', 'search_memory', 'discuss_memory', 'record_memory', 'set_memory_policy', 'review_observation', 'confirm_memory', 'reject_memory', 'forget_memory', 'decide_learning_problem', 'get_learning_catalog'}
 
 
 @pytest.mark.asyncio

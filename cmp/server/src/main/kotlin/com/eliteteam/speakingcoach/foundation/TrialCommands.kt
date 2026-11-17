@@ -43,8 +43,15 @@ internal class TrialCommands {
                 if (trialV55(lesson)) TrialCallEvents().lifecycle(c, scope, session, "ended", json("reason" to reason), now)
                 if (trialV55(lesson) && reason == "end_button") TrialExecution().complete(c, lesson, reason, now)
                 if (reason == "natural_goodbye") {
+                    val connectedRegularSeconds = if (lesson.text("kind") == "regular") c.rows(
+                        """SELECT COALESCE(SUM(EXTRACT(EPOCH FROM ended_at-started_at)),0)
+                            FROM call_session WHERE student_id=? AND lesson_id=? AND ended_at IS NOT NULL""",
+                        scope.studentId, scope.lessonId) { it.getDouble(1) }.single() else 0.0
                     c.update("UPDATE lesson SET status='completed',ended_early=?,outcome_reason=?,version=version+1 WHERE id=?",
-                        trialV55(lesson) && TrialExecution().state(c, lesson, now).number("connectedSeconds") < 1500, reason, scope.lessonId)
+                        if (trialV55(lesson)) TrialExecution().state(c, lesson, now).number("connectedSeconds") < 1500
+                        else lesson.text("kind") == "regular" &&
+                            connectedRegularSeconds < lesson.number("duration_minutes") * 60 - 180,
+                        reason, scope.lessonId)
                     c.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
                 }
                 val earlyRegularExit = reason == "end_button" &&

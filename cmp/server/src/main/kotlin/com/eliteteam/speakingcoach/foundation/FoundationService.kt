@@ -74,6 +74,9 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             val result = if (action == "learning.observation.invalidate") observations.invalidate(connection, scope, args, now)
                 else observations.write(connection, scope, action.substringAfterLast('.'), args, now)
             val updated = result.obj("observation").obj("document")
+            if (action == "learning.observation.record") {
+                RegularLessonAdmission().markPracticed(connection, scope, updated, now)
+            }
             val detection = ProblemDetection()
             detection.refresh(connection, scope.studentId, old?.optionalText("topicId"), old?.optionalText("problemId"), now)
             if (old?.optionalText("topicId") != updated.optionalText("topicId") ||

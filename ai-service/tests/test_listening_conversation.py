@@ -133,12 +133,15 @@ async def test_malformed_assessment_does_not_create_evidence_or_advance():
 def regular_action_session():
     base = session()
     base.backend.record_learning_observation = AsyncMock(return_value={'created': True})
+    base.backend.learning_problems = AsyncMock(return_value={'items': []})
     admitted = {**ADMITTED, 'lesson': {**ADMITTED['lesson'], 'kind': 'regular'},
                 'issuedTeachingContent': handoff()}
     m = model(verdict())
     s = RealtimeTrialSession(base.socket, base.backend, base.contexts, base.store,
                              admitted, SETTINGS, m)
     s.provider = base.provider
+    s.practice_started = True
+    s.regular_phase = lambda: 'practice'
     return s, m
 
 

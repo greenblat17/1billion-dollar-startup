@@ -75,7 +75,10 @@ internal class TrialAccess(private val service: FoundationService) {
         if (entitlement != null) c.update("UPDATE lesson SET admission_entitlement_id=? WHERE id=?", entitlement.text("id"), lesson.text("id"))
         c.update("UPDATE lesson SET status='in_progress',execution_snapshot=COALESCE(execution_snapshot,?::jsonb),version=version+1 WHERE id=?", briefing, lesson.text("id"))
         c.update("UPDATE trial_notice SET status='cancelled' WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
+        val regularExecution = if (lesson.text("kind") == "regular") RegularLessonAdmission().prepare(c, student, lesson.text("id"), now) else null
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")),
+            "regularExecution" to regularExecution,
+            "issuedTeachingContent" to regularExecution?.get("issuedTeachingContent"),
             "trialExecution" to if (trialV55(lesson)) TrialExecution().state(c, lesson, now) else null)
     }
 }

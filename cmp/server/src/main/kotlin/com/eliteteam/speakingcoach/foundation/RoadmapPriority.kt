@@ -27,8 +27,8 @@ internal class RoadmapPriority {
     }
 
     fun decide(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
-        requireRole(scope, "operator")
-        args.only("topicId", "problemId", "skillId", "decision", "source", "reason", "decisionId")
+        requireRole(scope, "operator", "voice")
+        args.only("topicId", "problemId", "skillId", "decision", "source", "reason", "decisionId", "learnerWords")
         val source = args.text("source")
         if (source !in setOf("learner_request", "learner_response")) reject("invalid_priority_source")
         val decision = args.text("decision")
@@ -39,6 +39,20 @@ internal class RoadmapPriority {
         val topic = StudentLearningModel.requiredString(args["topicId"], 120)
         val problem = StudentLearningModel.requiredString(args["problemId"], 120)
         val skill = StudentLearningModel.requiredString(args["skillId"], 120)
+        if (scope.role == "voice") {
+            val sourceEvent = c.document("""SELECT to_jsonb(e) FROM conversation_event e
+                JOIN lesson_event le ON le.event_id=e.id WHERE e.student_id=? AND e.id=?
+                AND e.role='user' AND le.lesson_id=? AND e.body IS NOT NULL AND e.expires_at>?""",
+                scope.studentId, args.text("decisionId"), scope.lessonId, now) ?: reject("priority_decision_source_required")
+            if (sourceEvent.text("body").isBlank()) reject("priority_decision_source_required")
+            val learnerWords = StudentLearningModel.requiredString(args["learnerWords"], 500)
+            if (!sourceEvent.text("body").contains(learnerWords)) reject("priority_decision_source_required")
+            if (source == "learner_response") {
+                val score = c.document("""SELECT to_jsonb(p) FROM learning_problem_score p
+                    WHERE student_id=? AND topic_id=? AND problem_id=?""", scope.studentId, topic, problem)
+                if (score == null || score.number("evidence_count") < 1) reject("priority_proposal_required")
+            }
+        }
         val topicRow = c.document("SELECT to_jsonb(t) FROM learning_catalog_topic t WHERE version=? AND id=?",
             version, topic) ?: reject("invalid_priority_catalog_links")
         val problemRow = c.document("SELECT to_jsonb(p) FROM learning_catalog_problem p WHERE version=? AND id=?",

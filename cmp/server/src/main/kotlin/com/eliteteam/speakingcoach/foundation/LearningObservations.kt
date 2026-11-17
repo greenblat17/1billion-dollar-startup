@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.foundation
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 
 /** Authoritative evidence journal. Commands run under the existing student lock and receipt transaction. */
@@ -16,10 +17,13 @@ internal class LearningObservations(private val stages: ObservationStageResolver
         validateCatalog(c, d)
         validateTask(c, scope.studentId, d)
         val reference = referenceStatus(c, scope.studentId, d)
+        val freeConversation = d.text("route") == "problem_detection" && d.optionalText("actionId") == null &&
+            d.optionalText("taskId") == null && (d["stageRef"] == null || d["stageRef"] == JsonNull) &&
+            reference.first == "not_applicable"
         if (scope.role == "voice" && (action != "record" || d.text("practice") != "regular" ||
-                d.optionalText("lessonId") != scope.lessonId || d.optionalText("actionId") == null ||
-                reference.first != "verified" && !(reference.first == "defective" &&
-                    d.text("outcome") == "invalid" && d.obj("quality").text("status") == "invalid"))) reject("not_permitted")
+                d.optionalText("lessonId") != scope.lessonId || !(freeConversation ||
+                d.optionalText("actionId") != null && (reference.first == "verified" || reference.first == "defective" &&
+                    d.text("outcome") == "invalid" && d.obj("quality").text("status") == "invalid")))) reject("not_permitted")
         d.optionalText("repeatOf")?.let {
             if (get(c, scope.studentId, it).obj("document").optionalText("repeatOf") != null) reject("observation_repeat_chain")
         }

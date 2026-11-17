@@ -58,7 +58,7 @@ function failure(code,errorId){
  const titles={
   microphone_denied:'Нужен доступ к микрофону',microphone_missing:'Микрофон не найден',microphone_busy:'Микрофон недоступен',
   lesson_unavailable:'Урок недоступен',lesson_expired:'Время встречи прошло',
-  connection_lost:'Связь прервалась',active_episode:'Урок уже открыт',
+  connection_lost:'Связь прервалась',learning_observation_pending:'Нужна проверка урока',active_episode:'Урок уже открыт',
   invalid_telegram_auth:'Откройте урок из Telegram',telegram_auth_expired:'Нужно открыть урок заново',
   subscription_required:'Подписка не активна',client_update_required:'Нужно обновить приложение',
   plan_not_ready:'Урок ещё готовится',analysis_not_ready:'Саша разбирает прошлый урок',
@@ -68,12 +68,13 @@ function failure(code,errorId){
   lesson_unavailable:'Проверьте договорённость с Сашей в Telegram.',
   lesson_expired:'Напишите Саше в Telegram, чтобы договориться о новой встрече.',
   connection_lost:'Можно вернуться в тот же урок. Попробуйте подключиться снова.',
+  learning_observation_pending:'Ваш ответ сохранён, но учебное наблюдение не записалось. Напишите Саше в Telegram и сообщите код ошибки. Прогресс по этому ответу не подтверждён.',
   microphone_denied:'Разрешите микрофон, чтобы поговорить с Сашей.',
   subscription_required:'Напишите Саше в Telegram, чтобы продлить подписку.',
   invalid_telegram_auth:'Вернитесь в чат с Сашей и нажмите кнопку входа в урок.',
   telegram_auth_expired:'Вернитесь в чат с Сашей и снова откройте урок.',
  };
- const terminal=['invalid_telegram_auth','telegram_auth_expired','lesson_expired','lesson_unavailable','client_update_required','subscription_required','plan_failed','analysis_failed','roadmap_failed','trial_not_configured'];
+ const terminal=['invalid_telegram_auth','telegram_auth_expired','lesson_expired','lesson_unavailable','client_update_required','subscription_required','plan_failed','analysis_failed','roadmap_failed','trial_not_configured','learning_observation_pending'];
  renderError(titles[code]||'Не удалось подключиться',
   descriptions[code]||errors[code]||'Проверьте сеть и доступ к микрофону. Затем попробуйте снова.',
   !terminal.includes(code),errorId,
