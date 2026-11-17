@@ -8,6 +8,7 @@ import base64
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
+import re
 from uuid import uuid4
 import math
 import time
@@ -34,6 +35,23 @@ class RealtimeProviderError(RuntimeError):
         # Diagnostics extracts and redacts these fields; exception text never includes the body.
         self.body = {'error': {k: payload[k] for k in ('code', 'type', 'message', 'reason') if k in payload}}
         super().__init__('realtime_provider_error')
+
+
+def safe_response_status(response):
+    """Keep provider status metadata, never response text or audio, in diagnostics."""
+    details = response.get('status_details')
+    details = details if isinstance(details, dict) else {}
+    reason = details.get('reason')
+    reason = reason if reason in ('turn_detected', 'client_cancelled', 'max_output_tokens', 'content_filter') else None
+    error = details.get('error')
+    error = error if isinstance(error, dict) else {}
+    code = error.get('code')
+    code = code if isinstance(code, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', code) else None
+    usage = response.get('usage')
+    usage = usage if isinstance(usage, dict) else {}
+    output_tokens = usage.get('output_tokens')
+    output_tokens = output_tokens if type(output_tokens) is int and 0 <= output_tokens <= 1_000_000_000 else None
+    return {'status_reason': reason, 'status_error_code': code, 'output_tokens': output_tokens}
 
 
 @asynccontextmanager
@@ -577,7 +595,8 @@ class RealtimeTrialSession(TrialJournal):
             usage = response.get('usage') or {}
             event('trial_realtime_response', outcome=response['status'], model=self.settings.trial_realtime_model,
                   usage={k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens',
-                                              'input_token_details', 'output_token_details') if k in usage})
+                                              'input_token_details', 'output_token_details') if k in usage},
+                  **safe_response_status(response))
             if response['status'] not in ('completed', 'cancelled'):
                 raise RealtimeProviderError((response.get('status_details') or {}).get('error', {}))
             if response['status'] == 'cancelled':

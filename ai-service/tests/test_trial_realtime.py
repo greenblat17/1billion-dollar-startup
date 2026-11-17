@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -338,6 +339,25 @@ async def test_handshake_402_is_not_retried_and_logs_safe_provider_reason(monkey
     assert 'insufficient_quota' in caplog.text and '402' in caplog.text
     assert 'sk-secret-example' not in caplog.text
     assert 'test-never-live' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_incomplete_response_logs_reason_and_tokens_without_provider_text(caplog):
+    s = session()
+    with caplog.at_level(logging.INFO), pytest.raises(RealtimeProviderError):
+        await s.provider_event({'type': 'response.done', 'response': {
+            'status': 'incomplete', 'status_details': {
+                'type': 'incomplete', 'reason': 'max_output_tokens',
+                'error': {'code': 'limit_reached', 'message': 'Private learner text'}},
+            'usage': {'output_tokens': 1200}, 'output': []}})
+    records = [json.loads(record.message.split('runtime_event ', 1)[1]) for record in caplog.records
+               if 'runtime_event ' in record.message]
+    response = next(record for record in records if record.get('event') == 'trial_realtime_response')
+    assert response['outcome'] == 'incomplete'
+    assert response['status_reason'] == 'max_output_tokens'
+    assert response['status_error_code'] == 'limit_reached'
+    assert response['output_tokens'] == 1200
+    assert 'Private learner text' not in caplog.text
 
 
 @pytest.mark.asyncio
