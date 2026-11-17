@@ -66,7 +66,7 @@ if target:
                     (trace and data.get('trace_id') == trace))]
     def diagnostic(at, data):
         safe = {key: data.get(key) for key in
-                ('event', 'stage', 'error_id', 'error_type', 'error_code', 'cause_type',
+                ('event', 'stage', 'outcome', 'error_id', 'error_type', 'error_code', 'cause_type',
                  'http_status', 'errno', 'provider_request_id') if data.get(key) is not None}
         stack = data.get('stack') or []
         if stack:
