@@ -4,6 +4,9 @@ from uuid import uuid4
 from app.diagnostics import diagnostic_context, event, identifier
 from contextlib import suppress
 import json
+import ipaddress
+import os
+from secrets import compare_digest
 
 from fastapi import Header, HTTPException, Request, WebSocket
 
@@ -89,10 +92,24 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                     stage = 'audio_credentials'
                     await asyncio.wait_for(audio_store.check_credentials(), 10)
                     stage = 'admission'
-                    admitted = await backend._request('POST', '/trial/access', '', json={
-                        'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
-                        'attemptId': request['attemptId'],
-                    })
+                    admission = {'action': 'open', 'lessonId': request['lessonId'],
+                                 'attemptId': request['attemptId']}
+                    if 'agentGrant' in request:
+                        peer = socket.client.host if socket.client else ''
+                        try:
+                            loopback = ipaddress.ip_address(peer).is_loopback
+                        except ValueError:
+                            loopback = False
+                        if (os.getenv('SPEAKY_ENV') != 'dev' or os.getenv('AGENT_TEST_ENABLED') != 'true'
+                                or not loopback or 'initData' in request or
+                                not compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
+                                                   (settings.ai_internal_token or '').encode())):
+                            await socket.send_json({'type': 'error', 'code': 'not_permitted'})
+                            return
+                        admission['agentGrant'] = request['agentGrant']
+                    else:
+                        admission['initData'] = request['initData']
+                    admitted = await backend._request('POST', '/trial/access', '', json=admission)
                     session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings, model)
                     stage = 'session'
                     with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
@@ -108,7 +125,8 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                                  lesson_id=admitted['lesson']['id'] if admitted else None,
                                  call_session_id=admitted.get('callSessionId') if admitted else None)
                 with suppress(Exception):
-                    code = 'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost'
+                    code = ('budget_exhausted' if getattr(error, 'status_code', None) == 402 else
+                            'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost')
                     await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
             finally:
                 with suppress(Exception):

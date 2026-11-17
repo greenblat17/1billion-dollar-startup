@@ -1,0 +1,7 @@
+{
+  "turns": [
+    {"text": "Hello, I want to practise speaking about my work."},
+    {"text": "I feel nervous when I speak in meetings."}
+  ],
+  "reconnectAfterTurn": 1
+}

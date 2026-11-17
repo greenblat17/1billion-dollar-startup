@@ -2,6 +2,8 @@
 
 Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `974230e` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44090164120) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила `/start`, прямую запись Trial и доставку кнопки «Начать урок». Mini App показал включённый микрофон и идущий таймер. Голосовой диалог ещё не проверен. Волны 10–11 исключены из текущего поручения.
 
+В отдельной ветке от PR #58 реализован DEV-only голосовой клиент `agent_test`: одноразовый scoped admission (V65), существующий Mini App WebSocket relay, PCM ввод, playback ack, reconnect, WAV и read-after-write отчёт. [Контракт запуска и границы](integrations/agent-acceptance.md#dev-only-голосовой-клиент). Локально прошли 36 узких Python тестов, включая transport/reconnect с локальным stub, `:server:test`, `:server:buildFatJar`, `detekt`, Python syntax и `git diff --check`. PostgreSQL integration и полный путь OpenAI Realtime → Foundation → PostgreSQL → S3 ещё требуют поставки Ktor/AI service на DEV и короткого реального прогона. Качество разговора и реальный микрофон отдельно не проверены. Commit, push и deploy этой ветки не выполнялись.
+
 Изолированный `agent_test` Student на DEV проводит текстовые реплики через живой
 AI/Foundation pipeline и возвращает состояние PostgreSQL. BB агент проверил
 естественное знакомство, прямую запись Trial, уточнение нагрузки и исправление цели.

@@ -160,6 +160,7 @@ jobs:
     uses: ./.github/workflows/deploy-ai-server.yml
     with:
       destination: dev
+      agent_test: ${{ inputs.agent_test }}
     secrets: inherit
 
   speech-time-benchmark:

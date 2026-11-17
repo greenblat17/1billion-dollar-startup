@@ -1,7 +1,6 @@
 # Агентская приёмка текстового Speaky
 
-Срез: 2026-11-17. Код находится в отдельной ветке от `origin/bb/sp-02-05-v5-5`.
-На DEV он не поставлен. Проверка реальной модели этой ветки пока не выполнена.
+Срез: 2026-11-17. Текстовый адаптер уже использовался на DEV; голосовой клиент находится в отдельной ветке от PR #58 и ещё не поставлен.
 
 ## Проверенный текущий DEV и безопасный путь
 
@@ -49,5 +48,26 @@ python3 infra/dev/agent-dialogue.py --message 'Я боюсь говорить н
 ## Границы приёмки
 
 - Адаптер проверяет текстовый AI/Foundation pipeline и PostgreSQL в режиме обычного диалога. Он не проверяет Telegram webhook, durable intake, Bot API, typing, паузы, карточки или видимый Telegram UI. `/start` намеренно не поддержан: его Telegram reset и четыре приветствия требуют отдельного теста через настоящий UI.
-- Voice/Realtime, Mini App WebSocket, микрофон, S3 audio archive, reconnect и barge-in требуют отдельной живой приёмки с согласованным тестовым аккаунтом.
+- Голосовой клиент ниже проверяет реальный Mini App WebSocket, Realtime и сохранение аудио после DEV-поставки. Реальный микрофон, восприятие речи человеком и качество живого разговора требуют отдельной приёмки.
 - Результат CLI не подтверждает DEV readiness до проверки применённых миграций, SHA Ktor/AI/Mini App, health обоих сервисов и настроек маршрута.
+
+## DEV-only голосовой клиент
+
+`infra/dev/agent-voice.py` запускается **на DEV-хосте**. Ktor `POST /internal/agent-test/v1/{student}/voice-grant` требует service token и loopback, выдаёт одноразовый 60-секундный допуск для принадлежащего этому `agent_test` ученику исполняемого Trial или regular lesson. V65 добавляет отдельную роль допуска в PostgreSQL. AI service принимает допуск в первом кадре существующего `/miniapp/voice` только при `SPEAKY_ENV=dev`, `AGENT_TEST_ENABLED=true`, service token в WebSocket header и loopback peer. Foundation поглощает допуск при `open`, проверяет роль, срок, epoch, владельца урока и отсутствие Telegram identity. Обычный Telegram `initData` маршрут сохраняется. Никакой публичный reverse proxy для внутренних маршрутов не настраивается.
+
+`Redeploy DEV` передаёт `agent_test=true` обоим сервисам только при их поставке; AI service получает `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true` через приватный env-файл. Для проверки требуются новые версии Ktor и AI service, применённая V65 и оба health endpoint. Выключенный флаг или PROD отклоняет этот путь.
+
+Перед запуском скопируйте CLI и JSON сценария на DEV-хост в закрытый каталог. На хосте нужны Python 3.12 и `websockets==15.0.1` (из `ai-service/requirements.txt`); `ffmpeg` нужен для преобразования или синтеза, но готовый mono PCM WAV 24 кГц читается без него. Сценарий с `text` также требует `say` или `espeak-ng`. Проверьте loopback порты Ktor и AI service без публикации маршрутов наружу.
+
+Сначала создайте отдельного `agent_test` ученика через текстовый CLI выше, дождитесь реальной записи Trial и возьмите `lesson.id` из его snapshot. Для regular lesson нужен настоящий admission: активный entitlement и готовая подготовка урока. Клиент их не обходит. Если текстовый агент создал mock checkout, `POST /internal/agent-test/v1/{student}/mock-payment` с `{ "checkoutId": "UUID" }` на loopback проводит его через существующий mock billing adapter. Он работает только при настроенном mock provider и только для checkout этого `agent_test` ученика; реальные деньги не списываются. После этого дождитесь реальной записи и подготовки regular lesson. Запускайте урок только после его `starts_at`. Оба origin должны быть loopback DEV-хоста. Токен передаётся через окружение, не через аргументы или файлы.
+
+```sh
+AI_INTERNAL_TOKEN=... python3 infra/dev/agent-voice.py infra/dev/scenarios/voice-short.json \
+  --ktor https://127.0.0.1:DEV_SERVER_PORT --ai http://127.0.0.1:AI_PORT \
+  --student AGENT_TEST_UUID --lesson OWNED_LESSON_UUID \
+  --output /secure/agent-voice-run
+```
+
+Сценарий: `{"turns":[{"text":"Hello, I want to practise speaking."},{"audio":"/secure/second-turn.wav"}],"reconnectAfterTurn":1}`. Для `text` клиент синтезирует речь локальной `say` или `espeak-ng`, затем `ffmpeg` переводит её в mono PCM 24 кГц. Надёжный вход без TTS/ffmpeg на DEV-хосте — заранее подготовленный PCM WAV: mono, signed 16-bit, 24 кГц. Для другого `audio` формата нужен `ffmpeg`. Оба типа помечаются в JSON; микрофон не используется. Не более пяти коротких ходов за запуск. PCM отправляется кадрами по 100 мс в том же `realtime-pcm-v1` протоколе, затем тишина даёт VAD завершить ход. Клиент принимает `audio_start`, бинарный PCM, `audio_end`, `interrupt`, `reconnect` и отправляет `played` только после времени аудио; при interrupt отправляет неполный playback ack. Это имитация времени прослушивания, а не доказательство, что человек услышал ответ.
+
+`dialogue.json` содержит попытки, события relay, тайминги, ID аудио, read-after-write snapshot после ходов и итоговый Foundation snapshot с source IDs и архивными метаданными S3. `dialogue.md` содержит сохранённые транскрипты из Foundation, если ASR и ответ успели сохраниться. WAV файлы содержат ответное аудио. Выход создаётся с правами `0700`/`0600`. Допуск и service token в отчёт не пишутся. `completed_transport` означает прохождение короткого сценария, не успешную голосовую приёмку. При HTTP 402 остановите прогон без повторов. Для оценки пауз, barge-in, голоса и педагогики прослушайте WAV и проверьте ID источников и состояние; затем проведите отдельный тест с реальным микрофоном.

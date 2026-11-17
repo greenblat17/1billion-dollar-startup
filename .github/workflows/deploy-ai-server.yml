@@ -7,6 +7,11 @@ on:
         description: prod or dev
         required: true
         type: string
+      agent_test:
+        description: Enable the loopback agent voice admission on DEV only
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ jobs:
       cancel-in-progress: false
     env:
       DESTINATION: ${{ inputs.destination }}
+      AGENT_TEST: ${{ inputs.agent_test }}
       PROD_AI_SERVER_HOST: ${{ secrets.PROD_AI_SERVER_HOST }}
       PROD_AI_SERVER_USER: ${{ secrets.PROD_AI_SERVER_USER }}
       PROD_AI_SERVER_SSH_KEY: ${{ secrets.PROD_AI_SERVER_SSH_KEY }}
@@ -65,6 +71,12 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
+          sed -i '/^\(SPEAKY_ENV\|AGENT_TEST_ENABLED\)=/d' vps-upload/.env
+          if [ "$DESTINATION" = dev ]; then
+            printf 'SPEAKY_ENV=dev\nAGENT_TEST_ENABLED=%s\n' "$AGENT_TEST" >> vps-upload/.env
+          else
+            printf 'SPEAKY_ENV=prod\nAGENT_TEST_ENABLED=false\n' >> vps-upload/.env
+          fi
           sed -i '/^KORA_H_\(ENABLED\|ALLOWLIST\)=/d' vps-upload/.env
           if [ -n "$KORA_H_ALLOWLIST" ]; then
             if [[ "$KORA_H_ALLOWLIST" != "*" && ! "$KORA_H_ALLOWLIST" =~ ^[0-9]+(,[0-9]+)*$ ]]; then

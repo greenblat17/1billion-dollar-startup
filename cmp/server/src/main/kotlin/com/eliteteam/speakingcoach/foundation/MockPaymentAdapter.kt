@@ -9,6 +9,14 @@ import kotlinx.serialization.json.JsonObject
 
 /** Only a verified private Telegram callback or the local renewal worker can drive this mock. */
 internal class MockPaymentAdapter(private val service: FoundationService) {
+    /** DEV agent_test path: complete only its existing mock checkout through the normal billing adapter. */
+    suspend fun agentCallback(student: String, checkoutId: String): JsonObject = service.database.transaction { c, _ ->
+        c.lockStudent(student)
+        if (c.document("SELECT to_jsonb(i) FROM student_identity i WHERE student_id=? AND provider='agent_test' AND NOT EXISTS (SELECT 1 FROM student_identity t WHERE t.student_id=i.student_id AND t.provider='telegram')", student) == null) reject("not_owned")
+        val checkout = c.document("SELECT to_jsonb(p) FROM billing_checkout p WHERE id=? AND student_id=? AND provider='mock'", checkoutId, student) ?: reject("not_owned")
+        service.billing.apply(c, event(checkout, true), service.database.clock.instant())
+    }
+
     suspend fun callback(subject: String, checkoutId: String, success: Boolean): JsonObject {
         return service.database.transaction { c, _ ->
             val student = c.rows("SELECT student_id FROM student_identity WHERE provider='telegram' AND subject=?", subject) { it.getString(1) }.singleOrNull() ?: reject("not_owned")

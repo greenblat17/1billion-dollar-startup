@@ -7,33 +7,45 @@ import kotlinx.serialization.json.JsonObject
 
 internal class TrialAccess(private val service: FoundationService) {
     suspend fun access(args: JsonObject, botToken: String): JsonObject {
-        val subject = telegramMiniSubject(args.text("initData"), botToken, service.database.clock.instant())
-        val student = service.identity.resolve("telegram", subject)
+        val grant = args.optionalText("agentGrant")
+        if (grant != null && (System.getenv("SPEAKY_ENV") != "dev" || System.getenv("AGENT_TEST_ENABLED") != "true" || args.text("action") != "open")) reject("not_permitted")
+        val student = if (grant == null) {
+            val subject = telegramMiniSubject(args.text("initData"), botToken, service.database.clock.instant())
+            service.identity.resolve("telegram", subject)
+        } else null
         return service.database.transaction { c, _ ->
-            c.lockStudent(student)
+            val owner = if (grant == null) requireNotNull(student) else {
+                if (grant.length !in 32..200 || args.optionalText("initData") != null) reject("invalid_agent_grant")
+                val scope = authenticateScope(c, grant, service.database.clock.instant())
+                if (scope.role != "agent_voice_grant" || scope.lessonId != args.text("lessonId") ||
+                    c.document("SELECT to_jsonb(i) FROM student_identity i WHERE i.student_id=? AND i.provider='agent_test' AND NOT EXISTS (SELECT 1 FROM student_identity t WHERE t.student_id=i.student_id AND t.provider='telegram')", scope.studentId) == null) reject("not_owned")
+                c.document("DELETE FROM execution_scope WHERE token_digest=? AND role='agent_voice_grant' RETURNING to_jsonb(execution_scope)", digest(grant)) ?: reject("invalid_agent_grant")
+                scope.studentId
+            }
+            c.lockStudent(owner)
             val now = service.database.clock.instant()
-            val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", student) { it.getLong(1) }.single()
+            val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", owner) { it.getLong(1) }.single()
             when (args.text("action")) {
-                "progress" -> LearningProgress().read(c, student)
-                "list" -> json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? ORDER BY starts_at DESC LIMIT 40", student)),
-                    "schedules" to JsonArray(c.documents("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? ORDER BY effective_from DESC", student)),
-                    "demoReceipts" to JsonArray(c.documents("SELECT to_jsonb(r) FROM trial_demo_receipt r WHERE student_id=?", student)))
-                "lesson_status" -> json("lesson" to c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId")), "serverNow" to now.toString())
-                "calendar" -> json("lesson" to c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId")))
+                "progress" -> LearningProgress().read(c, owner)
+                "list" -> json("lessons" to JsonArray(c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? ORDER BY starts_at DESC LIMIT 40", owner)),
+                    "schedules" to JsonArray(c.documents("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? ORDER BY effective_from DESC", owner)),
+                    "demoReceipts" to JsonArray(c.documents("SELECT to_jsonb(r) FROM trial_demo_receipt r WHERE student_id=?", owner)))
+                "lesson_status" -> json("lesson" to c.lesson(ExecutionScope(owner, "voice", epoch), args.text("lessonId")), "serverNow" to now.toString())
+                "calendar" -> json("lesson" to c.lesson(ExecutionScope(owner, "voice", epoch), args.text("lessonId")))
                 "audio" -> {
-                    val lesson = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
+                    val lesson = c.lesson(ExecutionScope(owner, "voice", epoch), args.text("lessonId"))
                     val cursor = args.optionalText("cursor") ?: ""
                     if (cursor.length > 512) reject("invalid_cursor")
-                    val objects = c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND data_epoch=? AND status='stored' AND expires_at>? AND object_key>? ORDER BY object_key LIMIT 201", student, lesson.text("id"), epoch, now, cursor)
+                    val objects = c.documents("SELECT to_jsonb(a) FROM trial_audio a WHERE student_id=? AND lesson_id=? AND data_epoch=? AND status='stored' AND expires_at>? AND object_key>? ORDER BY object_key LIMIT 201", owner, lesson.text("id"), epoch, now, cursor)
                     json("objects" to JsonArray(objects.take(200)), "nextCursor" to if (objects.size > 200) objects[199].text("object_key") else null)
                 }
                 "demo_pay" -> {
-                    val schedule = c.document("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? AND id=?", student, args.text("scheduleId")) ?: reject("not_owned")
+                    val schedule = c.document("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? AND id=?", owner, args.text("scheduleId")) ?: reject("not_owned")
                     if (schedule.obj("agreement").optionalText("demo") != "true" || schedule.obj("agreement").optionalText("cancelled") == "true") reject("not_permitted")
-                    c.update("INSERT INTO trial_demo_receipt(student_id,schedule_id,created_at) VALUES (?,?,?) ON CONFLICT DO NOTHING", student, schedule.text("id"), now)
+                    c.update("INSERT INTO trial_demo_receipt(student_id,schedule_id,created_at) VALUES (?,?,?) ON CONFLICT DO NOTHING", owner, schedule.text("id"), now)
                     json("demo" to true, "charged" to false, "subscriptionActive" to false)
                 }
-                "open" -> open(c, student, epoch, args, now)
+                "open" -> open(c, owner, epoch, args, now)
                 else -> reject("unknown_action")
             }
         }
