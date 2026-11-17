@@ -10,6 +10,9 @@ import sys
 target = sys.argv[1] if len(sys.argv) > 1 else ''
 if target and not re.fullmatch(r'[0-9a-f]{32}', target):
     raise SystemExit('invalid_error_id')
+call_session = sys.argv[2] if len(sys.argv) > 2 else ''
+if call_session and not re.fullmatch(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', call_session):
+    raise SystemExit('invalid_call_session_id')
 
 
 result = subprocess.run(
@@ -79,6 +82,18 @@ if target:
     print(json.dumps({'target': target, 'found': bool(matching),
                       'match': diagnostic(*matching[-1]) if matching else None,
                       'related': [diagnostic(at, data) for at, data in related[-20:]]}, ensure_ascii=True))
+    raise SystemExit(0)
+
+if call_session:
+    matching = [(at, data) for at, data in runtime if data.get('call_session_id') == call_session]
+    def session_event(at, data):
+        safe = {key: data.get(key) for key in
+                ('event', 'outcome', 'stage', 'status_reason', 'status_error_code', 'output_tokens',
+                 'error_type', 'error_code') if data.get(key) is not None}
+        return {'at': at, **safe}
+    print(json.dumps({'callSessionId': call_session, 'found': bool(matching),
+                      'eventCount': len(matching),
+                      'events': [session_event(at, data) for at, data in matching[-80:]]}, ensure_ascii=True))
     raise SystemExit(0)
 
 print(json.dumps({"window": "20m", "failure_count": len(events), "last_failures": events[-40:],
