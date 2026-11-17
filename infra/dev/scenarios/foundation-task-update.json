@@ -1,0 +1,17 @@
+{
+  "steps": [
+    { "name": "before", "request": { "kind": "read", "resource": "task", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd" } },
+    { "name": "update", "request": {
+      "kind": "command", "operationId": { "$uuid": true }, "action": "learning.task.update",
+      "args": {
+        "taskId": { "$ref": "before.response.result.task.id" },
+        "expectedRevision": { "$ref": "before.response.result.task.revision" },
+        "patch": { "priority": 7 }, "component": "foundation-acceptance-synthetic"
+      }
+    } },
+    { "name": "after", "request": { "kind": "read", "resource": "task", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd" } },
+    { "name": "list", "request": { "kind": "read", "resource": "tasks" } },
+    { "name": "replay", "request": { "$ref": "update.request" } },
+    { "name": "history", "request": { "kind": "read", "resource": "task", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd", "history": true } }
+  ]
+}
