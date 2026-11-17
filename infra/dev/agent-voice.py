@@ -88,13 +88,16 @@ async def state(base, token, root, lesson):
     return await asyncio.to_thread(request, base, token, root + '/voice-state?' + urlencode({'lessonId': lesson}))
 
 
-async def persisted_reply(base, token, root, lesson, before):
+async def persisted_reply(base, token, root, lesson, before, expected=1, stable=False):
     result = None
+    previous_ids = None
     for _ in range(10):
         result = await state(base, token, root, lesson)
         events = result.get('state', {}).get('events', [])
-        if any(e.get('role') == 'assistant' and e.get('id') not in before for e in events):
+        ids = tuple(e.get('id') for e in events if e.get('role') == 'assistant' and e.get('id') not in before)
+        if len(ids) >= expected and (not stable or ids == previous_ids):
             return result, True
+        previous_ids = ids
         await asyncio.sleep(1)
     return result, False
 
@@ -123,8 +126,11 @@ async def run(args, scenario, report, token):
             active = {}
             acked = asyncio.Queue()
             ack_tasks = set()
+            pending_ack = set()
+            audio_records = {}
             last_ping = time.monotonic()
             last_activity = time.monotonic()
+            last_audio_end = None
             greeting_done = False
             sender = None
             before_events = set()
@@ -146,22 +152,27 @@ async def run(args, scenario, report, token):
             while next_turn < len(turns):
                 while not acked.empty():
                     item_id = acked.get_nowait()
-                    if sender is not None and not sender.done():
-                        await acked.put(item_id)
-                        break
+                    pending_ack.discard(item_id)
+                    audio_records[item_id]['playbackAck'] = 'simulated_timing'
                     if sender is None:
                         greeting_done = True
-                    elif sender.done():
-                        sender.result()
+                    else:
                         report['turns'][next_turn]['responseAudioIds'].append(item_id)
-                        current, confirmed = await persisted_reply(ktor, token, root, str(args.lesson), before_events)
-                        report['turns'][next_turn]['readAfterWrite'] = current
-                        report['turns'][next_turn]['readAfterWriteConfirmed'] = confirmed
-                        next_turn += 1
-                        sender = None
-                        if reconnect_at == next_turn and next_turn < len(turns):
-                            episode['disconnect'] = 'reconnect_scenario'
-                            break
+                # One user turn can produce several audio items. Keep the socket open until
+                # every item is acknowledged, then allow a short interval for another item.
+                if (sender is not None and sender.done() and report['turns'][next_turn]['responseAudioIds']
+                        and not active and not pending_ack and last_audio_end is not None
+                        and time.monotonic() - last_audio_end >= 3):
+                    sender.result()
+                    turn_record = report['turns'][next_turn]
+                    current, confirmed = await persisted_reply(ktor, token, root, str(args.lesson), before_events,
+                                                               len(turn_record['responseAudioIds']), stable=True)
+                    turn_record['readAfterWrite'] = current
+                    turn_record['readAfterWriteConfirmed'] = confirmed
+                    next_turn += 1
+                    sender = None
+                    if reconnect_at == next_turn and next_turn < len(turns):
+                        episode['disconnect'] = 'reconnect_scenario'
                 if episode.get('disconnect'):
                     break
                 if greeting_done and sender is None and next_turn < len(turns):
@@ -201,7 +212,12 @@ async def run(args, scenario, report, token):
                 elif kind == 'audio_start':
                     if message.get('sampleRate') != 24000:
                         raise RuntimeError('Relay output sample rate mismatch')
-                    active[message['id']] = {'audio': bytearray(), 'startedAt': time.monotonic()}
+                    overlapping = bool(active)
+                    if overlapping:
+                        for item in active.values():
+                            item['ambiguous'] = True
+                    active[message['id']] = {'audio': bytearray(), 'startedAt': time.monotonic(),
+                                             'ambiguous': overlapping}
                     if sender is not None and 'firstAudioAt' not in report['turns'][next_turn]:
                         turn_record = report['turns'][next_turn]
                         turn_record['firstAudioAt'] = time.time()
@@ -211,6 +227,7 @@ async def run(args, scenario, report, token):
                     item = active.pop(message['id'], None)
                     if item is None:
                         continue
+                    last_audio_end = time.monotonic()
                     pcm = bytes(item['audio'])
                     filename = f"attempt-{len(report['attempts'])}-audio-{len(report['audio']) + 1}.wav"
                     save_wav(args.output / filename, pcm)
@@ -219,8 +236,12 @@ async def run(args, scenario, report, token):
                     task = asyncio.create_task(acknowledge(message['id'], duration))
                     ack_tasks.add(task)
                     task.add_done_callback(ack_tasks.discard)
-                    report['audio'].append({'providerItemId': message['id'], 'file': filename,
-                                            'durationMs': duration, 'playbackAck': 'simulated_timing'})
+                    pending_ack.add(message['id'])
+                    record = {'providerItemId': message['id'], 'file': filename,
+                              'durationMs': duration, 'playbackAck': 'pending',
+                              'audioAttribution': 'ambiguous_overlap' if item['ambiguous'] else 'single_active'}
+                    report['audio'].append(record)
+                    audio_records[message['id']] = record
                 elif kind == 'interrupt':
                     for key, item in active.items():
                         played = min(len(item['audio']) / 48, (time.monotonic() - item['startedAt']) * 1000)

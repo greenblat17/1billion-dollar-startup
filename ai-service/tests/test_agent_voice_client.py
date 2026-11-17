@@ -109,7 +109,16 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path):
                     await socket.send(json.dumps({'type': 'user_turn_complete'}))
                     await socket.send(json.dumps({'type': 'audio_start', 'id': f'reply-{attempt}', 'sampleRate': 24000}))
                     await socket.send(bytes(4800))
-                    await socket.send(json.dumps({'type': 'audio_end', 'id': f'reply-{attempt}'}))
+                    if attempt == 2:
+                        async def delayed_more():
+                            await asyncio.sleep(.5)
+                            await socket.send(json.dumps({'type': 'audio_start', 'id': 'reply-2-more', 'sampleRate': 24000}))
+                            await socket.send(bytes(4800))
+                            await socket.send(json.dumps({'type': 'audio_end', 'id': f'reply-{attempt}'}))
+                            await socket.send(json.dumps({'type': 'audio_end', 'id': 'reply-2-more'}))
+                        asyncio.create_task(delayed_more())
+                    else:
+                        await socket.send(json.dumps({'type': 'audio_end', 'id': f'reply-{attempt}'}))
             else:
                 control = json.loads(frame)
                 if control.get('type') == 'played':
@@ -128,8 +137,11 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path):
             assert len(report['attempts']) == 2
             assert all(turn['readAfterWriteConfirmed'] for turn in report['turns'])
             assert [turn['responseAudioIds'][0] for turn in report['turns']] == ['reply-1', 'reply-2']
-            assert len([ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]) == 2
-            assert len(list(args.output.glob('*.wav'))) == 4
+            assert report['turns'][1]['responseAudioIds'] == ['reply-2', 'reply-2-more']
+            assert len([ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]) == 3
+            assert all(audio['playbackAck'] == 'simulated_timing' for audio in report['audio'])
+            assert [audio['audioAttribution'] for audio in report['audio'][-2:]] == ['ambiguous_overlap'] * 2
+            assert len(list(args.output.glob('*.wav'))) == 5
 
     try:
         asyncio.run(exercise())
