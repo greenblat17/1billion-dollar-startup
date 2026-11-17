@@ -1,0 +1,383 @@
+{
+  "steps": [
+    {
+      "name": "catalog",
+      "request": {
+        "kind": "catalog",
+        "args": {
+          "version": "speaky-v55-v2",
+          "topicId": "grammar-a2-past-simple"
+        }
+      }
+    },
+    {
+      "name": "state_before",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "source",
+      "request": {
+        "kind": "source",
+        "operationId": {
+          "$uuid": true
+        },
+        "occurredAt": {
+          "$now": true
+        }
+      }
+    },
+    {
+      "name": "goal_update",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.update",
+        "args": {
+          "expectedRevision": {
+            "$ref": "state_before.response.result.revision"
+          },
+          "patch": {
+            "targetLevel": "B2"
+          },
+          "goal": "Synthetic Foundation contract acceptance: use Past Simple at work",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          }
+        }
+      }
+    },
+    {
+      "name": "state_after",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "task_create",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {
+            "$ref": "state_after.response.result.revision"
+          },
+          "catalogVersion": {
+            "$ref": "catalog.response.result.version"
+          },
+          "skillId": "grammar",
+          "topicId": "grammar-a2-past-simple",
+          "problemId": "grammar_application",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          },
+          "reason": "Synthetic catalog-linked task contract check"
+        }
+      }
+    },
+    {
+      "name": "plan_create",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.plan.create",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "expectedTaskRevision": {
+            "$ref": "task_create.response.result.task.revision"
+          },
+          "definition": {
+            "schemaVersion": 1,
+            "stages": [
+              {
+                "id": "exercises",
+                "method": "Exercises",
+                "kind": "numeric",
+                "required": true,
+                "weight": 0.3
+              },
+              {
+                "id": "conversation",
+                "method": "Conversation",
+                "kind": "numeric",
+                "required": true,
+                "weight": 0.7
+              }
+            ],
+            "order": [
+              "exercises",
+              "conversation"
+            ],
+            "transitions": [
+              {
+                "from": "exercises",
+                "to": "conversation"
+              },
+              {
+                "from": "conversation",
+                "to": "exercises"
+              }
+            ]
+          },
+          "component": "foundation-acceptance-synthetic",
+          "currentStageId": "exercises"
+        }
+      }
+    },
+    {
+      "name": "score_before",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "success_exercises",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "planId": {
+            "$ref": "plan_create.response.result.plan.id"
+          },
+          "planRevision": {
+            "$ref": "plan_create.response.result.plan.revision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "independent_correct"
+        }
+      }
+    },
+    {
+      "name": "after_success_exercises",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "replay_success_exercises",
+      "request": {
+        "$ref": "success_exercises.request"
+      }
+    },
+    {
+      "name": "hinted_exercises",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "planId": {
+            "$ref": "plan_create.response.result.plan.id"
+          },
+          "planRevision": {
+            "$ref": "plan_create.response.result.plan.revision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "hinted_correct"
+        }
+      }
+    },
+    {
+      "name": "after_hinted_exercises",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "replay_hinted_exercises",
+      "request": {
+        "$ref": "hinted_exercises.request"
+      }
+    },
+    {
+      "name": "self_corrected_exercises",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "planId": {
+            "$ref": "plan_create.response.result.plan.id"
+          },
+          "planRevision": {
+            "$ref": "plan_create.response.result.plan.revision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "self_corrected_error"
+        }
+      }
+    },
+    {
+      "name": "after_self_corrected_exercises",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "replay_self_corrected_exercises",
+      "request": {
+        "$ref": "self_corrected_exercises.request"
+      }
+    },
+    {
+      "name": "error_exercises",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "planId": {
+            "$ref": "plan_create.response.result.plan.id"
+          },
+          "planRevision": {
+            "$ref": "plan_create.response.result.plan.revision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "after_error_exercises",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "replay_error_exercises",
+      "request": {
+        "$ref": "error_exercises.request"
+      }
+    },
+    {
+      "name": "success_conversation",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "planId": {
+            "$ref": "plan_create.response.result.plan.id"
+          },
+          "planRevision": {
+            "$ref": "plan_create.response.result.plan.revision"
+          },
+          "stageId": "conversation",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "independent_correct"
+        }
+      }
+    },
+    {
+      "name": "after_success_conversation",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "replay_success_conversation",
+      "request": {
+        "$ref": "success_conversation.request"
+      }
+    },
+    {
+      "name": "score_history",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        },
+        "history": true
+      }
+    },
+    {
+      "name": "task_final",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    }
+  ]
+}

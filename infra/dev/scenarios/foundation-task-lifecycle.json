@@ -1,0 +1,309 @@
+{
+  "steps": [
+    {
+      "name": "catalog",
+      "request": {
+        "kind": "catalog",
+        "args": {
+          "version": "speaky-v55-v2",
+          "topicId": "grammar-a2-past-simple"
+        }
+      }
+    },
+    {
+      "name": "state_before",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "source",
+      "request": {
+        "kind": "source",
+        "operationId": {
+          "$uuid": true
+        },
+        "occurredAt": {
+          "$now": true
+        }
+      }
+    },
+    {
+      "name": "goal_update",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.update",
+        "args": {
+          "expectedRevision": {
+            "$ref": "state_before.response.result.revision"
+          },
+          "patch": {
+            "targetLevel": "B2"
+          },
+          "goal": "Synthetic Foundation contract acceptance: use Past Simple at work",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          }
+        }
+      }
+    },
+    {
+      "name": "state_after",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "task_create",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {
+            "$ref": "state_after.response.result.revision"
+          },
+          "catalogVersion": {
+            "$ref": "catalog.response.result.version"
+          },
+          "skillId": "grammar",
+          "topicId": "grammar-a2-past-simple",
+          "problemId": "grammar_application",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          },
+          "reason": "Synthetic catalog-linked task contract check"
+        }
+      }
+    },
+    {
+      "name": "task_read",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "duplicate_create",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {
+            "$ref": "state_after.response.result.revision"
+          },
+          "catalogVersion": {
+            "$ref": "catalog.response.result.version"
+          },
+          "skillId": "grammar",
+          "topicId": "grammar-a2-past-simple",
+          "problemId": "grammar_application",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          },
+          "reason": "Synthetic catalog-linked task contract check"
+        }
+      }
+    },
+    {
+      "name": "second_problem",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {
+            "$ref": "state_after.response.result.revision"
+          },
+          "catalogVersion": {
+            "$ref": "catalog.response.result.version"
+          },
+          "skillId": "grammar",
+          "topicId": "grammar-a2-past-simple",
+          "problemId": "grammar_unknown",
+          "component": "foundation-acceptance-synthetic",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          },
+          "reason": "Synthetic catalog-linked task contract check"
+        }
+      }
+    },
+    {
+      "name": "in_progress",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.transition",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "expectedRevision": {
+            "$ref": "task_read.response.result.task.revision"
+          },
+          "lifecycle": "In Progress",
+          "progress": 25,
+          "decisionId": {
+            "$uuid": true
+          },
+          "component": "foundation-acceptance-synthetic",
+          "reason": "Synthetic lifecycle contract fixture"
+        }
+      }
+    },
+    {
+      "name": "read_in_progress",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "mastered",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.transition",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "expectedRevision": {
+            "$ref": "read_in_progress.response.result.task.revision"
+          },
+          "lifecycle": "Mastered",
+          "progress": 100,
+          "decisionId": {
+            "$uuid": true
+          },
+          "component": "foundation-acceptance-synthetic",
+          "reason": "Synthetic lifecycle contract fixture"
+        }
+      }
+    },
+    {
+      "name": "read_mastered",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "reopened",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.transition",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "expectedRevision": {
+            "$ref": "read_mastered.response.result.task.revision"
+          },
+          "lifecycle": "Reopened",
+          "progress": 100,
+          "decisionId": {
+            "$uuid": true
+          },
+          "component": "foundation-acceptance-synthetic",
+          "reason": "Synthetic lifecycle contract fixture"
+        }
+      }
+    },
+    {
+      "name": "read_reopened",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "resumed",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.task.transition",
+        "args": {
+          "taskId": {
+            "$ref": "task_create.response.result.task.id"
+          },
+          "expectedRevision": {
+            "$ref": "read_reopened.response.result.task.revision"
+          },
+          "lifecycle": "In Progress",
+          "progress": 40,
+          "decisionId": {
+            "$uuid": true
+          },
+          "component": "foundation-acceptance-synthetic",
+          "reason": "Synthetic lifecycle contract fixture"
+        }
+      }
+    },
+    {
+      "name": "read_resumed",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        }
+      }
+    },
+    {
+      "name": "task_history",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {
+          "$ref": "task_create.response.result.task.id"
+        },
+        "history": true
+      }
+    },
+    {
+      "name": "tasks",
+      "request": {
+        "kind": "read",
+        "resource": "tasks"
+      }
+    }
+  ]
+}
