@@ -22,7 +22,9 @@ def main():
     work = Path(sys.argv[1]).resolve()
     values = env_values(Path("/opt/speaking-coach/.env"))
     if values.get("SPEAKY_ENV") != "dev" or values.get("AGENT_TEST_ENABLED") != "true":
-        raise SystemExit("DEV agent test route is disabled")
+        raise SystemExit("DEV agent test route is disabled: "
+                         f"environment_is_dev={values.get('SPEAKY_ENV') == 'dev'}, "
+                         f"agent_test_enabled={values.get('AGENT_TEST_ENABLED') == 'true'}")
     token = values.get("AI_INTERNAL_TOKEN")
     port = values.get("SERVER_PORT")
     if not token or not port or not port.isdecimal():
