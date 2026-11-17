@@ -517,6 +517,21 @@ jobs:
           uuid.UUID(os.environ['STUDENT_ID'])
           uuid.UUID(os.environ['LESSON_ID'])
           PY
+          case "$VOICE_SCENARIO" in
+            short|early-exit|phase-probe|regular-action|read-only) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
+            *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
+          esac
+          echo 'Voice preflight: installing client dependencies'
+          timeout 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
+          if [[ "$VOICE_SCENARIO" != read-only ]]; then
+            audio_packages=()
+            command -v espeak-ng >/dev/null || audio_packages+=(espeak-ng)
+            command -v ffmpeg >/dev/null || audio_packages+=(ffmpeg)
+            if (( ${#audio_packages[@]} )); then
+              timeout 60s sudo apt-get update -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
+              timeout 60s sudo apt-get install -y -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${audio_packages[@]}"
+            fi
+          fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
           ai_key="$RUNNER_TEMP/agent-voice-ai-key"
           install -m 600 /dev/null "$cmp_key"
@@ -524,12 +539,15 @@ jobs:
           printf '%s\n' "$CMP_KEY" > "$cmp_key"
           printf '%s\n' "$AI_KEY" > "$ai_key"
           cmp_opts=(-i "$cmp_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2
             -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
           ai_opts=(-i "$ai_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2
             -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
           cmp_config="$RUNNER_TEMP/agent-voice-cmp.json"
           ai_config="$RUNNER_TEMP/agent-voice-ai.json"
-          ssh "${cmp_opts[@]}" "$CMP_USER@$CMP_HOST" 'python3 -' > "$cmp_config" <<'PY'
+          echo 'Voice preflight: checking DEV containers'
+          timeout 35s ssh "${cmp_opts[@]}" "$CMP_USER@$CMP_HOST" 'python3 -' > "$cmp_config" <<'PY'
           import json, subprocess
           info = json.loads(subprocess.check_output(['docker', 'inspect', 'speaking-coach']))[0]
           env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
@@ -537,7 +555,7 @@ jobs:
                             'enabled': env.get('AGENT_TEST_ENABLED') == 'true',
                             'port': env.get('SERVER_PORT', '443'), 'token': env.get('AI_INTERNAL_TOKEN', '')}))
           PY
-          ssh "${ai_opts[@]}" "$AI_USER@$AI_HOST" 'python3 -' > "$ai_config" <<'PY'
+          timeout 35s ssh "${ai_opts[@]}" "$AI_USER@$AI_HOST" 'python3 -' > "$ai_config" <<'PY'
           import json, subprocess
           info = json.loads(subprocess.check_output(['docker', 'inspect', 'ai-service']))[0]
           env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
@@ -566,13 +584,7 @@ jobs:
           trap 'kill "$cmp_tunnel" "$ai_tunnel" 2>/dev/null || true; rm -f "$cmp_config" "$ai_config" "$cmp_key" "$ai_key"' EXIT
           sleep 2
           kill -0 "$cmp_tunnel" "$ai_tunnel"
-          python3 -m pip install --quiet websockets==15.0.1
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq espeak-ng ffmpeg
-          case "$VOICE_SCENARIO" in
-            short|early-exit|phase-probe|regular-action|read-only) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
-            *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
-          esac
+          echo 'Voice preflight: tunnels ready, starting client'
           AI_INTERNAL_TOKEN="$token" python3 infra/dev/agent-voice.py \
             "$scenario" \
             --ktor https://127.0.0.1:18443 --ai http://127.0.0.1:18090 \
