@@ -335,7 +335,7 @@
             }
           },
           "component": "foundation-acceptance-synthetic",
-          "reason": "Simplify synthetic instruction"
+          "reason": "simplify"
         }
       }
     },
