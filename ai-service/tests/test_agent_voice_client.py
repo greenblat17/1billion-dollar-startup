@@ -73,8 +73,8 @@ def test_report_contains_source_ids_without_grant(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which('ffmpeg') is None, reason='ffmpeg unavailable')
-@pytest.mark.parametrize('expect_finished', [False, True])
-def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, expect_finished):
+@pytest.mark.parametrize('reconnect,expect_finished', [(True, False), (True, True), (False, False), (False, True)])
+def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, reconnect, expect_finished):
     events = []
     grants = []
     acks = []
@@ -121,30 +121,33 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, expect_finished):
         await socket.send(bytes(4800))
         await socket.send(json.dumps({'type': 'audio_end', 'id': f'greeting-{attempt}'}))
         received = 0
+        reply_index = 0
         async for frame in socket:
             if isinstance(frame, bytes):
                 received += len(frame)
                 if received >= 52800:
-                    received = -10**9
+                    received = 0
+                    reply_index += 1
+                    reply_id = f'reply-{attempt if reconnect else reply_index}'
                     await socket.send(json.dumps({'type': 'user_turn_complete'}))
-                    await socket.send(json.dumps({'type': 'audio_start', 'id': f'reply-{attempt}', 'sampleRate': 24000}))
+                    await socket.send(json.dumps({'type': 'audio_start', 'id': reply_id, 'sampleRate': 24000}))
                     await socket.send(bytes(4800))
-                    if attempt == 2:
+                    if reconnect and attempt == 2:
                         async def delayed_more():
                             await asyncio.sleep(.5)
                             await socket.send(json.dumps({'type': 'audio_start', 'id': 'reply-2-more', 'sampleRate': 24000}))
                             await socket.send(bytes(4800))
-                            await socket.send(json.dumps({'type': 'audio_end', 'id': f'reply-{attempt}'}))
+                            await socket.send(json.dumps({'type': 'audio_end', 'id': reply_id}))
                             await socket.send(json.dumps({'type': 'audio_end', 'id': 'reply-2-more'}))
                         asyncio.create_task(delayed_more())
                     else:
-                        await socket.send(json.dumps({'type': 'audio_end', 'id': f'reply-{attempt}'}))
+                        await socket.send(json.dumps({'type': 'audio_end', 'id': reply_id}))
             else:
                 control = json.loads(frame)
                 if control.get('type') == 'played':
                     acks.append(control)
                     events.append({'id': str(uuid.uuid4()), 'role': 'assistant', 'body': control['id']})
-                    if expect_finished and control['id'] == 'reply-2-more':
+                    if expect_finished and control['id'] == ('reply-2-more' if reconnect else 'reply-2'):
                         await socket.send(json.dumps({'type': 'finished'}))
 
     async def exercise():
@@ -152,19 +155,22 @@ def test_two_pcm_turns_playback_ack_and_reconnect(tmp_path, expect_finished):
             args = SimpleNamespace(ktor=f'http://127.0.0.1:{http.server_port}',
                                    ai=f'http://127.0.0.1:{server.sockets[0].getsockname()[1]}',
                                    student=uuid.uuid4(), lesson=uuid.uuid4(), output=tmp_path / 'report')
-            scenario = {'turns': [{'audio': str(source)}, {'audio': str(source)}], 'reconnectAfterTurn': 1,
+            scenario = {'turns': [{'audio': str(source)}, {'audio': str(source)}],
                         'expectFinished': expect_finished}
+            if reconnect:
+                scenario['reconnectAfterTurn'] = 1
             report = {'attempts': [], 'turns': [{'input': turn, 'responseAudioIds': []} for turn in scenario['turns']],
                       'audio': []}
             await voice.run(args, scenario, report, 'test-token')
-            assert len(report['attempts']) == 2
+            assert len(report['attempts']) == (2 if reconnect else 1)
             assert all(turn['readAfterWriteConfirmed'] for turn in report['turns'])
             assert [turn['responseAudioIds'][0] for turn in report['turns']] == ['reply-1', 'reply-2']
-            assert report['turns'][1]['responseAudioIds'] == ['reply-2', 'reply-2-more']
-            assert len([ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]) == 3
+            assert report['turns'][1]['responseAudioIds'] == (['reply-2', 'reply-2-more'] if reconnect else ['reply-2'])
+            assert len([ack for ack in acks if ack['id'].startswith('reply-') and ack['complete']]) == (3 if reconnect else 2)
             assert all(audio['playbackAck'] == 'simulated_timing' for audio in report['audio'])
-            assert [audio['audioAttribution'] for audio in report['audio'][-2:]] == ['ambiguous_overlap'] * 2
-            assert len(list(args.output.glob('*.wav'))) == 5
+            if reconnect:
+                assert [audio['audioAttribution'] for audio in report['audio'][-2:]] == ['ambiguous_overlap'] * 2
+            assert len(list(args.output.glob('*.wav'))) == (5 if reconnect else 3)
             assert report.get('finished', False) == expect_finished
 
     try:

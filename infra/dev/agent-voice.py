@@ -173,6 +173,7 @@ async def run(args, scenario, report, token):
                     turn_record['readAfterWriteConfirmed'] = confirmed
                     next_turn += 1
                     sender = None
+                    greeting_done = True
                     if next_turn == len(turns) and scenario.get('expectFinished'):
                         episode['terminalWaitStartedAt'] = time.time()
                     if reconnect_at == next_turn and next_turn < len(turns):
