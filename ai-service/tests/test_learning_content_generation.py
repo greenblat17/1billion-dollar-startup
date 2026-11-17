@@ -6,6 +6,7 @@ import httpx
 import pytest
 from openai import APIStatusError
 
+from app.diagnostics import diagnostic_context
 from app.learning_content_generation import (
     COMPONENT, REASONS, ContentGenerationError, ContentRequest, LearningContentGenerator, issued_handoff,
 )
@@ -217,6 +218,47 @@ async def test_screen_or_external_link_rejected_even_when_model_calls_it_valid()
     with pytest.raises(ContentGenerationError, match='invalid_generated_material'):
         await LearningContentGenerator(backend, model).prepare('student-scope', request())
     assert len(model.calls) == 1 and backend.writes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('section', 'field', 'value', 'expected'), [
+    (None, 'spokenInstruction', 'PRIVATE_VALUE' * 40,
+     {'field': 'spokenInstruction', 'rule': 'too_long', 'type': 'str', 'length': 520, 'maxLength': 400}),
+    ('payload', 'explanation', {'PRIVATE_KEY': 'PRIVATE_VALUE'},
+     {'field': 'payload.explanation', 'rule': 'expected_string', 'type': 'dict', 'count': 1}),
+    ('answerGuide', 'criteria', [],
+     {'field': 'answerGuide.criteria', 'rule': 'item_count', 'type': 'list', 'count': 0, 'minCount': 1, 'maxCount': 8}),
+    ('payload', 'examples', ['PRIVATE_VALUE', 'PRIVATE_VALUE'],
+     {'field': 'payload.examples', 'rule': 'duplicate_items', 'type': 'list', 'count': 2, 'duplicate': True}),
+    ('payload', 'explanation', 'Try https://private.invalid/PRIVATE_VALUE',
+     {'field': 'payload.explanation', 'rule': 'url_present', 'type': 'str', 'urlPresent': True}),
+    ('payload', 'examples', [False],
+     {'field': 'payload.examples[0]', 'rule': 'expected_string', 'type': 'bool'}),
+    ('payload', 'PRIVATE_KEY', 'PRIVATE_VALUE',
+     {'field': 'payload', 'rule': 'unexpected_fields', 'type': 'dict', 'count': 3, 'unexpectedCount': 1}),
+])
+async def test_invalid_draft_logs_only_validation_metadata(section, field, value, expected, caplog):
+    caplog.set_level('INFO', logger='app.diagnostics')
+    draft = draft_for('Explanation')
+    target = draft if section is None else draft[section]
+    target[field] = value
+    backend, model = Backend('Explanation'), Model(draft)
+
+    with diagnostic_context(trace_id='draft-test-trace'):
+        with pytest.raises(ContentGenerationError, match='invalid_generated_material'):
+            await LearningContentGenerator(backend, model).prepare('student-scope', request('comparison'))
+
+    assert len(model.calls) == 1 and backend.writes == []
+    [record] = caplog.records
+    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+    assert metadata['event'] == 'learning_content_draft_rejected'
+    assert metadata['stage'] == 'compute_validation'
+    assert metadata['trace_id'] == 'draft-test-trace'
+    assert metadata['method'] == 'Explanation'
+    assert {key: metadata[key] for key in expected} == expected
+    assert 'PRIVATE_VALUE' not in caplog.text
+    assert 'PRIVATE_KEY' not in caplog.text
+    assert 'private.invalid' not in caplog.text
 
 
 @pytest.mark.asyncio
