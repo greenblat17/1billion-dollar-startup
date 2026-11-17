@@ -42,10 +42,10 @@ async def test_uncertain_asr_and_missing_or_cross_skill_classification_never_sco
             'asrUncertain': True, 'evidence': 'Yesterday I go', 'rationale': 'Possible error'}
     assert await detect_problem(classifier(base), CATALOG, TURN, 'regular-1') is None
     assert await detect_problem(classifier(dict.fromkeys(base, None)), CATALOG, TURN, 'regular-1') is None
-    with pytest.raises(ValueError, match='invalid_problem_detection'):
+    with pytest.raises(ValueError, match='^invalid_problem_detection_skill_mismatch$'):
         await detect_problem(classifier({**base, 'asrUncertain': False, 'topicId': 'travel'}),
                              CATALOG, TURN, 'regular-1')
-    with pytest.raises(ValueError, match='invalid_problem_detection'):
+    with pytest.raises(ValueError, match='^invalid_problem_detection_evidence_quote$'):
         await detect_problem(classifier({**base, 'asrUncertain': False, 'evidence': 'I went'}),
                              CATALOG, TURN, 'regular-1')
 

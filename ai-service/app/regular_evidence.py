@@ -43,20 +43,26 @@ async def detect_problem(model, catalog: dict, saved: dict, lesson_id: str,
     except json.JSONDecodeError as error:
         raise InvalidProblemDetection('invalid_problem_detection_json') from error
     if not isinstance(raw, dict) or raw.keys() != _PROBLEM_RESPONSE_PROPERTIES.keys():
-        raise InvalidProblemDetection('invalid_problem_detection')
+        raise InvalidProblemDetection('invalid_problem_detection_shape')
     topic, problem = raw['topicId'], raw['problemId']
     if topic is None and problem is None and raw['outcome'] is None:
         return None
-    if (not isinstance(topic, str) or not isinstance(problem, str) or
-            topic not in topics or problem not in problems or
-            topics[topic]['skillId'] != problems[problem]['skillId'] or
-            raw['outcome'] not in ('uncorrected_error', 'independent_correct') or
-            type(raw['asrUncertain']) is not bool or
-            not isinstance(raw['evidence'], str) or
-            not 1 <= len(raw['evidence']) <= 200 or raw['evidence'] not in saved['text'] or
-            not isinstance(raw['rationale'], str) or
-            not 1 <= len(raw['rationale'].strip()) <= 2000):
-        raise InvalidProblemDetection('invalid_problem_detection')
+    if not isinstance(topic, str) or topic not in topics:
+        raise InvalidProblemDetection('invalid_problem_detection_topic')
+    if not isinstance(problem, str) or problem not in problems:
+        raise InvalidProblemDetection('invalid_problem_detection_problem')
+    if topics[topic]['skillId'] != problems[problem]['skillId']:
+        raise InvalidProblemDetection('invalid_problem_detection_skill_mismatch')
+    if raw['outcome'] not in ('uncorrected_error', 'independent_correct'):
+        raise InvalidProblemDetection('invalid_problem_detection_outcome')
+    if type(raw['asrUncertain']) is not bool:
+        raise InvalidProblemDetection('invalid_problem_detection_asr_flag')
+    if not isinstance(raw['evidence'], str) or not 1 <= len(raw['evidence']) <= 200:
+        raise InvalidProblemDetection('invalid_problem_detection_evidence_format')
+    if raw['evidence'] not in saved['text']:
+        raise InvalidProblemDetection('invalid_problem_detection_evidence_quote')
+    if not isinstance(raw['rationale'], str) or not 1 <= len(raw['rationale'].strip()) <= 2000:
+        raise InvalidProblemDetection('invalid_problem_detection_rationale')
     if raw['asrUncertain']:
         return None
     if (topic, problem) in (active_pairs or set()):

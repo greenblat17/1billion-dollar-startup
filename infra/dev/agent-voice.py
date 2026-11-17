@@ -74,7 +74,7 @@ def pcm_for_turn(turn, directory):
         pcm = output.read_bytes()
     if not pcm or len(pcm) % 2 or len(pcm) > 24000 * 2 * 25:
         raise ValueError('Input must be 0–25 seconds of mono speech')
-    return pcm + bytes(24000 * 2), mode
+    return pcm + bytes(24000 * 2 * turn.get('trailingSilenceSeconds', 1)), mode
 
 
 def save_wav(path, pcm):
@@ -375,6 +375,9 @@ def main():
         times = [t.get('atConnectedSeconds', 0) for t in turns]
         if any(type(t) is not int or t < 0 or t > 1800 for t in times) or times != sorted(times):
             raise ValueError('atConnectedSeconds must be ordered whole seconds from 0 to 1800')
+        silence = [t.get('trailingSilenceSeconds', 1) for t in turns]
+        if any(type(seconds) is not int or not 1 <= seconds <= 5 for seconds in silence):
+            raise ValueError('trailingSilenceSeconds must be a whole number from 1 to 5')
         reconnect_at = scenario.get('reconnectAfterTurn')
         if reconnect_at is not None and (type(reconnect_at) is not int or reconnect_at not in range(1, len(turns))):
             raise ValueError('reconnectAfterTurn must be between turns')
