@@ -7,6 +7,7 @@
 - Text booking run `44105197442` used workflow SHA `32274a6`. The separate `agent_test` identity is `f5b9bbba-0ac4-4740-aa0d-8cba196f9de6`; Foundation student is `a6249c70-9296-4045-bb5f-7104c6e63d65`. Trial lesson is `9e758555-b84a-45e2-b62a-a74096b37706`. Its snapshot shows `launch_mode=executable`, `timing=now`, 30 minutes, and no Telegram recipient.
 - Initial voice run `44105498523` on workflow SHA `32274a6` stopped at `not_permitted` before Foundation admission or model audio. The exact denied guard term was not recorded. The AI container used Docker bridge networking; the later fix accepts only its exact default gateway peer, with DEV flags, service token, and one-time grant still required.
 - Successful transport run `44106947563` used workflow SHA `e308902`. GitHub private artifact: `agent-voice-44106947563` (five WAVs, `dialogue.json`, `dialogue.md`). No secrets appear in the artifact.
+- [Readable saved dialogue](agent-voice-dev-dialogue.md) is copied into the repository; it does not invent a transcript for the fifth WAV.
 
 ## Observed result
 
