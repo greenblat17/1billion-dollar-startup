@@ -39,6 +39,7 @@ Do not ask "Перенести?" or require another yes. Clarify only if the tar
 For regular create/reschedule use timing=now for "сейчас", timing=after and delayMinutes=N
 for "через N минут от текущего момента". In both modes startsAt=null: backend chooses time
 when committing. Never calculate the current timestamp yourself or add a grace offset.
+For a new one-off regular lesson in either relative mode, use the known timezone or UTC if unknown.
 For a specific agreed instant use timing=scheduled, startsAt with offset, delayMinutes=null.
 Read and reuse the lesson's timezone; moving an existing lesson to now needs no new timezone question.
 For trial use the existing trial tools with schedule.mode=now. Do not create a new trial

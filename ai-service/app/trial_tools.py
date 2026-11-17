@@ -97,7 +97,12 @@ SCHEDULE_MODELS = {
 SCHEDULE_DESCRIPTIONS = {
     'save_schedule': 'Save or change the explicitly agreed recurring schedule: weekdays, local time, IANA timezone, duration 15–60, first date. Creates real regular lessons. Recommend 7/week but respect fewer. Read current schedule and version before changing. No payment or subscription claim.',
     'cancel_schedule': 'Cancel the recurring agreement only on an explicit request, preserving started lessons.',
-    'create_extra_lesson': 'Create one real additional or one-off regular lesson ONLY on explicit agreement. Never infer one-off from a recurring request.',
+    'create_extra_lesson': (
+        'Book one regular (non-trial) lesson on an explicit one-off or extra lesson request, '
+        'including an immediate request during introduction. Keep the agreed duration. For timing=now, '
+        'set startsAt and delayMinutes to null and use the known IANA timezone or UTC if unknown. '
+        'Never infer a one-off lesson from a recurring request.'
+    ),
     'reschedule_lesson': 'Move one scheduled lesson on a clear request without a second confirmation. Keep the recurring agreement unchanged. Read lessonId/version/timezone first. Use timing=now for right now, timing=after with delayMinutes for minutes from now; startsAt=null in both modes. Never invent a current timestamp.',
     'cancel_lesson': 'Cancel just one scheduled lesson. Read lessonId/version first. Do not cancel the recurring agreement.',
     'resolve_schedule_time': 'Resolve a pending DST occurrence with an explicitly agreed alternative local time. Read timeIssues from get_schedules. Does not change other dates.',
@@ -123,7 +128,18 @@ class TrialTutorModel:
         for tool in TOOLS:
             function = dict(tool['function'])
             if function['name'] == 'create_trial_booking':
-                function['description'] = 'Book the free approximately 30-minute voice trial on a clear present request. The evidence field must copy a contiguous substring of the CURRENT learner message exactly, with its original spelling and punctuation; do not paraphrase or combine words. No second confirmation or mandatory questionnaire. mode=now needs no timezone. An exact time supplied in reply to your scheduling question or acceptance of your unambiguous proposal is a clear request. A vague period needs a concrete proposal and acceptance before booking. Resolve relative dates using original message time and known learner timezone. Never invent availability limits. A technical failure may be rebooked with preserved context.'
+                function['description'] = (
+                    'Book the free 30-minute voice trial when the request or agreed meeting is a trial. '
+                    'Use create_extra_lesson for an explicit one-off regular lesson. An immediate start '
+                    'specifies time, not lesson type. The evidence field must copy a contiguous substring '
+                    'of the CURRENT learner message exactly, with its original spelling and punctuation. '
+                    'No second confirmation or mandatory questionnaire. mode=now needs no timezone. '
+                    'An exact time in reply to your trial scheduling question or acceptance of your '
+                    'unambiguous trial proposal is a clear request. A vague period needs a concrete '
+                    'proposal and acceptance before booking. Resolve relative dates using original message '
+                    'time and known learner timezone. Never invent availability limits. A technical failure '
+                    'may be rebooked with preserved context.'
+                )
             if function['name'] == 'update_learner_context':
                 from app.student_learning_state import UpdatePersonalContext
                 function['parameters'] = UpdatePersonalContext.model_json_schema()
@@ -150,6 +166,11 @@ def trial_booking_schema(name):
     from copy import deepcopy
     from app.tutor_tools import MODELS
     schema = deepcopy(MODELS[name].model_json_schema())
+    if name == 'create_trial_booking':
+        schema['properties']['intent']['description'] = (
+            'An explicit request for a trial or acceptance of an agreed trial proposal. '
+            'Availability questions and tentative suggestions do not authorize a booking.'
+        )
     fields = schema['$defs']['Schedule']['properties']
     modes = {'now': [], 'after_minutes': ['delayMinutes', 'timezone'],
              'local': ['localDateTime', 'timezone', 'offset']}

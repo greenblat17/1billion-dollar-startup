@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -16,6 +17,58 @@ def snapshot(body):
     return {'version': 1, 'textMode': 'introduction', 'student': {'id': 'student', 'tutor_id': 'sasha',
         'tutor_version': 1, 'version': 1, 'data_epoch': 1}, 'events': [
         {'id': 'current', 'sequence': 1, 'role': 'user', 'body': body}]}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('body,tool,kind', [
+    ('Саша, запиши меня на обычный 30-минутный урок английского прямо сейчас. '
+     'Хочу попрактиковать рабочий апдейт о задержке релиза.', 'create_extra_lesson', 'regular'),
+    ('Саша, запиши меня на пробный прямо сейчас.', 'create_trial_booking', 'trial'),
+])
+async def test_immediate_booking_uses_requested_lesson_type_during_introduction(body, tool, kind):
+    source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-17T19:11:58+00:00'}
+    lesson = dict(id='lesson', kind=kind, status='scheduled', starts_at=source['occurred_at'],
+                  version=1, timing='now', timezone='UTC', duration_minutes=30, launch_mode='executable')
+    backend = SimpleNamespace(
+        snapshot=AsyncMock(return_value=snapshot(body)),
+        receipt=AsyncMock(return_value=None),
+        command=AsyncMock(side_effect=[
+            {'status': 'claimed', 'input': source},
+            lesson,
+            {'conversationId': 'chat', 'reply': 'Записала.', 'degraded': False},
+        ]),
+    )
+    if kind == 'trial':
+        arguments = {'evidence': body, 'intent': 'explicit_request', 'schedule': {'mode': 'now'}}
+    else:
+        arguments = {'evidence': body, 'timing': 'now', 'startsAt': None, 'delayMinutes': None,
+                     'timezone': 'UTC', 'durationMinutes': 30}
+
+    async def complete(messages, tools):
+        if messages[-1]['role'] == 'tool':
+            return {'content': '{"reply":"Записала."}'}
+        assert messages[-1] == {'role': 'user', 'content': body}
+        policies = '\n'.join(message['content'] for message in messages if message['role'] == 'system')
+        assert 'For an explicit one-off regular lesson, call create_extra_lesson in either conversation mode.' in policies
+        assert 'For an explicit trial or acceptance of a clear trial proposal' in policies
+        assert 'For an unambiguous request to start immediately, call create_trial_booking' not in policies
+        functions = {entry['function']['name']: entry['function'] for entry in tools}
+        trial = functions['create_trial_booking']
+        assert 'Use create_extra_lesson for an explicit one-off regular lesson.' in trial['description']
+        assert 'An explicit request for a trial' in trial['parameters']['properties']['intent']['description']
+        assert 'including an immediate request during introduction' in functions['create_extra_lesson']['description']
+        return {'role': 'assistant', 'tool_calls': [{'id': 'booking', 'function': {
+            'name': tool, 'arguments': json.dumps(arguments, ensure_ascii=False),
+        }}]}
+
+    tutor = FoundationTutor(backend, TrialTutorModel(SimpleNamespace(complete_tools=complete)), ContextBuilder(backend))
+    await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794942718), 'scope')
+
+    assert [call.args[2] for call in backend.command.call_args_list] == ['run.claim', 'lesson.create', 'run.complete']
+    payload = backend.command.call_args_list[1].args[3]
+    assert (payload['kind'], payload['timing'], payload['durationMinutes']) == (kind, 'now', 30)
+    assert payload['evidence'] == body
+    assert payload['launchMode'] == 'executable'
 
 
 @pytest.mark.parametrize('display_zone', [None, 'Europe/Moscow'])
