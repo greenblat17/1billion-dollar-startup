@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener, urlopen
 
 
 def request(base, token, path, payload=None, *, loopback_tls=False):
@@ -21,8 +21,12 @@ def request(base, token, path, payload=None, *, loopback_tls=False):
         "Content-Type": "application/json",
     }, method="GET" if data is None else "POST")
     try:
-        context = ssl._create_unverified_context() if loopback_tls else None
-        with urlopen(req, timeout=150, context=context) as response:
+        if loopback_tls:
+            opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ssl._create_unverified_context()))
+            response_handle = opener.open(req, timeout=150)
+        else:
+            response_handle = urlopen(req, timeout=150)
+        with response_handle as response:
             return json.load(response)
     except HTTPError as error:
         detail = error.read(1000).decode(errors="replace")
