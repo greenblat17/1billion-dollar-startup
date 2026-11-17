@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "name": "learning_state", "request": { "kind": "read", "resource": "state" } },
+    { "name": "learning_tasks", "request": { "kind": "read", "resource": "tasks" } },
+    { "name": "learning_observations", "request": { "kind": "read", "resource": "observations" } }
+  ]
+}
