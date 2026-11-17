@@ -38,8 +38,11 @@ def request(base, token, path, payload=None, *, loopback_tls=False):
 def write_readable_dialogue(path, transcript):
     lines = ["# Диалог с Сашей на DEV", "", f"Тестовый ученик: `{transcript['studentId']}`", ""]
     for number, turn in enumerate(transcript["turns"], 1):
+        response = turn["response"]
+        spoken = response.get("reply") or response.get("bookingText") or "(текстового ответа нет)"
+        label = "**Саша · подтверждение записи**" if not response.get("reply") and response.get("bookingText") else "**Саша**"
         lines.extend([f"## Ход {number}", "", "**Ученик**", "", turn["input"]["text"], "",
-                      "**Саша**", "", turn["response"].get("reply") or "(текстового ответа нет)", ""])
+                      label, "", spoken, ""])
     if transcript.get("error"):
         lines.extend(["## Ошибка прогона", "", transcript["error"], ""])
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
