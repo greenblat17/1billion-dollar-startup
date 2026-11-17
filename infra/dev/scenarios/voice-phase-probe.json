@@ -1,6 +1,6 @@
 {
   "turns": [
-    {"text": "Привет, я работаю в IT и боюсь говорить на встречах. Давай начнём спокойно."},
+    {"text": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?"},
     {"atConnectedSeconds": 300, "text": "I need to explain a problem to my team in a meeting. Could we practise that?"},
     {"atConnectedSeconds": 480, "text": "Yesterday I try to explain a bug, but I couldn't find the words."},
     {"atConnectedSeconds": 660, "text": "Could you ask me a simpler question? I'm a little nervous."},
@@ -8,9 +8,9 @@
     {"atConnectedSeconds": 1020, "text": "Maybe I can say: We need more time because the tests are not finished."},
     {"atConnectedSeconds": 1200, "text": "Can we switch topic and talk about my weekend for a moment?"},
     {"atConnectedSeconds": 1380, "text": "I visited my friends and we cooked dinner together. It was relaxing."},
-    {"atConnectedSeconds": 1510, "text": "Спасибо. В будущем я хотел бы заниматься два-три раза в неделю и делать немного домашки."},
-    {"atConnectedSeconds": 1640, "text": "Давай два занятия в неделю по 30 минут. Домашку не хочу."},
-    {"atConnectedSeconds": 1760, "text": "Спасибо за разговор. Можешь завершить урок и потом прислать мой план в Telegram?"}
+    {"atConnectedSeconds": 1510, "text": "For future lessons I could meet two or three times a week, and do a little homework."},
+    {"atConnectedSeconds": 1640, "text": "I choose two lessons each week, thirty minutes each. I do not want homework."},
+    {"atConnectedSeconds": 1760, "text": "Thank you for the conversation. Please finish the lesson and send my plan in Telegram later."}
   ],
   "expectFinished": true
 }
