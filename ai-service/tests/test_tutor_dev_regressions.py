@@ -65,10 +65,10 @@ async def test_two_rejections_finish_with_tools_disabled():
     body = 'московское время'
     source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-13T11:48:00+00:00'}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
-        {'status': 'claimed', 'input': source}, {'conversationId': 'conversation', 'reply': 'Запись пока не сохранилась.', 'degraded': False}]))
+        {'status': 'claimed', 'input': source}, {'conversationId': 'conversation', 'reply': 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.', 'degraded': True}]))
     llm = SimpleNamespace(complete_tools=AsyncMock(side_effect=[
         {'role': 'assistant', 'tool_calls': [{'id': str(i), 'function': {'name': 'create_trial_booking', 'arguments': '{}'}}]}
-        for i in range(2)] + [{'content': '{"reply":"Запись пока не сохранилась."}'}]))
+        for i in range(2)] + [{'content': '{"reply":"Отлично, запускаю сейчас!"}'}]))
     tutor = FoundationTutor(backend, TrialTutorModel(llm), ContextBuilder(backend))
     tutor.execute = AsyncMock(return_value={'ok': False, 'error': 'invalid_evidence'})
     result = await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794570480), 'scope')
@@ -76,7 +76,9 @@ async def test_two_rejections_finish_with_tools_disabled():
     assert llm.complete_tools.await_count == 3
     assert llm.complete_tools.call_args.args[1] == []
     assert result['booking'] is None
-    assert result['reply'] == 'Запись пока не сохранилась.'
+    assert result['reply'] == 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.'
+    assert backend.command.call_args.args[3]['degraded'] is True
+    assert backend.command.call_args.args[3]['reply'] == result['reply']
 
 
 @pytest.mark.asyncio

@@ -123,7 +123,7 @@ class TrialTutorModel:
         for tool in TOOLS:
             function = dict(tool['function'])
             if function['name'] == 'create_trial_booking':
-                function['description'] = 'Book the free approximately 30-minute voice trial on a clear present request. No second confirmation or mandatory questionnaire. mode=now needs no timezone. An exact time supplied in reply to your scheduling question or acceptance of your unambiguous proposal is a clear request. A vague period needs a concrete proposal and acceptance before booking. Resolve relative dates using original message time and known learner timezone. Never invent availability limits. A technical failure may be rebooked with preserved context.'
+                function['description'] = 'Book the free approximately 30-minute voice trial on a clear present request. The evidence field must copy a contiguous substring of the CURRENT learner message exactly, with its original spelling and punctuation; do not paraphrase or combine words. No second confirmation or mandatory questionnaire. mode=now needs no timezone. An exact time supplied in reply to your scheduling question or acceptance of your unambiguous proposal is a clear request. A vague period needs a concrete proposal and acceptance before booking. Resolve relative dates using original message time and known learner timezone. Never invent availability limits. A technical failure may be rebooked with preserved context.'
             if function['name'] == 'update_learner_context':
                 from app.student_learning_state import UpdatePersonalContext
                 function['parameters'] = UpdatePersonalContext.model_json_schema()

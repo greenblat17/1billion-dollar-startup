@@ -83,6 +83,7 @@ class FoundationTutor:
         memory_committed = False
         degraded = False
         rejected_tools = 0
+        rejected_trial_change = None
         try:
             committed = claim.get('committed', [])
             if committed:
@@ -114,6 +115,8 @@ class FoundationTutor:
                                         booking=None, bookingText=None, degraded=False)
                         if result.get('ok') is False or (result.get('skipped') and not result.get('saved')):
                             rejected_tools += 1
+                            if function['name'] in ('create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking'):
+                                rejected_trial_change = function['name']
                         if function['name'] in ('update_learner_context', 'update_onboarding') and result.get('saved'):
                             memory_committed = True
                         if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
@@ -158,9 +161,16 @@ class FoundationTutor:
             elif schedule_committed:
                 reply = 'Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».'
             elif memory_committed:
-                reply = 'Изменения памяти сохранены. Продолжим разговор с нового сообщения.'
+                reply = 'Изменения сохранены, но я не смог закончить ответ. Продолжим с нового сообщения.'
             else:
                 reply = 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
+        if rejected_trial_change and changed is None:
+            reply = {
+                'create_trial_booking': 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.',
+                'reschedule_trial_booking': 'Не удалось подтвердить перенос пробного. Проверь «Мои встречи» и напиши ещё раз.',
+                'cancel_trial_booking': 'Не удалось подтвердить отмену пробного. Проверь «Мои встречи» и напиши ещё раз.',
+            }[rejected_trial_change]
+            degraded = True
         committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
             'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded,
         })
