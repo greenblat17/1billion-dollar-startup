@@ -120,10 +120,21 @@ class FoundationClient:
             raise BackendFailure('unsupported_roadmap_schema', 502)
         return result
 
+    async def roadmap_timeline(self, scope: str, *, as_of=None, observed_pace: dict | None = None) -> dict:
+        """Read-only SP-10 projection for SP-11; no Roadmap or priority write."""
+        from app.roadmap_timeline import RoadmapTimeline
+        return await RoadmapTimeline(self).read(scope, as_of=as_of, observed_pace=observed_pace)
+
     async def learning_roadmap_history(self, scope: str, *, offset: int = 0) -> dict:
         result = await self._request('GET', '/learning-roadmap/history', scope, params={'offset': str(offset)})
         if result.get('schemaVersion') != 1:
             raise BackendFailure('unsupported_roadmap_schema', 502)
+        return result
+
+    async def learning_roadmap_priority(self, scope: str) -> dict:
+        result = await self._request('GET', '/learning-roadmap/priority', scope)
+        if result.get('schemaVersion') != 1:
+            raise BackendFailure('unsupported_priority_schema', 502)
         return result
 
     async def learning_task(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:

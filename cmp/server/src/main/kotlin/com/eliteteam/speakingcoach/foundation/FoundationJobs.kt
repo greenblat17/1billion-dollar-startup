@@ -7,7 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
-internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
+internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "trial.observe", "trial.assess", "lesson.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
@@ -101,6 +101,15 @@ internal class FoundationJobs {
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
             "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "roadmap.prioritize" -> {
+                val current = PersonalizedRoadmap().read(connection, scope.studentId)
+                if (current.number("revision") != inputs.number("roadmapRevision") ||
+                    result.obj("decision").number("roadmapRevision") != inputs.number("roadmapRevision")) false
+                else {
+                    RoadmapPriority().save(connection, scope.copy(role = "operator"), result, now)
+                    true
+                }
+            }
             "lesson.prepare" -> prepare(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "memory.extract" -> {
                 result.only("candidates")

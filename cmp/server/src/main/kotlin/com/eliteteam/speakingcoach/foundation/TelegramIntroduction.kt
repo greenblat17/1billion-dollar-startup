@@ -15,6 +15,12 @@ private val introPauses = listOf(0L, 750L, 1250L, 750L)
 
 internal data class IntroductionPart(val index: Int, val waitMillis: Long)
 
+/** PostgreSQL rounds timestamps to microseconds; a positive sub-millisecond wait must not become zero. */
+internal fun introductionWaitMillis(now: Instant, due: Instant): Long {
+    val remaining = Duration.between(now, due)
+    return if (remaining.isNegative || remaining.isZero) 0 else remaining.toMillis().coerceAtLeast(1)
+}
+
 /** Each distinct /start creates a fresh student; a durable chat boundary makes replay harmless. */
 internal class TelegramIntroduction(private val database: FoundationDatabase) {
     suspend fun prepare(chat: Long, message: Long, request: TutorRequest): Boolean =
@@ -65,7 +71,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             return@transaction null
         }
         if (row.text("status") != "active") return@transaction null
-        IntroductionPart(index, Duration.between(now, Instant.parse(row.text("due_at"))).toMillis().coerceAtLeast(0))
+        IntroductionPart(index, introductionWaitMillis(now, Instant.parse(row.text("due_at"))))
     }
 
     suspend fun claim(chat: Long, request: String, part: Int): Boolean = database.transaction { c, now ->

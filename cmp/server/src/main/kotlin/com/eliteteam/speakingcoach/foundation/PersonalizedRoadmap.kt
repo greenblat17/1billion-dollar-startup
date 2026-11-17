@@ -130,6 +130,9 @@ internal class PersonalizedRoadmap {
         }
         val roadmap = JsonObject(proposal + ("sequence" to JsonArray(completed)))
         save(c, operator, json("learningRevision" to inputs.number("learningRevision"), "roadmap" to roadmap), now)
+        val revision = read(c, scope.studentId).number("revision")
+        c.enqueueJob(scope.studentId, "roadmap.prioritize", "initial:$revision", null,
+            json("roadmapRevision" to revision), now)
         return true
     }
 }

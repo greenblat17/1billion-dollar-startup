@@ -4,6 +4,12 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
 
 internal fun Route.personalizedRoadmapRoutes(service: FoundationService, token: String) {
+    get("/learning-roadmap/priority") {
+        foundationResponse(token) { scope ->
+            if (call.request.queryParameters.names().isNotEmpty()) reject("invalid_roadmap_query")
+            service.learningRoadmapPriority(scope)
+        }
+    }
     get("/learning-roadmap/history") {
         foundationResponse(token) { scope ->
             val query = call.request.queryParameters

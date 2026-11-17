@@ -24,6 +24,7 @@ from app.foundation_client import BackendFailure
 from app.trial_policy import REALTIME_VOICE_POLICY
 from app import trial_v55
 from app.regular_lesson import REGULAR_VOICE_POLICY
+from app.teaching_observations import observation_from_action, observation_operation_id
 
 
 class RealtimeProviderError(RuntimeError):
@@ -90,7 +91,7 @@ class RealtimeTrialSession(TrialJournal):
         # or issues content, and Trial keeps its existing behavior.
         self.action = None
         self.action_history = []
-        self.action_events = []  # SP-17C proposals only; never score or persist as Observations here.
+        self.action_events = []  # Recorded observations retained for this connection's diagnostics.
         self.action_response = None
         self.action_reply_purpose = 'context'
         issued = admitted.get('issuedTeachingContent') if self.regular else None
@@ -349,9 +350,10 @@ class RealtimeTrialSession(TrialJournal):
             self.pending_inputs.discard(key)
             text = message.get('transcript', '').strip()
             if text:
+                occurred_at = self.turn_times.pop(key, None) if self.v55 else timestamp()
                 saved = await self.append('user', text, source=f"{self.episode}:{message['item_id']}",
                                           metadata={'providerItemId': key, 'finality': 'final', **self.input_spans.pop(key, {})} if self.v55 else None,
-                                          occurred_at=self.turn_times.pop(key, None) if self.v55 else None)
+                                          occurred_at=occurred_at)
                 if saved.get('eventId'):
                     source = {'id': saved['eventId'], 'body': text[:12000]}
                     self.memory_sources[source['id']] = source
@@ -363,10 +365,14 @@ class RealtimeTrialSession(TrialJournal):
                     if self.action is not None:
                         if type(saved.get('sequence')) is not int:
                             raise ValueError('missing_conversation_sequence')
-                        user_event = {'eventId': saved['eventId'], 'revision': saved['sequence'], 'text': text}
+                        user_event = {'eventId': saved['eventId'], 'revision': saved['sequence'],
+                                      'text': text, 'occurredAt': occurred_at}
                         outcome = await self.action.respond(user_event, list(self.action_history))
                         if outcome.get('event') is not None:
-                            self.action_events.append(outcome['event'])
+                            observation = observation_from_action(outcome['event'], user_event, self.action_history)
+                            await self.backend.record_learning_observation(
+                                self.scope, observation_operation_id(observation), observation)
+                            self.action_events.append(observation)
                         self.action_history.append({**user_event, 'role': 'user', 'purpose': 'answer'})
                         self.action_response = outcome['spokenFeedback']
                         self.action_reply_purpose = 'hint' if outcome['next'] == 'help' else 'context'

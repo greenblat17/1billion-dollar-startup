@@ -132,6 +132,7 @@ async def test_malformed_assessment_does_not_create_evidence_or_advance():
 
 def regular_action_session():
     base = session()
+    base.backend.record_learning_observation = AsyncMock(return_value={'created': True})
     admitted = {**ADMITTED, 'lesson': {**ADMITTED['lesson'], 'kind': 'regular'},
                 'issuedTeachingContent': handoff()}
     m = model(verdict())
@@ -151,7 +152,9 @@ async def test_regular_voice_hook_waits_for_saved_transcript_before_response():
                             'item_id': 'turn-1', 'transcript': 'I missed the train.'})
     assert m.complete_json.await_count == 1
     assert s.action.events[0]['answerSource'] == {'eventId': 'saved-user', 'revision': 7}
-    assert s.action_events == s.action.events
+    assert s.action_events[0]['outcome'] == 'independent_correct'
+    assert s.action_events[0]['actionId'] == 'content:3'
+    s.backend.record_learning_observation.assert_awaited_once()
     assert sent(s)[-1]['type'] == 'response.create'
     assert 'What does that part mean?' in sent(s)[-1]['response']['instructions']
 

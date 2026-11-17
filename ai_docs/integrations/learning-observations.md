@@ -8,7 +8,8 @@ Python wire types: `ai-service/app/learning_observations.py`. Kotlin validation:
 ## API
 
 Все endpoints используют `/internal/foundation/v1`, service token и student execution scope.
-Чтение доступно существующим scoped consumers, запись SP-17A — только operator.
+Чтение доступно существующим scoped consumers. Operator записывает и исправляет Observations;
+SP-17C разрешает voice scope только запись regular evidence по выданному Action того же урока.
 Новых native tools нет; Trial producer подключён в SP-17B, regular producer остаётся SP-17C.
 
 | Операция | Аргументы |
@@ -150,8 +151,30 @@ SP-12A предоставляет `LearningPlans.resolve(c,student,taskId,planId
 Adapter извлекает stage, сохраняя проверки owner/task/revision/membership. Ссылка никогда не перенаправляется на current revision.
 Методы SP-12A явно переводятся: Conversation→conversation, Explanation→explanation, Exercises→exercises, Exposure→exposure.
 Stage kind numeric/binary проверяется; binary не становится numeric scoring event.
-Action resolver остаётся SP-17C; при actionId referenceStatus остаётся unresolved даже с проверенным Stage.
+SP-17C проверяет actionId по исторической выданной версии Content; без совпадения referenceStatus остаётся unresolved.
 stageAttemptId принадлежит SP-19, не создаётся в A. Исторические ссылки не переносят Score между Plans.
+
+## SP-17C: Teaching Actions и Topic handoff
+
+`teaching_observations.observation_from_action` переводит результаты SP-14/15 в тот же v1 document.
+Сохранённый ответ даёт `anchorEventId`, `attemptId`, время и `conversation_event.sequence`.
+Повторная запись использует устойчивый operation ID. Realtime hook записывает Observation после
+сохранения расшифровки и до следующего ответа; ошибка записи прерывает обработку и не скрывается.
+`actionId` содержит `contentId:revision`. Foundation проверяет, что именно эта историческая
+версия Content выдана для того же ученика, урока, Task, Stage и метода. Дефектный Content
+сохраняет evidence с `referenceStatus=defective`, но его ссылка не считается verified для Score.
+Voice scope может записать только regular Observation по выданному Content этого же урока;
+для дефектной версии допускается только invalid outcome. Revise/invalidate остаются operator-only.
+
+SP-15 Listening и Conversation дают `independent_correct` только для показанного результата;
+подсказка требует сохранённый hint source, сомнительное ASR остаётся unresolved. Один и тот же
+текст ответа в рамках действия не создаёт второе Observation. SP-14/15 различают явную
+self-correction и hinted answer. Это структурная проверка, не доказательство качества живого распознавания.
+
+`topic_knowledge_advisory` читает историю Observations по Topic и отдаёт SP-20 ссылки на
+ревизии и источники, `decision=insufficient_evidence`, `value=null` и rationale. Утверждённых
+критериев достаточности Known/Not Known пока нет. Поэтому этот интерфейс не меняет Topic Knowledge;
+SP-20 должен сохранить прежнее значение до отдельного продуктового решения.
 
 ## SP-03, retention и privacy
 

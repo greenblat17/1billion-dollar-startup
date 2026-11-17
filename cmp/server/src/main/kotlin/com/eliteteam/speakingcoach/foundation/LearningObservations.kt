@@ -8,14 +8,18 @@ import kotlinx.serialization.json.JsonObject
 /** Authoritative evidence journal. Commands run under the existing student lock and receipt transaction. */
 internal class LearningObservations(private val stages: ObservationStageResolver = unresolvedObservationStage) {
     fun write(c: Connection, scope: ExecutionScope, action: String, args: JsonObject, now: Instant): JsonObject {
-        requireRole(scope, "operator")
+        requireRole(scope, "operator", "voice")
         if (action == "record") args.only("observation") else args.only("observationId", "expectedRevision", "observation", "reason")
         val d = args.obj("observation")
         LearningObservationModel.validate(d)
         LearningObservationSources.validate(c, scope.studentId, d, now)
         validateCatalog(c, d)
         validateTask(c, scope.studentId, d)
-        referenceStatus(c, scope.studentId, d)
+        val reference = referenceStatus(c, scope.studentId, d)
+        if (scope.role == "voice" && (action != "record" || d.text("practice") != "regular" ||
+                d.optionalText("lessonId") != scope.lessonId || d.optionalText("actionId") == null ||
+                reference.first != "verified" && !(reference.first == "defective" &&
+                    d.text("outcome") == "invalid" && d.obj("quality").text("status") == "invalid"))) reject("not_permitted")
         d.optionalText("repeatOf")?.let {
             if (get(c, scope.studentId, it).obj("document").optionalText("repeatOf") != null) reject("observation_repeat_chain")
         }
@@ -118,10 +122,34 @@ internal class LearningObservations(private val stages: ObservationStageResolver
         val methods = mapOf("Conversation" to "conversation", "Explanation" to "explanation", "Exercises" to "exercises", "Exposure" to "exposure")
         val method = methods[stage.text("method")] ?: reject("observation_stage_method")
         if (d.optionalText("method") != null && method != d.text("method")) reject("observation_stage_method")
-        // An Action reference needs its own domain resolver, delivered with Teaching Actions.
         val kind = stage.text("kind")
         if (kind !in setOf("numeric", "binary")) reject("observation_stage_kind")
-        return (if (d.optionalText("actionId") == null) "verified" else "unresolved") to kind
+        val action = d.optionalText("actionId") ?: return "verified" to kind
+        val contentId = action.substringBeforeLast(':', "")
+        val revision = action.substringAfterLast(':').toLongOrNull()
+        if (contentId.isBlank() || revision == null || revision < 1) return "unresolved" to kind
+        val issued = c.document("""SELECT to_jsonb(v) FROM learning_content_revision v
+            JOIN learning_content h ON h.id=v.content_id
+            WHERE h.student_id=? AND h.id=? AND v.revision=?""", student, contentId, revision)
+            ?: return "unresolved" to kind
+        val content = issued.obj("document")
+        val contentStage = content.obj("stageRef")
+        val sameStage = contentStage.text("planId") == ref.text("planId") &&
+            contentStage.number("planRevision") == ref.number("planRevision") &&
+            contentStage.text("stageId") == ref.text("stageId")
+        val sameEvidence = content.text("taskId") == d.text("taskId") &&
+            content.text("catalogVersion") == d.text("catalogVersion") &&
+            content.text("skillId") == d.text("skillId") &&
+            content.text("topicId") == d.text("topicId") &&
+            content.text("problemId") == d.text("problemId") &&
+            methods[content.text("method")] == d.text("method")
+        if (!sameStage || !sameEvidence || issued.optionalText("issued_lesson_id") != d.optionalText("lessonId"))
+            reject("observation_action_mismatch")
+        return (when (issued.text("status")) {
+            "issued" -> "verified"
+            "defective" -> "defective"
+            else -> "unresolved"
+        }) to kind
     }
 
     private fun response(c: Connection, row: JsonObject, now: Instant, created: Boolean) =

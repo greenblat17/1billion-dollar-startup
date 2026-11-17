@@ -12,7 +12,9 @@ Telegram служит перепиской; приложение в целево
 | SP-17B: Trial → Observations | [Контракт](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
 | SP-07: Post-Trial Assessment | [Диагностический handoff](integrations/trial-assessment.md), [продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
 | SP-08: первая Roadmap | [Контракт и границы проверки](plans/2026-11-17-sp08-roadmap-handoff.md), [готовность](status.md#совместная-интеграция-волны-5) |
+| SP-09/10: приоритеты и сроки Roadmap | [Готовность и границы проверки](status.md#совместная-интеграция-волны-6) |
 | SP-14/15: Teaching Actions | [Готовность и граница SP-16/17C](status.md#совместная-интеграция-волны-5) |
+| SP-17C: результаты Teaching Actions | [Observation contract](integrations/learning-observations.md), [готовность](status.md#совместная-интеграция-волны-6) |
 | SP-12A v5.5: Task Learning Plan / Stage | [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |
 | SP-12B v5.5: шаблоны методов и переходы Plan | [Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы), [утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md), [готовность](status.md#sp-12b-v55-педагогическая-логика) |
 | SP-13A v5.5: Learning Content Contract | [Контракт и handoff](integrations/learning-content.md), [план](plans/2026-11-16-sp13a-content-contract.md), [примеры](../content-contract/v1/examples.json) |
