@@ -19,6 +19,10 @@ on:
         description: Enable SP-05 mock billing on DEV (100 TEST per day, no real charges)
         type: boolean
         default: false
+      agent_test:
+        description: Enable the authenticated agent dialogue route on DEV
+        type: boolean
+        default: false
       verify_only:
         description: Read-only DEV readiness without redeployment
         type: boolean
@@ -131,6 +135,7 @@ jobs:
     with:
       destination: dev
       billing_mock: ${{ inputs.billing_mock }}
+      agent_test: ${{ inputs.agent_test }}
     secrets: inherit
 
   deploy-ai:

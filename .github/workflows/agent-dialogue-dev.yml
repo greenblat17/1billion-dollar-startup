@@ -1,0 +1,71 @@
+name: Agent dialogue DEV
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: One synthetic learner message
+        required: true
+        type: string
+      student_id:
+        description: Existing agent-test student UUID (blank starts a new dialogue)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  turn:
+    name: One learner turn
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    timeout-minutes: 5
+    env:
+      DEV_CMP_SERVER_ENV: ${{ secrets.DEV_CMP_SERVER_ENV }}
+      LEARNER_MESSAGE: ${{ inputs.message }}
+      STUDENT_ID: ${{ inputs.student_id }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Send learner turn and save transcript
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          values = dict(line.split('=', 1) for line in os.environ['DEV_CMP_SERVER_ENV'].splitlines()
+                        if '=' in line and not line.lstrip().startswith('#'))
+          token = values.get('AI_INTERNAL_TOKEN', '')
+          webhook = urlsplit(values.get('TELEGRAM_WEBHOOK_URL', ''))
+          if not token or webhook.scheme != 'https' or not webhook.netloc:
+              raise SystemExit('DEV token or HTTPS webhook origin is unavailable')
+          origin = f'{webhook.scheme}://{webhook.netloc}'
+          output = Path(os.environ['RUNNER_TEMP']) / 'agent-dialogue-transcript.json'
+          command = [sys.executable, 'infra/dev/agent-dialogue.py', '--message',
+                     os.environ['LEARNER_MESSAGE'], '--base-url', origin, '--output', str(output)]
+          if os.environ.get('STUDENT_ID'):
+              command.extend(['--student-id', os.environ['STUDENT_ID']])
+          child_env = dict(os.environ, AI_INTERNAL_TOKEN=token)
+          child_env.pop('DEV_CMP_SERVER_ENV', None)
+          result = subprocess.run(command, env=child_env, text=True, capture_output=True)
+          if result.stdout:
+              print(result.stdout.strip())
+          if result.stderr:
+              print(result.stderr.strip(), file=sys.stderr)
+          sys.exit(result.returncode)
+          PY
+      - name: Upload transcript
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: agent-dialogue-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/agent-dialogue-transcript.json
+            ${{ runner.temp }}/agent-dialogue-transcript.md
+          if-no-files-found: ignore
+          retention-days: 7

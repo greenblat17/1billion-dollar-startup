@@ -95,6 +95,7 @@ internal class FoundationChat(private val service: FoundationService) {
     }
 
     private suspend fun student(session: String): String {
+        if (session.startsWith("agent-")) return service.identity.resolve("agent_test", session.removePrefix("agent-"))
         val subject = session.removePrefix("tg-")
         if (!session.startsWith("tg-") || subject.toLongOrNull()?.let { it > 0 } != true) reject("invalid_identity")
         return service.identity.resolve("telegram", subject)
