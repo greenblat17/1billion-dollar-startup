@@ -1,6 +1,6 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `09934b4` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44088059542) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила доставку `/start`, но выявила ложное подтверждение прямой записи Trial без кнопки. Голос и Mini App не приняты. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. DEV получил Ktor из `2513429`, AI service из `974230e` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44090164120) прошла. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила `/start`, прямую запись Trial и доставку кнопки «Начать урок». Кнопка открыла Mini App; Telegram запросил микрофон. Голосовой разговор ещё не проверен. Волны 10–11 исключены из текущего поручения.
 
 Изолированный `agent_test` Student на DEV проводит текстовые реплики через живой
 AI/Foundation pipeline и возвращает состояние PostgreSQL. BB агент проверил
@@ -8,12 +8,13 @@ AI/Foundation pipeline и возвращает состояние PostgreSQL. BB
 Ложное обещание сохранить нагрузку/Homework исправлено в текстовой политике и
 повторно проверено; поля останутся Unknown до Trial. При исправлении цели запись
 прошла, но ответ один раз деградировал до шаблона из-за provider 429.
-Telegram Trial не был записан после двух прямых запросов: сначала отвергнуты
+Первые два Telegram запроса на Trial не создали запись: сначала были отвергнуты
 аргументы booking, затем модель дважды неверно вызвала onboarding update.
-Первая защита от неподтверждённой записи прошла локальные тесты, но живой
-повтор вернул буквальный `placeholder` без вызова инструмента. Следующая правка
-отклоняет такой ответ и не допускает ложного подтверждения после двух
-отклонённых инструментов. Живой повтор после её поставки ещё требуется.
+Следующий живой повтор вернул буквальный `placeholder` без вызова инструмента.
+После исправления и поставки AI service прямой запрос создал booking: безопасная
+[диагностика](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44091174219)
+показала `booking_present=true`, а Telegram показал кнопку входа. Один отклонённый
+неизвестный инструмент перед успешным booking остаётся предметом диагностики.
 Полная [матрица AC](acceptance/dev-waves-1-9-matrix.md), [диалоги](acceptance/runs/text-ac-results.md)
 и [следующие интерфейсы приёмки](acceptance/remaining-ac-execution.md) сохраняют
 отдельные статусы `pass/fail/blocked`. Описание адаптера: [агентская приёмка](integrations/agent-acceptance.md).
