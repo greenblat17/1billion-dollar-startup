@@ -21,10 +21,23 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
         'facts': [{'fact_key': 'leisure', 'value': 'hiking', 'source_event_id': 'source-1'}],
         'observations': [{'content': 'Needs time to give reasons', 'uncertainty': 'limited'}]}, [], False)
     assert await LessonPlanner(model).prepare(context, {}) == plan
+    instructions = model.complete_json.call_args.args[0]
+    assert 'Write strategy in 3–5 short sentences.' in instructions
+    assert 'Aim for no more than 1200 characters.' in instructions
     payload = json.loads(model.complete_json.call_args.args[1])
     assert payload == context.data
     assert model.complete_json.call_args.kwargs == {'operation': 'regular_lesson_prepare', 'retry': False,
         'response_format': LessonPlan.response_format()}
+    model.complete_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_planner_keeps_valid_strategy_above_prompt_length_target():
+    plan = {'objective': 'Explain a release delay clearly', 'topic': 'Work updates', 'strategy': 'x' * 3000}
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(plan)))
+    context = TutorContext({'lesson': {'kind': 'regular'}}, [], False)
+
+    assert await LessonPlanner(model).prepare(context, {}) == plan
     model.complete_json.assert_awaited_once()
 
 
