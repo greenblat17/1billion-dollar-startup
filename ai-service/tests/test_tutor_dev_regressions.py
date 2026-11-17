@@ -82,17 +82,21 @@ async def test_two_rejections_finish_with_tools_disabled():
 
 
 @pytest.mark.asyncio
-async def test_model_cannot_confirm_trial_without_committed_booking():
+async def test_rejected_optional_updates_cannot_confirm_trial():
     body = 'Хочу пробный урок сейчас.'
     source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-17T12:45:00+00:00'}
     saved = {'conversationId': 'conversation',
-             'reply': 'Пробный пока не записан. Я не смог подтвердить действие. Напиши ещё раз, и я проверю запись.',
+             'reply': 'Не удалось завершить запрос: запись на пробный не подтверждена. Напиши ещё раз, и я проверю запись.',
              'degraded': True}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
         {'status': 'claimed', 'input': source}, saved]))
-    model = SimpleNamespace(complete=AsyncMock(return_value={'content':
-        '{"reply":"Сейчас запускаю пробный урок!","trialOffered":true,"claimedTrialAction":"create"}'}))
-    result = await FoundationTutor(backend, model, ContextBuilder(backend)).respond(
+    model = SimpleNamespace(complete=AsyncMock(side_effect=[
+        {'role': 'assistant', 'tool_calls': [{'id': str(i), 'function': {'name': 'update_onboarding', 'arguments': '{}'}}]}
+        for i in range(2)]), finalize=AsyncMock(return_value={'content':
+        '{"reply":"Сейчас запускаю пробный урок!","trialOffered":true}'}))
+    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    tutor.execute = AsyncMock(return_value={'ok': False, 'error': 'invalid_evidence'})
+    result = await tutor.respond(
         TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794919500), 'scope')
     assert result['booking'] is None
     assert result['reply'] == saved['reply']
