@@ -243,7 +243,17 @@ class RealtimeTrialSession(TrialJournal):
                                      **({'trialExecution': self.trial_state} if self.v55 else {}),
                                      'protocol': 'realtime-pcm-v1', 'inputSampleRate': 24000})
         self.want_response = True
-        await self.maybe_respond('Briefly greet or resume the same lesson. Start a natural conversation; do not repeat an introduction questionnaire.')
+        if self.v55 and self.trial_state.get('connectedSeconds', 0) > 0:
+            opening = ('Resume the active Trial in its saved phase. Continue the latest exchange in history '
+                       'and refer naturally to the learner goal or concern in context when available. '
+                       'Do not give a generic welcome-back greeting or ask the learner to choose a topic again.')
+        elif self.v55:
+            opening = ('Begin the Trial in Russian. Refer naturally to the learner goal or concern in context '
+                       'when available, then ask one specific conversational follow-up. '
+                       'Do not restart onboarding or ask for a topic already present in context.')
+        else:
+            opening = 'Briefly greet or resume the same lesson. Start a natural conversation; do not repeat an introduction questionnaire.'
+        await self.maybe_respond(opening)
 
     @staticmethod
     def regular_tools():
@@ -432,7 +442,8 @@ class RealtimeTrialSession(TrialJournal):
         await self.maybe_respond()
 
     async def finish_if_ready(self):
-        if not self.want_finish or self.response_active or self.pending_inputs or self.truncations or self.ended:
+        if (not self.want_finish or self.response_active or self.pending_inputs or self.truncations or self.ended
+                or any(not item['settled'] for item in self.items.values())):
             return
         await self.flush_input(forward=False)
         await self.command('voice.end', reason='natural_goodbye')
@@ -649,8 +660,11 @@ class RealtimeTrialSession(TrialJournal):
                 'call_id': call_id, 'output': json.dumps(result, ensure_ascii=False)}})
             self.want_response = True
             return
-        valid = (output['name'] == 'finish_after_reply' and arguments == {}
-                 and not any(not item['settled'] for item in self.items.values()))
+        pending_playback_count = sum(not item['settled'] for item in self.items.values())
+        valid = output['name'] == 'finish_after_reply' and arguments == {}
+        if output['name'] == 'finish_after_reply':
+            event('trial_finish_tool', outcome='accepted' if valid else 'rejected',
+                  valid=valid, pending_playback_count=pending_playback_count)
         # Only provider-authenticated calls reach here; never browser function events.
         next_lesson = await self.next_lesson() if valid and self.regular else None
         if valid:

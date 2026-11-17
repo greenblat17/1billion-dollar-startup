@@ -134,6 +134,35 @@ async def test_unknown_and_duplicate_tools_cannot_end_or_execute_business_operat
 
 
 @pytest.mark.asyncio
+async def test_finish_tool_waits_for_playback_without_losing_explicit_end(caplog):
+    s = session()
+    s.items['prior-audio'] = {'settled': False}
+    with caplog.at_level('INFO', logger='app.diagnostics'):
+        await s.tool({'name': 'finish_after_reply', 'arguments': '{}', 'call_id': 'CALL_PRIVATE_PENDING'})
+    assert s.finish_next and not s.ended
+    assert json.loads(sent(s)[-1]['item']['output'])['readyForGoodbye'] is True
+    assert not any(item['type'] == 'response.create' for item in sent(s))
+    s.items['prior-audio']['settled'] = True
+    await s.maybe_respond()
+    assert sent(s)[-1]['type'] == 'response.create'
+    await output(s, 'goodbye', finish=s.finish_next)
+    assert s.items['goodbye']['finish']
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': 'goodbye'})
+    await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': 'goodbye', 'transcript': 'До встречи!'})
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': []}})
+    await s.settle('goodbye', {'complete': True, 'playedMs': 100})
+    assert s.ended
+    assert s.backend.command.call_args.args[3]['reason'] == 'natural_goodbye'
+    records = [json.loads(record.message.split('runtime_event ', 1)[1]) for record in caplog.records
+               if 'runtime_event ' in record.message]
+    results = [record for record in records if record.get('event') == 'trial_finish_tool']
+    assert [(record['outcome'], record['valid'], record['pending_playback_count']) for record in results] == [
+        ('accepted', True, 1)]
+    assert 'prior-audio' not in caplog.text
+    assert 'CALL_PRIVATE_PENDING' not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_browser_cannot_inject_provider_events_and_mute_flushes_tail():
     s = session()
     s.socket.receive = AsyncMock(side_effect=[
@@ -276,6 +305,26 @@ async def test_configuration_has_no_provider_key_and_reconnect_uses_new_scope():
     detection = s.provider.sent[0]['session']['audio']['input']['turn_detection']
     assert detection['create_response'] is False
     assert detection['eagerness'] == 'medium'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('connected_seconds,expected', [
+    (0, 'Begin the Trial in Russian'),
+    (90, 'Resume the active Trial in its saved phase'),
+])
+async def test_trial_opening_uses_saved_context_and_resume_phase(connected_seconds, expected):
+    admitted = {**ADMITTED, 'lesson': {**ADMITTED['lesson'], 'trial_version': 'v5.5'},
+                'trialExecution': {'phase': 'warmup', 'connectedSeconds': connected_seconds}}
+    base = session()
+    s = RealtimeTrialSession(base.socket, base.backend, base.contexts, base.store, admitted, SETTINGS)
+    s.backend.command.return_value = admitted['trialExecution']
+    s.provider = FakeProvider()
+    await s.configure()
+    instruction = next(item['response']['instructions'] for item in s.provider.sent
+                       if item['type'] == 'response.create')
+    assert expected in instruction
+    assert 'learner goal or concern in context' in instruction
+    assert 'topic' in instruction
 
 
 @pytest.mark.asyncio
