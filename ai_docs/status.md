@@ -1,6 +1,6 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-17. Волны 1–9 отправлены в [draft PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. Merge и deploy не выполнялись. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-17. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`. PR не слит. DEV получил Ktor из `2513429`, AI service из `5ee2476` и Mini App из `2f38856`; [проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44077386023) прошла. Первый живой текстовый ход агентского ученика [прошёл](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44078898852); полная приёмка AC продолжается. Волны 10–11 исключены из текущего поручения.
 
 Изолированный DEV-адаптер агентской текстовой приёмки подготовлен в отдельной ветке:
 `agent_test` Student, живой AI/Foundation pipeline, чтение PostgreSQL snapshot и CLI transcript.
