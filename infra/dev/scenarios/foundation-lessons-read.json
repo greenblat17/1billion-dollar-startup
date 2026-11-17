@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "name": "owned_lessons", "request": {
+      "kind": "command", "operationId": { "$uuid": true },
+      "action": "lesson.list", "args": {}
+    } }
+  ]
+}

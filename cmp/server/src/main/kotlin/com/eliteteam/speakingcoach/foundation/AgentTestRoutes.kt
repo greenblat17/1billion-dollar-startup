@@ -98,11 +98,19 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                         val requestId = agentId(input.text("operationId"))
                         val at = Instant.parse(input.text("occurredAt"))
                         if (at.isBefore(Instant.now().minusSeconds(86400)) || at.isAfter(Instant.now().plusSeconds(60))) reject("invalid_receivedAt")
-                        service.history.accept(student, "foundation-check:$requestId", "Synthetic foundation acceptance event", at, false)
+                        val accepted = service.history.accept(student, "foundation-check:$requestId",
+                            "Synthetic foundation acceptance event", at, false)
+                        val event = service.database.transaction(readOnly = true) { c, _ ->
+                            c.document("SELECT to_jsonb(e) FROM conversation_event e WHERE student_id=? AND id=?",
+                                student, accepted.text("event_id")) ?: reject("source_expired")
+                        }
+                        json("sourceEventId" to event.text("id"), "sourceSequence" to event.number("sequence"),
+                            "sources" to JsonArray(listOf(json("type" to "event", "id" to event.text("id"),
+                                "revision" to event.number("sequence")))))
                     }
                     "command" -> {
                         val action = input.text("action")
-                        if (action !in setOf("learning.update", "learning.topic.record", "learning.task.create", "learning.task.update",
+                        if (action !in setOf("lesson.list", "learning.update", "learning.topic.record", "learning.task.create", "learning.task.update",
                                 "learning.task.transition", "learning.task.progress",
                                 "learning.roadmap.save", "learning.roadmap.priority.save",
                                 "learning.plan.create", "learning.plan.revise", "learning.plan.select-stage", "learning.content.create",

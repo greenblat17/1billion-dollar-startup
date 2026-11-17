@@ -7,6 +7,7 @@ import re
 import ssl
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
@@ -30,6 +31,24 @@ def safe(value):
                          and re.fullmatch(r"[0-9a-f-]{72}", item))}
     if isinstance(value, list):
         return [safe(item) for item in value]
+    return value
+
+
+def resolve(value, previous):
+    if isinstance(value, dict):
+        if set(value) == {"$uuid"} and value["$uuid"] is True:
+            return str(uuid.uuid4())
+        if set(value) == {"$now"} and value["$now"] is True:
+            return datetime.now(timezone.utc).isoformat()
+        if set(value) == {"$ref"}:
+            parts = value["$ref"].split(".")
+            result = previous[parts.pop(0)]
+            for part in parts:
+                result = result[int(part)] if isinstance(result, list) else result[part]
+            return result
+        return {key: resolve(item, previous) for key, item in value.items()}
+    if isinstance(value, list):
+        return [resolve(item, previous) for item in value]
     return value
 
 
@@ -65,8 +84,10 @@ def run(work, env_path=Path("/opt/speaking-coach/.env"), opener=None):
     else:
         raise ValueError("invalid_mode")
     output = {"studentId": student_id, "mode": mode, "steps": []}
+    previous = {}
     for step in steps:
-        request = Request(origin + step["path"], data=json.dumps(step["request"]).encode(),
+        payload = resolve(step["request"], previous)
+        request = Request(origin + step["path"], data=json.dumps(payload).encode(),
                           headers={"Content-Type": "application/json", "X-Internal-Token": token}, method="POST")
         try:
             with opener.open(request, timeout=30) as response:
@@ -81,7 +102,9 @@ def run(work, env_path=Path("/opt/speaking-coach/.env"), opener=None):
             status, body = 0, {"error": "transport_error"}
         if mode == "regular_entitlement":
             body = {key: body[key] for key in ("status", "entitlementId", "validUntil", "error") if key in body}
-        output["steps"].append({"name": step["name"], "httpStatus": status, "response": safe(body)})
+        public = safe(body)
+        output["steps"].append({"name": step["name"], "httpStatus": status, "response": public})
+        previous[step["name"]] = {"request": payload, "response": public}
         if status < 200 or status >= 300:
             break
     return output

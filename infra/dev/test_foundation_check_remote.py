@@ -64,6 +64,15 @@ class FoundationCheckRemoteTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid_scenario"):
             MODULE.run(self.work, env_path=self.env, opener=Opener({}))
 
+    def test_resolves_source_and_replay_from_prior_step(self):
+        previous = {"source": {"response": {"result": {"sources": [{"type": "event", "id": "event-id"}]}}},
+                    "update": {"request": {"kind": "command", "operationId": "same-id"}}}
+        self.assertEqual([{"type": "event", "id": "event-id"}],
+                         MODULE.resolve({"$ref": "source.response.result.sources"}, previous))
+        self.assertEqual({"kind": "command", "operationId": "same-id"},
+                         MODULE.resolve({"$ref": "update.request"}, previous))
+        self.assertEqual(36, len(MODULE.resolve({"$uuid": True}, previous)))
+
 
 if __name__ == "__main__":
     unittest.main()

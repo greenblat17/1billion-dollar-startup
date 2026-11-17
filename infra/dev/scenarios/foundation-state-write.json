@@ -1,0 +1,15 @@
+{
+  "steps": [
+    { "name": "before", "request": { "kind": "read", "resource": "state" } },
+    { "name": "source", "request": { "kind": "source", "operationId": { "$uuid": true }, "occurredAt": { "$now": true } } },
+    { "name": "update", "request": {
+      "kind": "command", "operationId": { "$uuid": true }, "action": "learning.update",
+      "args": { "expectedRevision": { "$ref": "before.response.result.revision" },
+        "patch": { "targetLevel": "B2" }, "goal": "B2 for work",
+        "component": "foundation-acceptance", "sources": { "$ref": "source.response.result.sources" } }
+    } },
+    { "name": "after", "request": { "kind": "read", "resource": "state" } },
+    { "name": "replay", "request": { "$ref": "update.request" } },
+    { "name": "receipt", "request": { "kind": "read", "resource": "receipt", "resourceId": { "$ref": "update.request.operationId" } } }
+  ]
+}
