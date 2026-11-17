@@ -1,0 +1,172 @@
+{
+  "steps": [
+    {
+      "name": "catalog",
+      "request": {
+        "kind": "catalog",
+        "args": {"version": "speaky-v55-v2", "topicId": "grammar-b1-perfect-past"}
+      }
+    },
+    {"name": "state_before", "request": {"kind": "read", "resource": "state"}},
+    {
+      "name": "owned_lesson_before",
+      "request": {"kind": "command", "operationId": {"$uuid": true}, "action": "lesson.list", "args": {}}
+    },
+    {
+      "name": "synthetic_source",
+      "request": {"kind": "source", "operationId": {"$uuid": true}, "occurredAt": {"$now": true}}
+    },
+    {
+      "name": "synthetic_goal",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.update",
+        "args": {
+          "expectedRevision": {"$ref": "state_before.response.result.revision"},
+          "patch": {},
+          "goal": "Synthetic Foundation fixture: explain a recent software release at work",
+          "component": "regular-lesson-fixture",
+          "sources": {"$ref": "synthetic_source.response.result.sources"}
+        }
+      }
+    },
+    {"name": "state_with_goal", "request": {"kind": "read", "resource": "state"}},
+    {
+      "name": "task_create",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {"$ref": "state_with_goal.response.result.goal.revision"},
+          "catalogVersion": {"$ref": "catalog.response.result.version"},
+          "skillId": "grammar",
+          "topicId": "grammar-b1-perfect-past",
+          "problemId": "grammar_application",
+          "component": "regular-lesson-fixture",
+          "reason": "Synthetic Task for regular Action transport and score integration",
+          "sources": {"$ref": "synthetic_source.response.result.sources"}
+        }
+      }
+    },
+    {
+      "name": "task_before_plan",
+      "request": {"kind": "read", "resource": "task", "resourceId": {"$ref": "task_create.response.result.task.id"}}
+    },
+    {
+      "name": "plan_create",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.plan.create",
+        "args": {
+          "taskId": {"$ref": "task_create.response.result.task.id"},
+          "expectedTaskRevision": {"$ref": "task_before_plan.response.result.task.revision"},
+          "definition": {
+            "schemaVersion": 1,
+            "stages": [
+              {"id": "exercises", "method": "Exercises", "kind": "numeric", "required": true, "weight": 0.3},
+              {"id": "conversation", "method": "Conversation", "kind": "numeric", "required": true, "weight": 0.7}
+            ],
+            "order": ["exercises", "conversation"],
+            "transitions": [
+              {"from": "exercises", "to": "conversation"},
+              {"from": "conversation", "to": "exercises"}
+            ]
+          },
+          "currentStageId": "exercises",
+          "component": "regular-lesson-fixture"
+        }
+      }
+    },
+    {
+      "name": "plan_readback",
+      "request": {"kind": "read", "resource": "plan", "resourceId": {"$ref": "plan_create.response.result.plan.id"}}
+    },
+    {
+      "name": "task_with_plan",
+      "request": {"kind": "read", "resource": "task", "resourceId": {"$ref": "task_create.response.result.task.id"}}
+    },
+    {
+      "name": "content_create",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.content.create",
+        "args": {
+          "document": {
+            "schemaVersion": 1,
+            "taskId": {"$ref": "task_create.response.result.task.id"},
+            "stageRef": {
+              "taskId": {"$ref": "task_create.response.result.task.id"},
+              "planId": {"$ref": "plan_create.response.result.plan.id"},
+              "planRevision": {"$ref": "plan_create.response.result.plan.revision"},
+              "stageId": "exercises"
+            },
+            "catalogVersion": {"$ref": "catalog.response.result.version"},
+            "skillId": "grammar",
+            "topicId": "grammar-b1-perfect-past",
+            "problemId": "grammar_application",
+            "method": "Exercises",
+            "actionKind": "sentence_transformation",
+            "cefr": "B1",
+            "objective": "Distinguish a finished event from its present result in a work update.",
+            "spokenInstruction": "Give a work update. Use Past Simple for yesterday and Present Perfect for the result now.",
+            "payload": {
+              "stimulus": "We found a bug yesterday. It is fixed now.",
+              "targetOperation": "Combine the two facts naturally without changing their meaning."
+            },
+            "answerGuide": {
+              "criteria": [
+                "Use Past Simple for the bug found yesterday.",
+                "Use Present Perfect, or another natural form, to show that the fix matters now."
+              ],
+              "alternatives": [
+                "We found a bug yesterday, and we have already fixed it.",
+                "We found a bug yesterday, and it is fixed now."
+              ],
+              "unacceptable": [
+                "Claim that the bug was found today.",
+                "Claim that the bug is still unfixed."
+              ]
+            },
+            "validation": {"status": "passed", "component": "regular-lesson-fixture", "reasons": []}
+          },
+          "component": "regular-lesson-fixture"
+        }
+      }
+    },
+    {
+      "name": "content_prepared_readback",
+      "request": {"kind": "read", "resource": "content", "resourceId": {"$ref": "content_create.response.result.content.id"}}
+    },
+    {
+      "name": "content_issue_to_owned_lesson",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.content.issue",
+        "args": {
+          "contentId": {"$ref": "content_create.response.result.content.id"},
+          "expectedRevision": {"$ref": "content_create.response.result.content.revision"},
+          "lessonId": {"$ref": "owned_lesson_before.response.result.lessons.0.id"}
+        }
+      }
+    },
+    {
+      "name": "content_issued_readback",
+      "request": {"kind": "read", "resource": "content", "resourceId": {"$ref": "content_create.response.result.content.id"}}
+    },
+    {"name": "contents_owned_readback", "request": {"kind": "read", "resource": "contents"}},
+    {
+      "name": "score_before_voice",
+      "request": {"kind": "read", "resource": "score", "resourceId": {"$ref": "task_create.response.result.task.id"}}
+    },
+    {
+      "name": "owned_lesson_after",
+      "request": {"kind": "command", "operationId": {"$uuid": true}, "action": "lesson.list", "args": {}}
+    },
+    {"name": "jobs_after", "request": {"kind": "read", "resource": "jobs"}}
+  ]
+}
