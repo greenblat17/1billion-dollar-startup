@@ -86,14 +86,18 @@ if target:
 
 if call_session:
     matching = [(at, data) for at, data in runtime if data.get('call_session_id') == call_session]
+    relevant = [(at, data) for at, data in matching if data.get('event') in
+                ('trial_realtime_response', 'trial_session', 'trial_session_failed',
+                 'trial_finish_tool', 'trial_failed') or
+                (data.get('event') == 'backend_command' and data.get('stage') == 'voice.end')]
     def session_event(at, data):
         safe = {key: data.get(key) for key in
                 ('event', 'outcome', 'stage', 'status_reason', 'status_error_code', 'output_tokens',
                  'error_type', 'error_code') if data.get(key) is not None}
         return {'at': at, **safe}
     print(json.dumps({'callSessionId': call_session, 'found': bool(matching),
-                      'eventCount': len(matching),
-                      'events': [session_event(at, data) for at, data in matching[-80:]]}, ensure_ascii=True))
+                      'eventCount': len(matching), 'relevantCount': len(relevant),
+                      'events': [session_event(at, data) for at, data in relevant[-80:]]}, ensure_ascii=True))
     raise SystemExit(0)
 
 print(json.dumps({"window": "20m", "failure_count": len(events), "last_failures": events[-40:],
