@@ -60,7 +60,7 @@ on:
         type: string
         default: ''
       agent_voice_scenario:
-        description: Synthetic voice scenario (short, early-exit, phase-probe, regular-action, read-only)
+        description: Synthetic voice scenario, read-only state, or dependency smoke
         type: choice
         options:
           - short
@@ -68,6 +68,7 @@ on:
           - phase-probe
           - regular-action
           - read-only
+          - dependencies-only
         default: short
       verify_only:
         description: Read-only DEV readiness without redeployment
@@ -492,22 +493,66 @@ jobs:
     environment: deploy-dev
     timeout-minutes: 40
     env:
-      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
-      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
-      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
-      AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
-      AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
-      AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
-      STUDENT_ID: ${{ inputs.agent_voice_student_id }}
-      LESSON_ID: ${{ inputs.agent_voice_lesson_id }}
       VOICE_SCENARIO: ${{ inputs.agent_voice_scenario }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run voice client through private loopback tunnels
+      - name: Prepare voice runner dependencies
         shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Voice preflight: pip install'
+          timeout --kill-after=5s 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
+          echo 'Voice preflight: pip ready'
+          if [[ "$VOICE_SCENARIO" != read-only ]]; then
+            audio_packages=()
+            command -v espeak-ng >/dev/null || audio_packages+=(espeak-ng)
+            command -v ffmpeg >/dev/null || audio_packages+=(ffmpeg)
+            if (( ${#audio_packages[@]} )); then
+              apt_options=(-qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10)
+              echo "Voice preflight: apt install using current lists (${audio_packages[*]})"
+              if ! timeout --kill-after=5s 90s sudo env DEBIAN_FRONTEND=noninteractive apt-get install "${apt_options[@]}" -y --no-install-recommends "${audio_packages[@]}"; then
+                echo 'Voice preflight: apt update fallback'
+                timeout --kill-after=5s 90s sudo apt-get update "${apt_options[@]}"
+                echo 'Voice preflight: apt install after refresh'
+                timeout --kill-after=5s 120s sudo env DEBIAN_FRONTEND=noninteractive apt-get install "${apt_options[@]}" -y --no-install-recommends "${audio_packages[@]}"
+              fi
+            fi
+            command -v espeak-ng >/dev/null
+            command -v ffmpeg >/dev/null
+            echo 'Voice preflight: audio packages ready'
+          fi
+      - name: Smoke test voice synthesis without DEV access
+        if: ${{ inputs.agent_voice_scenario == 'dependencies-only' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          from runpy import run_path
+          from tempfile import TemporaryDirectory
+
+          synthesize = run_path('infra/dev/agent-voice.py')['pcm_for_turn']
+          with TemporaryDirectory() as work:
+              pcm, mode = synthesize({'text': 'This is a voice runner dependency check.'}, Path(work))
+          if mode != 'synthesized_espeak_ng' or len(pcm) <= 48000 or len(pcm) % 2:
+              raise SystemExit('Voice synthesis produced invalid PCM')
+          print(f'Voice dependency smoke passed: {mode}, {len(pcm)} PCM bytes')
+          PY
+      - name: Run voice client through private loopback tunnels
+        if: ${{ inputs.agent_voice_scenario != 'dependencies-only' }}
+        shell: bash
+        env:
+          CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+          CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+          CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+          AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
+          AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
+          AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+          STUDENT_ID: ${{ inputs.agent_voice_student_id }}
+          LESSON_ID: ${{ inputs.agent_voice_lesson_id }}
         run: |
           set -euo pipefail
           : "${CMP_HOST:?}" "${CMP_USER:?}" "${CMP_KEY:?}"
@@ -521,17 +566,6 @@ jobs:
             short|early-exit|phase-probe|regular-action|read-only) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
             *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
           esac
-          echo 'Voice preflight: installing client dependencies'
-          timeout 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
-          if [[ "$VOICE_SCENARIO" != read-only ]]; then
-            audio_packages=()
-            command -v espeak-ng >/dev/null || audio_packages+=(espeak-ng)
-            command -v ffmpeg >/dev/null || audio_packages+=(ffmpeg)
-            if (( ${#audio_packages[@]} )); then
-              timeout 60s sudo apt-get update -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10
-              timeout 60s sudo apt-get install -y -qq -o Acquire::Retries=0 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 "${audio_packages[@]}"
-            fi
-          fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
           ai_key="$RUNNER_TEMP/agent-voice-ai-key"
           install -m 600 /dev/null "$cmp_key"
@@ -591,7 +625,7 @@ jobs:
             --student "$STUDENT_ID" --lesson "$LESSON_ID" \
             --output "$RUNNER_TEMP/agent-voice-run"
       - name: Upload synthetic voice dialogue
-        if: always()
+        if: ${{ always() && inputs.agent_voice_scenario != 'dependencies-only' }}
         uses: actions/upload-artifact@v6
         with:
           name: agent-voice-${{ github.run_id }}
