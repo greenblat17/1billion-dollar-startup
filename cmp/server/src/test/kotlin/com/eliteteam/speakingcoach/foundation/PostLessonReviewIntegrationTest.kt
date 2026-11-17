@@ -18,7 +18,7 @@ class PostLessonReviewIntegrationTest {
         val scoped = url + (if ('?' in url) "&" else "?") + "currentSchema=$schema"
         try {
             FoundationService(FoundationDatabase(scoped)).use { service ->
-                val student = service.identity.resolve("telegram", newId())
+                val student = service.identity.resolve("telegram", System.nanoTime().toString())
                 val scope = service.identity.issue(student, "operator")
                 suspend fun command(action: String, args: JsonObject, id: String = newId()) = service.command(scope,
                     json("version" to 1, "operationId" to id, "action" to action, "args" to args))
