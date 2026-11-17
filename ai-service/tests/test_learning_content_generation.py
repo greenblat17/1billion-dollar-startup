@@ -1,7 +1,10 @@
 import copy
 import json
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
+from openai import APIStatusError
 
 from app.learning_content_generation import (
     COMPONENT, ContentGenerationError, ContentRequest, LearningContentGenerator, issued_handoff,
@@ -100,10 +103,51 @@ async def test_four_methods_produce_scoped_voice_handoff(method, action):
     assert document['answerGuide']['alternatives'][1] == 'Yesterday, I went to my job.'
     assert model.calls[0][1]['topic']['scope'] == 'Everyday past events'
     assert model.calls[0][1]['learnerContext'] == 'Likes commuting by bike.'
+    response_format = model.calls[0][2]['response_format']
+    assert response_format['type'] == 'json_schema' and response_format['json_schema']['strict'] is True
+    schema = response_format['json_schema']['schema']
+    properties = schema['properties']
+    for object_schema, value in ((schema, draft_for(method)),
+                                 (properties['payload'], document['payload']),
+                                 (properties['answerGuide'], document['answerGuide'])):
+        assert set(object_schema['required']) == set(object_schema['properties']) == set(value)
+        assert object_schema['additionalProperties'] is False
+    assert 'response_format' not in model.calls[1][2]
     assert model.calls[1][1]['draft'] == draft_for(method)
     stored = await service.create('student-scope', 'operation-1', prepared)
     assert stored['content']['document'] == document
     assert backend.writes[0][2]['component'] == COMPONENT
+
+
+@pytest.mark.asyncio
+async def test_malformed_structured_draft_does_not_reach_review_or_storage():
+    backend, model = Backend(), Model(draft_for('Exercises'))
+    model.complete_json = AsyncMock(return_value='{"objective":')
+    with pytest.raises(ContentGenerationError, match='invalid_generated_json'):
+        await LearningContentGenerator(backend, model).prepare('student-scope', request())
+    model.complete_json.assert_awaited_once()
+    assert backend.writes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', [400, 401, 402, 403, 404, 408, 422, 429, 503])
+async def test_draft_provider_rejection_is_distinct_and_preserves_budget_and_transient_errors(status):
+    backend, model = Backend(), Model(draft_for('Exercises'))
+    response = httpx.Response(status, request=httpx.Request('POST', 'https://example.test/chat/completions'))
+    error = APIStatusError('provider rejected the request', response=response, body=None)
+    model.complete_json = AsyncMock(side_effect=error)
+    generator = LearningContentGenerator(backend, model)
+    if status in {400, 422}:
+        with pytest.raises(ContentGenerationError, match='draft_provider_rejected') as failure:
+            await generator.prepare('student-scope', request())
+        assert failure.value.__cause__ is error
+    else:
+        with pytest.raises(APIStatusError) as failure:
+            await generator.prepare('student-scope', request())
+        assert failure.value is error
+    model.complete_json.assert_awaited_once()
+    assert model.complete_json.await_args.kwargs['retry'] is False
+    assert backend.writes == []
 
 
 @pytest.mark.asyncio
