@@ -137,6 +137,7 @@ async def run(args, scenario, report, token):
             last_audio_end = None
             greeting_done = False
             connected_seconds = 0
+            regular_connected_at = None
             sender = None
             before_events = set()
             async def acknowledge(item_id, milliseconds):
@@ -184,8 +185,12 @@ async def run(args, scenario, report, token):
                 if episode.get('disconnect'):
                     break
                 scheduled_at = turns[next_turn].get('atConnectedSeconds', 0) if next_turn < len(turns) else 0
-                if greeting_done and sender is None and next_turn < len(turns) and connected_seconds >= scheduled_at:
+                elapsed = (time.monotonic() - regular_connected_at
+                           if regular_connected_at is not None else connected_seconds)
+                waiting_for_turn = greeting_done and sender is None and next_turn < len(turns) and elapsed < scheduled_at
+                if greeting_done and sender is None and next_turn < len(turns) and not waiting_for_turn:
                     greeting_done = False
+                    last_activity = time.monotonic()
                     prior, _ = await persisted_reply(ktor, token, root, str(args.lesson), set())
                     before_events = {event.get('id') for event in prior.get('state', {}).get('events', [])}
                     sender = asyncio.create_task(send_turn(next_turn))
@@ -196,7 +201,9 @@ async def run(args, scenario, report, token):
                 try:
                     raw = await asyncio.wait_for(socket.recv(), timeout=1)
                 except asyncio.TimeoutError:
-                    if time.monotonic() - last_activity > 90:
+                    # Regular voice has no clock frames during a scripted pause.
+                    regular_pause = regular_connected_at is not None and waiting_for_turn
+                    if not regular_pause and time.monotonic() - last_activity > 90:
                         raise TimeoutError('No relay event for 90 seconds')
                     if (scenario.get('expectFinished') and next_turn == len(turns)
                             and time.time() - episode.get('terminalWaitStartedAt', time.time()) > 120):
@@ -221,6 +228,8 @@ async def run(args, scenario, report, token):
                             or message.get('lessonId') != str(args.lesson)):
                         raise RuntimeError('Relay protocol mismatch')
                     episode['lessonId'] = message.get('lessonId')
+                    if 'trialExecution' not in message:
+                        regular_connected_at = time.monotonic()
                 elif kind == 'trial_clock':
                     execution = message.get('trialExecution') or {}
                     connected_seconds = execution.get('connectedSeconds', connected_seconds)
