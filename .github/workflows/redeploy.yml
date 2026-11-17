@@ -31,6 +31,22 @@ on:
         description: Existing agent-test student UUID (blank starts a dialogue)
         type: string
         default: ''
+      foundation_check:
+        description: Run a repo-owned Foundation scenario through DEV loopback
+        type: boolean
+        default: false
+      foundation_scenario:
+        description: Repo scenario file name (foundation-*.json)
+        type: string
+        default: foundation-read.json
+      foundation_student_id:
+        description: Existing agent-test UUID (blank creates a new synthetic student)
+        type: string
+        default: ''
+      foundation_regular_entitlement:
+        description: Grant bounded DEV-only regular entitlement to the given agent-test UUID
+        type: boolean
+        default: false
       agent_voice:
         description: Run a short synthetic voice lesson on deployed DEV services
         type: boolean
@@ -77,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.agent_voice && !inputs.verify_only }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.agent_voice && !inputs.foundation_check && !inputs.foundation_regular_entitlement && !inputs.verify_only }}
         run: |
           echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
@@ -290,6 +306,92 @@ jobs:
             ${{ runner.temp }}/agent-transcript.json
             ${{ runner.temp }}/agent-transcript.md
             ${{ runner.temp }}/agent-error.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+  foundation-check:
+    name: Check synthetic Foundation contract on DEV
+    needs: require-target
+    if: ${{ inputs.foundation_check || inputs.foundation_regular_entitlement }}
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    timeout-minutes: 6
+    env:
+      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      FOUNDATION_STUDENT_ID: ${{ inputs.foundation_student_id }}
+      FOUNDATION_SCENARIO: ${{ inputs.foundation_scenario }}
+      FOUNDATION_CHECK: ${{ inputs.foundation_check }}
+      FOUNDATION_REGULAR_ENTITLEMENT: ${{ inputs.foundation_regular_entitlement }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run repo scenario over SSH loopback
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CMP_HOST:?}"
+          : "${CMP_USER:?}"
+          : "${CMP_KEY:?}"
+          if [[ "$FOUNDATION_CHECK" == true && "$FOUNDATION_REGULAR_ENTITLEMENT" == true ]]; then
+            echo "Choose one Foundation mode" >&2
+            exit 1
+          fi
+          if [[ "${{ inputs.cmp_server }}" == true || "${{ inputs.ai_server }}" == true || "${{ inputs.mini_app }}" == true ]]; then
+            echo "Run Foundation evidence separately from deployment" >&2
+            exit 1
+          fi
+          mode=scenario
+          if [[ "$FOUNDATION_REGULAR_ENTITLEMENT" == true ]]; then mode=regular_entitlement; fi
+          if [[ "$mode" == scenario ]]; then
+            [[ "$FOUNDATION_SCENARIO" =~ ^foundation-[a-z0-9-]+\.json$ ]]
+            test -f "infra/dev/scenarios/$FOUNDATION_SCENARIO"
+          fi
+          key="$RUNNER_TEMP/foundation-dev-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$CMP_KEY" > "$key"
+          opts=(-i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes
+            -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+          work="/tmp/speaky-foundation-${GITHUB_RUN_ID}"
+          FOUNDATION_MODE="$mode" python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path(os.environ['RUNNER_TEMP']) / 'foundation-input.json'
+          path.write_text(json.dumps({'mode': os.environ['FOUNDATION_MODE'],
+                                      'studentId': os.environ['FOUNDATION_STUDENT_ID'],
+                                      'scenario': os.environ['FOUNDATION_SCENARIO']}))
+          path.chmod(0o600)
+          PY
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "mkdir -m 700 '$work'"
+          scp "${opts[@]}" infra/dev/foundation-check-remote.py "$RUNNER_TEMP/foundation-input.json" "$CMP_USER@$CMP_HOST:$work/"
+          if [[ "$mode" == scenario ]]; then
+            scp "${opts[@]}" "infra/dev/scenarios/$FOUNDATION_SCENARIO" "$CMP_USER@$CMP_HOST:$work/"
+          fi
+          set +e
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "python3 '$work/foundation-check-remote.py' '$work'"
+          result=$?
+          set -e
+          scp "${opts[@]}" "$CMP_USER@$CMP_HOST:$work/result.json" "$RUNNER_TEMP/foundation-result.json" || true
+          ssh "${opts[@]}" "$CMP_USER@$CMP_HOST" "rm -f '$work/'*; rmdir '$work'" || true
+          if [ -s "$RUNNER_TEMP/foundation-result.json" ]; then
+            python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          result=json.loads((Path(os.environ['RUNNER_TEMP'])/'foundation-result.json').read_text())
+          print('studentId='+str(result.get('studentId','')))
+          for step in result.get('steps',[]):
+              print(str(step.get('name','step'))+' HTTP '+str(step.get('httpStatus',0)))
+          if 'error' in result: print('error='+str(result['error']))
+          PY
+          fi
+          rm -f "$key" "$RUNNER_TEMP/foundation-input.json"
+          exit "$result"
+      - name: Upload synthetic Foundation evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: foundation-check-${{ github.run_id }}
+          path: ${{ runner.temp }}/foundation-result.json
           if-no-files-found: ignore
           retention-days: 7
 
