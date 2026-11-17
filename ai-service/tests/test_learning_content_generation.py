@@ -179,24 +179,113 @@ async def test_content_provider_rejection_is_distinct_and_preserves_other_status
 
 
 @pytest.mark.asyncio
-async def test_reviewer_rejects_ambiguous_condition_and_invalid_alternative_without_write():
+async def test_valid_semantic_rejection_repairs_once_and_gets_independent_review(caplog):
     backend = Backend()
-    model = Model(draft_for('Exercises'), {'passed': False,
+    draft = draft_for('Exercises')
+    repaired = copy.deepcopy(draft)
+    repaired['spokenInstruction'] = 'Say the sentence using the past form.'
+    model = Model(draft, {'passed': False,
         'reasons': ['ambiguous_condition', 'invalid_alternative'], 'checkedAlternatives': True,
-        'rationale': 'The instruction conflicts with the proposed answer.'})
-    with pytest.raises(ContentGenerationError, match='semantic_validation_failed') as failure:
-        await LearningContentGenerator(backend, model).prepare('student-scope', request())
-    assert failure.value.review['reasons'] == ['ambiguous_condition', 'invalid_alternative']
+        'rationale': 'PRIVATE_RATIONALE'})
+    accepted = {'passed': True, 'reasons': [], 'checkedAlternatives': True, 'rationale': 'Aligned.'}
+    model.complete_json = AsyncMock(side_effect=map(json.dumps, [draft, model.review, repaired, accepted]))
+    caplog.set_level('INFO', logger='app.diagnostics')
+
+    prepared = await LearningContentGenerator(backend, model).prepare('student-scope', request())
+
+    generate, audit, repair, reaudit = model.complete_json.await_args_list
+    assert [call.kwargs['operation'] for call in (generate, audit, repair, reaudit)] == [
+        'learning_content_generate', 'learning_content_validate',
+        'learning_content_repair', 'learning_content_validate_repair',
+    ]
+    assert all(call.kwargs['retry'] is False for call in (generate, audit, repair, reaudit))
+    assert generate.kwargs['response_format'] == repair.kwargs['response_format']
+    assert audit.kwargs['response_format'] == reaudit.kwargs['response_format']
+    assert audit.args[0] == reaudit.args[0]
+    context = json.loads(generate.args[1])
+    assert json.loads(audit.args[1]) == {'context': context, 'draft': draft}
+    assert json.loads(repair.args[1]) == {'context': context, 'draft': draft,
+                                        'reasonCodes': model.review['reasons']}
+    assert json.loads(reaudit.args[1]) == {'context': context, 'draft': repaired}
+    assert prepared.document['spokenInstruction'] == repaired['spokenInstruction']
+    assert prepared.review == accepted
+    [record] = caplog.records
+    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+    assert metadata['rule'] == 'semantic_rejection' and metadata['attempt'] == 1
+    assert metadata['reasonCodes'] == model.review['reasons']
+    assert 'PRIVATE_RATIONALE' not in caplog.text
     assert backend.writes == []
 
 
 @pytest.mark.asyncio
-async def test_review_must_have_checked_alternatives_even_when_it_passes():
+@pytest.mark.parametrize('failed_repair', ['shape', 'unchanged', 'review', 'unchecked', 'budget'])
+async def test_repair_cannot_bypass_shape_or_semantic_gate_or_retry(failed_repair, caplog):
     backend, model = Backend(), Model(draft_for('Exercises'))
-    model.review['checkedAlternatives'] = False
-    with pytest.raises(ContentGenerationError, match='semantic_validation_failed'):
-        await LearningContentGenerator(backend, model).prepare('student-scope', request())
+    rejection = {'passed': False, 'reasons': ['language_error'], 'checkedAlternatives': True,
+                 'rationale': 'PRIVATE_RATIONALE'}
+    results = [json.dumps(model.draft), json.dumps(rejection)]
+    expected = 'semantic_validation_failed'
+    if failed_repair == 'shape':
+        results.append(json.dumps(dict(model.draft, objective=' ')))
+        expected = 'invalid_generated_material'
+    elif failed_repair == 'unchanged':
+        results.append(json.dumps(model.draft))
+    elif failed_repair == 'budget':
+        response = httpx.Response(402, request=httpx.Request('POST', 'https://example.test/chat/completions'))
+        error = APIStatusError('provider budget exhausted', response=response, body=None)
+        results.append(error)
+    else:
+        second_review = rejection if failed_repair == 'review' else dict(model.review, checkedAlternatives=False)
+        repaired = dict(model.draft, spokenInstruction='Say the sentence using the past form.')
+        results.extend([json.dumps(repaired), json.dumps(second_review)])
+    model.complete_json = AsyncMock(side_effect=results)
+    caplog.set_level('INFO', logger='app.diagnostics')
+    if failed_repair == 'budget':
+        with pytest.raises(APIStatusError) as failure:
+            await LearningContentGenerator(backend, model).prepare('student-scope', request())
+        assert failure.value is error
+    else:
+        with pytest.raises(ContentGenerationError, match=expected):
+            await LearningContentGenerator(backend, model).prepare('student-scope', request())
+    assert model.complete_json.await_count == len(results)
     assert backend.writes == []
+    events = [json.loads(record.getMessage().removeprefix('runtime_event ')) for record in caplog.records]
+    if failed_repair in {'review', 'unchecked'}:
+        assert events[-1]['attempt'] == 2
+        assert events[-1]['operation'] == 'learning_content_validate_repair'
+    if failed_repair == 'unchanged':
+        assert events[-1]['rule'] == 'unchanged_repair'
+    assert 'PRIVATE_RATIONALE' not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('override', 'field', 'rule'), [
+    ({'PRIVATE_KEY': 'PRIVATE_VALUE'}, 'review', 'unexpected_fields'),
+    ({'passed': 1}, 'passed', 'expected_boolean'),
+    ({'checkedAlternatives': 'PRIVATE_VALUE'}, 'checkedAlternatives', 'expected_boolean'),
+    ({'checkedAlternatives': False}, 'checkedAlternatives', 'alternatives_unchecked'),
+    ({'reasons': 'PRIVATE_VALUE'}, 'reasons', 'expected_array'),
+    ({'reasons': ['PRIVATE_VALUE']}, 'reasons[0]', 'unknown_reason'),
+    ({'reasons': ['language_error', 'language_error']}, 'reasons', 'duplicate_items'),
+    ({'reasons': ['wrong_topic']}, 'reasons', 'expected_empty_on_pass'),
+    ({'passed': False}, 'reasons', 'expected_nonempty_on_reject'),
+    ({'rationale': ' '}, 'rationale', 'blank'),
+    ({'rationale': 'PRIVATE_VALUE' * 100}, 'rationale', 'too_long'),
+])
+async def test_invalid_review_diagnoses_exact_rule_without_repair(override, field, rule, caplog):
+    backend, model = Backend(), Model(draft_for('Exercises'))
+    model.review.update(override)
+    caplog.set_level('INFO', logger='app.diagnostics')
+    with diagnostic_context(trace_id='review-test-trace'), pytest.raises(
+            ContentGenerationError, match='semantic_validation_failed'):
+        await LearningContentGenerator(backend, model).prepare('student-scope', request())
+    assert len(model.calls) == 2 and backend.writes == []
+    [record] = caplog.records
+    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+    assert metadata['trace_id'] == 'review-test-trace'
+    assert metadata['event'] == 'learning_content_review_rejected'
+    assert metadata['field'] == field and metadata['rule'] == rule and metadata['attempt'] == 1
+    assert 'PRIVATE_KEY' not in caplog.text and 'PRIVATE_VALUE' not in caplog.text
 
 
 @pytest.mark.asyncio

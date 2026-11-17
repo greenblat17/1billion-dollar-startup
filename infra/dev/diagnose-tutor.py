@@ -71,6 +71,11 @@ if target:
         safe = {key: data.get(key) for key in
                 ('event', 'stage', 'outcome', 'error_id', 'error_type', 'error_code', 'cause_type',
                  'http_status', 'errno', 'provider_request_id') if data.get(key) is not None}
+        if data.get('event') in ('learning_content_draft_rejected', 'learning_content_review_rejected'):
+            safe.update({key: data[key] for key in ('operation', 'method', 'attempt', 'field', 'rule',
+                         'type', 'length', 'count', 'expectedCount', 'missingCount', 'unexpectedCount',
+                         'maxLength', 'minCount', 'maxCount', 'duplicate', 'urlPresent', 'passed',
+                         'reasonCodes') if key in data})
         stack = data.get('stack') or []
         if stack:
             safe['last_frame'] = {key: stack[-1].get(key) for key in ('file', 'function', 'line')}
