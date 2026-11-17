@@ -1,4 +1,5 @@
 """Voice policy for the agreed trial, independent of transport and provider."""
+from app.diagnostics import event
 from app.kora_personality import PERSONALITY
 from app.learning_results import LessonEvaluation, MemoryEvaluation
 from app.memory_policy import MEMORY_POLICY
@@ -160,13 +161,23 @@ class TrialAnalyzer:
             json.dumps(context.data, ensure_ascii=False), operation='trial_personal_memory', retry=False,
             response_format=PersonalMemoryResult.response_format()))
         result = PersonalMemoryResult.model_validate(result).model_dump()
-        known = {e['id']: e for e in sources}
-        for fact in result['facts']:
-            if fact['sourceId'] not in known or fact['evidence'] not in known[fact['sourceId']]['body']:
-                raise ValueError('invalid_evidence')
-        if any(c['sourceId'] not in known for c in result['candidates']):
-            raise ValueError('invalid_evidence')
-        return dict(result, status='evaluated', observations=[], notes=[])
+        known = {source['id']: source['body'] for source in sources}
+        facts = [
+            fact for fact in result['facts']
+            if fact['sourceId'] in known
+            and fact['evidence'].strip()
+            and fact['evidence'] in known[fact['sourceId']]
+        ]
+        candidates = [candidate for candidate in result['candidates'] if candidate['sourceId'] in known]
+        rejected_facts = len(result['facts']) - len(facts)
+        rejected_candidates = len(result['candidates']) - len(candidates)
+        status = 'evaluated'
+        if rejected_facts or rejected_candidates:
+            event('trial_personal_memory_evidence_rejected',
+                  rejected_facts=rejected_facts, rejected_candidates=rejected_candidates)
+            if not facts and not candidates:
+                status = 'insufficient_evidence'
+        return {'status': status, 'facts': facts, 'candidates': candidates, 'observations': [], 'notes': []}
 
     async def _evaluate(self, context, inputs):
         import json

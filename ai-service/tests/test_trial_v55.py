@@ -86,6 +86,57 @@ async def test_personal_memory_only_never_runs_educational_analysis():
 
 
 @pytest.mark.asyncio
+async def test_personal_memory_keeps_only_items_with_valid_user_evidence(caplog):
+    caplog.set_level('INFO', logger='app.diagnostics')
+    work = {'key': 'work', 'value': 'IT', 'sourceId': 'learner',
+            'evidence': 'I work in IT', 'expectedVersion': 0}
+    candidate = {'key': 'leisure', 'value': 'Cooking', 'sourceId': 'learner'}
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({
+        'facts': [
+            work,
+            dict(work, sourceId='unknown'),
+            dict(work, evidence='I work in technology'),
+            dict(work, evidence=' '),
+            dict(work, sourceId='tutor'),
+        ],
+        'candidates': [candidate, dict(candidate, sourceId='unknown'), dict(candidate, sourceId='tutor')],
+    })))
+    context = SimpleNamespace(data={'sourceEvents': [
+        {'id': 'learner', 'role': 'user', 'body': 'I work in IT and I like cooking.'},
+        {'id': 'tutor', 'role': 'assistant', 'body': 'I work in IT'},
+    ]})
+
+    result = await TrialAnalyzer(model).evaluate(context, {'memoryOnly': True})
+
+    assert result == {'status': 'evaluated', 'facts': [work], 'candidates': [candidate],
+                      'observations': [], 'notes': []}
+    model.complete_json.assert_awaited_once()
+    assert model.complete_json.call_args.kwargs['retry'] is False
+    assert [json.loads(record.getMessage().removeprefix('runtime_event ')) for record in caplog.records] == [{
+        'service': 'ai', 'event': 'trial_personal_memory_evidence_rejected',
+        'rejected_facts': 4, 'rejected_candidates': 2,
+    }]
+
+
+@pytest.mark.asyncio
+async def test_personal_memory_returns_insufficient_evidence_if_every_item_is_rejected():
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({
+        'facts': [{'key': 'work', 'value': 'IT', 'sourceId': 'learner',
+                   'evidence': 'I work in technology', 'expectedVersion': 0}],
+        'candidates': [{'key': 'work', 'value': 'IT', 'sourceId': 'unknown'}],
+    })))
+    context = SimpleNamespace(data={'sourceEvents': [
+        {'id': 'learner', 'role': 'user', 'body': 'I work in IT'},
+    ]})
+
+    result = await TrialAnalyzer(model).evaluate(context, {'memoryOnly': True})
+
+    assert result == {'status': 'insufficient_evidence', 'facts': [], 'candidates': [],
+                      'observations': [], 'notes': []}
+    model.complete_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_v55_followup_never_uses_old_roadmap_or_sales_model():
     from fastapi import FastAPI
     import httpx
