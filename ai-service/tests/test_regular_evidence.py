@@ -76,6 +76,26 @@ async def test_observation_write_unknown_outcome_retries_same_receipt_then_repor
     assert s.action_events == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model_result', ['{"topicId":', '{}'])
+async def test_invalid_problem_analysis_preserves_the_saved_turn_and_continues_voice(model_result):
+    s = regular_session()
+    s.catalog = CATALOG
+    s.model.complete_json.return_value = model_result
+    s.remaining_seconds = lambda: 30 * 60
+    s.append = AsyncMock(return_value={'eventId': 'event-1', 'sequence': 4})
+    s.maybe_respond = AsyncMock()
+
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'turn-1', 'transcript': TURN['text']})
+
+    s.append.assert_awaited_once()
+    assert s.memory_sources['event-1']['body'] == TURN['text']
+    s.backend.record_learning_observation.assert_not_awaited()
+    s.socket.send_json.assert_not_awaited()
+    s.maybe_respond.assert_awaited_once()
+
+
 def test_regular_phase_is_guided_by_duration_and_preserves_trial_isolation():
     s = regular_session()
     s.remaining_seconds = lambda: 30 * 60

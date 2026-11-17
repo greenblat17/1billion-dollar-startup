@@ -27,7 +27,7 @@ from app import trial_v55
 from app.regular_lesson import REGULAR_VOICE_POLICY
 from app.teaching_observations import observation_from_action, observation_operation_id
 from app.learning_content_generation import issued_handoff
-from app.regular_evidence import detect_problem
+from app.regular_evidence import InvalidProblemDetection, detect_problem
 
 
 class RealtimeProviderError(RuntimeError):
@@ -555,6 +555,11 @@ class RealtimeTrialSession(TrialJournal):
                                 'eventId': saved['eventId'], 'revision': saved['sequence'],
                                 'text': text, 'occurredAt': occurred_at}, self.lesson_id,
                                 self.active_problem_pairs)
+                        except InvalidProblemDetection as error:
+                            event('learning_observation_analysis_skipped', stage='classify',
+                                  reason=str(error), lesson_id=self.lesson_id,
+                                  source_event_id=saved['eventId'])
+                            observation = None
                         except Exception as error:
                             await self.socket.send_json({'type': 'error', 'code': 'learning_observation_pending',
                                                          'lessonId': self.lesson_id, 'eventId': saved['eventId'],
