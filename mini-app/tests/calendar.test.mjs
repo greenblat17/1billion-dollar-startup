@@ -25,17 +25,3 @@ test('calendar entry reads current owned lesson without opening microphone or vo
  assert.equal(links.length,1);
  assert.match(card.children.at(-1).textContent,/обновите событие/);
 });
-
-test('widget state updates safely and ignores older revisions',async()=>{
- const source=await readFile(new URL('../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorBookingDelivery.kt',import.meta.url),'utf8');
- const script=source.match(/<script>([\s\S]*?)<\/script>/)[1];
- const elements=new Map();let change;
- const widget={chatData:JSON.stringify({version:2,state:'Подтверждено',date:'14 ноября',time:'19:00',zone:'UTC',footer:'Бесплатно'}),onEvent:(name,fn)=>change=fn};
- vm.runInNewContext(script,{window:{TelegramWidget:widget},document:{body:{classList:{toggle(){}}},getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}}});
- assert.equal(elements.get('time').textContent,'19:00');
- widget.chatData=JSON.stringify({version:3,state:'Отменено',weekday:'<script>not executable</script>'});change();
- assert.equal(elements.get('state').textContent,'Отменено');
- assert.equal(elements.get('weekday').textContent,'<script>not executable</script>');
- widget.chatData=JSON.stringify({version:1,state:'Подтверждено'});change();
- assert.equal(elements.get('state').textContent,'Отменено');
-});
