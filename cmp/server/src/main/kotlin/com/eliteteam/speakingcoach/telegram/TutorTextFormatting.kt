@@ -14,6 +14,18 @@ internal data class TutorTextEntity(val type: String, val offset: Int, val lengt
 
 internal data class TutorTextPart(val text: String, val entities: List<TutorTextEntity>)
 
+private val introductionParagraph = Regex("\\r?\\n(?:[ \\t]*\\r?\\n)+")
+private const val TELEGRAM_TEXT_LIMIT = 4096
+
+/** Interpret up to two blank-line breaks chosen by the model for an introduction reply. */
+internal fun introductionTextParts(source: String): List<TutorTextPart> {
+    val paragraphs = introductionParagraph.split(source.trim(), limit = 3)
+    val parts = paragraphs.flatMap { tutorTextParts(it.trim(), limit = TELEGRAM_TEXT_LIMIT) }
+    if (parts.size <= 3) return parts
+    // An uneven paragraph split may overflow; the stored reply is bounded to 12,000 UTF-16 units.
+    return tutorTextParts(source, limit = TELEGRAM_TEXT_LIMIT)
+}
+
 /** Small, explicit Markdown subset. Unrecognised markup stays literal; no Telegram parse_mode. */
 internal fun tutorTextParts(source: String, limit: Int = 3500): List<TutorTextPart> {
     require(limit >= 2)

@@ -152,7 +152,8 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
 
     private suspend fun deliverReply(response: TutorResponse, session: String, request: String, chat: Long, incoming: Long) {
         if (response.reply.isBlank() || response.replyMessageId != null || !client.beginDelivery(TutorDelivery(session, request))) return
-        val parts = tutorTextParts(response.reply)
+        val parts = if (response.splitIntroductionReply) introductionTextParts(response.reply)
+            else tutorTextParts(response.reply)
         var lastMessageId: Long? = null
         try {
             for ((index, part) in parts.withIndex()) {

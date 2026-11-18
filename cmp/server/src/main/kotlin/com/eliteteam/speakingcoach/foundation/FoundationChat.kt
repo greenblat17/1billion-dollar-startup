@@ -87,11 +87,13 @@ internal class FoundationChat(private val service: FoundationService) {
             val previousCard = response.booking?.let { booking -> connection.document("""SELECT to_jsonb(d) FROM lesson_telegram_card d
                 WHERE student_id=? AND lesson_id=? AND lesson_version<=?""", student, booking.id, booking.version) }
             val currentInvitation = response.joinLessonId?.let { connection.currentTrialInvitation(student, it, now) }
+            val introduction = response.booking == null && connection.textConversationMode(student) == "introduction"
             response.copy(joinLessonId = currentInvitation, replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
                 cardMessageId = previousCard?.number("message_id"),
                 cardIsWidget = previousCard?.optionalText("is_widget") == "true",
                 cardDelivered = sent.any { it.text("kind") == "card" },
-                showProgressNavigation = response.booking == null && connection.textConversationMode(student) != "introduction")
+                showProgressNavigation = response.booking == null && !introduction,
+                splitIntroductionReply = introduction && response.joinLessonId == null)
         }
     }
 

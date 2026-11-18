@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -109,8 +110,14 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     system = '\n'.join(m['content'] for m in messages if m['role'] == 'system')
     assert 'First explore all five topics' not in system
     assert 'Current mode: introduction.' in system
-    assert 'Do not sustain an unrelated topic.' in system
-    assert 'Do not collect a separate learning history' in system
+    assert 'return without pushing' in system
+    assert 'Ask about earlier learning experience only if' in system
+    assert 'at most one question that expects an answer' in system
+    assert 'at most one useful clarification on that topic' in system
+    assert 'Say you\'re an AI tutor when asked' in system
+    assert 'For exact subscription terms, use get_subscription.' in system
+    assert 'free trial call of about 30 minutes' in system
+    assert 'some speaking practice and a sense of what to work on next' in system
     assert 'current overall self-assessment and desired overall CEFR' in system
     assert 'Do not proactively ask about lesson frequency' in system
     assert 'Do not exclude beginners or exam-oriented learners' in system
@@ -118,6 +125,50 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'no answer-choice buttons' in system
     assert 'without finishing the consultation' in system
     assert messages[-1] == {'role': 'user', 'content': body}
+
+
+@pytest.mark.asyncio
+async def test_introduction_supplies_previous_clarification_and_preserves_paragraphs_on_replay():
+    body = 'Даже не знаю. А пробный платный?'
+    data = snapshot(body)
+    previous = [
+        ('assistant', 'Знаешь свой уровень английского?'),
+        ('user', 'Не знаю.'),
+        ('assistant', 'Получается поддержать короткий разговор на английском?'),
+    ]
+    data['events'] = [
+        {'id': f'past-{i}', 'sequence': i, 'role': role, 'body': text}
+        for i, (role, text) in enumerate(previous, start=1)
+    ] + [{'id': 'current', 'sequence': 4, 'role': 'user', 'body': body}]
+    data['facts'] = [
+        dict(category='personal', fact_key='difficulty', value='Трудно понимать на слух', kind='user_report', revision=1),
+    ]
+    reply = 'Пробный бесплатный.\n\nА для чего тебе нужен английский?'
+    saved = {}
+
+    async def command(scope, key, action, payload):
+        if action == 'run.claim':
+            return {'status': 'ready', 'response': saved} if saved else {
+                'status': 'running', 'input': {'id': 'current', 'body': body},
+            }
+        assert action == 'run.complete'
+        assert payload == {'reply': reply, 'bookingId': None, 'degraded': False}
+        saved.update(conversationId='conversation', reply=payload['reply'])
+        return saved
+
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=data), command=AsyncMock(side_effect=command))
+    model = SimpleNamespace(complete=AsyncMock(return_value={'content': json.dumps({'reply': reply})}))
+    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    request = TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794479220.0)
+
+    first = await tutor.respond(request, 'scope')
+    assert first['reply'] == reply
+    assert await tutor.respond(request, 'scope') == first
+    model.complete.assert_awaited_once()
+    messages = model.complete.call_args.args[0]
+    assert [(m['role'], m['content']) for m in messages if m['role'] != 'system'] == previous + [('user', body)]
+    assert any('Трудно понимать на слух' in m['content'] for m in messages if m['role'] == 'system')
+    assert [call.args[2] for call in backend.command.call_args_list] == ['run.claim', 'run.complete', 'run.claim']
 
 
 @pytest.mark.asyncio
@@ -150,8 +201,8 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
     assert PERSONALITY in prompt
     assert 'Current mode: ordinary dialogue.' in prompt
     assert 'Curiosity need not serve trial preparation.' in prompt
-    assert 'Previous learning experience is OPTIONAL' not in prompt
-    assert 'Do not sustain an unrelated topic.' not in prompt
+    assert 'Ask about earlier learning experience only if' not in prompt
+    assert 'use a blank line between bubbles' not in prompt
 
 
 @pytest.mark.asyncio
@@ -160,7 +211,7 @@ async def test_unrelated_message_does_not_override_backend_introduction_mode():
     context = await ContextBuilder(SimpleNamespace(snapshot=AsyncMock(return_value=data))).build('scope', 'text')
     assert context.data['textMode'] == 'introduction'
     assert 'Current mode: introduction.' in context.instructions('text')
-    assert 'politely set the boundary' in context.instructions('text')
+    assert 'respond briefly\nand return without pushing' in context.instructions('text')
 
 
 @pytest.mark.asyncio

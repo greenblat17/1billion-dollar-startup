@@ -32,7 +32,8 @@ data class TutorResponse(val conversationId: String, val reply: String, val book
                          val bookingText: String? = null, val degraded: Boolean = false,
                          val replyMessageId: Long? = null, val cardMessageId: Long? = null,
                          val showProgressNavigation: Boolean = true, val cardIsWidget: Boolean = false,
-                         val cardDelivered: Boolean = false, val joinLessonId: String? = null)
+                         val cardDelivered: Boolean = false, val joinLessonId: String? = null,
+                         val splitIntroductionReply: Boolean = false)
 
 @Serializable
 data class TutorDelivery(val sessionId: String, val requestId: String, val replyMessageId: Long? = null,
