@@ -186,6 +186,13 @@ Ktor применяет batch через SP-17A `LearningObservations` в одн
 обновляется SP-07. Listening после Trial имеет системный CEFR Unknown;
 самооценка хранится отдельно. Ни Roadmap, ни Plan, ни Content не создаются.
 
+В DEV Trial `44221601058` модель вернула невалидную ссылку context/hint, поэтому
+`trial.observe` завершился `invalid_result` до записи. Локальная правка исключает такой
+кандидат перед сборкой batch, если остаётся валидное свидетельство. Ktor разрешает
+этот batch только при первой материализации. Он проверяет отсутствие прежних
+Observations под блокировкой ученика. Полностью отклонённая выдача остаётся ошибкой.
+[Job и сохранённое состояние](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44225295813).
+
 Локально прошли Python unit suite (708), новый extractor suite (4),
 Kotlin unit (321), PostgreSQL integration (116) и HTTP Python → Ktor → PostgreSQL (1)
 с фиксированным результатом модели. Fat JAR, detekt, относительные ссылки документации

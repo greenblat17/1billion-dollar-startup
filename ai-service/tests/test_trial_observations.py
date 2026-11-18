@@ -72,6 +72,47 @@ async def test_extractor_rejects_unowned_quote_and_listening():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('bad_reference,reason,role', [
+    ('missing-source', 'source_unavailable', 'unavailable'),
+    ('user-1', 'wrong_source_role', 'user'),
+    ('user-2', 'learner_anchor_reused', 'user'),
+])
+async def test_bad_assistant_reference_isolated_on_first_materialization(bad_reference, reason, role, caplog):
+    b = backend([event('user-1', 'user', 'I work here'),
+                 event('user-2', 'user', 'I worked there', sequence=2)])
+    good = candidate(contextEventId=None)
+    bad = candidate(anchorEventId='user-2', quote='I worked there', outcome='hinted_correct',
+                    support='hinted', initialOutcome='error', contextEventId=None, hintEventId=bad_reference)
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({'observations': [bad, good]})))
+
+    with caplog.at_level('INFO', logger='app.diagnostics'):
+        result = await TrialObservationExtractor(b, model).extract('scope', 'lesson', {'transcriptRevision': 2})
+
+    assert result['initialMaterializationOnly'] is True
+    only, = result['observations']
+    assert only['sources'] == [
+        {'eventId': 'user-1', 'revision': 1, 'role': 'user', 'purpose': 'answer', 'span': {'start': 0, 'end': 11}},
+    ]
+    assert only['support'] == 'independent'
+    logs = [json.loads(record.message.removeprefix('runtime_event ')) for record in caplog.records]
+    assert logs == [{'service': 'ai', 'event': 'trial_observation_candidate_rejected', 'reason': reason,
+                     'reference_purpose': 'hint', 'source_role': role}]
+    model.complete_json.assert_awaited_once()
+    assert model.complete_json.call_args.kwargs['retry'] is False
+
+
+@pytest.mark.asyncio
+async def test_all_invalid_assistant_references_fail_instead_of_returning_empty_analysis():
+    b = backend([event('user-1', 'user', 'I work here')])
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({
+        'observations': [candidate(contextEventId='missing-source')],
+    })))
+    with pytest.raises(ValueError, match='invalid_trial_evidence'):
+        await TrialObservationExtractor(b, model).extract('scope', 'lesson', {'transcriptRevision': 2})
+    model.complete_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_corrected_source_keeps_slot_and_same_hint_can_supply_context():
     b = backend([event('assistant-1', 'assistant', 'Try the present tense'),
                  event('user-1', 'user', 'I works here', sequence=4)])

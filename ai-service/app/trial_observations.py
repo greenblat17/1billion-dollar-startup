@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.diagnostics import event as diagnostic_event
 from app.learning_results import LearningResult
 
 
@@ -30,6 +31,28 @@ class TrialEvidenceCandidate(LearningResult):
 
 class TrialEvidenceResult(LearningResult):
     observations: list[TrialEvidenceCandidate] = Field(max_length=60)
+
+
+def _assistant_references(candidate: TrialEvidenceCandidate, sources: dict) -> list[dict] | None:
+    refs = []
+    context_id = candidate.contextEventId if candidate.contextEventId != candidate.hintEventId else None
+    for event_id, purpose in ((context_id, 'context'), (candidate.hintEventId, 'hint')):
+        if event_id is None:
+            continue
+        source = sources.get(event_id)
+        role = source['metadata']['role'] if source is not None else 'unavailable'
+        if event_id == candidate.anchorEventId:
+            reason = 'learner_anchor_reused'
+        elif role != 'assistant':
+            reason = 'source_unavailable' if source is None else 'wrong_source_role'
+        else:
+            refs.append({'eventId': event_id, 'revision': source['sourceSequence'],
+                         'role': 'assistant', 'purpose': purpose})
+            continue
+        diagnostic_event('trial_observation_candidate_rejected', reason=reason,
+                         reference_purpose=purpose, source_role=role)
+        return None
+    return refs
 
 
 class TrialObservationExtractor:
@@ -95,6 +118,7 @@ class TrialObservationExtractor:
             'Use only listed topic/problem IDs when clearly supported; otherwise null. '
             'Distinguish independent correct, uncorrected error, self-corrected error and correct after hint. '
             'A hinted answer needs the actual assistant hintEventId. A tutor question may be contextEventId. '
+            'Use assistant event IDs for both references, distinct from the learner anchor; use null for absent optional context. '
             'Do not call silence, refusal, a Russian answer or an unclear fragment an error. '
             'Do not turn one sentence into many speculative observations or count mechanical repeats as new proof. '
             'Return empty observations when evidence is absent. Use the stored transcript as available; '
@@ -105,6 +129,7 @@ class TrialObservationExtractor:
         candidates = TrialEvidenceResult.model_validate_json(raw).observations
         documents = []
         seen = set()
+        rejected_assistant_reference = False
         for candidate in candidates:
             anchor = sources.get(candidate.anchorEventId)
             if anchor is None or anchor['metadata']['role'] != 'user':
@@ -125,21 +150,15 @@ class TrialObservationExtractor:
                 raise ValueError('invalid_trial_evidence')
             if candidate.outcome in {'uncorrected_error', 'self_corrected_error'} and candidate.initialOutcome != 'error':
                 raise ValueError('invalid_trial_evidence')
-            refs = [{'eventId': candidate.anchorEventId, 'revision': anchor['sourceSequence'],
-                     'role': 'user', 'purpose': 'answer', 'span': {'start': start, 'end': start + len(candidate.quote)}}]
-            context_id = candidate.contextEventId if candidate.contextEventId != candidate.hintEventId else None
-            for event_id, purpose in ((context_id, 'context'), (candidate.hintEventId, 'hint')):
-                if event_id is None:
-                    continue
-                source = sources.get(event_id)
-                if source is None or source['metadata']['role'] != 'assistant' or event_id == candidate.anchorEventId:
-                    raise ValueError('invalid_trial_evidence')
-                if any(ref['eventId'] == event_id for ref in refs):
-                    raise ValueError('invalid_trial_evidence')
-                refs.append({'eventId': event_id, 'revision': source['sourceSequence'],
-                             'role': 'assistant', 'purpose': purpose})
             if candidate.support == 'hinted' and candidate.hintEventId is None:
                 raise ValueError('invalid_trial_evidence')
+            assistant_refs = _assistant_references(candidate, sources)
+            if assistant_refs is None:
+                rejected_assistant_reference = True
+                continue
+            refs = [{'eventId': candidate.anchorEventId, 'revision': anchor['sourceSequence'],
+                     'role': 'user', 'purpose': 'answer', 'span': {'start': start, 'end': start + len(candidate.quote)}}]
+            refs.extend(assistant_refs)
             # Quote corrections retain the same slot for this skill and catalog interpretation.
             slot_identity = '|'.join((candidate.skillId, candidate.topicId or '', candidate.problemId or ''))
             slot = 'trial-' + hashlib.sha256(slot_identity.encode()).hexdigest()[:24]
@@ -171,4 +190,8 @@ class TrialObservationExtractor:
                 'taskId': None, 'stageRef': None, 'actionId': None, 'repeatOf': None,
                 'route': 'assessment_only', 'rationale': candidate.rationale,
             })
+        if rejected_assistant_reference:
+            if not documents:
+                raise ValueError('invalid_trial_evidence')
+            return {'schemaVersion': 1, 'observations': documents, 'initialMaterializationOnly': True}
         return {'schemaVersion': 1, 'observations': documents}

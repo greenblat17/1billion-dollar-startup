@@ -70,6 +70,19 @@ async def test_short_or_uncertain_trial_has_no_invented_level_or_topic():
 
 
 @pytest.mark.asyncio
+async def test_single_independent_observation_does_not_create_a_skill_level():
+    b = backend([observation('s1', 'speaking', topic=None)])
+    model = SimpleNamespace(complete_json=AsyncMock())
+
+    result = await TrialAssessment(b, model).assess('scope', 'lesson', {'transcriptRevision': 7, 'catalogVersion': 'v1'})
+
+    assert result['observationRefs'] == [{'id': 's1', 'revision': 1}]
+    assert all(value['level'] == 'Unknown' for value in result['levels'].values())
+    assert result['topics'] == []
+    model.complete_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_one_error_is_hypothesis_two_independent_errors_are_confirmed():
     b = backend([observation('g1', 'grammar', 'uncorrected_error')])
     model = SimpleNamespace(complete_json=AsyncMock())

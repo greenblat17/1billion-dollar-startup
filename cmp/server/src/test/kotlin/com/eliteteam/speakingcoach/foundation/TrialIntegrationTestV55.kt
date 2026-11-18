@@ -212,13 +212,23 @@ class TrialIntegrationTestV55 {
             s.op(operator, "job.retry", json("jobId" to job.text("id")))
             job = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
             val args = json("jobId" to job.text("id"), "fence" to job.number("fence"),
-                "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document))))
+                "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(document)), "initialMaterializationOnly" to true))
             assertEquals("succeeded", s.op(operator, "job.apply", args, "apply-trial-once").text("status"))
             assertEquals("succeeded", s.op(operator, "job.apply", args, "apply-trial-once").text("status"))
             val items = s.learningObservations(operator, mapOf("lessonId" to l.text("id")))["items"]!!.jsonArray
             assertEquals(1, items.size)
             assertEquals("grammar", items.single().jsonObject.obj("document").text("skillId"))
             assertEquals("true", items.single().jsonObject.text("evidenceUsable"))
+            // Another fenced job can reach apply after prior observations were materialized.
+            val laterId = s.database.transaction { c, now -> c.enqueueJob(l.text("student_id"), "trial.observe",
+                "filtered-reanalysis", l.text("id"), job.obj("input_refs"), now) }
+            val later = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
+            assertEquals(laterId, later.text("id"))
+            val replacement = JsonObject(document + json("evidenceSlot" to "different-example"))
+            assertEquals("superseded", s.op(operator, "job.apply", json("jobId" to laterId, "fence" to later.number("fence"),
+                "result" to json("schemaVersion" to 1, "observations" to JsonArray(listOf(replacement)),
+                    "initialMaterializationOnly" to true))).text("status"))
+            assertEquals(items, s.learningObservations(operator, mapOf("lessonId" to l.text("id")))["items"])
             assertEquals("queued", events(s, l, operator).text("assessmentStatus"))
             val assess = s.op(operator, "job.claim", json("kind" to "trial.assess")).obj("job")
             assertEquals(job.text("id"), assess.obj("input_refs").text("observationJobId"))

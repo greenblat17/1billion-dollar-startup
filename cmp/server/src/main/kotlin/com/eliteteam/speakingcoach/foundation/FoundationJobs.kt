@@ -4,6 +4,7 @@ import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 
@@ -162,13 +163,24 @@ internal class FoundationJobs {
 
     private fun observeTrial(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject,
                              result: JsonObject, now: Instant): Boolean {
-        result.only("schemaVersion", "observations")
+        result.only("schemaVersion", "observations", "initialMaterializationOnly")
         if (result.number("schemaVersion") != 1L) reject("invalid_result")
         val lesson = c.lesson(scope, lessonId)
         if (!trialV55(lesson) || lesson.text("status") != "completed") reject("invalid_target")
         if (lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
         val items = result["observations"] as? JsonArray ?: reject("invalid_result")
         if (items.size > 80) reject("invalid_result")
+        when (result["initialMaterializationOnly"]) {
+            null -> Unit
+            JsonPrimitive(true) -> {
+                if (items.isEmpty()) reject("invalid_result")
+                // Under the student lock, prevent a filtered result from invalidating existing evidence.
+                val existing = c.rows("SELECT EXISTS (SELECT 1 FROM learning_observation WHERE student_id=? AND lesson_id=?)",
+                    scope.studentId, lessonId) { it.getBoolean(1) }.single()
+                if (existing) return false
+            }
+            else -> reject("invalid_result")
+        }
         val catalogVersions = items.map { (it as? JsonObject ?: reject("invalid_result")).text("catalogVersion") }.toSet()
         if (catalogVersions.size > 1) reject("invalid_result")
         val writer = LearningObservations(learningPlanObservationStage)
