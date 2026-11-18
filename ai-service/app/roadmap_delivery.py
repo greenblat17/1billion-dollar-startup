@@ -95,6 +95,16 @@ def render_initial_roadmap(state: dict, saved: dict, priority: dict,
             lines += ['', '**Ориентир по времени**',
                       f"При согласованной нагрузке: примерно с {dates['earliest']} по {dates['latest']}.",
                       'Это широкий предварительный диапазон, не обещание даты.']
+            deadline = timeline.get('deadline') or {}
+            relation = deadline.get('relation')
+            if deadline.get('desired') and relation == 'earlier_than_range':
+                lines.append(f"Желаемый срок {deadline['desired']} раньше даже самой ранней даты прогноза. "
+                             'При текущей нагрузке он выглядит слишком коротким. '
+                             'Можно обсудить более частые или длинные занятия либо перенести срок.')
+            elif deadline.get('desired') and relation == 'within_range':
+                lines.append(f"Желаемый срок {deadline['desired']} попадает в предварительный диапазон.")
+            elif deadline.get('desired') and relation == 'later_than_range':
+                lines.append(f"Желаемый срок {deadline['desired']} позже верхней границы предварительного диапазона.")
     lines += ['', 'Если хочешь, обсудим здесь удобный ритм следующих занятий и уточним предположения по ходу практики.']
     return '\n'.join(lines)
 

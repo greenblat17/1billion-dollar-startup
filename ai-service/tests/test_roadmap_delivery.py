@@ -69,6 +69,18 @@ def test_reused_task_has_no_fabricated_zero_and_stale_priority_is_blocked():
         render_initial_roadmap(*inputs)
 
 
+def test_early_deadline_is_explained_without_promising_a_faster_date():
+    inputs = list(fixture())
+    inputs[4] = {'status': 'provisional', 'roadmapRevision': 1,
+                 'dates': {'earliest': '2029-10-03', 'latest': '2030-11-27'},
+                 'deadline': {'desired': '2026-12-18', 'relation': 'earlier_than_range'}}
+    output = render_initial_roadmap(*inputs)
+    assert 'Желаемый срок 2026-12-18 раньше даже самой ранней даты прогноза.' in output
+    assert 'обсудить более частые или длинные занятия либо перенести срок' in output
+    inputs[4]['roadmapRevision'] = 2
+    assert '2026-12-18' not in render_initial_roadmap(*inputs)
+
+
 def test_saved_priority_reason_is_presented_in_russian():
     inputs = list(fixture())
     inputs[2] = deepcopy(inputs[2])
