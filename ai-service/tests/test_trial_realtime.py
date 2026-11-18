@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import httpx
@@ -494,6 +494,225 @@ async def test_incomplete_response_logs_reason_and_tokens_without_provider_text(
     assert response['status_error_code'] == 'limit_reached'
     assert response['output_tokens'] == 1200
     assert 'Private learner text' not in caplog.text
+
+
+def regular_session():
+    s = session()
+    s.lesson = {**s.lesson, 'kind': 'regular'}
+    s.regular_phase = lambda: 'practice'
+    s.append = AsyncMock(side_effect=[
+        {'eventId': f'saved-{index}', 'sequence': index} for index in range(1, 12)
+    ])
+    return s
+
+
+async def regular_audio(s, key, transcript):
+    await output(s, key)
+    await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': key,
+                            'transcript': transcript})
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': key})
+
+
+async def regular_limit(s, *outputs):
+    await s.provider_event({'type': 'response.done', 'response': {
+        'status': 'incomplete', 'status_details': {'reason': 'max_output_tokens'}, 'output': list(outputs),
+    }})
+
+
+def responses(s):
+    return [message['response'] for message in sent(s) if message['type'] == 'response.create']
+
+
+@pytest.mark.asyncio
+async def test_regular_conversation_recovers_after_playback_and_stops_at_second_limit():
+    s = regular_session()
+    s.want_response = True
+    await s.maybe_respond()
+    await regular_audio(s, 'first', 'An unfinished tutor response')
+    await s.settle('first', {'complete': True, 'playedMs': 100})
+    assert s.append.await_count == 0 and len(responses(s)) == 1
+    await regular_limit(s, {'type': 'message', 'id': 'first', 'status': 'incomplete'},
+                        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'cut', 'arguments': '{}'})
+    assert s.append.await_count == 1 and 'Прерванная' in s.append.await_args.args[1]
+    assert responses(s)[-1]['tool_choice'] == 'none'
+    assert len(responses(s)) == 2 and not s.ended and not s.tool_calls
+    await regular_audio(s, 'second', 'Another incomplete reply')
+    await regular_limit(s, {'type': 'message', 'id': 'second', 'status': 'incomplete'})
+    await s.settle('second', {'complete': True, 'playedMs': 100})
+    assert len(responses(s)) == 2 and not s.ended
+
+
+@pytest.mark.asyncio
+async def test_regular_cut_goodbye_finishes_only_after_recovery_playback():
+    s = regular_session()
+    s.want_response = s.finish_next = True
+    await s.maybe_respond()
+    await output(s, 'cut', finish=True)
+    await regular_limit(s, {'type': 'message', 'id': 'cut', 'status': 'incomplete'})
+    assert len(responses(s)) == 1 and not s.ended
+    await s.settle('cut', {'complete': True, 'playedMs': 100})
+    assert len(responses(s)) == 2 and responses(s)[1]['tool_choice'] == 'none'
+    assert not s.ended
+    await regular_audio(s, 'goodbye', 'See you next time.')
+    s.items['goodbye']['finish'] = True
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
+    assert not s.ended
+    await s.settle('goodbye', {'complete': True, 'playedMs': 100})
+    assert s.ended
+    assert [call.args[3]['reason'] for call in s.backend.command.await_args_list
+            if call.args[2] == 'voice.end'] == ['natural_goodbye']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('feedback', [False, True])
+async def test_regular_teaching_replays_exact_message_after_limit_without_reevaluation(feedback):
+    s = regular_session()
+    start = 'Use the past simple. Correct this exact sentence: I go yesterday.'
+    feedback_text = 'Try again using the finished past time.'
+    s.action = SimpleNamespace(start=Mock(return_value=start), respond=AsyncMock())
+    s.save_learning_observation = AsyncMock()
+    if feedback:
+        s.practice_started = True
+        s.action_response = feedback_text
+        s.action_reply_purpose = 'hint'
+    text = feedback_text if feedback else start
+    action = s.action
+    s.want_response = True
+    await s.maybe_respond()
+    assert responses(s)[0]['instructions'].endswith(text)
+    await regular_audio(s, 'first-section', 'This first section was played.')
+    await regular_audio(s, 'cut', 'An incomplete piece of the message')
+    await regular_limit(s, {'type': 'message', 'id': 'first-section', 'status': 'completed'},
+                        {'type': 'message', 'id': 'cut', 'status': 'incomplete'})
+    await s.settle('first-section', {'complete': True, 'playedMs': 100})
+    assert len(responses(s)) == 1 and s.action_history == []
+    await s.settle('cut', {'complete': True, 'playedMs': 100})
+
+    assert len(responses(s)) == 2
+    assert responses(s)[1] == {**responses(s)[0], 'tool_choice': 'none', 'max_output_tokens': 2400}
+    assert all('Прерванная' in call.args[1] for call in s.append.await_args_list)
+    assert s.action is action and s.action_history == []
+    assert action.start.call_count == (0 if feedback else 1)
+    action.respond.assert_not_awaited()
+    s.save_learning_observation.assert_not_awaited()
+
+    await regular_audio(s, 'replayed', text)
+    await s.settle('replayed', {'complete': True, 'playedMs': 100})
+    assert s.regular_teaching_instructions is not None and s.action_history == []
+    await s.provider_event({'type': 'response.done', 'response': {
+        'status': 'completed', 'output': [{'type': 'message', 'id': 'replayed', 'status': 'completed'}],
+    }})
+    assert s.regular_teaching_instructions is None
+    assert [(entry['text'], entry['purpose']) for entry in s.action_history] == [
+        (text, 'hint' if feedback else 'context')
+    ]
+    assert s.action is action
+
+
+async def interrupted_regular_action(learner_text):
+    s = regular_session()
+    s.action = SimpleNamespace(start=Mock(return_value='Correct this exact sentence: I go yesterday.'),
+                               respond=AsyncMock())
+    s.save_learning_observation = AsyncMock()
+    s.want_response = True
+    await s.maybe_respond()
+    await regular_audio(s, 'cut', 'Correct this')
+    await regular_limit(s, {'type': 'message', 'id': 'cut', 'status': 'incomplete'})
+    assert s.regular_recovery_pending
+    await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'learner'})
+    await s.settle('cut', {'complete': False, 'playedMs': 60})
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
+    await s.provider_event({'type': 'conversation.item.truncated', 'item_id': 'cut'})
+    assert len(responses(s)) == 1 and not s.regular_recovery_pending
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner', 'transcript': learner_text})
+    return s
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('end_lesson', [True, False])
+async def test_regular_stop_or_change_supersedes_pending_teaching_replay(end_lesson):
+    learner_text = 'Please end the lesson.' if end_lesson else 'Could we change the activity?'
+    s = await interrupted_regular_action(learner_text)
+    assert len(responses(s)) == 2
+    reply = responses(s)[1]
+    assert 'Respond directly to the latest learner turn' in reply['instructions']
+    assert 'Respect a request to stop or change the activity' in reply['instructions']
+    assert 'I go yesterday' not in reply['instructions']
+    assert [tool['name'] for tool in reply['tools']] == ['finish_after_reply', 'resume_prepared_action']
+    assert not s.regular_recovery_used and s.action_history == []
+    assert s.regular_paused_source in s.memory_sources
+    assert s.memory_sources[s.regular_paused_source]['body'] == learner_text
+    s.action.start.assert_called_once()
+    s.action.respond.assert_not_awaited()
+    s.save_learning_observation.assert_not_awaited()
+    outputs = []
+    if end_lesson:
+        s.next_lesson = AsyncMock(return_value=None)
+        outputs.append({'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'stop', 'arguments': '{}'})
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': outputs}})
+    assert len(responses(s)) == (3 if end_lesson else 2)
+    if end_lesson:
+        assert responses(s)[-1]['instructions'] == (
+            'Say a short goodbye in the current language. Do not resume the paused Teaching Action.')
+        assert responses(s)[-1]['tool_choice'] == 'none'
+    assert s.regular_teaching_instructions == responses(s)[0]['instructions']
+
+
+@pytest.mark.asyncio
+async def test_regular_paused_action_resumes_only_against_current_learner_turn():
+    s = await interrupted_regular_action('Could you repeat the same instruction?')
+    for source_id, expected in [('old-source', False), (s.regular_paused_source, True)]:
+        await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': [{
+            'type': 'function_call', 'name': 'resume_prepared_action', 'call_id': source_id,
+            'arguments': json.dumps({'sourceId': source_id}),
+        }]}})
+        result = next(message['item']['output'] for message in reversed(sent(s))
+                      if message.get('item', {}).get('type') == 'function_call_output')
+        assert json.loads(result) == {'resumingPreparedAction': expected}
+        assert (responses(s)[-1] == responses(s)[0]) is expected
+    assert s.regular_paused_source is None
+    s.action.start.assert_called_once()
+    s.action.respond.assert_not_awaited()
+    s.save_learning_observation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_regular_feedback_second_limit_does_not_duplicate_saved_observation(monkeypatch):
+    s = regular_session()
+    s.practice_started = True
+    outcome = {'event': {'outcome': 'independent_correct'}, 'spokenFeedback': 'Good example.', 'next': 'continue'}
+    s.action = SimpleNamespace(respond=AsyncMock(return_value=outcome))
+    observation = {'anchorEventId': 'saved-1'}
+    monkeypatch.setattr('app.trial_realtime.observation_from_action', Mock(return_value=observation))
+    s.save_learning_observation = AsyncMock()
+    s.refresh_problem_proposal = AsyncMock()
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'user'})
+    answer = {'type': 'conversation.item.input_audio_transcription.completed',
+              'item_id': 'user', 'transcript': 'I went yesterday.'}
+    await s.provider_event(answer)
+    assert responses(s)[0]['instructions'].endswith('Good example.')
+    for key in ('first', 'recovery'):
+        await regular_audio(s, key, 'Good')
+        await regular_limit(s, {'type': 'message', 'id': key, 'status': 'incomplete'})
+        await s.settle(key, {'complete': True, 'playedMs': 100})
+    await s.provider_event(answer)
+    s.action.respond.assert_awaited_once()
+    s.save_learning_observation.assert_awaited_once_with(observation)
+    assert len(responses(s)) == 2 and not s.ended
+    assert s.regular_teaching_instructions == responses(s)[0]['instructions']
+    assert [entry['eventId'] for entry in s.action_history] == ['saved-1']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('status', 'reason'), [('incomplete', 'content_filter'), ('failed', 'max_output_tokens')])
+async def test_regular_non_recoverable_provider_status_still_fails(status, reason):
+    s = regular_session()
+    with pytest.raises(RealtimeProviderError):
+        await s.provider_event({'type': 'response.done', 'response': {
+            'status': status, 'status_details': {'reason': reason}, 'output': [],
+        }})
+    assert not s.regular_recovery_pending and not responses(s)
 
 
 @pytest.mark.asyncio

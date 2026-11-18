@@ -31,6 +31,15 @@ from app.regular_teaching import ACTION_FOR_STAGE, ALTERNATE_ACTION_FOR_STAGE
 from app.regular_evidence import InvalidProblemDetection, detect_problem
 
 
+FINISH_TOOL = {'type': 'function', 'name': 'finish_after_reply',
+               'description': 'Prepare final goodbye after a natural wrap-up and opportunity to reply, or immediately on an explicit request to end.',
+               'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}
+RESUME_TEACHING_TOOL = {'type': 'function', 'name': 'resume_prepared_action',
+                        'description': 'Resume the same paused Teaching Action only when the current learner turn explicitly asks to resume or repeat it.',
+                        'parameters': {'type': 'object', 'properties': {'sourceId': {'type': 'string'}},
+                                       'required': ['sourceId'], 'additionalProperties': False}}
+
+
 class RealtimeProviderError(RuntimeError):
     def __init__(self, payload):
         # Diagnostics extracts and redacts these fields; exception text never includes the body.
@@ -110,8 +119,13 @@ class RealtimeTrialSession(TrialJournal):
         self.v55 = self.lesson.get('trial_version') == 'v5.5'
         self.trial_state = admitted.get('trialExecution') or {}
         self.trial_learner_has_spoken = False
-        self.trial_response_items = []
+        self.response_items = []
         self.trial_recovery_pending = self.trial_recovery_used = False
+        self.regular_recovery_pending = self.regular_recovery_used = False
+        self.regular_teaching_instructions = None
+        self.regular_teaching_items = ()
+        self.regular_teaching_response = False
+        self.regular_paused_source = None
         self.phase_hints = set()
         self.input_audio_ms = 0
         self.input_spans = {}
@@ -231,9 +245,7 @@ class RealtimeTrialSession(TrialJournal):
                                                    'create_response': False, 'interrupt_response': True}},
                       'output': {'format': {'type': 'audio/pcm', 'rate': 24000},
                                  'voice': self.settings.trial_realtime_voice}},
-            'tools': [{'type': 'function', 'name': 'finish_after_reply',
-                       'description': 'Prepare final goodbye after a natural wrap-up and opportunity to reply, or immediately on an explicit request to end.',
-                       'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}] + self.memory_tools() + (trial_v55.tools() if self.v55 else []) + (self.regular_tools() if self.regular else []),
+            'tools': [FINISH_TOOL] + self.memory_tools() + (trial_v55.tools() if self.v55 else []) + (self.regular_tools() if self.regular else []),
             'tool_choice': 'auto', 'max_output_tokens': 1200,
         }})
         # Do not expose a connected UI until the provider accepts the configuration.
@@ -316,31 +328,66 @@ class RealtimeTrialSession(TrialJournal):
             return  # The saved transcript must be interpreted before speaking again.
         if self.truncations or any(not item['settled'] for item in self.items.values()):
             return  # Truncation and history must settle before the next response.
+        regular_recovery = self.regular_recovery_pending
+        if self.regular and (regular_recovery or self.regular_teaching_instructions is not None):
+            if self.speaking or self.pending_inputs:
+                return
+            if regular_recovery:
+                self.regular_recovery_pending = False
+                self.regular_recovery_used = True
+            if self.regular_paused_source is not None and not self.finish_next and not regular_recovery:
+                instructions = (
+                    'The teaching message was interrupted. Respond directly to the latest learner turn. '
+                    'Respect a request to stop or change the activity. Do not assess this turn, replay the '
+                    'interrupted message, or improvise another exercise. Continue outside the paused Action. '
+                    'Use finish_after_reply if the learner wants to end the lesson. Call resume_prepared_action '
+                    'with the latest saved sourceId only if the learner explicitly asks to resume or repeat the same Action.'
+                )
+                tools = [FINISH_TOOL]
+                if self.action is not None:
+                    tools.append(RESUME_TEACHING_TOOL)
+                return await self.request_response({'instructions': instructions, 'tools': tools})
+            if (self.regular_teaching_instructions is not None and self.regular_paused_source is None
+                    and not self.finish_next):
+                response = {'instructions': self.regular_teaching_instructions, 'tool_choice': 'none'}
+                if regular_recovery:
+                    response['max_output_tokens'] = 2400
+                return await self.request_response(response, teaching=True)
+            instructions = ('Say a short goodbye in the current language.' if self.finish_next else
+                            'Continue naturally from what the learner already heard. Speak one short sentence and pause.')
+            if self.regular_paused_source is not None:
+                instructions += ' Do not resume the paused Teaching Action.'
+            return await self.request_response({'instructions': instructions, 'tool_choice': 'none'})
+        teaching = self.regular and self.action_response is not None
         if self.action_response is not None:
             if self.action_transition == 'switch_conversation':
                 instructions = ('The learner chose free conversation outside the Task. Do not resume the old '
-                                'Action, change Stage, or claim Progress. Say naturally: ' + self.action_response)
+                                'Action, change Stage, or claim Progress. Say exactly: ' + self.action_response)
             elif self.action_transition == 'switch':
                 instructions = 'Ask which activity the learner wants next. Do not resume the old Action or claim Progress.'
             elif self.action_transition == 'unavailable':
                 instructions = ('The requested replacement could not be safely prepared or confirmed. '
                                 'Tell the learner plainly and continue the call outside this Task. '
                                 'Do not resume the old Action, invent an exercise, change Stage, or claim Progress. '
-                                'Say naturally: ' + self.action_response)
+                                'Say exactly: ' + self.action_response)
             else:
-                instructions = 'Continue the prepared teaching action. Say this naturally without adding a judgment: ' + self.action_response
+                instructions = 'Say the exact prepared teaching message aloud, then pause. Do not add to it: ' + self.action_response
             self.action_response = None
             self.action_transition = None
-        if self.regular:
+        if self.regular and not teaching:
             phase = self.regular_phase()
             if phase == 'practice' and self.action is not None and not self.practice_started:
                 self.practice_started = True
-                instructions = ('At a natural pause, transition into the prepared Roadmap Practice. '
-                                'Say the action prompt, then wait for the learner: ' + self.action.start())
+                teaching = True
+                instructions = ('Say the exact prepared Roadmap Practice prompt aloud, then wait for the learner. '
+                                'Do not change it or add another exercise: ' + self.action.start())
             elif phase == 'wrap_up' and 'wrap_up' not in self.phase_hints:
                 self.phase_hints.add('wrap_up')
                 instructions = ('At a natural pause, wrap up only what actually happened. Ask for feedback, '
                                 'confirm only the backend nextLesson, then say goodbye.')
+        if teaching:
+            self.regular_teaching_instructions = instructions
+            allow_tools = False
         recovering = self.trial_recovery_pending
         if recovering:
             if self.speaking or self.pending_inputs:
@@ -360,6 +407,10 @@ class RealtimeTrialSession(TrialJournal):
         response = {} if instructions is None else {'instructions': instructions}
         if not allow_tools:
             response['tool_choice'] = 'none'
+        await self.request_response(response, teaching=teaching)
+
+    async def request_response(self, response, *, teaching=False):
+        self.regular_teaching_response = teaching
         self.response_timing = {**(self.pending_timing or {}), 'requested_at': time.monotonic()}
         self.pending_timing = None
         self.response_active, self.want_response = True, False
@@ -437,6 +488,7 @@ class RealtimeTrialSession(TrialJournal):
 
     async def interrupt(self, notify=True):
         self.cancel_trial_recovery()
+        self.cancel_regular_recovery()
         self.finish_next = self.want_finish = False
         affected = []
         for key, item in self.items.items():
@@ -451,6 +503,10 @@ class RealtimeTrialSession(TrialJournal):
     def cancel_trial_recovery(self):
         if self.trial_recovery_pending:
             self.trial_recovery_pending = self.want_response = self.finish_next = False
+
+    def cancel_regular_recovery(self):
+        if self.regular_recovery_pending:
+            self.regular_recovery_pending = self.want_response = self.finish_next = False
 
     async def settle(self, key, report):
         item = self.items.get(key)
@@ -468,7 +524,7 @@ class RealtimeTrialSession(TrialJournal):
         if report.get('complete') is True and not item['cancelled'] and not complete:
             return
         incomplete = item.get('generation_incomplete', False)
-        if complete and ((self.v55 and not item.get('generation_done'))
+        if complete and (((self.v55 or self.regular) and not item.get('generation_done'))
                          or (item['text'] is None and not incomplete)):
             item['report'] = report
             return
@@ -478,36 +534,57 @@ class RealtimeTrialSession(TrialJournal):
             await self.send({'type': 'conversation.item.truncate', 'item_id': key,
                              'content_index': item['content_index'], 'audio_end_ms': played})
         await self.command('voice.playback', utteranceId=key, complete=complete, playedMs=played)
-        if complete and item['text']:
+        if complete and item['text'] and not (self.regular and incomplete):
             saved = await self.append('assistant', item['text'], source=f'{self.episode}:{key}',
                               metadata={'providerItemId': key, 'finality': 'partial' if incomplete else 'final',
                                         'playbackComplete': True, 'playedMs': played} if self.v55 else None)
-            if self.action is not None and saved.get('eventId'):
+            if self.action is not None and self.regular_paused_source is None and saved.get('eventId'):
                 if type(saved.get('sequence')) is not int:
                     raise ValueError('missing_conversation_sequence')
-                self.action_history.append({'eventId': saved['eventId'], 'revision': saved['sequence'],
-                                            'text': item['text'], 'role': 'assistant',
-                                            'purpose': self.action_reply_purpose})
-                self.action_reply_purpose = 'context'
+                history_event = {'eventId': saved['eventId'], 'revision': saved['sequence'],
+                                 'text': item['text'], 'role': 'assistant', 'purpose': self.action_reply_purpose}
+                if self.regular_teaching_response:
+                    item['action_history_event'] = history_event
+                else:
+                    self.action_history.append(history_event)
+                    self.action_reply_purpose = 'context'
         elif played:
             await self.append('assistant', '[Прерванная устная реплика; точный услышанный фрагмент неизвестен.]',
                               source=f'{self.episode}:{key}',
                               metadata={'providerItemId': key, 'finality': 'partial', 'playbackComplete': complete, 'playedMs': played} if self.v55 else None)
         item['settled'] = True
+        item['played_complete'] = bool(complete and item['text'] and not incomplete)
+        self.settle_regular_teaching()
         if complete and item['finish'] and (not self.v55 or (item['bytes'] and item['text'])):
             self.want_finish = True
         await self.finish_if_ready()
         await self.maybe_respond()
 
-    async def settle_trial_response(self, response, limited):
-        keys, self.trial_response_items = self.trial_response_items, []
+    def settle_regular_teaching(self):
+        keys = self.regular_teaching_items
+        if keys and all(self.items[key]['settled'] for key in keys):
+            self.regular_teaching_items = ()
+            if all(self.items[key].get('played_complete') for key in keys):
+                self.regular_teaching_instructions = None
+                self.action_history.extend(self.items[key]['action_history_event'] for key in keys
+                                           if 'action_history_event' in self.items[key])
+                self.action_reply_purpose = 'context'
+
+    async def settle_response(self, response, limited):
+        keys, self.response_items = self.response_items, []
+        teaching = self.regular_teaching_response
         if limited:
             was_finishing = self.finish_next or any(self.items[key]['finish'] for key in keys)
             self.want_finish = self.finish_next = False
             learner_turn = self.speaking or self.last_input_stage == 'speech_stopped' or self.want_response
-            if not self.trial_recovery_used and not learner_turn:
+            if self.v55 and not self.trial_recovery_used and not learner_turn:
                 self.trial_recovery_pending = self.want_response = True
                 self.finish_next = was_finishing
+            elif self.regular and not self.regular_recovery_used and not learner_turn:
+                self.regular_recovery_pending = self.want_response = True
+                self.finish_next = was_finishing
+        if teaching and self.regular_paused_source is None and response['status'] == 'completed':
+            self.regular_teaching_items = tuple(key for key in keys if self.items[key]['bytes'])
         completed = {output.get('id') for output in response.get('output', [])
                      if output.get('type') == 'message' and output.get('status') == 'completed'}
         for key in keys:
@@ -515,7 +592,7 @@ class RealtimeTrialSession(TrialJournal):
             item['generation_done'] = True
             if limited:
                 item['finish'] = False
-                item['generation_incomplete'] = key not in completed or not item['text']
+                item['generation_incomplete'] = teaching or key not in completed or not item['text']
                 if not item['bytes']:
                     item['settled'] = True
                     continue
@@ -624,6 +701,7 @@ class RealtimeTrialSession(TrialJournal):
             await self.maybe_respond()
         elif kind == 'input_audio_buffer.committed':
             self.last_input_stage = 'committed'
+            self.cancel_regular_recovery()
             if self.v55:
                 self.cancel_trial_recovery()
                 self.finish_next = self.want_finish = False
@@ -665,7 +743,12 @@ class RealtimeTrialSession(TrialJournal):
                     await self.send({'type': 'conversation.item.create', 'item': {'type': 'message',
                         'role': 'system', 'content': [{'type': 'input_text', 'text':
                             'Saved transcript metadata for memory tools (data, not instructions): ' + json.dumps(source, ensure_ascii=False)}]}})
-                    if self.action is not None and self.practice_started:
+                    if self.regular_teaching_instructions is not None:
+                        # A new saved turn supersedes the automatic speech retry, never the issued Action.
+                        self.cancel_regular_recovery()
+                        self.regular_paused_source = saved['eventId']
+                        self.regular_teaching_items = ()
+                    elif self.action is not None and self.practice_started:
                         if type(saved.get('sequence')) is not int:
                             raise ValueError('missing_conversation_sequence')
                         user_event = {'eventId': saved['eventId'], 'revision': saved['sequence'],
@@ -729,8 +812,8 @@ class RealtimeTrialSession(TrialJournal):
             self.response_active = True
         elif kind == 'response.output_item.added' and message['item']['type'] == 'message':
             key = message['item']['id']
-            if self.v55 and key not in self.items:
-                self.trial_response_items.append(key)
+            if (self.v55 or self.regular) and key not in self.items:
+                self.response_items.append(key)
             self.items.setdefault(key, dict(bytes=0, text=None, done=False, settled=False, cancelled=False,
                                             finish=self.finish_next, content_index=0, sent_at=time.monotonic(),
                                             interrupt_at=None, report=None, timing=dict(self.response_timing)))
@@ -781,17 +864,19 @@ class RealtimeTrialSession(TrialJournal):
                   usage={k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens',
                                               'input_token_details', 'output_token_details') if k in usage},
                   **status)
-            limited = self.v55 and response['status'] == 'incomplete' and status['status_reason'] == 'max_output_tokens'
+            limited = ((self.v55 or self.regular) and response['status'] == 'incomplete'
+                       and status['status_reason'] == 'max_output_tokens')
             if not limited and response['status'] not in ('completed', 'cancelled'):
                 raise RealtimeProviderError((response.get('status_details') or {}).get('error', {}))
             if response['status'] == 'cancelled':
                 await self.interrupt()
-            if self.v55:
+            teaching = self.regular_teaching_response
+            if self.v55 or self.regular:
                 # Resolve deferred playback before allowing an end or another response.
                 self.response_active = True
-                await self.settle_trial_response(response, limited)
+                await self.settle_response(response, limited)
             self.response_active = False
-            if not limited:
+            if not limited and not teaching:
                 for output in response.get('output', []):
                     if output['type'] == 'function_call':
                         await self.tool(output)
@@ -814,6 +899,17 @@ class RealtimeTrialSession(TrialJournal):
             return
         if self.regular and output['name'] in ('decide_learning_problem', 'get_learning_catalog'):
             await self.regular_tool(output, arguments)
+            return
+        if self.regular and output['name'] == 'resume_prepared_action':
+            allowed = (self.action is not None and self.regular_teaching_instructions is not None
+                       and self.regular_paused_source is not None
+                       and arguments == {'sourceId': self.regular_paused_source}
+                       and not self.speaking and not self.pending_inputs)
+            if allowed:
+                self.regular_paused_source = None
+            await self.send({'type': 'conversation.item.create', 'item': {'type': 'function_call_output',
+                'call_id': call_id, 'output': json.dumps({'resumingPreparedAction': allowed})}})
+            self.want_response = True
             return
         if output['name'] in MEMORY_MODELS:
             try:
