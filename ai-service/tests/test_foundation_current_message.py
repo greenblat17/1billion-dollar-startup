@@ -111,10 +111,10 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'First explore all five topics' not in system
     assert 'Current mode: introduction.' in system
     assert 'return without pushing' in system
-    assert 'Ask about earlier learning experience only if' in system
+    assert 'Ask about a deadline or earlier experience only when it helps' in system
     assert 'at most one question that expects an answer' in system
     assert 'at most one useful clarification on that topic' in system
-    assert 'Say you\'re an AI tutor when asked' in system
+    assert 'AI tutor when asked' in system
     assert 'For exact subscription terms, use get_subscription.' in system
     assert 'free trial call of about 30 minutes' in system
     assert 'some speaking practice and a sense of what to work on next' in system
@@ -122,6 +122,9 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'Do not proactively ask about lesson frequency' in system
     assert 'Do not exclude beginners or exam-oriented learners' in system
     assert 'not a proficiency test' in system
+    assert 'no long dash (—)' in system
+    assert 'never propose or assign a CEFR label' in system
+    assert 'If proposing a label based on their description' not in system
     assert 'no answer-choice buttons' in system
     assert 'without finishing the consultation' in system
     assert messages[-1] == {'role': 'user', 'content': body}
@@ -201,7 +204,7 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
     assert PERSONALITY in prompt
     assert 'Current mode: ordinary dialogue.' in prompt
     assert 'Curiosity need not serve trial preparation.' in prompt
-    assert 'Ask about earlier learning experience only if' not in prompt
+    assert 'Ask about a deadline or earlier experience only when it helps' not in prompt
     assert 'use a blank line between bubbles' not in prompt
 
 
