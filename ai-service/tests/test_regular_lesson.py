@@ -135,6 +135,8 @@ async def test_finish_refreshes_cancelled_next_lesson_and_waits_for_playback():
     await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': 'reply', 'transcript': 'Goodbye'})
     assert not s.ended
     await s.settle('reply', {'complete': True, 'playedMs': 100})
+    assert not s.ended
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
     assert s.ended
     assert s.backend.command.call_args.args[2] == 'voice.end'
 

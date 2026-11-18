@@ -193,5 +193,7 @@ async def test_voice_hint_is_available_only_after_saved_complete_playback():
                             'item_id': 'reply', 'transcript': 'The word was missed.'})
     assert not s.action_history
     await s.settle('reply', {'complete': True, 'playedMs': 100})
+    assert not s.action_history
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
     assert s.action_history == [{'eventId': 'assistant-1', 'revision': 9,
                                  'text': 'The word was missed.', 'role': 'assistant', 'purpose': 'hint'}]
