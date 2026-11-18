@@ -57,8 +57,9 @@ def booking_projection(lesson: dict | None) -> dict | None:
 
 
 class FoundationTutor:
-    def __init__(self, backend: FoundationClient, model, contexts: ContextBuilder):
+    def __init__(self, backend: FoundationClient, model, contexts: ContextBuilder, *, introduction_model=None):
         self.backend, self.model, self.contexts = backend, model, contexts
+        self.introduction_model = introduction_model
 
     async def respond(self, request: TutorRequest, scope: str, start: bool = False) -> dict:
         claim = await self.backend.command(scope, 'claim:' + uuid4().hex, 'run.claim', {})
@@ -71,6 +72,7 @@ class FoundationTutor:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
         introducing = context.data.get('textMode') == 'introduction'
+        model = self.introduction_model if introducing and self.introduction_model is not None else self.model
         instructions = context.instructions('text')
         if introducing:
             instructions += '\n\n' + INTRODUCTION_WRITING_STYLE
@@ -100,9 +102,9 @@ class FoundationTutor:
         )})
         if introducing:
             messages[-1]['content'] += (
-                '\nПиши по смыслу. Короткий уместный отклик допустим. '
-                'Без дежурной похвалы и длинного тире. '
-                'В reply максимум один вопрос, на который ждёшь ответа.'
+                '\nНачни reply с ответа, вопроса, приглашения или отклика на конкретную деталь. '
+                'Короткий уместный отклик допустим. В reply используй точки и запятые '
+                'для связи мыслей. Один знак вопроса максимум. Тире в reply запрещено.'
             )
         messages.append({'role': 'user', 'content': text})
         changed = None
@@ -127,7 +129,7 @@ class FoundationTutor:
                 raise RuntimeError('recovering_committed_operation')
             with anyio.fail_after(55):
                 for _ in range(6):
-                    message = await self.model.complete(messages)
+                    message = await model.complete(messages)
                     calls = message.get('tool_calls') or []
                     if not calls:
                         final = json.loads(message.get('content') or '{}')
@@ -175,7 +177,7 @@ class FoundationTutor:
                             'Optional memory failure must not stop consultation or make the learner repeat their message. '
                             'Never claim an uncommitted booking succeeded. If booking failed, explain it briefly; '
                             'do not invent a missing timezone or missing user information to explain invalid tool arguments.')})
-                        final = await self.model.finalize(messages)
+                        final = await model.finalize(messages)
                         if final.get('tool_calls'):
                             raise ValueError('unexpected_final_tool_call')
                         reply = json.loads(final.get('content') or '{}')['reply'].strip()

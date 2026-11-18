@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -73,13 +74,18 @@ class Settings:
     trial_s3_endpoint: str | None = None
     trial_realtime_model: str = "gpt-realtime-2.1"
     trial_realtime_voice: str = "marin"
+    stage1_model: str | None = None
 
     @staticmethod
     def from_env() -> Settings:
+        openai_base_url = _env("OPENAI_BASE_URL", "https://openrouter.ai/api/v1") or "https://openrouter.ai/api/v1"
+        stage1_model = _env("STAGE1_MODEL")
+        if stage1_model is None and _env("SPEAKY_ENV") == "dev" and urlsplit(openai_base_url).hostname == "openrouter.ai":
+            stage1_model = "openai/gpt-6-luna"
         return Settings(
             groq_api_key=_env("GROQ_API_KEY"),
             openai_api_key=_env("OPENAI_API_KEY"),
-            openai_base_url=_env("OPENAI_BASE_URL", "https://openrouter.ai/api/v1") or "https://openrouter.ai/api/v1",
+            openai_base_url=openai_base_url,
             groq_base_url=_env("GROQ_BASE_URL", "https://api.groq.com/openai/v1") or "https://api.groq.com/openai/v1",
             stt_model=_env("STT_MODEL", "whisper-large-v3") or "whisper-large-v3",
             llm_model=_env("LLM_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
@@ -119,6 +125,7 @@ class Settings:
             hume_config_id=_env("HUME_CONFIG_ID"),
             hume_config_version=_env("HUME_CONFIG_VERSION", "0") or "0",
             kora_model=_env("KORA_MODEL", "anthropic/claude-sonnet-4.6") or "anthropic/claude-sonnet-4.6",
+            stage1_model=stage1_model,
             kora_tts_model=_env("KORA_TTS_MODEL", "google/gemini-3.1-flash-tts-preview") or "google/gemini-3.1-flash-tts-preview",
             kora_tts_voice=_env("KORA_TTS_VOICE", "Leda") or "Leda",
             kora_h_enabled=_env("KORA_H_ENABLED", "false").lower() == "true",

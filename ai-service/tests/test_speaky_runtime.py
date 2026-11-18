@@ -2,6 +2,27 @@
 import subprocess
 import sys
 
+from app.config import Settings
+
+
+def test_stage1_model_defaults_to_gpt_6_luna_only_on_openrouter_dev(monkeypatch):
+    monkeypatch.delenv('STAGE1_MODEL', raising=False)
+    monkeypatch.setenv('SPEAKY_ENV', 'dev')
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1')
+    settings = Settings.from_env()
+    assert settings.stage1_model == 'openai/gpt-6-luna'
+    assert settings.kora_model != settings.stage1_model
+
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
+    assert Settings.from_env().stage1_model is None
+
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1')
+    monkeypatch.setenv('SPEAKY_ENV', 'prod')
+    assert Settings.from_env().stage1_model is None
+
+    monkeypatch.setenv('STAGE1_MODEL', 'example/intro-model')
+    assert Settings.from_env().stage1_model == 'example/intro-model'
+
 
 def test_runtime_starts_without_redis_and_exposes_only_foundation_routes():
     program = '''

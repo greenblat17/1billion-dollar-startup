@@ -257,6 +257,13 @@ class OpenAiChatModel:
 
     async def complete_tools(self, messages: list[dict], tools: list[dict]) -> dict:
         """Native tool messages; no fabricated JSON action envelope or clip job."""
+        openrouter = "openrouter.ai" in str(self._client.base_url)
+        extra_body = {"provider": {"require_parameters": True}} if openrouter else {}
+        # GPT-6 Luna supports Chat Completions tools only with reasoning disabled.
+        if self._model == "openai/gpt-6-luna" and openrouter:
+            extra_body["reasoning"] = {"effort": "none"}
+        elif self._model == "gpt-6-luna":
+            extra_body["reasoning_effort"] = "none"
         response = await logged_provider_call(
             lambda: self._client.chat.completions.create(
                 model=self._model, messages=messages,
@@ -265,7 +272,7 @@ class OpenAiChatModel:
                     "schema": {"type": "object", "properties": {"reply": {"type": "string"},
                                "trialOffered": {"type": "boolean"}},
                                "required": ["reply", "trialOffered"], "additionalProperties": False}}},
-                extra_body={"provider": {"require_parameters": True}} if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else {},
+                extra_body=extra_body,
             ), kind="llm", provider=provider_from_url(self._client.base_url),
             model=self._model, purpose="tutor", cost_of=read_provider_cost,
         )

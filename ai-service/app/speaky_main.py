@@ -50,7 +50,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, http)
     voice_model = OpenAiChatModel(model_client, settings.kora_model)
     contexts = ContextBuilder(backend, selector=MemorySelector(voice_model))
-    tutor = FoundationTutor(backend, TrialTutorModel(voice_model), contexts)
+    introduction_model = (TrialTutorModel(OpenAiChatModel(model_client, settings.stage1_model))
+                          if settings.stage1_model else None)
+    tutor = FoundationTutor(backend, TrialTutorModel(voice_model), contexts, introduction_model=introduction_model)
     extractor = PersonalCandidateExtractor(LearnerModel(OpenAiChatModel(model_client, settings.llm_model),
                                                       person_memory_model=settings.person_memory_model))
     learning = LearningEngine(backend, contexts, extractor=extractor, planner=LessonPlanner(voice_model), analyzer=TrialAnalyzer(voice_model), roadmap=RoadmapPlanner(voice_model),

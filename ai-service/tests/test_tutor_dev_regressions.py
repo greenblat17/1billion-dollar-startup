@@ -122,12 +122,16 @@ async def test_two_rejections_finish_with_tools_disabled():
     llm = SimpleNamespace(complete_tools=AsyncMock(side_effect=[
         {'role': 'assistant', 'tool_calls': [{'id': str(i), 'function': {'name': 'create_trial_booking', 'arguments': '{}'}}]}
         for i in range(2)] + [{'content': '{"reply":"Отлично, запускаю сейчас!"}'}]))
-    tutor = FoundationTutor(backend, TrialTutorModel(llm), ContextBuilder(backend))
+    dialogue_model = SimpleNamespace(complete=AsyncMock(), finalize=AsyncMock())
+    tutor = FoundationTutor(backend, dialogue_model, ContextBuilder(backend),
+                            introduction_model=TrialTutorModel(llm))
     tutor.execute = AsyncMock(return_value={'ok': False, 'error': 'invalid_evidence'})
     result = await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794570480), 'scope')
     assert tutor.execute.await_count == 2
     assert llm.complete_tools.await_count == 3
     assert llm.complete_tools.call_args.args[1] == []
+    dialogue_model.complete.assert_not_awaited()
+    dialogue_model.finalize.assert_not_awaited()
     assert result['booking'] is None
     assert result['reply'] == 'Я не смог подтвердить новую запись.'
     assert backend.command.call_args.args[3]['degraded'] is True

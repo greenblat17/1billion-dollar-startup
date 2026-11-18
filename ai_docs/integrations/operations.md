@@ -237,8 +237,11 @@ JWT, metrics, audit и load-test routes не подключены к Speaky root
 Доступ к текстовому tutor runtime не проверяет voice allowlist. В deploy workflow `KORA_H_ALLOWLIST`
 для старых голосовых возможностей допускает числовой список или `*`; пустой список выключает их флаг.
 `ONBOARDING_REVIEW_MODEL` и fallback не управляют моделью Саши.
-Активный root использует `OpenAiChatModel` с `KORA_MODEL` для FoundationTutor, selector и learning;
-не запускает старый voice pipeline и не требует `GROQ_API_KEY`/Redis. [Текущий контракт](tutor-chat.md).
+Активный root использует `KORA_MODEL` для обычного чата, selector и learning.
+`STAGE1_MODEL` задаёт модель ответов знакомства. На DEV с OpenRouter по умолчанию используется
+`openai/gpt-6-luna`. Для вызовов инструментов Luna через Chat Completions задаётся `reasoning.effort=none`.
+В остальных окружениях без `STAGE1_MODEL` используется `KORA_MODEL`.
+Активный root не требует `GROQ_API_KEY` или Redis. [Текущий контракт](tutor-chat.md).
 
 ## Monitoring
 

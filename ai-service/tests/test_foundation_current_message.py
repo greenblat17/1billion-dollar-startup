@@ -106,10 +106,12 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
         {'status': 'running', 'input': source},
         {'conversationId': 'conversation', 'reply': 'Ответ', 'degraded': False},
     ]))
+    dialogue_model = SimpleNamespace(complete=AsyncMock())
     model = SimpleNamespace(complete=AsyncMock(return_value={'content': '{"reply": "Ответ"}'}))
-    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    tutor = FoundationTutor(backend, dialogue_model, ContextBuilder(backend), introduction_model=model)
     await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=body,
                                     receivedAt=1794479220.0), 'scope')
+    dialogue_model.complete.assert_not_awaited()
     messages = model.complete.call_args.args[0]
     system = '\n'.join(m['content'] for m in messages if m['role'] == 'system')
     assert 'First explore all five topics' not in system
@@ -117,7 +119,7 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert PERSONALITY in messages[0]['content']
     assert INTRODUCTION_WRITING_STYLE in messages[0]['content']
     assert 'Короткий уместный отклик допустим.' in messages[-2]['content']
-    assert 'без дежурной похвалы и длинного тире' in messages[-2]['content'].lower()
+    assert 'Тире в reply запрещено.' in messages[-2]['content']
     assert TEXT_RELATIONSHIP_POLICY not in system
     assert TEXT_CAPABILITIES not in system
     assert 'максимум одно полезное уточнение по этой теме' in system
@@ -202,9 +204,11 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
         {'status': 'running', 'input': source}, {'conversationId': 'conversation', 'reply': 'Ответ'},
     ]))
     model = SimpleNamespace(complete=AsyncMock(return_value={'content': '{"reply": "Ответ"}'}))
-    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    introduction_model = SimpleNamespace(complete=AsyncMock())
+    tutor = FoundationTutor(backend, model, ContextBuilder(backend), introduction_model=introduction_model)
     await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=source['body'],
                                     receivedAt=1794479220.0), 'scope')
+    introduction_model.complete.assert_not_awaited()
     prompt = '\n'.join(m['content'] for m in model.complete.call_args.args[0] if m['role'] == 'system')
     assert PERSONALITY in prompt
     assert 'Current mode: ordinary dialogue.' in prompt

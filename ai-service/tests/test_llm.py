@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -86,6 +87,31 @@ def test_take_a_decision_is_not_a_vocabulary_error():
 
 def test_parse_reply_reads_reply():
     assert parse_reply('{"reply":"Nice — what did you buy?"}') == "Nice — what did you buy?"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("base_url", "model", "expected_extra_body"), [
+    ("https://openrouter.ai/api/v1", "openai/gpt-6-luna",
+     {"provider": {"require_parameters": True}, "reasoning": {"effort": "none"}}),
+    ("https://api.openai.com/v1", "gpt-6-luna", {"reasoning_effort": "none"}),
+    ("https://openrouter.ai/api/v1", "anthropic/claude-sonnet-4.6",
+     {"provider": {"require_parameters": True}}),
+])
+async def test_tutor_tool_request_sets_luna_reasoning_mode(base_url, model, expected_extra_body):
+    message = SimpleNamespace(model_dump=lambda **_: {"role": "assistant"})
+    create = AsyncMock(return_value=SimpleNamespace(choices=[
+        SimpleNamespace(finish_reason="tool_calls", message=message),
+    ]))
+    client = SimpleNamespace(base_url=base_url, chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    tools = [{"type": "function", "function": {"name": "update_learner_context"}}]
+
+    await OpenAiChatModel(client, model).complete_tools([], tools)
+
+    request = create.call_args.kwargs
+    assert request["model"] == model
+    assert request["extra_body"] == expected_extra_body
+    assert request["tools"] == tools
+    assert request["tool_choice"] == "auto"
 
 
 def test_generation_time_uses_openrouter_metadata_only_when_valid():
