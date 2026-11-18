@@ -12,7 +12,7 @@ from app.context_builder import ContextBuilder
 from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import TutorRequest
-from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
+from app.text_tutor_policy import INTRODUCTION_WRITING_STYLE, TEXT_RELATIONSHIP_POLICY
 from app.tutor_tools import MODELS as LEGACY_MODELS, resolve_time, zone
 from app.student_learning_state import UpdatePersonalContext, UpdateOnboarding
 
@@ -93,6 +93,8 @@ class FoundationTutor:
             + 'Current event metadata: ' + json.dumps(
                 {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
         )})
+        if context.data.get('textMode') == 'introduction':
+            messages[-1]['content'] += '\n\n' + INTRODUCTION_WRITING_STYLE
         messages.append({'role': 'user', 'content': text})
         changed = None
         schedule_committed = False

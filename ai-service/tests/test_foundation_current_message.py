@@ -112,7 +112,7 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'Current mode: introduction.' in system
     assert 'return without pushing' in system
     assert 'Ask about a deadline or earlier experience only when it helps' in system
-    assert 'at most one question that expects an answer' in system
+    assert 'максимум один вопрос, на который ждёшь ответа' in system
     assert 'at most one useful clarification on that topic' in system
     assert 'AI tutor when asked' in system
     assert 'For exact subscription terms, use get_subscription.' in system
@@ -122,7 +122,7 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'Do not proactively ask about lesson frequency' in system
     assert 'Do not exclude beginners or exam-oriented learners' in system
     assert 'not a proficiency test' in system
-    assert 'no long dash (—)' in system
+    assert 'Не ставь тире любой длины и не заменяй его дефисом с пробелами.' in messages[-2]['content']
     assert 'never propose or assign a CEFR label' in system
     assert 'If proposing a label based on their description' not in system
     assert 'no answer-choice buttons' in system
@@ -198,14 +198,20 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
     from app.kora_personality import PERSONALITY
     data = snapshot('Хочу поговорить о фильме')
     data['textMode'] = 'dialogue'
-    backend = SimpleNamespace(snapshot=AsyncMock(return_value=data))
-    context = await ContextBuilder(backend).build('scope', 'text')
-    prompt = context.instructions('text')
+    source = data['events'][-1]
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=data), command=AsyncMock(side_effect=[
+        {'status': 'running', 'input': source}, {'conversationId': 'conversation', 'reply': 'Ответ'},
+    ]))
+    model = SimpleNamespace(complete=AsyncMock(return_value={'content': '{"reply": "Ответ"}'}))
+    tutor = FoundationTutor(backend, model, ContextBuilder(backend))
+    await tutor.respond(TutorRequest(sessionId='session', requestId='request', text=source['body'],
+                                    receivedAt=1794479220.0), 'scope')
+    prompt = '\n'.join(m['content'] for m in model.complete.call_args.args[0] if m['role'] == 'system')
     assert PERSONALITY in prompt
     assert 'Current mode: ordinary dialogue.' in prompt
     assert 'Curiosity need not serve trial preparation.' in prompt
     assert 'Ask about a deadline or earlier experience only when it helps' not in prompt
-    assert 'use a blank line between bubbles' not in prompt
+    assert 'Как Саша пишет в этом диалоге' not in prompt
 
 
 @pytest.mark.asyncio
