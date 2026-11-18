@@ -116,6 +116,8 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert 'Current mode: introduction.' in system
     assert PERSONALITY in messages[0]['content']
     assert INTRODUCTION_WRITING_STYLE in messages[0]['content']
+    assert 'Короткий уместный отклик допустим.' in messages[-2]['content']
+    assert 'без дежурной похвалы и длинного тире' in messages[-2]['content'].lower()
     assert TEXT_RELATIONSHIP_POLICY not in system
     assert TEXT_CAPABILITIES not in system
     assert 'максимум одно полезное уточнение по этой теме' in system
