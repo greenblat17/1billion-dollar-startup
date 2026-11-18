@@ -756,6 +756,7 @@ class RealtimeTrialSession(TrialJournal):
                         user_event = {'eventId': saved['eventId'], 'revision': saved['sequence'],
                                       'text': text, 'occurredAt': occurred_at}
                         outcome = await self.action.respond(user_event, list(self.action_history))
+                        assessment_unavailable = outcome.get('assessmentUnavailable', False)
                         uncertain_exercise = False
                         if outcome.get('event') is not None:
                             observation = observation_from_action(outcome['event'], user_event, self.action_history)
@@ -763,10 +764,11 @@ class RealtimeTrialSession(TrialJournal):
                             await self.refresh_problem_proposal()
                             uncertain_exercise = (observation.get('method') == 'exercises'
                                                   and observation['quality']['status'] == 'uncertain')
-                        if not uncertain_exercise:
+                        if not uncertain_exercise and not assessment_unavailable:
                             self.action_history.append({**user_event, 'role': 'user', 'purpose': 'answer'})
                         self.action_response = outcome['spokenFeedback']
-                        self.action_reply_purpose = 'hint' if outcome['next'] == 'help' else 'context'
+                        self.action_reply_purpose = (
+                            'hint' if outcome['next'] == 'help' and not assessment_unavailable else 'context')
                         if outcome['next'] == 'switch_action':
                             previous = self.action.handoff
                             self.action = None

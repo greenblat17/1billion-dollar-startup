@@ -194,6 +194,9 @@ class TeachingActionSession:
                     'event': None, 'next': 'continue', 'repeatOf': repeated.attempt_id or repeated.event_id}
         try:
             verdict = await self._evaluate(answer, prior)
+        except APIStatusError:
+            return {'spokenFeedback': 'Не получилось проверить ответ. Можешь повторить его или попросить другое упражнение.',
+                    'event': None, 'next': 'help', 'assessmentUnavailable': True}
         except TeachingActionError:
             return {'spokenFeedback': 'Я не уверен, что верно понял ответ. Повтори, пожалуйста, или попроси другой пример.',
                     'event': None, 'next': 'help'}

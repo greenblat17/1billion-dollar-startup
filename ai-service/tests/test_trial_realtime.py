@@ -561,6 +561,54 @@ def responses(s):
 
 
 @pytest.mark.asyncio
+async def test_regular_assessment_http_400_keeps_call_and_allows_an_unhinted_repeat():
+    s = regular_session()
+    s.practice_started = True
+    model = ExerciseModel()
+    result = await model.complete_json('', '{}')
+    response = httpx.Response(400, request=httpx.Request('POST', 'https://example.test/chat/completions'))
+    model.complete_json = AsyncMock(side_effect=[
+        APIStatusError('provider rejected assessment', response=response, body=None), result,
+    ])
+    action = s.action = TeachingActionSession(exercise_handoff(), model)
+    s.backend.record_learning_observation = AsyncMock(return_value={'created': True})
+    s.backend.learning_problems = AsyncMock(return_value={'items': []})
+    learner = {'type': 'conversation.item.input_audio_transcription.completed',
+               'item_id': 'first-answer', 'transcript': 'I went to work yesterday.'}
+
+    s.want_response = True
+    await s.provider_event(learner)
+    await s.provider_event(learner)
+
+    s.append.assert_awaited_once()
+    assert s.append.await_args.args[:2] == ('user', learner['transcript'])
+    model.complete_json.assert_awaited_once()
+    s.backend.record_learning_observation.assert_not_awaited()
+    assert s.action_events == [] and s.action_history == []
+    assert not s.ended and s.action is action
+    assert all(call.args[2] != 'voice.end' for call in s.backend.command.call_args_list)
+    [reply] = responses(s)
+    fallback = 'Не получилось проверить ответ. Можешь повторить его или попросить другое упражнение.'
+    assert reply['tool_choice'] == 'none' and reply['instructions'].endswith(fallback)
+
+    await regular_audio(s, 'unavailable', fallback)
+    await s.provider_event({'type': 'response.done', 'response': {
+        'status': 'completed', 'output': [{'type': 'message', 'id': 'unavailable', 'status': 'completed'}],
+    }})
+    await s.settle('unavailable', {'complete': True, 'playedMs': 100})
+    assert [turn['purpose'] for turn in s.action_history] == ['context']
+    model.complete_json.assert_awaited_once()
+
+    await s.provider_event({**learner, 'item_id': 'explicit-repeat'})
+    assert model.complete_json.await_count == 2
+    s.backend.record_learning_observation.assert_awaited_once()
+    [observation] = s.action_events
+    assert observation['outcome'] == 'independent_correct'
+    assert observation['route'] == 'stage_progress'
+    assert observation['anchorEventId'] == 'saved-3'
+
+
+@pytest.mark.asyncio
 async def test_regular_conversation_recovers_after_playback_and_stops_at_second_limit():
     s = regular_session()
     s.want_response = True

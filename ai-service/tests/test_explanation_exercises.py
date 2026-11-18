@@ -248,19 +248,23 @@ async def test_rejected_assessment_preserves_exact_fallback_and_logs_safe_metada
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('status', [400, 401, 402, 422, 429, 503])
-async def test_assessment_provider_failure_keeps_status_without_retry(status, caplog):
+async def test_assessment_provider_failure_returns_ungraded_help_and_logs_status_without_retry(status, caplog):
     response = httpx.Response(status, request=httpx.Request('POST', 'https://example.test/chat/completions'))
     error = APIStatusError('PRIVATE_PROVIDER_MESSAGE', response=response, body={'message': 'PRIVATE_PROVIDER_BODY'})
     model = Model()
     model.complete_json = AsyncMock(side_effect=error)
     caplog.set_level('INFO', logger='app.diagnostics')
-    with pytest.raises(APIStatusError) as failure:
-        await TeachingActionSession(handoff(), model).respond(answer(), [])
-    assert failure.value is error
+    outcome = await TeachingActionSession(handoff(), model).respond(answer(), [])
+    assert outcome == {
+        'spokenFeedback': 'Не получилось проверить ответ. Можешь повторить его или попросить другое упражнение.',
+        'event': None, 'next': 'help', 'assessmentUnavailable': True,
+    }
     model.complete_json.assert_awaited_once()
+    assert model.complete_json.await_args.kwargs['retry'] is False
     [record] = caplog.records
     metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
     assert metadata['stage'] == 'provider' and metadata['http_status'] == status
+    assert metadata['reason'] == 'assessment_provider_error'
     assert 'PRIVATE_PROVIDER_' not in caplog.text
 
 
