@@ -112,6 +112,10 @@ async def test_tutor_tool_request_sets_luna_reasoning_mode(base_url, model, expe
     assert request["extra_body"] == expected_extra_body
     assert request["tools"] == tools
     assert request["tool_choice"] == "auto"
+    if model.endswith("gpt-6-luna"):
+        assert "temperature" not in request
+    else:
+        assert request["temperature"] == 0.7
 
 
 def test_generation_time_uses_openrouter_metadata_only_when_valid():
