@@ -93,7 +93,7 @@ if call_session:
     matching = [(at, data) for at, data in runtime if data.get('call_session_id') == call_session]
     relevant = [(at, data) for at, data in matching if data.get('event') in
                 ('trial_realtime_response', 'trial_session', 'trial_session_failed',
-                 'trial_finish_tool', 'trial_failed') or
+                 'trial_finish_tool', 'trial_failed', 'sp14_assessment_rejected') or
                 (data.get('event') == 'backend_command' and data.get('stage') == 'voice.end')]
     def session_event(at, data):
         safe = {key: data.get(key) for key in
@@ -101,6 +101,10 @@ if call_session:
                  'error_type', 'error_code', 'last_input_stage', 'speaking', 'pending_input_count',
                  'received_input_bytes', 'forwarded_input_bytes', 'trailing_silence_ms',
                  'last_input_forwarded_ms_ago') if data.get(key) is not None}
+        if data.get('event') == 'sp14_assessment_rejected':
+            safe.update({key: data[key] for key in ('operation', 'method', 'action_kind', 'source_event_id',
+                        'reason', 'field', 'rule', 'actualType', 'length', 'maxLength', 'missingFields',
+                        'unexpectedCount', 'line', 'column', 'http_status') if key in data})
         return {'at': at, **safe}
     print(json.dumps({'callSessionId': call_session, 'found': bool(matching),
                       'eventCount': len(matching), 'relevantCount': len(relevant),

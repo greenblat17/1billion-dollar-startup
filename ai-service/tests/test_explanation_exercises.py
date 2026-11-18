@@ -1,7 +1,11 @@
 import json
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
+from openai import APIStatusError
 
+from app.diagnostics import diagnostic_context
 from app.explanation_exercises import TeachingActionError, TeachingActionSession
 from app.learning_content_generation import issued_handoff
 
@@ -17,8 +21,7 @@ class Model:
         return json.dumps({'verdict': self.verdict, 'feedback': 'That conveys the past event well.',
                            'rationale': 'The meaning satisfies the past-event criterion.',
                            'previousAnswerWasIncorrect': self.previous_wrong,
-                           **({'switchTarget': self.switch_target} if self.switch_target else {}),
-                           **({'errorEvidence': self.error_evidence} if self.error_evidence is not None else {})})
+                           'switchTarget': self.switch_target, 'errorEvidence': self.error_evidence})
 
 
 def handoff(method='Exercises', kind='sentence_transformation'):
@@ -69,6 +72,32 @@ async def test_each_exercise_family_can_run_by_voice_and_accept_semantic_alterna
     assert result['event']['contentRef'] == {'contentId': 'content-1', 'revision': 3}
     assert model.calls[0][1]['answerGuide']['alternatives'][1] == answer()['text']
     assert model.calls[0][2]['operation'] == 'sp14_teaching_action'
+    assert model.calls[0][2]['retry'] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('method', 'kind'), [('Explanation', 'direct'), ('Exercises', 'sentence_transformation')])
+async def test_assessment_requests_strict_schema_with_required_nullable_branches(method, kind):
+    model = Model()
+    result = await TeachingActionSession(handoff(method, kind), model).respond(answer(), [])
+    assert result['event']['outcome'] == 'independent_correct'
+    prompt, _, kwargs = model.calls[0]
+    assert 'null for errorEvidence' in prompt and 'null for other verdicts' in prompt
+    assert kwargs['retry'] is False
+    response_format = kwargs['response_format']
+    assert response_format['type'] == 'json_schema' and response_format['json_schema']['strict'] is True
+    schema = response_format['json_schema']['schema']
+    properties = schema['properties']
+    assert set(schema['required']) == set(properties) == {
+        'verdict', 'feedback', 'rationale', 'previousAnswerWasIncorrect', 'switchTarget', 'errorEvidence',
+    }
+    assert schema['additionalProperties'] is False
+    assert set(properties['switchTarget']['enum']) == {None, 'unclear', 'different_action', 'free_conversation'}
+    assert properties['previousAnswerWasIncorrect'] == {'type': 'boolean'}
+    evidence, null_type = properties['errorEvidence']['anyOf']
+    assert null_type == {'type': 'null'}
+    assert evidence['additionalProperties'] is False
+    assert set(evidence['required']) == set(evidence['properties']) == {'criterion', 'quote'}
 
 
 @pytest.mark.asyncio
@@ -126,7 +155,7 @@ async def test_switch_destination_is_preserved_without_grading(target, expected)
     ('uncertain', 'unresolved', 'uncertain'),
     ('defective', 'invalid', 'invalid')])
 async def test_errors_and_defects_keep_distinct_outcomes(verdict, expected, quality):
-    evidence = {'criterion': 'Express a completed event in past tense.', 'quote': 'I go'}
+    evidence = {'criterion': 'Express a completed event in past tense.', 'quote': 'I go'} if verdict == 'incorrect' else None
     result = await TeachingActionSession(handoff(), Model(verdict, error_evidence=evidence)).respond(
         answer(text='I go to work yesterday.'), [])
     event = result['event']
@@ -175,13 +204,64 @@ async def test_uncertain_asr_and_repeated_answer_are_not_independent_successes()
 
 
 @pytest.mark.asyncio
-async def test_malformed_assessment_produces_no_evidence_or_false_feedback():
-    class BadModel:
-        async def complete_json(self, *args, **kwargs):
-            return '{not json'
+@pytest.mark.parametrize(('invalid', 'patch', 'stage', 'expected'), [
+    ('{"PRIVATE_TEXT"', {}, 'parse', {'reason': 'invalid_assessment_json', 'line': 1}),
+    ('[]', {}, 'shape', {'field': 'verdict_response', 'rule': 'expected_object'}),
+    ('{"verdict":"correct"}', {}, 'shape', {'field': 'verdict_response', 'rule': 'unexpected_fields',
+      'missingFields': ['errorEvidence', 'feedback', 'previousAnswerWasIncorrect', 'rationale', 'switchTarget']}),
+    (None, {'PRIVATE_FIELD': 'PRIVATE_TEXT'}, 'shape',
+     {'field': 'verdict_response', 'rule': 'unexpected_fields', 'unexpectedCount': 1}),
+    (None, {'feedback': 'PRIVATE_TEXT' * 60}, 'shape',
+     {'field': 'feedback', 'rule': 'too_long', 'maxLength': 500}),
+    (None, {'previousAnswerWasIncorrect': 1}, 'shape',
+     {'field': 'previousAnswerWasIncorrect', 'rule': 'expected_boolean'}),
+    (None, {'switchTarget': []}, 'shape', {'field': 'switchTarget', 'rule': 'invalid_enum'}),
+    (None, {'switchTarget': 'different_action'}, 'shape', {'field': 'switchTarget', 'rule': 'non_switch_target'}),
+    (None, {'errorEvidence': {'criterion': 'PRIVATE_TEXT', 'quote': 'PRIVATE_TEXT'}}, 'shape',
+     {'field': 'errorEvidence', 'rule': 'unexpected_evidence'}),
+    (None, {'verdict': 'incorrect', 'errorEvidence': {'criterion': 'PRIVATE_TEXT', 'quote': []}}, 'shape',
+     {'field': 'errorEvidence.quote', 'rule': 'expected_string'}),
+])
+async def test_rejected_assessment_preserves_exact_fallback_and_logs_safe_metadata(invalid, patch, stage, expected, caplog):
+    model = Model()
+    if invalid is None:
+        valid = json.loads(await model.complete_json('', '{}'))
+        invalid = json.dumps({**valid, **patch})
+    model.complete_json = AsyncMock(return_value=invalid)
+    caplog.set_level('INFO', logger='app.diagnostics')
+    with diagnostic_context(trace_id='assessment-test'):
+        result = await TeachingActionSession(handoff(), model).respond(answer(text='PRIVATE_ANSWER'), [])
+    assert result == {
+        'spokenFeedback': 'Я не уверен, что верно понял ответ. Повтори, пожалуйста, или попроси другой пример.',
+        'event': None, 'next': 'help',
+    }
+    model.complete_json.assert_awaited_once()
+    [record] = caplog.records
+    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+    assert metadata['event'] == 'sp14_assessment_rejected'
+    assert metadata['stage'] == stage and metadata['trace_id'] == 'assessment-test'
+    assert metadata['reason'] == ('invalid_assessment_json' if stage == 'parse' else 'invalid_assessment')
+    assert metadata['source_event_id'] == 'answer-1'
+    assert {key: metadata[key] for key in expected} == expected
+    assert 'PRIVATE_' not in caplog.text
 
-    result = await TeachingActionSession(handoff(), BadModel()).respond(answer(), [])
-    assert result['event'] is None and result['next'] == 'help'
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status', [400, 401, 402, 422, 429, 503])
+async def test_assessment_provider_failure_keeps_status_without_retry(status, caplog):
+    response = httpx.Response(status, request=httpx.Request('POST', 'https://example.test/chat/completions'))
+    error = APIStatusError('PRIVATE_PROVIDER_MESSAGE', response=response, body={'message': 'PRIVATE_PROVIDER_BODY'})
+    model = Model()
+    model.complete_json = AsyncMock(side_effect=error)
+    caplog.set_level('INFO', logger='app.diagnostics')
+    with pytest.raises(APIStatusError) as failure:
+        await TeachingActionSession(handoff(), model).respond(answer(), [])
+    assert failure.value is error
+    model.complete_json.assert_awaited_once()
+    [record] = caplog.records
+    metadata = json.loads(record.getMessage().removeprefix('runtime_event '))
+    assert metadata['stage'] == 'provider' and metadata['http_status'] == status
+    assert 'PRIVATE_PROVIDER_' not in caplog.text
 
 
 @pytest.mark.asyncio
