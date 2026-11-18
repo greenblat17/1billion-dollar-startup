@@ -239,7 +239,8 @@ JWT, metrics, audit и load-test routes не подключены к Speaky root
 `ONBOARDING_REVIEW_MODEL` и fallback не управляют моделью Саши.
 Активный root использует `KORA_MODEL` для обычного чата, selector и learning.
 `STAGE1_MODEL` задаёт модель ответов знакомства. На DEV с OpenRouter по умолчанию используется
-`openai/gpt-6-luna`. Для вызовов инструментов Luna через Chat Completions задаётся `reasoning.effort=none`.
+`openai/gpt-6-luna`. Для Luna через Chat Completions задаётся `reasoning.effort=none`.
+Параметр `temperature` для Luna пропускается, чтобы OpenRouter мог выбрать endpoint для запроса.
 В остальных окружениях без `STAGE1_MODEL` используется `KORA_MODEL`.
 Активный root не требует `GROQ_API_KEY` или Redis. [Текущий контракт](tutor-chat.md).
 
