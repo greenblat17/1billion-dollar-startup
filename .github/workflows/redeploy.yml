@@ -603,8 +603,9 @@ jobs:
             scenario="$RUNNER_TEMP/verified-voice-scenario.json"
           fi
           voice_options=()
-          if [[ "$VOICE_SCENARIO" == regular-action-mute || "$VOICE_SCENARIO" == regular-action-clear-finish ||
-                "$VOICE_SCENARIO" == regular-action-controlled-input ]]; then
+          if [[ "$VOICE_SCENARIO" == regular-action-controlled-input ]]; then
+            voice_options+=(--mute-boundary-every-turn)
+          elif [[ "$VOICE_SCENARIO" == regular-action-mute || "$VOICE_SCENARIO" == regular-action-clear-finish ]]; then
             voice_options+=(--mute-boundary-turn 3)
           fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"

@@ -112,12 +112,17 @@ async def send_turn_pcm(socket, pcm, turn_record, *, resume_input=False, mute_af
     for offset in range(0, len(pcm), 4800):
         await socket.send(pcm[offset:offset + 4800])
         await asyncio.sleep(.1)
-    if mute_after:
-        await socket.send(json.dumps({'type': 'mute', 'value': True}))
-        turn_record['muteBoundarySentAt'] = time.time()
+    if not mute_after:
+        return False
+    if 'userTurnCompleteAt' in turn_record:
+        turn_record['muteBoundarySkipped'] = 'relay_already_committed'
+        return False
+    await socket.send(json.dumps({'type': 'mute', 'value': True}))
+    turn_record['muteBoundarySentAt'] = time.time()
+    return True
 
 
-async def run(args, scenario, report, token, *, mute_boundary_turn=None):
+async def run(args, scenario, report, token, *, mute_boundary_turn=None, mute_boundary_every_turn=False):
     ktor, ai = local_origin(args.ktor), local_origin(args.ai)
     args.output.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(args.output, 0o700)
@@ -175,9 +180,10 @@ async def run(args, scenario, report, token, *, mute_boundary_turn=None):
                 turn_record = report['turns'][index]
                 turn_record['inputMode'] = mode
                 turn_record['inputDurationMs'] = round(len(pcm) / 48)
-                mute_after = index + 1 == mute_boundary_turn
-                await send_turn_pcm(socket, pcm, turn_record, resume_input=input_muted, mute_after=mute_after)
-                input_muted = mute_after
+                mute_after = mute_boundary_every_turn or index + 1 == mute_boundary_turn
+                input_muted = await send_turn_pcm(
+                    socket, pcm, turn_record, resume_input=input_muted, mute_after=mute_after,
+                )
             while next_turn < len(turns) or (scenario.get('expectFinished') and not report.get('finished')):
                 completed_acks = {task for task in ack_tasks if task.done()}
                 ack_tasks.difference_update(completed_acks)
@@ -356,6 +362,9 @@ def write_report(args, report):
     events = (report.get('finalState') or {}).get('state', {}).get('events', [])
     lines = ['# Synthetic voice learner on DEV', '', f"Student: `{report['studentId']}`", f"Lesson: `{report['lessonId']}`", '',
              'Input audio is prepared or synthesized. Playback timing is simulated; no microphone or human listening was tested.', '']
+    if report.get('explicitMuteBoundaryEveryTurn'):
+        lines += ['Runner requests a native mute boundary after each learner WAV unless the relay already reported a commit. '
+                  'Automatic VAD acceptance requires the ordinary scenario.', '']
     if 'explicitMuteBoundaryTurn' in report:
         lines += [f"Runner requested an explicit mute boundary after turn {report['explicitMuteBoundaryTurn']}. "
                   'Automatic VAD acceptance requires the ordinary scenario.', '']
@@ -378,8 +387,11 @@ def main():
     parser.add_argument('--student', required=True, type=uuid.UUID, help='existing agent_test student UUID')
     parser.add_argument('--lesson', required=True, type=uuid.UUID, help='owned executable lesson UUID')
     parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--mute-boundary-turn', type=int, metavar='TURN',
-                        help='Send a mute control after this one-based turn and unmute before the next input')
+    boundaries = parser.add_mutually_exclusive_group()
+    boundaries.add_argument('--mute-boundary-turn', type=int, metavar='TURN',
+                            help='Use native mute to close this one-based turn if the relay has not committed it')
+    boundaries.add_argument('--mute-boundary-every-turn', action='store_true',
+                            help='Use native mute to close each turn if the relay has not committed it')
     args = parser.parse_args()
     token = os.environ.get('AI_INTERNAL_TOKEN')
     if not token:
@@ -393,6 +405,8 @@ def main():
         if not isinstance(turns, list) or (len(turns) != 0 if read_only else not 1 <= len(turns) <= 40) or any(not isinstance(t, dict) or not (t.get('text') or t.get('audio')) for t in turns):
             raise ValueError('Scenario needs 1–40 turns with text or audio, or zero turns when readOnly')
         mute_boundary_turn = args.mute_boundary_turn
+        if args.mute_boundary_every_turn and read_only:
+            raise ValueError('mute-boundary-every-turn needs learner WAV turns')
         if mute_boundary_turn is not None and not 1 <= mute_boundary_turn <= len(turns):
             raise ValueError('mute-boundary-turn must identify a turn in the scenario')
         times = [t.get('atConnectedSeconds', 0) for t in turns]
@@ -412,8 +426,11 @@ def main():
         report['preparedAudio'] = scenario['preparedAudio']
     if mute_boundary_turn is not None:
         report['explicitMuteBoundaryTurn'] = mute_boundary_turn
+    if args.mute_boundary_every_turn:
+        report['explicitMuteBoundaryEveryTurn'] = True
     try:
-        asyncio.run(run(args, scenario, report, token, mute_boundary_turn=mute_boundary_turn))
+        asyncio.run(run(args, scenario, report, token, mute_boundary_turn=mute_boundary_turn,
+                        mute_boundary_every_turn=args.mute_boundary_every_turn))
         report['result'] = 'completed_read_only' if read_only else 'completed_transport'
     except Exception as error:
         report['result'] = 'failed'

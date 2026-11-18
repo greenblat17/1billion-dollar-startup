@@ -125,3 +125,31 @@ class AgentVoiceMuteBoundaryTest(unittest.IsolatedAsyncioTestCase):
             await RUNNER.send_turn_pcm(socket, b'12', turn)
         socket.send.assert_awaited_once_with(b'12')
         self.assertEqual({'sentAt'}, set(turn))
+
+    async def test_boundary_skips_mute_after_auto_vad_commits_during_pcm(self):
+        turn = {}
+
+        async def auto_vad(frame):
+            if isinstance(frame, bytes):
+                turn['userTurnCompleteAt'] = 1.0
+
+        socket = SimpleNamespace(send=AsyncMock(side_effect=auto_vad))
+        with patch.object(RUNNER.asyncio, 'sleep', new=AsyncMock()):
+            muted = await RUNNER.send_turn_pcm(socket, b'12', turn, mute_after=True)
+        socket.send.assert_awaited_once_with(b'12')
+        self.assertFalse(muted)
+        self.assertEqual('relay_already_committed', turn['muteBoundarySkipped'])
+        self.assertNotIn('muteBoundarySentAt', turn)
+
+    async def test_native_boundary_across_successive_turns(self):
+        socket = SimpleNamespace(send=AsyncMock())
+        records = [{}, {}, {}]
+        muted = False
+        with patch.object(RUNNER.asyncio, 'sleep', new=AsyncMock()):
+            for pcm, record in zip((b'12', b'34', b'56'), records):
+                muted = await RUNNER.send_turn_pcm(socket, pcm, record, resume_input=muted, mute_after=True)
+        frames = [item.args[0] for item in socket.send.await_args_list]
+        mute, unmute = {'type': 'mute', 'value': True}, {'type': 'mute', 'value': False}
+        self.assertEqual([b'12', mute, unmute, b'34', mute, unmute, b'56', mute],
+                         [json.loads(frame) if isinstance(frame, str) else frame for frame in frames])
+        self.assertTrue(all('muteBoundarySentAt' in record for record in records))
