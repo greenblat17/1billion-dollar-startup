@@ -1,4 +1,5 @@
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -85,11 +86,54 @@ async def test_one_error_is_hypothesis_two_independent_errors_are_confirmed():
 
 
 @pytest.mark.asyncio
-async def test_unsupported_model_level_is_rejected():
+async def test_unsupported_model_level_becomes_unknown_with_diagnostic(caplog):
     b = backend([observation('g1', 'grammar'), observation('g2', 'grammar')])
     model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({'levels': [
         level('overall'), level('speaking'), level('grammar', 'B1', ['g1']), level('vocabulary')]})))
-    with pytest.raises(ValueError, match='unsupported_skill_level'):
+    with caplog.at_level(logging.INFO):
+        result = await TrialAssessment(b, model).assess('scope', 'lesson', {'transcriptRevision': 7, 'catalogVersion': 'v1'})
+    assert result['levels']['grammar']['level'] == 'Unknown'
+    assert result['topics'][0]['status'] == 'Known'
+    diagnostic = next(json.loads(record.message.split('runtime_event ', 1)[1]) for record in caplog.records
+                      if 'trial_assessment_level_downgraded' in record.message)
+    assert (diagnostic['skill'], diagnostic['eligible_attempts'], diagnostic['cited_attempts']) == ('grammar', 2, 1)
+
+
+@pytest.mark.asyncio
+async def test_one_unsupported_skill_preserves_supported_skill_and_downgrades_overall():
+    b = backend([observation('s1', 'speaking', topic=None), observation('s2', 'speaking', topic=None),
+                 observation('g1', 'grammar', 'uncorrected_error')])
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({'levels': [
+        level('overall', 'A2', ['s1', 's2', 'g1']), level('speaking', 'A2', ['s1', 's2']),
+        level('grammar', 'B1', ['g1']), level('vocabulary')]})))
+    result = await TrialAssessment(b, model).assess('scope', 'lesson', {'transcriptRevision': 7, 'catalogVersion': 'v1'})
+    assert result['levels']['speaking']['level'] == 'A2'
+    assert result['levels']['grammar']['level'] == 'Unknown'
+    assert result['levels']['overall']['level'] == 'Unknown'
+    assert result['topics'][0]['status'] == 'Presumed Not Known'
+
+
+@pytest.mark.asyncio
+async def test_conflicting_skill_proposal_becomes_unknown_without_losing_other_skill():
+    b = backend([observation('s1', 'speaking', topic=None), observation('s2', 'speaking', topic=None),
+                 observation('g1', 'grammar', 'independent_correct'),
+                 observation('g2', 'grammar', 'uncorrected_error')])
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({'levels': [
+        level('overall', 'A2', ['s1', 's2', 'g1', 'g2']), level('speaking', 'A2', ['s1', 's2']),
+        level('grammar', 'B1', ['g1', 'g2']), level('vocabulary')]})))
+    result = await TrialAssessment(b, model).assess('scope', 'lesson', {'transcriptRevision': 7, 'catalogVersion': 'v1'})
+    assert result['levels']['speaking']['level'] == 'A2'
+    assert result['levels']['grammar']['level'] == 'Unknown'
+    assert result['levels']['overall']['level'] == 'Unknown'
+    assert result['topics'][0]['status'] == 'Unknown'
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_reference_still_rejects_assessment():
+    b = backend([observation('g1', 'grammar'), observation('g2', 'grammar')])
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps({'levels': [
+        level('overall'), level('speaking'), level('grammar', 'B1', ['invented']), level('vocabulary')]})))
+    with pytest.raises(ValueError, match='invalid_assessment_source'):
         await TrialAssessment(b, model).assess('scope', 'lesson', {'transcriptRevision': 7, 'catalogVersion': 'v1'})
 
 

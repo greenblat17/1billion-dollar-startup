@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field
 
+from app.diagnostics import event
 from app.learning_results import LearningResult
 
 
@@ -116,9 +117,12 @@ class TrialAssessment:
             return any('independent_correct' in outcomes and 'uncorrected_error' in outcomes
                        for outcomes in by_topic.values())
 
-        eligible = {skill for skill, evidence in by_skill.items()
-                    if len({row['document']['attemptId'] for row in evidence}) >= 2 and
-                    not contradictory(evidence)}
+        attempt_counts = {skill: len({row['document']['attemptId'] for row in evidence})
+                          for skill, evidence in by_skill.items()}
+        conflicted = {skill for skill in ASSESSED if contradictory([
+            row for row in current if row['evidenceUsable'] is True and row['document']['skillId'] == skill])}
+        eligible = {skill for skill, count in attempt_counts.items()
+                    if count >= 2 and skill not in conflicted}
         levels = {skill: {'level': 'Unknown', 'explanation': 'Trial evidence is insufficient.',
                           'observationRefs': []} for skill in ('overall', *SKILLS)}
         if eligible:
@@ -148,20 +152,30 @@ class TrialAssessment:
                 evidence = [usable.get(id) for id in item.observationIds]
                 if len(set(item.observationIds)) != len(item.observationIds) or any(row is None for row in evidence):
                     raise ValueError('invalid_assessment_source')
-                if item.skillId == 'overall':
-                    if item.level != 'Unknown' and len(eligible) < 2:
-                        raise ValueError('unsupported_overall_level')
-                elif any(row['document']['skillId'] != item.skillId for row in evidence):
+                if item.skillId != 'overall' and any(row['document']['skillId'] != item.skillId for row in evidence):
                     raise ValueError('invalid_assessment_source')
-                elif item.level != 'Unknown' and (item.skillId not in eligible or
-                        len({row['document']['attemptId'] for row in evidence}) < 2):
-                    raise ValueError('unsupported_skill_level')
-                levels[item.skillId] = {'level': item.level, 'explanation': item.explanation,
+                cited_attempts = len({row['document']['attemptId'] for row in evidence})
+                unsupported_skill = (item.skillId != 'overall' and item.level != 'Unknown' and
+                                     (item.skillId not in eligible or cited_attempts < 2))
+                if unsupported_skill:
+                    event('trial_assessment_level_downgraded', skill=item.skillId,
+                          eligible_attempts=attempt_counts.get(item.skillId, 0),
+                          cited_attempts=cited_attempts,
+                          reason='contradictory_evidence' if item.skillId in conflicted else 'insufficient_evidence')
+                levels[item.skillId] = {'level': 'Unknown' if unsupported_skill else item.level,
+                                        'explanation': ('Trial evidence is insufficient for a system level.'
+                                                        if unsupported_skill else item.explanation),
                                         'observationRefs': [_ref(row) for row in evidence]}
             if (levels['overall']['level'] != 'Unknown' and
                     (sum(levels[skill]['level'] != 'Unknown' for skill in ASSESSED) < 2 or
-                     levels['overall']['level'] not in {levels[skill]['level'] for skill in ASSESSED})):
-                raise ValueError('unsupported_overall_level')
+                     levels['overall']['level'] not in {levels[skill]['level'] for skill in ASSESSED} or
+                     not levels['overall']['observationRefs'])):
+                event('trial_assessment_level_downgraded', skill='overall',
+                      eligible_skills=sum(levels[skill]['level'] != 'Unknown' for skill in ASSESSED),
+                      reason='insufficient_supported_skills')
+                levels['overall'] = {'level': 'Unknown',
+                                     'explanation': 'Trial evidence is insufficient for an overall system level.',
+                                     'observationRefs': []}
         topics = _topic_results(current, catalog)
         assessed_ids = {item['topicId'] for item in topics}
         for previous in previous_topics:
