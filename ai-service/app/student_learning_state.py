@@ -1,12 +1,12 @@
 """Personal-memory boundary and restricted onboarding tool contract for the foundation runtime."""
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from app.tutor_tools import Strict, UpdateContext
 
 LEARNING_KEYS = frozenset({
-    'goal', 'goals', 'desired_result', 'level', 'self_assessment', 'current_level', 'target_level',
+    'goal', 'goals', 'personal_goal', 'desired_result', 'level', 'self_assessment', 'current_level', 'target_level',
     'current_levels', 'target_cefr', 'current_cefr', 'deadline', 'intensity', 'homework',
     'homework_preferences', 'topic_knowledge', 'lessons_per_week', 'lesson_duration_minutes',
 })
@@ -71,11 +71,45 @@ def learning_context(snapshot: dict, budget: int) -> tuple[dict | None, dict | N
     return state, topics
 
 
+GoalId = Literal['G01', 'G02', 'G03', 'G04', 'G05', 'G06', 'G07', 'G08']
+GOAL_MAP = {
+    'G01': 'Everyday Communication',
+    'G02': 'Travel',
+    'G03': 'Career',
+    'G04': 'Education',
+    'G05': 'Relocation',
+    'G06': 'Exams & Certifications',
+    'G07': 'Content & Entertainment',
+    'G08': 'Personal Development',
+}
+
+
+class GoalSelection(Strict):
+    goals: list[GoalId] = Field(min_length=1, max_length=8)
+    mode: Literal['replace', 'extend']
+
+    @field_validator('goals')
+    @classmethod
+    def unique_goals(cls, goals: list[GoalId]) -> list[GoalId]:
+        if len(goals) != len(set(goals)):
+            raise ValueError('duplicate_goal_id')
+        return goals
+
+
 class OnboardingChange(Strict):
     field: Literal['goal', 'selfAssessment', 'targetLevel', 'deadline']
-    value: str | None = Field(max_length=2000)
+    value: GoalSelection | Annotated[str, Field(max_length=2000)] | None
     explanation: str | None = Field(max_length=2000)
     evidence: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode='after')
+    def goal_selection_matches_field(self):
+        if self.value is not None:
+            if self.field == 'goal' and not isinstance(self.value, GoalSelection):
+                raise ValueError('goal_selection_required')
+            if self.field != 'goal' and not isinstance(self.value, str):
+                raise ValueError('invalid_onboarding_value')
+        return self
 
 
 class UpdateOnboarding(Strict):
@@ -87,6 +121,12 @@ ONBOARDING_TOOL = {'type': 'function', 'function': {
     'name': 'update_onboarding',
     'description': 'Save explicit learner goal, overall self-assessment, target CEFR or deadline. '
         'Call before replying when the CURRENT message supplies or corrects one of these fields. '
+        'For goal, a short answer to the preceding question can supply the goal. '
+        'Select all applicable IDs from Goal Map v1: ' + ', '.join(f'{key} {name}' for key, name in GOAL_MAP.items()) + '. '
+        'Use a goal value with goals and mode. Use replace for a first goal or explicit replacement. '
+        'Use extend when the learner adds detail or another goal to the stored Personal Goal. '
+        'For goal evidence copy the full goal wording verbatim, including all relevant details. '
+        'The service stores that exact evidence as Personal Goal. '
         'Skip this tool for a report of a difficulty alone; use update_learner_context for that. '
         'Never backfill goal or levels from earlier turns with this call. '
         'Use learningState.revision, or 0 for a new profile. Levels are A1/A2/B1/B2/C1/Unknown; '

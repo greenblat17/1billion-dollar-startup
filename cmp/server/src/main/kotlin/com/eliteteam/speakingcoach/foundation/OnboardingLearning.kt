@@ -26,7 +26,12 @@ internal class OnboardingLearning {
             val value = change["value"] ?: reject("missing_onboarding_value")
             val explanation = StudentLearningModel.stringOrNull(change["explanation"], 2000)
             when (field) {
-                "goal" -> goal = json("goal" to value)
+                "goal" -> {
+                    val selection = value as? JsonObject
+                    selection?.only("goals", "mode")
+                    goal = json("goal" to if (selection == null) value
+                        else JsonObject(selection + json("personal_goal" to evidence)))
+                }
                 "targetLevel", "deadline" -> patch = JsonObject(patch + json(field to value))
                 "selfAssessment" -> patch = JsonObject(patch + json("currentLevels" to json(
                     "selfAssessment" to json("overall" to json("level" to value, "explanation" to explanation)))))

@@ -9,7 +9,8 @@ from app.diagnostics import event as diagnostic_event
 
 TOOLS = frozenset({
     'get_trial_booking', 'create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking',
-    'update_learner_context', 'save_preliminary_schedule', 'get_preliminary_schedules', 'cancel_preliminary_schedule',
+    'update_learner_context', 'update_onboarding', 'save_preliminary_schedule', 'get_preliminary_schedules',
+    'cancel_preliminary_schedule',
 })
 CODES = frozenset({
     'unknown_tool', 'invalid_evidence', 'booking_not_owned_or_not_active', 'invalid_timezone',

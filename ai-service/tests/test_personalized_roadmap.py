@@ -61,6 +61,22 @@ def test_work_meeting_goal_from_trial_focuses_eligible_topics():
     assert 'speaking-a2-work-basics' not in {row['topicId'] for row in sequence}
 
 
+def test_goal_map_and_verbatim_personal_goal_focus_different_topics():
+    quote = 'Для поездок и чтобы разговаривать про астрономию'
+    student = state(goal=quote)
+    student['goal']['content'].update(personal_goal=quote, goals=['G02', 'G01'])
+    catalog = {**CATALOG, 'topics': CATALOG['topics'] + [
+        {'id': 'speaking-a2-astronomy', 'skillId': 'speaking', 'cefr': 'A2', 'title': 'Обсуждать астрономию'},
+    ]}
+
+    result = build_roadmap(student, catalog, [], [])
+
+    assert result['goal'] == quote
+    focus = {entry['topicId']: entry['order'] for entry in result['sequence'] if entry['goalFocus']}
+    assert {'vocabulary-a2-travel', 'speaking-a2-social', 'speaking-a2-astronomy'} <= focus.keys()
+    assert focus['speaking-a2-astronomy'] < focus['speaking-a2-social']
+
+
 def test_known_is_excluded_unknown_remains_hypothesis_and_reopened_survives():
     known = 'speaking-a2-work-basics'
     unknown = 'speaking-a2-social'

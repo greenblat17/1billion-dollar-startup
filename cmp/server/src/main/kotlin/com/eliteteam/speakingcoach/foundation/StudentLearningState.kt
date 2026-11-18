@@ -38,15 +38,15 @@ internal class StudentLearningState {
         val sources = StudentLearningSources.validate(c, scope.studentId, args["sources"], now)
         if (sources.isEmpty() && !(allowUnknownSystemReset && isUnknownSystemReset(patch))) reject("learning_source_required")
         val metadata = json("component" to component, "recordedAt" to now.toString(), "sources" to sources)
+        val goal = if (args.containsKey("goal"))
+            learningGoalContent(args["goal"], (current["goal"] as? JsonObject)?.obj("content"), sources) else null
         // Persist raw refs only, not the dynamic availability projection returned by read().
         val oldProvenance = c.document("SELECT provenance FROM student_learning_state WHERE student_id=?", scope.studentId) ?: json()
         val provenance = JsonObject(oldProvenance + changedPaths(patch).associateWith { metadata } +
-            if (args.containsKey("goal")) mapOf("goal" to metadata) else emptyMap())
-        if (args.containsKey("goal")) {
-            val goal = StudentLearningModel.stringOrNull(args["goal"], 2000)
-            if (goal != null && goal.isBlank()) reject("invalid_goal")
+            if (goal != null) mapOf("goal" to JsonObject(metadata + ("sources" to goal.getValue("sources")))) else emptyMap())
+        if (goal != null) {
             c.update("INSERT INTO learning_goal(student_id,revision,content,source_event_id,created_at) VALUES (?,?,?::jsonb,?,?)",
-                scope.studentId, c.goalRevision(scope.studentId) + 1, json("value" to goal, "sources" to sources),
+                scope.studentId, c.goalRevision(scope.studentId) + 1, goal,
                 sources.firstOrNull()?.let { StudentLearningModel.objectValue(it).text("sourceEventId") }, now)
         }
         c.update("""INSERT INTO student_learning_state(student_id,revision,profile,provenance,updated_at) VALUES (?,?,?::jsonb,?::jsonb,?)

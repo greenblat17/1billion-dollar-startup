@@ -19,6 +19,18 @@ PROBLEMS = {
 }
 WORK_MARKERS = frozenset(('work', 'job', 'career', 'professional', 'interview', 'office',
                           'работ', 'рабоч', 'карьер', 'собесед', 'професс'))
+GOAL_TOPICS = {
+    'G01': {'introductions', 'social', 'short-exchange', 'everyday', 'unprepared', 'interaction', 'relationships'},
+    'G02': {'travel', 'transactions', 'announcements', 'numbers', 'repair'},
+    'G03': {'work-basics', 'work', 'work-communication', 'interview', 'professional', 'meetings', 'negotiation', 'specialised'},
+    'G04': {'work', 'lecture', 'instructions', 'explanation', 'presentation', 'synthesis', 'specialised'},
+    'G05': {'needs', 'home', 'travel', 'shopping', 'health', 'society', 'everyday', 'transactions'},
+    'G06': {'argument', 'narrative', 'precision', 'presentation', 'lecture', 'inference', 'synthesis'},
+    'G07': {'media', 'stories', 'narrative', 'implicit', 'complex-audio', 'connected-speech', 'idioms'},
+    'G08': {'preferences', 'experiences', 'opinions', 'problem-solving', 'abstract', 'sustained-discussion'},
+}
+GENERIC_GOAL_WORDS = frozenset(('хочу', 'нужно', 'уметь', 'английский', 'английском', 'говорить', 'общаться',
+                                'свободно', 'learn', 'want', 'speak', 'english', 'better', 'with', 'about'))
 
 
 @dataclass(frozen=True)
@@ -32,6 +44,7 @@ class Candidate:
     reason: str
     order_reason: str
     goal_focus: bool
+    personal_focus: bool
     existing_task: dict | None = None
 
 
@@ -40,13 +53,14 @@ def _level(assessment: dict | None) -> str:
     return value if value in LEVELS else 'Unknown'
 
 
-def _goal_focus(goal: str, topic: dict) -> bool:
-    words = set(re.findall(r'[\w-]+', goal.lower()))
-    work = any(any(word.startswith(marker) for marker in WORK_MARKERS) for word in words)
-    if not work or topic['skillId'] not in {'speaking', 'listening', 'vocabulary'}:
+def _personal_focus(words: set[str], details: set[str], topic: dict) -> bool:
+    if topic['skillId'] not in {'speaking', 'listening', 'vocabulary'}:
         return False
     text = ' '.join(str(topic.get(key, '')).lower() for key in ('id', 'title', 'objective', 'scope', 'coverageArea'))
-    return any(marker in text for marker in ('work', 'professional', 'interview', 'negotiat', 'business'))
+    work = any(any(word.startswith(marker) for marker in WORK_MARKERS) for word in words)
+    if work and any(marker in text for marker in ('work', 'professional', 'interview', 'negotiat', 'business')):
+        return True
+    return bool(details.intersection(re.findall(r'[^\W\d_]+', text)))
 
 
 def build_roadmap(state: dict, catalog: dict, knowledge: list[dict], tasks: list[dict]) -> dict:
@@ -57,9 +71,14 @@ def build_roadmap(state: dict, catalog: dict, knowledge: list[dict], tasks: list
     if target not in LEVELS:
         raise ValueError('target_level_required')
     goal_row = state.get('goal') or {}
-    goal = (goal_row.get('content') or {}).get('value')
+    goal_content = goal_row.get('content') or {}
+    goal = goal_content.get('personal_goal', goal_content.get('value'))
     if not isinstance(goal, str) or not goal.strip() or not isinstance(goal_row.get('revision'), int):
         raise ValueError('goal_required')
+    goal_topics = set().union(*(GOAL_TOPICS.get(goal_id, ()) for goal_id in goal_content.get('goals', ())))
+    goal_words = set(re.findall(r'[^\W\d_]+', goal.lower()))
+    goal_details = ({word for word in goal_words if len(word) >= 4} - GENERIC_GOAL_WORDS
+                    if 'personal_goal' in goal_content else set())
     target_index = LEVELS.index(target)
     current = state['profile']['currentLevels']
     system = current['speaky']['skills']
@@ -102,13 +121,14 @@ def build_roadmap(state: dict, catalog: dict, knowledge: list[dict], tasks: list
         if system_level == 'Unknown':
             reason += (' Skill starting level uses self-report provisionally.' if reported_level != 'Unknown'
                        else ' Skill starting level is unknown; coverage begins at A1 provisionally.')
-        focus = _goal_focus(goal, topic)
+        personal_focus = _personal_focus(goal_words, goal_details, topic)
+        focus = personal_focus or topic['id'].split('-', 2)[-1] in goal_topics
         order_reason = ('Earlier level and recorded gap first; ' if band < anchor_index else
                         'Progress from the current skill level; ')
         order_reason += ('goal-related context is brought forward within this level.' if focus else
                          'catalog level supplies a broad sequence, not a fixed prerequisite.')
         selected.append(Candidate(topic['id'], skill, topic['cefr'], problem, status,
-                                  provisional, reason, order_reason, focus, active))
+                                  provisional, reason, order_reason, focus, personal_focus, active))
     # Keep each skill independent. Within a level, bring the learner's weakest measured skill forward.
     def key(item: Candidate):
         measured = _level(system.get(item.skill_id))
@@ -116,7 +136,7 @@ def build_roadmap(state: dict, catalog: dict, knowledge: list[dict], tasks: list
         anchor = measured if measured != 'Unknown' else reported
         start = LEVELS.index(anchor) if anchor != 'Unknown' else 0
         return (LEVELS.index(item.cefr), start, 0 if item.knowledge == 'Not Known' else 1,
-                0 if item.goal_focus else 1, SKILLS.index(item.skill_id), item.topic_id)
+                0 if item.personal_focus else 1 if item.goal_focus else 2, SKILLS.index(item.skill_id), item.topic_id)
     selected.sort(key=key)
     entries = [dict(topicId=item.topic_id, skillId=item.skill_id, cefr=item.cefr,
                     problemId=item.problem_id, knowledge=item.knowledge,

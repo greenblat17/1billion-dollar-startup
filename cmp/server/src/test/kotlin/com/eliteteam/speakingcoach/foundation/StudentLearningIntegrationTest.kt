@@ -92,6 +92,30 @@ class StudentLearningIntegrationTest {
     }
 
     @Test
+    fun onboardingStoresGoalIdsAndExactLearnerQuoteInOneRevision() = runTest {
+        store { service, _ ->
+            val student = service.identity.resolve("telegram", "93503")
+            val quote = "Хочу переехать в США, устроиться там Go-разработчиком и свободно общаться с людьми."
+            val input = service.history.accept(student, "goal", quote, Instant.now(), false)
+            val scope = service.identity.issue(student, "text", "goal")
+            service.op(scope, "run.claim", json())
+            val ids = JsonArray(listOf("G05", "G03", "G01").map { kotlinx.serialization.json.JsonPrimitive(it) })
+            val args = json("sourceId" to input.text("event_id"), "expectedRevision" to 0,
+                "changes" to JsonArray(listOf(json("field" to "goal", "evidence" to quote, "explanation" to null,
+                    "value" to json("goals" to ids, "mode" to "replace")))))
+
+            val saved = service.op(scope, "onboarding.update", args, "save-goal")
+            assertEquals(saved, service.op(scope, "onboarding.update", args, "save-goal"))
+            val goal = saved.obj("goal")
+            assertEquals(1L, goal.number("revision"))
+            assertEquals(input.text("event_id"), goal.text("source_event_id"))
+            assertEquals(ids, goal.obj("content")["goals"])
+            assertEquals(quote, goal.obj("content").text("personal_goal"))
+            assertEquals(goal, service.snapshot(scope, "text").obj("learningState").obj("goal"))
+        }
+    }
+
+    @Test
     fun profileSurvivesRestartAndMemoryIsPersonalOnly() = runTest {
         store { service, url ->
             val student = service.identity.resolve("telegram", "93001")

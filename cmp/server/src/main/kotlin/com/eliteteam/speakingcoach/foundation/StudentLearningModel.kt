@@ -14,7 +14,7 @@ internal object StudentLearningModel {
     val levels = setOf("A1", "A2", "B1", "B2", "C1", "Unknown")
     val topicStates = setOf("Known", "Not Known", "Presumed Not Known", "Unknown")
     val fields = setOf("currentLevels", "targetLevel", "deadline", "intensity", "homework")
-    val memoryKeys = setOf("goal", "goals", "desired_result", "level", "self_assessment", "current_level", "target_level",
+    val memoryKeys = setOf("goal", "goals", "personal_goal", "desired_result", "level", "self_assessment", "current_level", "target_level",
         "current_levels", "target_cefr", "current_cefr", "deadline", "intensity", "homework", "homework_preferences",
         "topic_knowledge", "lessons_per_week", "lesson_duration_minutes")
 

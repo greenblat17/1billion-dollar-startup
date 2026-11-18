@@ -113,10 +113,11 @@ async def test_onboarding_rejects_forbidden_fields_and_unbacked_evidence(field, 
 async def test_onboarding_saves_exact_goal_and_self_report_when_another_field_has_no_source():
     backend = SimpleNamespace(command=AsyncMock(return_value={'revision': 1}))
     tutor = FoundationTutor(backend, None, None)
-    goal = 'Хочу свободно говорить и понимать на слух'
-    source = {'id': 'current', 'body': f'{goal}. Думаю, я B1'}
+    goal = 'Хочу переехать в США, устроиться там Go-разработчиком и свободно общаться с людьми.'
+    source = {'id': 'current', 'body': f'{goal} Думаю, я B1'}
     changes = [
-        {'field': 'goal', 'value': goal, 'explanation': None, 'evidence': goal},
+        {'field': 'goal', 'value': {'goals': ['G05', 'G03', 'G01'], 'mode': 'replace'},
+         'explanation': None, 'evidence': goal},
         {'field': 'selfAssessment', 'value': 'B1', 'explanation': 'Думаю, я B1', 'evidence': 'Думаю, я B1'},
         {'field': 'deadline', 'value': '2026-12-31', 'explanation': None, 'evidence': 'к концу декабря'},
     ]
