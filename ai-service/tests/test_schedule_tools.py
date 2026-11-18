@@ -65,7 +65,7 @@ async def test_recovered_regular_receipt_confirms_saved_schedule_without_replayi
         {'conversationId': 'chat', 'reply': 'Изменения расписания сохранены.', 'degraded': True},
     ])
     model = SimpleNamespace(complete=AsyncMock())
-    context = SimpleNamespace(instructions=lambda _: '', history=[])
+    context = SimpleNamespace(data={'textMode': 'dialogue'}, instructions=lambda _: '', history=[])
     agent = FoundationTutor(SimpleNamespace(command=command), model, SimpleNamespace(build=AsyncMock(return_value=context)))
     await agent.respond(TutorRequest(sessionId='s', requestId='r', text='да', receivedAt=1794479220), 'scope')
     model.complete.assert_not_called()
@@ -130,7 +130,7 @@ async def test_scripted_direct_move_finishes_in_original_turn_with_current_polic
             timing='now', startsAt=None, delayMinutes=None, timezone='Europe/Moscow')),
         {'content': '{"reply":"Перенёс на сейчас."}'},
     ]))
-    context = SimpleNamespace(instructions=lambda _: '', history=[])
+    context = SimpleNamespace(data={'textMode': 'dialogue'}, instructions=lambda _: '', history=[])
     agent = FoundationTutor(SimpleNamespace(command=command), model, SimpleNamespace(build=AsyncMock(return_value=context)))
     result = await agent.respond(TutorRequest(sessionId='s', requestId='r', text=text, receivedAt=1794498300), 'scope')
     assert result['reply'] == 'Перенёс на сейчас.'
