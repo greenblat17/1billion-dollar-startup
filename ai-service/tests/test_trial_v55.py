@@ -63,6 +63,34 @@ async def test_phase_call_at_two_seconds_waits_for_saved_first_learner_reply():
 
 
 @pytest.mark.asyncio
+async def test_trial_wrapup_waits_for_saved_preference_source_before_requesting_reply():
+    s = v55_session()
+    s.trial_state = {'phase': 'wrapup', 'connectedSeconds': 1640}
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
+    assert s.socket.send_json.await_args.args[0] == {'type': 'user_turn_complete'}
+    assert not sent(s)
+    s.backend.command.assert_not_awaited()
+
+    async def save_turn(scope, operation, action, args):
+        assert action == 'voice.append'
+        assert args['body'] == 'I do not want homework.'
+        assert not sent(s)
+        return {'eventId': 'saved-refusal'}
+
+    s.backend.command.side_effect = save_turn
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner', 'transcript': 'I do not want homework.'})
+
+    source_event, reply = sent(s)
+    assert source_event['type'] == 'conversation.item.create'
+    source_text = source_event['item']['content'][0]['text']
+    assert json.loads(source_text.split(': ', 1)[1]) == {
+        'id': 'saved-refusal', 'body': 'I do not want homework.',
+    }
+    assert reply == {'type': 'response.create', 'response': {}}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('phase,seconds,explain_roadmap', [
     ('wrapup', 1844, True),
     ('conversation', 1800, True),
@@ -205,6 +233,10 @@ async def test_trial_barge_in_supersedes_queued_goodbye_recovery():
     await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
     assert sent(s)[-1]['type'] == 'conversation.item.truncate'
     await s.provider_event({'type': 'conversation.item.truncated', 'item_id': 'cut-goodbye'})
+    assert sent(s)[-1]['type'] == 'conversation.item.truncate'
+    s.backend.command.return_value = {'eventId': 'saved-learner-turn'}
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner', 'transcript': 'I have one more question.'})
     assert sent(s)[-1] == {'type': 'response.create', 'response': {}}
     assert not s.finish_next and not s.ended
 
@@ -223,6 +255,10 @@ async def test_trial_learner_commit_wins_over_an_inflight_goodbye_recovery():
     await played_trial_output(s, 'recovery', 'До встречи!', finish=s.finish_next)
     await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
     await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
+    assert len([event for event in sent(s) if event['type'] == 'response.create']) == 1
+    s.backend.command.return_value = {'eventId': 'saved-learner-turn'}
+    await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                            'item_id': 'learner', 'transcript': 'I have one more question.'})
     assert sent(s)[-1] == {'type': 'response.create', 'response': {}}
     assert not s.ended
     assert not any(call.args[2] == 'voice.end' for call in s.backend.command.await_args_list)

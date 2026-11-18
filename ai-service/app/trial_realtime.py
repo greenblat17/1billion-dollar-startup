@@ -322,10 +322,12 @@ class RealtimeTrialSession(TrialJournal):
     async def maybe_respond(self, instructions=None, *, allow_tools=True):
         if self.ended or not self.want_response or self.response_active:
             return
-        waiting_for_warmup_reply = (self.v55 and self.trial_state.get('phase') == 'warmup'
-                                    and not self.trial_learner_has_spoken)
-        if self.pending_inputs and (self.action is not None or waiting_for_warmup_reply):
-            return  # The saved transcript must be interpreted before speaking again.
+        trial_phase = self.trial_state.get('phase')
+        needs_trial_transcript = self.v55 and (trial_phase == 'wrapup' or (
+            trial_phase == 'warmup' and not self.trial_learner_has_spoken
+        ))
+        if self.pending_inputs and (self.action is not None or needs_trial_transcript):
+            return  # Wait for saved learner evidence before the response can use it.
         if self.truncations or any(not item['settled'] for item in self.items.values()):
             return  # Truncation and history must settle before the next response.
         regular_recovery = self.regular_recovery_pending
