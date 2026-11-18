@@ -3,6 +3,7 @@
 
 import argparse
 import ctypes
+import io
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -12,6 +13,8 @@ import wave
 
 SAMPLE_RATE = 24000
 ENGINE = 'espeakng_loader_0.2.4_python_ratecv'
+CONTROLLED_SCENARIO = 'voice-regular-action-controlled-input'
+PIPER_ENGINE = 'piper_tts_1.8.0_en_US_lessac_medium_b145f2a'
 
 
 def digest(path):
@@ -60,20 +63,42 @@ def synthesize_turns(turns):
         library.espeak_Terminate()
 
 
-def generate(directory, paths):
+def synthesize_piper_turns(turns, model):
+    from audioop import ratecv
+    from piper import PiperVoice, SynthesisConfig
+
+    voice = PiperVoice.load(str(model))
+    config = SynthesisConfig(length_scale=1.1)
+    for turn in turns:
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as output:
+            voice.synthesize_wav(turn['text'], output, syn_config=config)
+        buffer.seek(0)
+        with wave.open(buffer, 'rb') as audio:
+            if (audio.getnchannels(), audio.getsampwidth(), audio.getcomptype()) != (1, 2, 'NONE'):
+                raise ValueError('Piper returned an unsupported WAV format')
+            yield ratecv(audio.readframes(audio.getnframes()), 2, 1, audio.getframerate(), SAMPLE_RATE, None)[0]
+
+
+def generate(directory, paths, piper_model=None):
     directory.mkdir(parents=True, exist_ok=True)
     for scenario in paths:
         turns = json.loads(scenario.read_text())['turns']
         inputs = directory / scenario.stem
         inputs.mkdir(exist_ok=True)
+        controlled = scenario.stem == CONTROLLED_SCENARIO
+        if controlled != (piper_model is not None):
+            raise ValueError('Controlled input requires the pinned Piper model')
+        audio_turns = synthesize_piper_turns(turns, piper_model) if controlled else synthesize_turns(turns)
         hashes = []
-        for index, pcm in enumerate(synthesize_turns(turns), 1):
+        for index, pcm in enumerate(audio_turns, 1):
             wav = inputs / f'turn-{index:02}.wav'
             with wave.open(str(wav), 'wb') as output:
                 output.setparams((1, 2, SAMPLE_RATE, 0, 'NONE', 'not compressed'))
                 output.writeframes(pcm)
             hashes.append(digest(wav))
-        manifest = {'scenarioSha256': digest(scenario), 'engine': ENGINE, 'wavSha256': hashes}
+        manifest = {'scenarioSha256': digest(scenario), 'engine': PIPER_ENGINE if controlled else ENGINE,
+                    'wavSha256': hashes}
         (inputs / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
         verify(directory, scenario)
 
@@ -83,7 +108,8 @@ def verify(directory, scenario):
     inputs = (directory / scenario.stem).resolve()
     manifest = json.loads((inputs / 'manifest.json').read_text())
     turns, hashes = document['turns'], manifest['wavSha256']
-    if manifest['scenarioSha256'] != digest(scenario) or manifest['engine'] != ENGINE or len(hashes) != len(turns):
+    engine = PIPER_ENGINE if scenario.stem == CONTROLLED_SCENARIO else ENGINE
+    if manifest['scenarioSha256'] != digest(scenario) or manifest['engine'] != engine or len(hashes) != len(turns):
         raise ValueError(f'Audio manifest does not match {scenario.name}')
 
     for index, (turn, expected_hash) in enumerate(zip(turns, hashes), 1):
@@ -97,7 +123,7 @@ def verify(directory, scenario):
                 raise ValueError(f'Invalid PCM duration for {scenario.name} turn {index}')
         turn['audio'] = str(wav)
     document['preparedAudio'] = manifest
-    print(f'Verified {scenario.name}: {len(turns)} WAV, PCM mono 24 kHz, {ENGINE}', file=sys.stderr)
+    print(f'Verified {scenario.name}: {len(turns)} WAV, PCM mono 24 kHz, {engine}', file=sys.stderr)
     return document
 
 
@@ -107,12 +133,13 @@ def main():
     build = commands.add_parser('generate')
     build.add_argument('directory', type=Path)
     build.add_argument('scenarios', type=Path, nargs='+')
+    build.add_argument('--piper-model', type=Path)
     check = commands.add_parser('verify')
     check.add_argument('directory', type=Path)
     check.add_argument('scenario', type=Path)
     options = parser.parse_args()
     if options.command == 'generate':
-        generate(options.directory, options.scenarios)
+        generate(options.directory, options.scenarios, options.piper_model)
     else:
         print(json.dumps(verify(options.directory, options.scenario), ensure_ascii=False))
 

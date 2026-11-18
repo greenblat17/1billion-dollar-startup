@@ -60,7 +60,7 @@ on:
         type: string
         default: ''
       agent_voice_scenario:
-        description: Synthetic voice scenario, read-only state, or dependency smoke
+        description: Synthetic voice scenario, read-only state, or audio preparation
         type: choice
         options:
           - short
@@ -69,8 +69,10 @@ on:
           - regular-action
           - regular-action-mute
           - regular-action-clear-finish
+          - regular-action-controlled-input
           - read-only
           - dependencies-only
+          - controlled-audio-only
         default: short
       agent_voice_audio_run_id:
         description: Optional dependencies-only workflow run containing verified voice WAV
@@ -491,10 +493,16 @@ jobs:
             "$RUNNER_TEMP/catalog-input.json" "$DEV_USER@$DEV_HOST:$work/"
           ssh "${opts[@]}" "$DEV_USER@$DEV_HOST" "python3 '$work/catalog-release-remote.py' '$work'"
 
+  prepare-controlled-audio:
+    if: ${{ inputs.agent_voice && inputs.agent_voice_scenario == 'controlled-audio-only' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/prepare-controlled-voice-audio.yml
+
   agent-voice:
     name: Test synthetic voice lesson on DEV
     needs: require-target
-    if: ${{ inputs.agent_voice }}
+    if: ${{ inputs.agent_voice && inputs.agent_voice_scenario != 'controlled-audio-only' }}
     runs-on: ubuntu-latest
     environment: deploy-dev
     timeout-minutes: 40
@@ -514,6 +522,10 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$VOICE_AUDIO_RUN_ID" ]]; then [[ "$VOICE_AUDIO_RUN_ID" =~ ^[0-9]+$ ]]; fi
+          if [[ "$VOICE_SCENARIO" == regular-action-controlled-input && -z "$VOICE_AUDIO_RUN_ID" ]]; then
+            echo 'Controlled input requires a prepared audio run ID' >&2
+            exit 2
+          fi
           echo 'Voice preflight: pip install'
           if [[ "$VOICE_SCENARIO" != dependencies-only ]]; then
             timeout --kill-after=5s 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
@@ -556,7 +568,7 @@ jobs:
           set -euo pipefail
           case "$VOICE_SCENARIO" in
             regular-action-mute) scenario=infra/dev/scenarios/voice-regular-action.json ;;
-            short|early-exit|phase-probe|regular-action|regular-action-clear-finish) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
+            short|early-exit|phase-probe|regular-action|regular-action-clear-finish|regular-action-controlled-input) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
             *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
           esac
           if [[ -z "$VOICE_AUDIO_RUN_ID" ]]; then
@@ -591,7 +603,8 @@ jobs:
             scenario="$RUNNER_TEMP/verified-voice-scenario.json"
           fi
           voice_options=()
-          if [[ "$VOICE_SCENARIO" == regular-action-mute || "$VOICE_SCENARIO" == regular-action-clear-finish ]]; then
+          if [[ "$VOICE_SCENARIO" == regular-action-mute || "$VOICE_SCENARIO" == regular-action-clear-finish ||
+                "$VOICE_SCENARIO" == regular-action-controlled-input ]]; then
             voice_options+=(--mute-boundary-turn 3)
           fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"

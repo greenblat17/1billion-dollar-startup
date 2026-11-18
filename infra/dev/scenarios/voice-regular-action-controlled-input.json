@@ -1,0 +1,10 @@
+{
+  "turns": [
+    {"text": "Let us practice English for work."},
+    {"atConnectedSeconds": 450, "text": "We started testing on Monday."},
+    {"atConnectedSeconds": 915, "trailingSilenceSeconds": 4, "text": "Can we practice now?"},
+    {"atConnectedSeconds": 990, "text": "We found a bug yesterday. We have fixed it."},
+    {"atConnectedSeconds": 1065, "text": "Stop the lesson now. Goodbye."}
+  ],
+  "expectFinished": true
+}

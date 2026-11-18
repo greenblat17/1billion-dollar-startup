@@ -1,0 +1,43 @@
+name: Prepare controlled regular Voice audio
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and verify offline Piper input
+        shell: bash
+        run: |
+          set -euo pipefail
+          voice_dir="$RUNNER_TEMP/piper-voice"
+          mkdir -p "$voice_dir"
+          python -m pip download --no-deps --only-binary=:all: --dest "$voice_dir" piper-tts==1.8.0
+          wheel="$voice_dir/piper_tts-1.8.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl"
+          printf '%s  %s\n' 25b4d3f31ff70c8fa7151908e00aaa5650cbdf16bca8fcf21299f3941b89a7d3 "$wheel" | sha256sum -c -
+          python -m pip install --only-binary=:all: "$wheel"
+          voice_source="https://huggingface.co/rhasspy/piper-voices/resolve/b145f2ac26522d6a2ccde0164b7b0e48b1e3199c/en/en_US/lessac/medium"
+          for filename in en_US-lessac-medium.onnx en_US-lessac-medium.onnx.json; do
+            curl --fail --silent --show-error --location --max-time 90 "$voice_source/$filename" -o "$voice_dir/$filename"
+          done
+          model="$voice_dir/en_US-lessac-medium.onnx"
+          printf '%s  %s\n' \
+            5efe09e69902187827af646e1a6e9d269dee769f9877d17b16b1b46eeaaf019f "$model" \
+            efe19c417bed055f2d69908248c6ba650fa135bc868b0e6abb3da181dab690a0 "$model.json" | sha256sum -c -
+          python infra/dev/prepare-voice-audio.py generate "$RUNNER_TEMP/voice-inputs" \
+            infra/dev/scenarios/voice-regular-action-controlled-input.json --piper-model "$model"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: voice-inputs-${{ github.run_id }}
+          path: ${{ runner.temp }}/voice-inputs/
+          if-no-files-found: error
+          retention-days: 7
