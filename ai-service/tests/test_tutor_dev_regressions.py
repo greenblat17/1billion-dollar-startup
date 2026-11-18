@@ -49,8 +49,8 @@ async def test_immediate_booking_uses_requested_lesson_type_during_introduction(
             return {'content': '{"reply":"Записала."}'}
         assert messages[-1] == {'role': 'user', 'content': body}
         policies = '\n'.join(message['content'] for message in messages if message['role'] == 'system')
-        assert 'For an explicit one-off regular lesson, call create_extra_lesson in either conversation mode.' in policies
-        assert 'For an explicit trial or acceptance of a clear trial proposal' in policies
+        assert 'Для Trial используй create_trial_booking' in policies
+        assert 'регулярного урока create_extra_lesson' in policies
         assert 'For an unambiguous request to start immediately, call create_trial_booking' not in policies
         functions = {entry['function']['name']: entry['function'] for entry in tools}
         trial = functions['create_trial_booking']

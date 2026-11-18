@@ -86,7 +86,9 @@ class UpdateOnboarding(Strict):
 ONBOARDING_TOOL = {'type': 'function', 'function': {
     'name': 'update_onboarding',
     'description': 'Save explicit learner goal, overall self-assessment, target CEFR or deadline. '
-        'Call before replying whenever this message supplies or corrects any of these fields. '
+        'Call before replying when the CURRENT message supplies or corrects one of these fields. '
+        'Skip this tool for a report of a difficulty alone; use update_learner_context for that. '
+        'Never backfill goal or levels from earlier turns with this call. '
         'Use learningState.revision, or 0 for a new profile. Levels are A1/A2/B1/B2/C1/Unknown; '
         'never infer a measured level. Keep reported uncertainty in explanation. '
         'Unknown self-assessment can retain the learner description in explanation. '

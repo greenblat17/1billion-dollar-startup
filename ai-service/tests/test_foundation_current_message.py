@@ -97,6 +97,10 @@ async def test_interrupted_introduction_is_context_not_a_script_to_finish_and_re
     'Пока не хочу пробный. Чем отличается say от tell?',
 ])
 async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requirement(body):
+    from app.kora_personality import PERSONALITY
+    from app.text_tutor_policy import INTRODUCTION_WRITING_STYLE, TEXT_RELATIONSHIP_POLICY
+    from app.trial_policy import TEXT_CAPABILITIES
+
     source = {'id': 'current', 'body': body}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
         {'status': 'running', 'input': source},
@@ -110,23 +114,15 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     system = '\n'.join(m['content'] for m in messages if m['role'] == 'system')
     assert 'First explore all five topics' not in system
     assert 'Current mode: introduction.' in system
-    assert 'return without pushing' in system
-    assert 'Ask about a deadline or earlier experience only when it helps' in system
-    assert 'максимум один вопрос, на который ждёшь ответа' in system
-    assert 'at most one useful clarification on that topic' in system
-    assert 'AI tutor when asked' in system
-    assert 'For exact subscription terms, use get_subscription.' in system
-    assert 'free trial call of about 30 minutes' in system
-    assert 'some speaking practice and a sense of what to work on next' in system
-    assert 'current overall self-assessment and desired overall CEFR' in system
-    assert 'Do not proactively ask about lesson frequency' in system
-    assert 'Do not exclude beginners or exam-oriented learners' in system
-    assert 'not a proficiency test' in system
-    assert 'Не ставь тире любой длины и не заменяй его дефисом с пробелами.' in messages[-2]['content']
-    assert 'never propose or assign a CEFR label' in system
-    assert 'If proposing a label based on their description' not in system
-    assert 'no answer-choice buttons' in system
-    assert 'without finishing the consultation' in system
+    assert PERSONALITY in messages[0]['content']
+    assert INTRODUCTION_WRITING_STYLE in messages[0]['content']
+    assert TEXT_RELATIONSHIP_POLICY not in system
+    assert TEXT_CAPABILITIES not in system
+    assert 'максимум одно полезное уточнение по этой теме' in system
+    assert 'бесплатный созвон примерно на 30 минут' in system
+    assert 'Из описания по-русски уровень не выводи' in system
+    assert 'Если в переписке уже есть предложение записаться' in system
+    assert 'get_subscription' in system
     assert messages[-1] == {'role': 'user', 'content': body}
 
 
@@ -188,7 +184,6 @@ async def test_known_level_survives_selector_failure_and_voice_keeps_its_persona
     assert 'Наверное B1' in text.instructions('text')
     assert text.data['learningState'] == data['learningState']
     assert text.data['memorySelection']['status'] == 'unavailable_core_only'
-    assert 'professional tutor' in text.instructions('text')
     assert 'Current mode: introduction.' in text.instructions('text')
     assert 'help find a topic with an easy question' in voice.instructions('voice')
 
@@ -196,6 +191,8 @@ async def test_known_level_survives_selector_failure_and_voice_keeps_its_persona
 @pytest.mark.asyncio
 async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy():
     from app.kora_personality import PERSONALITY
+    from app.text_tutor_policy import TEXT_RELATIONSHIP_POLICY
+    from app.trial_policy import TEXT_CAPABILITIES
     data = snapshot('Хочу поговорить о фильме')
     data['textMode'] = 'dialogue'
     source = data['events'][-1]
@@ -210,7 +207,8 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
     assert PERSONALITY in prompt
     assert 'Current mode: ordinary dialogue.' in prompt
     assert 'Curiosity need not serve trial preparation.' in prompt
-    assert 'Ask about a deadline or earlier experience only when it helps' not in prompt
+    assert TEXT_RELATIONSHIP_POLICY in prompt
+    assert TEXT_CAPABILITIES in prompt
     assert 'Как Саша пишет в этом диалоге' not in prompt
 
 
@@ -220,7 +218,7 @@ async def test_unrelated_message_does_not_override_backend_introduction_mode():
     context = await ContextBuilder(SimpleNamespace(snapshot=AsyncMock(return_value=data))).build('scope', 'text')
     assert context.data['textMode'] == 'introduction'
     assert 'Current mode: introduction.' in context.instructions('text')
-    assert 'respond briefly\nand return without pushing' in context.instructions('text')
+    assert 'На постороннюю тему ответь кратко и по делу' in context.instructions('text')
 
 
 @pytest.mark.asyncio

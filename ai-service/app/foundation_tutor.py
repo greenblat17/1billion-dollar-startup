@@ -70,9 +70,14 @@ class FoundationTutor:
         if text != request.text:
             raise BackendFailure('input_mismatch', 409)
         context = await self.contexts.build(scope, 'text', exclude_event_id=source['id'])
-        messages = [{'role': 'system', 'content': TEXT_RELATIONSHIP_POLICY},
-                    {'role': 'system', 'content': context.instructions('text')}]
-        messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
+        introducing = context.data.get('textMode') == 'introduction'
+        instructions = context.instructions('text')
+        if introducing:
+            instructions += '\n\n' + INTRODUCTION_WRITING_STYLE
+        messages = [{'role': 'system', 'content': instructions}]
+        if not introducing:
+            messages.insert(0, {'role': 'system', 'content': TEXT_RELATIONSHIP_POLICY})
+            messages.append({'role': 'system', 'content': TEXT_CAPABILITIES})
         messages += context.history
         messages.append({'role': 'system', 'content': (
             'The next user message is the current incoming event. Previous messages and summaries '
@@ -93,8 +98,12 @@ class FoundationTutor:
             + 'Current event metadata: ' + json.dumps(
                 {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
         )})
-        if context.data.get('textMode') == 'introduction':
-            messages[-1]['content'] += '\n\n' + INTRODUCTION_WRITING_STYLE
+        if introducing:
+            messages[-1]['content'] += (
+                '\nНачни reply с ответа, вопроса или приглашения. '
+                'Начало без оценки и пересказа. В reply используй точки и запятые '
+                'для связи мыслей. Один знак вопроса максимум. Тире в reply запрещено.'
+            )
         messages.append({'role': 'user', 'content': text})
         changed = None
         schedule_committed = False
@@ -242,7 +251,9 @@ class FoundationTutor:
                              if change.evidence.strip() and change.evidence in source['body']]
                 if not supported:
                     return {'ok': False, 'error': 'invalid_evidence', 'guidance':
-                            'Copy an exact quote from the current message for every changed field. Omit unsupported fields.'}
+                            'No profile fields were saved. Copy exact evidence from the current message only. '
+                            'If this message only reports a difficulty, use update_learner_context for it. '
+                            'When there is no supported profile field to update, continue replying without retrying.'}
                 payload = args.model_copy(update={'changes': supported}).model_dump()
                 identity = hashlib.sha256(json.dumps([request_id, name, payload], sort_keys=True).encode()).hexdigest()
                 result = await self.backend.command(scope, identity, 'onboarding.update',
