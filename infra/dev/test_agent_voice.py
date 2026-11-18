@@ -35,8 +35,14 @@ class FakeRelay:
                 (925, {"type": "trial_clock", "trialExecution": {"connectedSeconds": 915}}),
             ])
         else:
-            self.messages.extend([(100, None), (450, None), (914, None), (915, None)])
+            self.messages.extend([(80, None), (450, None), (914, None), (915, None)])
         self.finish = asyncio.Event()
+        self.greeting_played = asyncio.Event()
+        self.reply = [
+            {"type": "audio_start", "id": "reply", "sampleRate": 24000},
+            {"type": "audio_end", "id": "reply"},
+            {"type": "finished"},
+        ]
 
     async def __aenter__(self):
         return self
@@ -48,17 +54,24 @@ class FakeRelay:
         if isinstance(data, bytes):
             self.first_pcm = (self.now, self.trial_seconds)
             self.finish.set()
+        elif json.loads(data).get('id') == 'greeting':
+            self.greeting_played.set()
 
     async def recv(self):
         if self.messages:
-            self.now, message = self.messages.pop(0)
+            at, message = self.messages.pop(0)
+            if at >= 80:
+                await self.greeting_played.wait()
+            self.now = at
             if message is None:
                 raise asyncio.TimeoutError
             if message["type"] == "trial_clock":
                 self.trial_seconds = message["trialExecution"]["connectedSeconds"]
             return json.dumps(message)
         await self.finish.wait()
-        return json.dumps({"type": "finished"})
+        if self.reply:
+            return json.dumps(self.reply.pop(0))
+        await asyncio.Future()
 
 
 class AgentVoiceTimingTest(unittest.IsolatedAsyncioTestCase):
@@ -86,3 +99,29 @@ class AgentVoiceTimingTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_trial_uses_relay_connected_seconds(self):
         self.assertEqual((925, 915), await self.run_delayed_turn(trial=True))
+
+
+
+class AgentVoiceMuteBoundaryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_boundary_follows_last_pcm_and_next_pcm_follows_unmute(self):
+        socket = SimpleNamespace(send=AsyncMock())
+        practice, answer = {}, {}
+        first_chunk, final_chunk, answer_pcm = b'a' * 4800, b'bc', b'de'
+        with patch.object(RUNNER.asyncio, 'sleep', new=AsyncMock()):
+            await RUNNER.send_turn_pcm(socket, first_chunk + final_chunk, practice, mute_after=True)
+            await RUNNER.send_turn_pcm(socket, answer_pcm, answer, resume_input=True)
+        frames = [item.args[0] for item in socket.send.await_args_list]
+        self.assertEqual([first_chunk, final_chunk, {'type': 'mute', 'value': True},
+                          {'type': 'mute', 'value': False}, answer_pcm],
+                         [json.loads(frame) if isinstance(frame, str) else frame for frame in frames])
+        self.assertLessEqual(practice['sentAt'], practice['muteBoundarySentAt'])
+        self.assertLessEqual(practice['muteBoundarySentAt'], answer['unmutedAt'])
+        self.assertLessEqual(answer['unmutedAt'], answer['sentAt'])
+
+    async def test_ordinary_turn_sends_only_pcm(self):
+        socket = SimpleNamespace(send=AsyncMock())
+        turn = {}
+        with patch.object(RUNNER.asyncio, 'sleep', new=AsyncMock()):
+            await RUNNER.send_turn_pcm(socket, b'12', turn)
+        socket.send.assert_awaited_once_with(b'12')
+        self.assertEqual({'sentAt'}, set(turn))

@@ -559,3 +559,40 @@ async def test_forgetting_revokes_voice_context_and_discards_unpersisted_audio()
     assert not s.input_buffer and not s.memory_sources
     s.provider.close.assert_awaited_once()
     assert s.socket.send_json.call_args.args[0]['reason'] == 'memory_forgotten'
+
+
+@pytest.mark.asyncio
+async def test_regular_mute_flushes_speech_tail_before_one_manual_commit():
+    s = session()
+    s.lesson = {**s.lesson, 'kind': 'regular'}
+    tail = b'\x01\x00' * 900
+    s.input_buffer.extend(tail)
+    await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'spoken-turn'})
+    s.socket.receive = AsyncMock(side_effect=[
+        {'type': 'websocket.receive', 'text': json.dumps({'type': 'mute', 'value': True})},
+        {'type': 'websocket.receive', 'text': json.dumps({'type': 'mute', 'value': True})},
+        {'type': 'websocket.disconnect'},
+    ])
+    await s.receive()
+    audio_events = [e for e in sent(s) if e['type'].startswith('input_audio_buffer.')]
+    assert [e['type'] for e in audio_events] == ['input_audio_buffer.append', 'input_audio_buffer.commit']
+    assert base64.b64decode(audio_events[0]['audio']) == tail
+    assert audio_events[1]['event_id'] == 'mute_commit'
+    assert s.mute_committed
+    # Server VAD may have committed the same buffer first. Its empty-buffer reply is benign.
+    await s.provider_event({'type': 'error', 'error': {
+        'event_id': 'mute_commit', 'code': 'input_audio_buffer_commit_empty'}})
+
+
+@pytest.mark.asyncio
+async def test_regular_mute_does_not_commit_again_after_provider_auto_commit():
+    s = session()
+    s.lesson = {**s.lesson, 'kind': 'regular'}
+    await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'spoken-turn'})
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'spoken-turn'})
+    s.socket.receive = AsyncMock(side_effect=[
+        {'type': 'websocket.receive', 'text': json.dumps({'type': 'mute', 'value': True})},
+        {'type': 'websocket.disconnect'},
+    ])
+    await s.receive()
+    assert not any(e['type'] == 'input_audio_buffer.commit' for e in sent(s))

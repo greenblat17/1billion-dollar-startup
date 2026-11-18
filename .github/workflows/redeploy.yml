@@ -67,6 +67,7 @@ on:
           - early-exit
           - phase-probe
           - regular-action
+          - regular-action-mute
           - read-only
           - dependencies-only
         default: short
@@ -553,6 +554,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$VOICE_SCENARIO" in
+            regular-action-mute) scenario=infra/dev/scenarios/voice-regular-action.json ;;
             short|early-exit|phase-probe|regular-action) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
             *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
           esac
@@ -586,6 +588,10 @@ jobs:
             scenario=infra/dev/scenarios/voice-read-only.json
           else
             scenario="$RUNNER_TEMP/verified-voice-scenario.json"
+          fi
+          voice_options=()
+          if [[ "$VOICE_SCENARIO" == regular-action-mute ]]; then
+            voice_options+=(--mute-boundary-turn 3)
           fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
           ai_key="$RUNNER_TEMP/agent-voice-ai-key"
@@ -644,7 +650,7 @@ jobs:
             "$scenario" \
             --ktor https://127.0.0.1:18443 --ai http://127.0.0.1:18090 \
             --student "$STUDENT_ID" --lesson "$LESSON_ID" \
-            --output "$RUNNER_TEMP/agent-voice-run"
+            --output "$RUNNER_TEMP/agent-voice-run" "${voice_options[@]}"
       - name: Upload synthetic voice dialogue
         if: ${{ always() && inputs.agent_voice_scenario != 'dependencies-only' }}
         uses: actions/upload-artifact@v6
