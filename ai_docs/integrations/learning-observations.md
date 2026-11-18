@@ -136,10 +136,12 @@ SP-06 producer contract находится в его поставке `ai_docs/i
 SP-17B подключает их после завершения Trial через `trial.observe` и связывает ошибку,
 подсказку и самокоррекцию по сохранённым репликам. Extractor принимает только финальные
 transcript sources, выбирает точную цитату и Unicode span, проверяет каталог и отдаёт
-Speaking/Grammar/Vocabulary с `route=assessment_only`. Ktor применяет batch через
+Speaking/Grammar/Vocabulary и ограниченные Listening Observations с `route=assessment_only`. Ktor применяет batch через
 `LearningObservations` под job fence и student lock; повтор безопасен, устаревший результат
 не применяется. `GET /trial/events` показывает отдельный `observationStatus`.
-Listening не оценивается на Trial; отсутствие Observation не означает низкий уровень.
+Listening в Trial требует фактически воспроизведённой реплики из Conversation и точного ответа той же сессии.
+Просьба повторить может остаться `unresolved`. Понимание после повтора требует отдельного источника помощи.
+Эти Observations не меняют Topic Knowledge, CEFR или Score.
 В SP-17A нет зависимости от V52 и реального Trial extractor.
 
 ## Исторический Plan/Stage

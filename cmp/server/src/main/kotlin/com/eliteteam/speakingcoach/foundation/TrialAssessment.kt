@@ -59,6 +59,7 @@ internal class TrialAssessment {
                         row.obj("document").text("support") != "independent" ||
                         row.obj("document").text("route") != "assessment_only" ||
                         row.obj("document").text("practice") != "trial" ||
+                        row.obj("document").text("skillId") !in eligibleSkills ||
                         (skill != "overall" && row.obj("document").text("skillId") != skill)
                 }) reject("invalid_assessment_source")
             if (level != "Unknown" && skill != "overall") {

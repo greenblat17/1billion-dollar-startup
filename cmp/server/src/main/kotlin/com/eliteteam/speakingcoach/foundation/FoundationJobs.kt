@@ -189,7 +189,7 @@ internal class FoundationJobs {
         items.forEach { item ->
             val d = item as? JsonObject ?: reject("invalid_result")
             if (d.text("lessonId") != lessonId || d.text("practice") != "trial" || d.text("route") != "assessment_only" ||
-                d.text("skillId") !in setOf("speaking", "grammar", "vocabulary") ||
+                d.text("skillId") !in setOf("speaking", "listening", "grammar", "vocabulary") ||
                 d.optionalText("taskId") != null || d["stageRef"]?.let { it != kotlinx.serialization.json.JsonNull } == true ||
                 d.optionalText("actionId") != null) reject("invalid_result")
             val key = d.text("anchorEventId") to d.text("evidenceSlot")

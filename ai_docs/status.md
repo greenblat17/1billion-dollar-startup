@@ -1,6 +1,30 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-18. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. На DEV работают Ktor `f278064`, AI `608204a` и Mini App `2f38856`. [Поставка Ktor](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44228945164) · [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235099025) · [Проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235453616). Каталог `speaky-v55-v2` временно опубликован только на DEV: [run 44150548146](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44150548146) проверил SHA-256 и чтение 163 тем. Разметка для PROD не утверждена. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила `/start`, прямую запись Trial и доставку кнопки «Начать урок». Mini App показал включённый микрофон и идущий таймер. [Сценарий оставшейся проверки Telegram](acceptance/runs/telegram-mini-app-readonly-2026-11-18.md) фиксирует серверную готовность и шаги проверки доставки Roadmap. Короткий синтетический голосовой прогон описан [отдельно](acceptance/runs/agent-voice-dev-2026-11-17.md). [Решение о готовности MVP](acceptance/mvp-readiness-2026-11-17.md) отделяет работающие пути от блокеров. Волны 10–11 исключены из текущего поручения.
+Срез документации: 2026-11-19. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. На DEV работают Ktor `f278064`, AI `608204a` и Mini App `2f38856`. [Поставка Ktor](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44228945164) · [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235099025) · [Проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235453616). Каталог `speaky-v55-v2` временно опубликован только на DEV: [run 44150548146](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44150548146) проверил SHA-256 и чтение 163 тем. Разметка для PROD не утверждена. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила `/start`, прямую запись Trial и доставку кнопки «Начать урок». Mini App показал включённый микрофон и идущий таймер. [Сценарий оставшейся проверки Telegram](acceptance/runs/telegram-mini-app-readonly-2026-11-18.md) фиксирует серверную готовность и шаги проверки доставки Roadmap. Короткий синтетический голосовой прогон описан [отдельно](acceptance/runs/agent-voice-dev-2026-11-17.md). [Решение о готовности MVP](acceptance/mvp-readiness-2026-11-17.md) отделяет работающие пути от блокеров. Волны 10–11 исключены из текущего поручения.
+
+## Trial Lesson v1.0
+
+Локальная реализация поверх `b47aa41` (PR #58). Использует Realtime, сохранённые фазы Trial v5.5
+и накопленное время подключения. [Продуктовый сценарий](product/2026-11-14-personalized-learning-v5.5.md#7-roadmap-initialization-знакомство--пробный-урок--персональный-план) · [Исполнение](integrations/trial-v55.md).
+
+| AC из ТЗ §11 | Что проверено локально | Что проверить в живом Trial |
+|---|---|---|
+| 1–5 | Первый ответ с именем и вопросом о самочувствии запускается без tools. Переход требует сохранённой реплики. Политика задаёт русский язык, Telegram-контекст и ожидание готовности. | Услышать первое приветствие. Ответить, затем отложить переход к английскому и подтвердить готовность позже. |
+| 6–12 | Политика задаёт двустороннюю беседу, адаптацию, паузы и смену темы. Прямой учебный вопрос допускает краткий ответ с возвратом к разговору. | Сменить тему, задуматься, попросить помочь со словом и задать вопрос о правиле. |
+| 13–14 | Извлечение связывает все четыре Skills с точными источниками. Listening допускает ограниченные наблюдения о понимании, повторении и упрощении. Неизвестные Topics и Listening CEFR остаются Unknown. | Сверить сохранённые наблюдения с репликами. Проверить различие между просьбой повторить, проблемой звука и языковым барьером. |
+| 15–21 | Политика задаёт русский Wrap-up, вопрос о впечатлениях и обратную связь по разговору. Тесты проверяют обычное и раннее прощание после playback, а также восстановление при перебивании. | Дождаться Wrap-up в полном Trial. В отдельном звонке попросить закончить раньше и проверить reconnect. |
+| 22–23 | Локальный HTTP-тест проводит Observation через штатные handlers к Assessment. Проверены генератор и endpoint сохранённой ревизии Roadmap. Worker использует сохранённую ревизию и защищает отправку через receipt без проверки подписки. | Убедиться, что штатные jobs завершились, а Telegram доставил один персональный план ученику без подписки. |
+
+Явно согласованные параметры нагрузки и Homework сохраняются по источнику ученика.
+Если прямой Trial завершился без сохранённой цели или целевого уровня, Assessment может завершиться,
+но `roadmap.generate` не ставится. Доставка для такого случая требует решения о том, как получить недостающие данные.
+Прогноз тоже остаётся открытым при недостаточной информации о нагрузке. Исправление сохраняет эти ограничения.
+
+Локально прошли 1016 Python и 340 Kotlin unit тестов, `buildFatJar`, `detekt` и `git diff --check`.
+Проверки выполнены без Docker, PostgreSQL и запущенных сервисов.
+Живая приёмка Realtime и Telegram остаётся за пользователем.
+
+## Приёмка и диагностика на DEV
 
 **Живое знакомство и приглашение на Trial, 18 ноября.** В контрольном диалоге
 Trial сохранён в 07:39:05 UTC на 07:43:58 UTC. Telegram отклонил `sendWidget` с 400
@@ -202,9 +226,9 @@ DEV/PROD и полная цепочка Trial → Assessment → Roadmap не п
 После утверждения пользователем SP-17B реализован в отдельной ветке от `2487b22` и включён в draft PR #58.
 Завершение Trial v5.5 ставит отдельный `trial.observe` job. Python extractor читает
 сохранённые raw events и опубликованный каталог, связывает точные цитаты с
-`sourceEventId/sourceSequence` и возвращает только Speaking, Grammar, Vocabulary.
+`sourceEventId/sourceSequence`. Поддерживает Speaking, Grammar, Vocabulary и ограниченное Listening по ТЗ v1.0.
 Ktor применяет batch через SP-17A `LearningObservations` в одной транзакции,
-сохраняет ревизии, отклоняет устаревший результат и не допускает Listening.
+сохраняет ревизии и отклоняет устаревший результат.
 `GET /trial/events` показывает `observationStatus`; `assessmentStatus` теперь
 обновляется SP-07. Listening после Trial имеет системный CEFR Unknown;
 самооценка хранится отдельно. Ни Roadmap, ни Plan, ни Content не создаются.
@@ -240,7 +264,7 @@ Merge, deploy и живой Realtime/Telegram/S3 не выполнялись.
 - V52 хранит clock/phase и raw call metadata. Scoped GET events/audio доступны будущему SP-17B.
   Stable IDs/revisions, nullable ASR confidence, реальные audio references; детектор ASR ошибок отсутствует.
 - Новый Trial отделён от старого educational evaluation/Roadmap. Personal Memory extraction сохранён.
-  Полная цепочка Assessment → Roadmap → Telegram ещё не реализована; SP-06 не закрывает её приёмку.
+  Штатную цепочку Assessment → Roadmap → Telegram добавили SP-07/08/09/11A. Живая доставка остаётся открытой.
 - Локально: Python 701 passed; Kotlin 309 unit + 96 PostgreSQL integration passed;
   после последнего ограничения read-scope повторно прошли 7 Trial integration tests.
   HTTP Python → Ktor → PostgreSQL: 11 passed. Mini App: 16 tests + production build passed.
@@ -297,8 +321,8 @@ Merge, deploy и живой Realtime/Telegram/S3 не выполнялись.
   PostgreSQL 14.10 и каталог использовались только как отдельные синтетические тестовые ресурсы;
   test harness и БД остановлены. Новых Flyway миграций нет.
 - В живой урок, Teaching Actions и Stage Score модуль пока не подключён: SP-16/19 и
-  последующие Action integrations впереди. Listening Trial не оценивается и не даёт Listening Observation
-  для автоматического Plan. DEV/PROD и живое качество обучения не проверены; merge/deploy не выполнялись.
+  последующие Action integrations впереди. Ограниченные Listening Observations из Trial v1.0
+  не пишут Topic Knowledge и не запускают автоматический Plan. DEV/PROD и живое качество обучения не проверены; merge/deploy не выполнялись.
 
 [Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы),
 [утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md).

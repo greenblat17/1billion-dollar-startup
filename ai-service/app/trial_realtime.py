@@ -244,7 +244,8 @@ class RealtimeTrialSession(TrialJournal):
                                                    'create_response': False, 'interrupt_response': True}},
                       'output': {'format': {'type': 'audio/pcm', 'rate': 24000},
                                  'voice': self.settings.trial_realtime_voice}},
-            'tools': [FINISH_TOOL] + self.memory_tools() + (trial_v55.tools() if self.v55 else []) + (self.regular_tools() if self.regular else []),
+            'tools': (trial_v55.tools() if self.v55 else [FINISH_TOOL]) + self.memory_tools()
+                     + (self.regular_tools() if self.regular else []),
             'tool_choice': 'auto', 'max_output_tokens': 1200,
         }})
         # Do not expose a connected UI until the provider accepts the configuration.
@@ -266,7 +267,7 @@ class RealtimeTrialSession(TrialJournal):
         if self.v55:
             self.trial_learner_has_spoken = any(item['role'] == 'user' for item in context.history)
         fresh_trial = (self.v55 and self.trial_state.get('phase') == 'warmup'
-                       and not self.trial_state.get('connectedSeconds') and not context.history)
+                       and not context.history)
         if fresh_trial:
             opening = trial_v55.opening(context.data)
         elif self.v55:
@@ -398,12 +399,10 @@ class RealtimeTrialSession(TrialJournal):
             instructions = ('Say a brief goodbye in Russian in one sentence.' if self.finish_next else
                             'Continue naturally from what the learner already heard. Speak one short sentence and pause.')
             allow_tools = False
-        if self.v55 and self.finish_next and (
-            self.trial_state.get('phase') == 'wrapup' or self.trial_state.get('connectedSeconds', 0) >= 1500
-        ):
+        if self.v55 and self.finish_next:
             instructions = trial_v55.GOODBYE
             if recovering:
-                instructions += ' Keep this to the delivery promise and goodbye.'
+                instructions += ' Continue from what was already heard.'
             allow_tools = False
         response = {} if instructions is None else {'instructions': instructions}
         if not allow_tools:
@@ -946,8 +945,15 @@ class RealtimeTrialSession(TrialJournal):
             self.want_response = True
             return
         pending_playback_count = sum(not item['settled'] for item in self.items.values())
-        valid = output['name'] == 'finish_after_reply' and arguments == {}
+        valid = False
         if output['name'] == 'finish_after_reply':
+            valid = arguments == {}
+            if self.v55:
+                valid = (
+                    arguments == {'reason': 'learner_requested'} and bool(self.memory_sources or self.pending_inputs)
+                    or arguments == {'reason': 'wrapup_complete'} and self.trial_state.get('phase') == 'wrapup'
+                    and self.trial_state.get('connectedSeconds', 0) >= 1500
+                )
             event('trial_finish_tool', outcome='accepted' if valid else 'rejected',
                   valid=valid, pending_playback_count=pending_playback_count)
         # Only provider-authenticated calls reach here; never browser function events.
@@ -1024,8 +1030,7 @@ class RealtimeTrialSession(TrialJournal):
             elif name == 'set_trial_phase':
                 if set(arguments) != {'phase'} or arguments['phase'] not in ('conversation', 'wrapup'):
                     raise ValueError('invalid_arguments')
-                if (arguments['phase'] == 'conversation' and self.trial_state.get('phase') == 'warmup'
-                        and not self.trial_learner_has_spoken):
+                if self.trial_state.get('phase') == 'warmup' and not self.trial_learner_has_spoken:
                     result = {'ok': False, 'error': 'learner_turn_required'}
                 else:
                     result = await self.backend.command(self.scope, operation, 'trial.phase',

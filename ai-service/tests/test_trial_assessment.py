@@ -162,3 +162,19 @@ async def test_invalidated_evidence_returns_previous_trial_topic_to_unknown():
         'explanation': 'Earlier Trial evidence is no longer active; knowledge is unknown.',
         'observationRefs': []}]
     model.complete_json.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_limited_listening_and_hinted_observations_count_as_coverage_only():
+    rows = [observation('l1', 'listening', topic=None), observation('l2', 'listening', topic=None),
+            observation('hint', 'speaking', outcome='hinted_correct', topic=None)]
+    rows[-1]['document']['support'] = 'hinted'
+    model = SimpleNamespace(complete_json=AsyncMock())
+    result = await TrialAssessment(backend(rows), model).assess('scope', 'lesson', {
+        'transcriptRevision': 7, 'catalogVersion': 'v1',
+    })
+    assert result['coverage'] == {'active': 3, 'usableWithoutTopic': 3, 'uncertain': 0, 'nonIndependent': 1}
+    assert result['observationRefs'] == [{'id': row['id'], 'revision': 1} for row in rows]
+    assert all(level['level'] == 'Unknown' and level['observationRefs'] == [] for level in result['levels'].values())
+    assert result['topics'] == []
+    model.complete_json.assert_not_awaited()

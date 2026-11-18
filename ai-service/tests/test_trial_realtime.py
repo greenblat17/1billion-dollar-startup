@@ -382,18 +382,15 @@ async def test_configuration_has_no_provider_key_and_reconnect_uses_new_scope():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('connected_seconds,expected', [
-    (0, 'Begin the Trial in Russian'),
-    (90, 'Resume the active Trial in its saved phase'),
-])
-async def test_trial_opening_uses_saved_context_and_resume_phase(connected_seconds, expected):
+@pytest.mark.parametrize('connected_seconds,reconnecting', [(0, False), (2, False), (90, True)])
+async def test_trial_opening_uses_saved_name_and_resumes_without_repeating_the_greeting(connected_seconds, reconnecting):
     admitted = {**ADMITTED, 'lesson': {**ADMITTED['lesson'], 'trial_version': 'v5.5'},
                 'trialExecution': {'phase': 'warmup', 'connectedSeconds': connected_seconds}}
     base = session()
     goal = 'Выйти на B2, чтобы уверенно объяснять проблемы и обсуждать сроки на английском на рабочих встречах'
     base.contexts.build.return_value = SimpleNamespace(
-        data={'goal': {'content': {'value': goal}}, 'learningState': {'profile': {'targetLevel': 'B2'}}},
-        history=[{'role': 'user', 'content': 'Расскажем о рабочих встречах'}] if connected_seconds else [],
+        data={'goal': {'content': {'value': goal}}, 'facts': [{'fact_key': 'name', 'value': 'Алекс'}]},
+        history=[{'role': 'user', 'content': 'Расскажем о рабочих встречах'}] if reconnecting else [],
     )
     s = RealtimeTrialSession(base.socket, base.backend, base.contexts, base.store, admitted, SETTINGS)
     s.backend.command.return_value = admitted['trialExecution']
@@ -401,17 +398,20 @@ async def test_trial_opening_uses_saved_context_and_resume_phase(connected_secon
     await s.configure()
     response = next(item['response'] for item in s.provider.sent if item['type'] == 'response.create')
     instruction = response['instructions']
-    assert expected in instruction
-    assert 'learner goal or concern in context' in instruction
-    if connected_seconds:
+    config = s.provider.sent[0]['session']['instructions']
+    assert goal in config
+    assert 'Never repeat onboarding' in config
+    if reconnecting:
+        assert 'Resume the active Trial in its saved phase' in instruction
         assert s.trial_learner_has_spoken
         assert 'topic' in instruction
         assert 'tool_choice' not in response
     else:
         assert not s.trial_learner_has_spoken
-        assert goal in instruction and '"targetLevel": "B2"' in instruction
-        assert 'first spoken sentence' in instruction
-        assert 'wait for the learner to answer in warm-up' in instruction
+        assert 'Speak first in Russian' in instruction and '"Алекс"' in instruction
+        assert 'one short question about their mood' in instruction
+        assert 'Stop and wait for their reply' in instruction
+        assert goal not in instruction
         assert response['tool_choice'] == 'none'
 
 

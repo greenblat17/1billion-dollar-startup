@@ -510,11 +510,11 @@ Score — SP-18/19, применение регулярных выводов —
 
 Завершение Trial ставит отдельный `trial.observe` job рядом с memory-only `lesson.evaluate`.
 `TrialObservationExtractor` читает сохранённые raw events через `FoundationClient`, берёт финальные
-реплики и опубликованный каталог. Его typed результат содержит только Speaking, Grammar и Vocabulary.
+реплики и опубликованный каталог. Результат включает Speaking, Grammar, Vocabulary и ограниченные Listening Observations без Topic/Problem.
 Ktor применяет весь результат в транзакции через `LearningObservations` с проверкой источников,
 ownership и текущей transcript revision. Источник Observation — `sourceEventId/sourceSequence`;
 raw `eventId/revision` остаются транспортной identity. Повтор job не создаёт вторую запись;
 изменение интерпретации сохраняет history, исчезнувшие свидетельства invalidated.
-Trial не озвучивает CEFR и не измеряет Listening. После успешного Observation batch
+Trial собирает Listening по связи устной реплики, ответа и фактической помощи. После успешного Observation batch
 `trial.assess` формирует предварительный CEFR для наблюдавшихся Skills и Topic Knowledge;
 системный Listening остаётся Unknown. Подробный [SP-07 handoff](ai_docs/integrations/trial-assessment.md).

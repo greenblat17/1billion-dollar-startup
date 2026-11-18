@@ -62,6 +62,27 @@ class LearningObservationModelTest {
         assertEquals("stage_reference_required", failure(JsonObject(observationFixture() + json("route" to "stage_progress"))))
     }
 
+    @Test fun trialListeningRequiresGroundedAndUnclassifiedEvidence() {
+        val base = observationFixture(revision = 6)
+        val prompt = json("eventId" to "spoken-prompt", "revision" to 2, "role" to "assistant", "purpose" to "context")
+        val answer = (base["sources"] as JsonArray).single()
+        val d = JsonObject(base + json("skillId" to "listening", "practice" to "trial", "lessonId" to "trial-1",
+            "attemptId" to "event-1", "evidenceSlot" to "trial-" + digest("listening||").take(24),
+            "provenance" to json("component" to "trial-observation-extractor"),
+            "sources" to JsonArray(listOf(answer, prompt))))
+        LearningObservationModel.validate(d)
+        val unresolved = JsonObject(d + json("outcome" to "unresolved", "support" to "unknown", "initialOutcome" to "unknown"))
+        LearningObservationModel.validate(unresolved)
+        assertEquals("invalid_trial_listening", failure(JsonObject(d + json("topicId" to "listening-topic"))))
+        assertEquals("invalid_trial_listening", failure(JsonObject(d + json("outcome" to "uncorrected_error", "initialOutcome" to "error"))))
+        assertEquals("invalid_trial_listening", failure(JsonObject(d + json("sources" to JsonArray(listOf(answer))))))
+        val hint = json("eventId" to "rephrased-prompt", "revision" to 4, "role" to "assistant", "purpose" to "hint")
+        val assisted = JsonObject(d + json("outcome" to "hinted_correct", "support" to "hinted", "initialOutcome" to "unknown",
+            "sources" to JsonArray(listOf(answer, prompt, hint))))
+        LearningObservationModel.validate(assisted)
+        assertEquals("invalid_trial_listening", failure(JsonObject(assisted + json("initialOutcome" to "error"))))
+    }
+
     @Test fun rejectsUndocumentedFieldsAndInvalidSpans() {
         assertEquals("unknown_field", failure(JsonObject(observationFixture() + json("score" to 90))))
         val source = json("eventId" to "event-1", "revision" to 1, "role" to "user", "purpose" to "answer", "span" to json("start" to 4, "end" to 3))

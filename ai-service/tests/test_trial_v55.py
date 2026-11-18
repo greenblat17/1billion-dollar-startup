@@ -26,6 +26,8 @@ async def test_v55_configuration_restores_phase_and_exposes_only_narrow_learning
     await s.configure()
     config = sent(s)[0]['session']
     assert '30-minute Trial' in config['instructions']
+    assert 'wait for readiness before calling set_trial_phase(conversation)' in config['instructions']
+    assert 'Stop and give the learner a turn' in config['instructions']
     assert '"connectedSeconds": 800' in config['instructions']
     names = {t['name'] for t in config['tools']}
     assert {'update_trial_preferences', 'get_trial_preferences', 'set_trial_phase'} <= names
@@ -101,30 +103,29 @@ async def test_trial_wrapup_waits_for_saved_preference_source_before_requesting_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('phase,seconds,explain_roadmap', [
-    ('wrapup', 1844, True),
-    ('conversation', 1800, True),
-    ('warmup', 20, False),
-])
-async def test_finish_tool_sets_roadmap_handoff_only_for_normal_wrapup(phase, seconds, explain_roadmap):
+@pytest.mark.parametrize('phase,seconds', [('wrapup', 1844), ('warmup', 20)])
+async def test_normal_and_learner_requested_early_goodbyes_wait_for_playback(phase, seconds):
     s = v55_session()
     s.trial_state = {'phase': phase, 'connectedSeconds': seconds}
+    reason = 'wrapup_complete'
+    if phase == 'warmup':
+        reason = 'learner_requested'
+        s.backend.command.return_value = {'eventId': 'stop', 'objectKey': 'trial/key'}
+        await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
+                                'item_id': 'end-request', 'transcript': 'Давай на сегодня закончим.'})
     await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': [
-        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'finish', 'arguments': '{}'},
+        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'finish',
+         'arguments': json.dumps({'reason': reason})},
     ]}})
     response = sent(s)[-1]['response']
-    if explain_roadmap:
-        assert response['tool_choice'] == 'none'
-        assert 'После урока мы разберём наш разговор' in response['instructions']
-        assert 'Вы получите в Telegram персональный план занятий' in response['instructions']
-        assert 'даже если вы решите заниматься самостоятельно' in response['instructions']
-    else:
-        assert response == {}
+    assert response['tool_choice'] == 'none'
+    assert 'short natural goodbye in Russian' in response['instructions']
+    assert 'personal learning plan in Telegram' in response['instructions']
+    assert 'independent of whether they continue lessons' in response['instructions']
 
     await output(s, 'goodbye', finish=s.finish_next)
     await s.provider_event({'type': 'response.output_audio.done', 'item_id': 'goodbye'})
-    goodbye = ('Вы получите в Telegram персональный план занятий. До встречи!'
-               if explain_roadmap else 'До встречи!')
+    goodbye = 'Вы получите в Telegram персональный план занятий. До встречи!'
     await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': 'goodbye',
                             'transcript': goodbye})
     await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': []}})
@@ -133,6 +134,24 @@ async def test_finish_tool_sets_roadmap_handoff_only_for_normal_wrapup(phase, se
     assert s.ended
     assert s.backend.command.call_args_list[-2].args[3]['body'] == goodbye
     assert s.backend.command.call_args.args[3]['reason'] == 'natural_goodbye'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('phase,seconds,reason', [
+    ('warmup', 0, 'learner_requested'),
+    ('conversation', 800, 'wrapup_complete'),
+    ('wrapup', 1400, 'wrapup_complete'),
+])
+async def test_trial_rejects_premature_finish_without_an_early_request(phase, seconds, reason):
+    s = v55_session()
+    s.trial_state = {'phase': phase, 'connectedSeconds': seconds}
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed', 'output': [
+        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'premature-finish',
+         'arguments': json.dumps({'reason': reason})},
+    ]}})
+    assert not s.finish_next
+    assert json.loads(sent(s)[0]['item']['output']) == {'readyForGoodbye': False}
+    s.backend.command.assert_not_awaited()
 
 
 async def played_trial_output(s, key, text, *, finish=False):
@@ -219,7 +238,7 @@ async def test_trial_cut_goodbye_waits_for_playback_and_only_complete_recovery_f
         'providerItemId': 'cut-goodbye', 'finality': 'partial', 'playbackComplete': True, 'playedMs': 100,
     }
     assert sent(s)[-1]['response']['tool_choice'] == 'none'
-    assert 'Вы получите в Telegram персональный план занятий' in sent(s)[-1]['response']['instructions']
+    assert 'personal learning plan in Telegram' in sent(s)[-1]['response']['instructions']
     await played_trial_output(s, 'recovery', 'Вы получите персональный план в Telegram. До встречи!',
                               finish=s.finish_next)
     assert not s.ended

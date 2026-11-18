@@ -29,6 +29,39 @@ internal object LearningObservationSources {
                 if ((it as JsonObject).number("end") > body.codePointCount(0, body.length)) reject("invalid_source_span")
             }
         }
+        if (LearningObservationModel.isTrialListening(d)) validateTrialListening(c, student, d, now)
+    }
+
+    private fun validateTrialListening(c: Connection, student: String, d: JsonObject, now: Instant) {
+        val refs = (d["sources"] as JsonArray).map { it as JsonObject }
+        val raw = refs.associate { ref ->
+            ref.text("purpose") to (c.document("""SELECT to_jsonb(r) FROM trial_call_event r
+                WHERE r.student_id=? AND r.lesson_id=? AND r.source_event_id=? AND r.kind='transcript' AND r.expires_at>?""",
+                student, d.text("lessonId"), ref.text("eventId"), now) ?: reject("invalid_trial_listening"))
+        }
+        val answer = raw.getValue("answer")
+        val prompt = raw["hint"] ?: raw.getValue("context")
+        for ((purpose, row) in raw) {
+            val metadata = row.obj("metadata")
+            if (row.text("call_session_id") != answer.text("call_session_id") || metadata.text("finality") != "final" ||
+                (purpose != "answer" && (metadata.optionalText("playbackComplete") != "true" ||
+                    (metadata.optionalText("playedMs")?.toDoubleOrNull() ?: 0.0) <= 0.0))) reject("invalid_trial_listening")
+        }
+        val heardAt = Instant.parse(prompt.text("occurred_at"))
+        val firstPromptAt = Instant.parse(raw.getValue("context").text("occurred_at"))
+        val answeredAt = Instant.parse(answer.text("occurred_at"))
+        val phase = c.document("""SELECT metadata FROM trial_call_event WHERE student_id=? AND lesson_id=?
+            AND kind='phase' AND occurred_at<=? ORDER BY occurred_at DESC,id LIMIT 1""",
+            student, d.text("lessonId"), answeredAt)
+        val started = c.document("""SELECT metadata FROM trial_call_event WHERE student_id=? AND lesson_id=?
+            AND kind='phase' AND metadata->>'phase'='conversation' AND occurred_at<=? LIMIT 1""",
+            student, d.text("lessonId"), firstPromptAt)
+        val answerRef = refs.first { it.text("purpose") == "answer" }
+        val previous = c.document("""SELECT to_jsonb(r) FROM trial_call_event r JOIN conversation_event e ON e.id=r.source_event_id
+            WHERE r.student_id=? AND r.lesson_id=? AND r.kind='transcript' AND e.sequence<?
+            ORDER BY e.sequence DESC LIMIT 1""", student, d.text("lessonId"), answerRef.number("revision"))
+        if (firstPromptAt > heardAt || heardAt > answeredAt || phase?.text("phase") != "conversation" ||
+            started == null || previous?.text("id") != prompt.text("id")) reject("invalid_trial_listening")
     }
 
     fun store(c: Connection, student: String, id: String, revision: Long, d: JsonObject) {

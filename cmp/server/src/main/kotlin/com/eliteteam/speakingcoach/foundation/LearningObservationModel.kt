@@ -42,6 +42,33 @@ internal object LearningObservationModel {
         string(d["rationale"], 2000)
         stage(d)
         sources(d)
+        if (isTrialListening(d)) validateTrialListening(d)
+    }
+
+    fun isTrialListening(d: JsonObject) = d.text("practice") == "trial" && d.text("skillId") == "listening"
+
+    private fun validateTrialListening(d: JsonObject) {
+        val references = (d["sources"] as JsonArray).map { it as JsonObject }.associateBy { it.text("purpose") }
+        val answer = references["answer"] ?: reject("invalid_trial_listening")
+        val prompt = references["context"] ?: reject("invalid_trial_listening")
+        val hint = references["hint"]
+        val expected = if (hint == null) setOf("answer", "context") else setOf("answer", "context", "hint")
+        val validOutcome = when (d.text("outcome")) {
+            "independent_correct" -> hint == null
+            "hinted_correct" -> hint != null && d.text("initialOutcome") == "unknown"
+            "unresolved" -> hint == null && d.text("support") == "unknown" && d.text("initialOutcome") == "unknown"
+            else -> false
+        }
+        if (!validOutcome || references.keys != expected || (d["sources"] as JsonArray).size != expected.size ||
+            answer["span"] !is JsonObject || prompt.text("role") != "assistant" ||
+            (hint != null && hint.text("role") != "assistant") ||
+            prompt.number("revision") >= (hint ?: answer).number("revision") ||
+            (hint != null && hint.number("revision") >= answer.number("revision"))) reject("invalid_trial_listening")
+        if (d.text("kind") != "demonstration" || d.text("route") != "assessment_only" ||
+            d.optionalText("method") != "conversation" || d.text("attemptId") != d.text("anchorEventId") ||
+            d.text("evidenceSlot") != "trial-" + digest("listening||").take(24) ||
+            listOf("topicId", "problemId", "taskId", "actionId", "repeatOf").any { d.optionalText(it) != null } ||
+            d.obj("provenance").text("component") != "trial-observation-extractor") reject("invalid_trial_listening")
     }
 
     private fun validateOutcome(d: JsonObject) {

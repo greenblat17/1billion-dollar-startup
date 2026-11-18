@@ -89,3 +89,39 @@ def test_saved_priority_reason_is_presented_in_russian():
     output = render_initial_roadmap(*inputs)
     assert 'сначала проверим, есть ли здесь пробел' in output
     assert 'Это также связано с твоей целью' in output
+
+
+def test_initial_roadmap_worker_endpoint_serves_only_the_saved_revision():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from app.trial_api import install_trial_api
+
+    state, saved, priority, catalog, timeline, tasks = fixture()
+    backend = SimpleNamespace(
+        learning_roadmap=AsyncMock(return_value={'roadmap': dict(saved, catalog_version='published')}),
+        learning_state=AsyncMock(return_value=state),
+        learning_roadmap_priority=AsyncMock(return_value=priority),
+        catalog=AsyncMock(return_value=catalog),
+        roadmap_timeline=AsyncMock(return_value=timeline),
+        learning_tasks=AsyncMock(return_value={'items': [dict(task, id=id) for id, task in tasks.items()],
+                                              'nextOffset': None}),
+    )
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None, SimpleNamespace(), None)
+    path = '/internal/trial/initial-roadmap'
+    headers = {'X-Execution-Scope': 'trial-voice-scope'}
+    with TestClient(app) as client:
+        rejected = client.post(path, headers=headers, json={'roadmapRevision': 2})
+        backend.learning_state.assert_not_awaited()
+        accepted = client.post(path, headers=headers, json={'roadmapRevision': 1})
+
+    assert rejected.status_code == 409
+    assert rejected.json()['detail'] == 'stale_roadmap'
+    assert accepted.status_code == 200
+    assert accepted.json() == {'roadmapRevision': 1,
+                              'reply': render_initial_roadmap(state, saved, priority, catalog, timeline, tasks)}
+    backend.learning_state.assert_awaited_once_with('trial-voice-scope')
