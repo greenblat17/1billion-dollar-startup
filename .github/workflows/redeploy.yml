@@ -68,6 +68,7 @@ on:
           - phase-probe
           - regular-action
           - regular-action-mute
+          - regular-action-clear-finish
           - read-only
           - dependencies-only
         default: short
@@ -531,7 +532,7 @@ jobs:
         run: |
           set -euo pipefail
           timeout 60s python3 infra/dev/prepare-voice-audio.py generate "$RUNNER_TEMP/voice-inputs" \
-            infra/dev/scenarios/voice-{phase-probe,regular-action,short,early-exit}.json
+            infra/dev/scenarios/voice-{phase-probe,regular-action,regular-action-clear-finish,short,early-exit}.json
       - name: Upload verified voice inputs
         if: ${{ inputs.agent_voice_scenario == 'dependencies-only' }}
         uses: actions/upload-artifact@v6
@@ -555,7 +556,7 @@ jobs:
           set -euo pipefail
           case "$VOICE_SCENARIO" in
             regular-action-mute) scenario=infra/dev/scenarios/voice-regular-action.json ;;
-            short|early-exit|phase-probe|regular-action) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
+            short|early-exit|phase-probe|regular-action|regular-action-clear-finish) scenario="infra/dev/scenarios/voice-$VOICE_SCENARIO.json" ;;
             *) echo 'Unsupported voice scenario' >&2; exit 2 ;;
           esac
           if [[ -z "$VOICE_AUDIO_RUN_ID" ]]; then
@@ -590,7 +591,7 @@ jobs:
             scenario="$RUNNER_TEMP/verified-voice-scenario.json"
           fi
           voice_options=()
-          if [[ "$VOICE_SCENARIO" == regular-action-mute ]]; then
+          if [[ "$VOICE_SCENARIO" == regular-action-mute || "$VOICE_SCENARIO" == regular-action-clear-finish ]]; then
             voice_options+=(--mute-boundary-turn 3)
           fi
           cmp_key="$RUNNER_TEMP/agent-voice-cmp-key"
