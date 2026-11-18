@@ -215,8 +215,11 @@ class FoundationIntegrationTest {
             bridge.introduction.sent(9230, request.requestId, 0, 41) // receipt replay
             val restarted = FoundationChat(service)
             assertTrue(restarted.prepareIntroduction(request, 9230, 1))
-            clock.current = clock.current.plusSeconds(1)
-            assertEquals(1, restarted.introduction.next(9230, request.requestId)!!.index)
+            val next = requireNotNull(restarted.introduction.next(9230, request.requestId))
+            assertEquals(1, next.index)
+            assertTrue(next.waitMillis > 0)
+            assertEquals(false, restarted.introduction.claim(9230, request.requestId, 1))
+            clock.current = clock.current.plusMillis(next.waitMillis + 1)
             assertTrue(restarted.introduction.claim(9230, request.requestId, 1))
             assertEquals(false, bridge.introduction.claim(9230, request.requestId, 1))
             assertEquals("introduction_busy", assertFailsWith<FoundationFailure> {
