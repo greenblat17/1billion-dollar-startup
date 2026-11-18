@@ -21,6 +21,19 @@ input format and execution method are in `infra/dev/foundation-check-remote.py`.
    Speaky skill levels, 3×30 minute lessons, 20 minutes of daily Homework, a
    deadline, and one Known B2 Grammar Topic. Its oracle checks storage and
    confirms that Roadmap and priority do not exist before Trial.
+   This fixture is for independent input and mixed synthetic system-level checks. Do
+   not start its Trial: `TrialAssessment.apply` rejects synthetic Speaky level
+   provenance before writing an assessment. A Trial may also try to revise the
+   synthetic Known Topic, which the product guard protects.
+1a. `foundation-roadmap-self-report-inputs.json` is the separate next-Trial
+    fixture. It writes the same work goal and workload, with explicit A2
+    self-assessment for Speaking, Listening, Grammar, and Vocabulary. It writes
+    no Speaky levels or Topic Knowledge. Run `self_report_inputs` before Trial
+    and `self_report_posttrial` after the genuine Trial pipeline. The latter
+    checks the Roadmap, priority, Tasks, provisional estimate, and Trial-only
+    provenance for any measured levels. It does not claim mixed measured levels
+    or Known Topic omission; use independent real assessment evidence for those
+    behaviors. Synthetic system fields do not prove measurement.
 2. Complete a genuine synthetic Trial/Assessment/Roadmap pipeline for that
    student through the approved DEV harness. This is a separate, potentially
    paid acceptance step. No Foundation command directly requests
@@ -45,7 +58,8 @@ when the UUID already belongs to `agent_test`. The strict `posttrial` oracle
 applies only to the new work-goal/Known scenario after its Trial.
 
 Run an oracle with `python3 infra/dev/roadmap_acceptance_oracles.py
-inputs|posttrial|reestimate|existing <sanitized-result.json>`. An oracle exits nonzero
+inputs|self_report_inputs|posttrial|self_report_posttrial|reestimate|existing
+<sanitized-result.json>`. An oracle exits nonzero
 on any mismatch. The checks never claim that Cambridge guided hours predict
 this learner's real completion date. They also cannot validate pedagogical
 quality, Telegram delivery, or observed pace from SP-19/20.

@@ -56,12 +56,52 @@ def task_pages(prefix):
 
 class RoadmapOracleTest(unittest.TestCase):
     def test_scenarios_are_runner_compatible_and_bounded(self):
-        for name in ('inputs', 'posttrial', 'reestimate', 'existing-read', 'existing-core'):
+        for name in ('inputs', 'self-report-inputs', 'posttrial', 'reestimate', 'existing-read', 'existing-core'):
             path = HERE / 'scenarios' / f'foundation-roadmap-{name}.json'
             steps = json.loads(path.read_text())['steps']
             self.assertLessEqual(len(steps), 40)
             self.assertEqual(len(steps), len({step['name'] for step in steps}))
             self.assertTrue(all(set(step) == {'name', 'request'} for step in steps))
+
+    def test_new_trial_fixture_has_no_synthetic_measurement_or_known_topic(self):
+        path = HERE / 'scenarios' / 'foundation-roadmap-self-report-inputs.json'
+        steps = json.loads(path.read_text())['steps']
+        requests = [step['request'] for step in steps]
+        writes = [request for request in requests if request['kind'] == 'command']
+        self.assertEqual([request['action'] for request in writes], ['learning.update'])
+        patch = writes[0]['args']['patch']
+        self.assertEqual(set(patch['currentLevels']), {'selfAssessment'})
+        self.assertEqual(set(patch['currentLevels']['selfAssessment']['skills']),
+                         {'speaking', 'listening', 'grammar', 'vocabulary'})
+        self.assertEqual(writes[0]['args']['sources'], {'$ref': 'source.response.result.sources'})
+        original = json.loads((HERE / 'scenarios' / 'foundation-roadmap-inputs.json').read_text())['steps']
+        measured = next(step['request']['args']['patch']['currentLevels']['speaky'] for step in original
+                        if step['name'] == 'profile')
+        self.assertEqual(measured['skills']['grammar']['level'], 'B1')
+        self.assertEqual(measured['skills']['speaking']['level'], 'A2')
+
+    def test_self_report_input_oracle_rejects_synthetic_speaky_provenance(self):
+        profile = {'targetLevel': 'B2', 'deadline': '2026-12-18',
+                   'currentLevels': {'speaky': {'skills': {skill: {'level': 'Unknown'} for skill in
+                       ('speaking', 'listening', 'grammar', 'vocabulary')}},
+                       'selfAssessment': {'skills': {skill: {'level': 'A2'} for skill in
+                           ('speaking', 'listening', 'grammar', 'vocabulary')}}},
+                   'intensity': {'lessonsPerWeek': 3, 'lessonDurationMinutes': 30},
+                   'homework': {'consent': 'yes', 'minutes': 20, 'period': 'day'}}
+        provenance = {f'currentLevels.selfAssessment.skills.{skill}.level':
+                      {'component': 'foundation-acceptance-self-report'} for skill in
+                      ('speaking', 'listening', 'grammar', 'vocabulary')}
+        rows = {'empty_state': {'revision': 0}, 'profile_read': {'revision': 1,
+                'goal': {'content': {'value': 'Use English for work and reach B2',
+                                    'sources': [{'id': 'synthetic-event'}]}},
+                'profile': profile, 'provenance': provenance},
+                'roadmap_before_trial': {'status': 'roadmap_not_found'},
+                'priority_before_trial': {'status': 'roadmap_not_found'},
+                'tasks_before_trial': {'items': []}}
+        self.assertTrue(oracle.self_report_inputs(capture(**rows)))
+        provenance['currentLevels.speaky.skills.grammar.level'] = {'component': 'foundation-acceptance-self-report'}
+        with self.assertRaises(AssertionError):
+            oracle.self_report_inputs(capture(**rows))
 
     def test_input_oracle_requires_known_and_pretrial_gate(self):
         profile = {'targetLevel': 'B2', 'deadline': '2026-12-18',
@@ -95,6 +135,24 @@ class RoadmapOracleTest(unittest.TestCase):
         mislabeled['steps'][1]['response']['result']['roadmap']['document']['sequence'][0]['knowledge'] = 'Unknown'
         with self.assertRaises(AssertionError):
             oracle.posttrial(mislabeled)
+
+    def test_self_report_posttrial_does_not_claim_mixed_measured_or_known(self):
+        learning = state()
+        skills = ('speaking', 'listening', 'grammar', 'vocabulary')
+        learning['profile']['currentLevels']['speaky']['skills'] = {
+            skill: {'level': 'Unknown'} for skill in skills}
+        learning['provenance'] = {}
+        saved = roadmap()
+        saved['document']['assumptions'] = [
+            {'skillId': skill, 'startingLevel': 'A2', 'source': 'self_report'} for skill in skills]
+        rows = {'state': learning, 'roadmap': {'roadmap': saved}, 'priority': priority()}
+        rows.update(task_pages('tasks'))
+        result = capture(**rows)
+        self.assertTrue(oracle.self_report_posttrial(result))
+        learning['provenance']['currentLevels.speaky.skills.grammar.level'] = {
+            'component': 'foundation-acceptance-synthetic'}
+        with self.assertRaises(AssertionError):
+            oracle.self_report_posttrial(result)
 
     def test_existing_read_accepts_any_valid_synthetic_goal(self):
         rows = {'state': state(), 'roadmap': {'roadmap': roadmap()}, 'priority': priority(),

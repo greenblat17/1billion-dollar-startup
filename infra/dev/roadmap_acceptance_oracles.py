@@ -49,7 +49,34 @@ def inputs(capture):
     return ['SP-03 structured inputs', 'SP-08 AC-09 pre-Trial gate', 'SP-10 AC-09 pre-Trial gate']
 
 
-def posttrial(capture):
+def self_report_inputs(capture):
+    """Check a new Trial fixture without synthetic measured levels or Known Topics."""
+    row = steps(capture)
+    before = row['empty_state']
+    state = row['profile_read']
+    profile = state['profile']
+    assert before['revision'] == 0 and state['revision'] == 1
+    assert state['goal']['content']['value'] == 'Use English for work and reach B2'
+    assert state['goal']['content']['sources']
+    assert profile['targetLevel'] == 'B2'
+    assert profile['intensity'] == {'lessonsPerWeek': 3, 'lessonDurationMinutes': 30}
+    assert profile['homework'] == {'consent': 'yes', 'minutes': 20, 'period': 'day'}
+    assert profile['deadline'] == '2026-12-18'
+    skills = {'speaking', 'listening', 'grammar', 'vocabulary'}
+    levels = profile['currentLevels']
+    assert all(levels['selfAssessment']['skills'][skill]['level'] == 'A2' for skill in skills)
+    assert all(levels['speaky']['skills'][skill]['level'] == 'Unknown' for skill in skills)
+    assert not any(key.startswith('currentLevels.speaky.') for key in state['provenance'])
+    assert all(state['provenance'][f'currentLevels.selfAssessment.skills.{skill}.level']['component'] ==
+               'foundation-acceptance-self-report' for skill in skills)
+    assert row['roadmap_before_trial'].get('status') == 'roadmap_not_found'
+    assert row['priority_before_trial'].get('status') == 'roadmap_not_found'
+    assert row['tasks_before_trial']['items'] == []
+    return ['Sourced goal and four self-assessments', 'No synthetic measured Skill levels',
+            'SP-08/SP-10 pre-Trial gate']
+
+
+def posttrial(capture, *, require_mixed=True, known_topic_excluded=True):
     row = steps(capture)
     state = row['state']
     saved = row['roadmap']['roadmap']
@@ -63,12 +90,14 @@ def posttrial(capture):
     assert all(item['knowledge'] != 'Unknown' or item['provisional'] for item in sequence)
     assert all(item['reason'] and item['orderReason'] for item in sequence)
     assert any(item['goalFocus'] for item in sequence)
-    assert all(item['topicId'] != 'grammar-b2-third-conditional' for item in sequence), \
-        'A Known Topic remained on a fresh route, even if relabeled'
+    if known_topic_excluded:
+        assert all(item['topicId'] != 'grammar-b2-third-conditional' for item in sequence), \
+            'A Known Topic remained on a fresh route, even if relabeled'
     assumptions = {item['skillId']: item for item in document['assumptions']}
     assert set(assumptions) == {'speaking', 'listening', 'grammar', 'vocabulary'}
-    assert len({item['startingLevel'] for item in assumptions.values()}) > 1, \
-        'This capture does not exercise different Skill starting levels'
+    if require_mixed:
+        assert len({item['startingLevel'] for item in assumptions.values()}) > 1, \
+            'This capture does not exercise different Skill starting levels'
     for skill, item in assumptions.items():
         system = state['profile']['currentLevels']['speaky']['skills'][skill]['level']
         reported = state['profile']['currentLevels']['selfAssessment']['skills'][skill]['level']
@@ -111,6 +140,22 @@ def posttrial(capture):
     assert 'not a guaranteed' in timeline['uncertainty']
     return ['SP-08 AC-01/02/03/04/06/07/08/09', 'SP-09 AC-01/02/08',
             'SP-10 AC-01/03/04/06/10 (conditional on complete inputs)']
+
+
+def self_report_posttrial(capture):
+    """Keep the clean Trial's source boundary separate from mixed measured Skills."""
+    posttrial(capture, require_mixed=False, known_topic_excluded=False)
+    state = steps(capture)['state']
+    skills = {'speaking', 'listening', 'grammar', 'vocabulary'}
+    levels = state['profile']['currentLevels']
+    assert all(levels['selfAssessment']['skills'][skill]['level'] == 'A2' for skill in skills)
+    assert all(value['component'] == 'post-trial-assessment'
+               for key, value in state['provenance'].items()
+               if key.startswith('currentLevels.speaky.'))
+    return ['SP-08 Roadmap/Task structure and four Skills', 'SP-09 initial priority and Task linkage',
+            'SP-10 provisional projection from self-report or Trial levels',
+            'Self-report preserved; measured Skill provenance belongs to Trial',
+            'Known Topic omission and mixed measured levels not exercised']
 
 
 def existing(capture):
@@ -177,12 +222,15 @@ def reestimate(capture):
     return ['SP-10 AC-02/06/07/10', 'SP-09 AC-08 (unchanged priority and task progress)']
 
 
-CHECKS = {'inputs': inputs, 'posttrial': posttrial, 'reestimate': reestimate, 'existing': existing}
+CHECKS = {'inputs': inputs, 'self_report_inputs': self_report_inputs,
+          'posttrial': posttrial, 'self_report_posttrial': self_report_posttrial,
+          'reestimate': reestimate, 'existing': existing}
 
 
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in CHECKS:
-        raise SystemExit('Usage: roadmap_acceptance_oracles.py inputs|posttrial|reestimate|existing result.json')
+        raise SystemExit('Usage: roadmap_acceptance_oracles.py inputs|self_report_inputs|posttrial|'
+                         'self_report_posttrial|reestimate|existing result.json')
     capture = json.loads(Path(sys.argv[2]).read_text())
     passed = CHECKS[sys.argv[1]](capture)
     print(json.dumps({'scenario': sys.argv[1], 'checked': passed, 'evidence': 'scoped synthetic API capture only'},
