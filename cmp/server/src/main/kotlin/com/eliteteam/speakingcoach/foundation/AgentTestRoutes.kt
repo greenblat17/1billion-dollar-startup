@@ -84,7 +84,13 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                 if (body.length > 64_000) reject("request_too_large")
                 val input = foundationJson.parseToJsonElement(body).jsonObject
                 input.only("kind", "operationId", "action", "args", "resource", "resourceId", "history", "revision", "offset", "occurredAt")
-                val student = service.identity.resolve("agent_test", id)
+                // A preview of an unknown UUID must not create a synthetic student.
+                val preview = input.text("kind") == "read" && input.optionalText("resource") == "roadmap-render"
+                val student = if (preview) service.database.transaction(readOnly = true) { c, _ ->
+                    c.rows("SELECT student_id FROM student_identity WHERE provider='agent_test' AND subject=?", id) {
+                        it.getString(1)
+                    }.singleOrNull()
+                } ?: reject("not_owned") else service.identity.resolve("agent_test", id)
                 requireAgentTestOnlyStudent(service, student, id)
                 val scope = service.identity.issue(student, "operator")
                 val result = when (input.text("kind")) {
@@ -137,6 +143,10 @@ internal fun Route.agentTestRoutes(service: FoundationService, tutor: TutorClien
                             } catch (error: FoundationFailure) {
                                 if (error.code != "roadmap_not_found") throw error
                                 json("schemaVersion" to 1, "status" to "roadmap_not_found")
+                            }
+                            "roadmap-render" -> {
+                                val saved = service.learningRoadmap(scope).obj("roadmap")
+                                tutor.initialRoadmapPreview(scope, saved.number("revision"))
                             }
                             "jobs" -> service.database.transaction(readOnly = true) { c, now ->
                                 val authorized = authenticateScope(c, scope, now)

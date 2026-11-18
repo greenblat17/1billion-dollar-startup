@@ -37,6 +37,22 @@ class TutorClientTest {
         } finally { http.close() }
     }
 
+    @Test fun syntheticRoadmapPreviewForwardsOnlyRevisionAndScopeToAi() = runTest {
+        val http = HttpClient(MockEngine { request ->
+            assertEquals("/internal/trial/initial-roadmap", request.url.encodedPath)
+            assertEquals("test-token", request.headers[AI_INTERNAL_TOKEN_HEADER])
+            assertEquals("synthetic-scope", request.headers["X-Execution-Scope"])
+            assertEquals("{\"roadmapRevision\":1}", (request.body as TextContent).text)
+            respond("{\"reply\":\"Synthetic route\",\"roadmapRevision\":1,\"extra\":\"private\"}",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
+        })
+        http.use {
+            val preview = TutorClient("http://ai.local", it, "test-token")
+                .initialRoadmapPreview("synthetic-scope", 1)
+            assertEquals(Json.parseToJsonElement("{\"reply\":\"Synthetic route\",\"roadmapRevision\":1}"), preview)
+        }
+    }
+
     @Test fun failedResponseDoesNotBecomeBookingConfirmation() = runTest {
         val http = HttpClient(MockEngine { respond("unavailable", HttpStatusCode.ServiceUnavailable) }) {
             install(ContentNegotiation) { json() }

@@ -13,6 +13,11 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 @Serializable
 data class TutorRequest(val sessionId: String, val requestId: String, val text: String, val receivedAt: Double)
@@ -37,6 +42,24 @@ class TutorClient(private val root: String, private val http: HttpClient, privat
     internal var foundation: com.eliteteam.speakingcoach.foundation.FoundationChat? = null
 
     suspend fun beginDelivery(delivery: TutorDelivery): Boolean = foundation?.beginDelivery(delivery) ?: true
+
+    /** DEV agent-test preview; caller retains the scope and never looks up a Telegram recipient. */
+    internal suspend fun initialRoadmapPreview(scope: String, revision: Long): JsonObject {
+        require(revision > 0)
+        val response = http.post("$root/internal/trial/initial-roadmap") {
+            header(AI_INTERNAL_TOKEN_HEADER, token)
+            header("X-Execution-Scope", scope)
+            contentType(ContentType.Application.Json)
+            timeout { requestTimeoutMillis = 120_000; socketTimeoutMillis = 120_000 }
+            setBody("{\"roadmapRevision\":$revision}")
+        }
+        check(response.status.isSuccess()) { "Initial roadmap preview failed: ${response.status}" }
+        val result = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+        val reply = result["reply"] as? JsonPrimitive
+        check(reply != null && reply.isString && reply.content.isNotBlank() &&
+            (result["roadmapRevision"] as? JsonPrimitive)?.longOrNull == revision) { "Invalid initial roadmap preview" }
+        return JsonObject(mapOf("reply" to reply, "roadmapRevision" to JsonPrimitive(revision)))
+    }
 
     suspend fun delivered(delivery: TutorDelivery) {
         foundation?.let { it.delivered(delivery); return }
