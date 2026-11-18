@@ -118,7 +118,7 @@ async def test_two_rejections_finish_with_tools_disabled():
     body = 'московское время'
     source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-13T11:48:00+00:00'}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
-        {'status': 'claimed', 'input': source}, {'conversationId': 'conversation', 'reply': 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.', 'degraded': True}]))
+        {'status': 'claimed', 'input': source}, {'conversationId': 'conversation', 'reply': 'Я не смог подтвердить новую запись.', 'degraded': True}]))
     llm = SimpleNamespace(complete_tools=AsyncMock(side_effect=[
         {'role': 'assistant', 'tool_calls': [{'id': str(i), 'function': {'name': 'create_trial_booking', 'arguments': '{}'}}]}
         for i in range(2)] + [{'content': '{"reply":"Отлично, запускаю сейчас!"}'}]))
@@ -129,7 +129,7 @@ async def test_two_rejections_finish_with_tools_disabled():
     assert llm.complete_tools.await_count == 3
     assert llm.complete_tools.call_args.args[1] == []
     assert result['booking'] is None
-    assert result['reply'] == 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.'
+    assert result['reply'] == 'Я не смог подтвердить новую запись.'
     assert backend.command.call_args.args[3]['degraded'] is True
     assert backend.command.call_args.args[3]['reply'] == result['reply']
 
@@ -139,7 +139,7 @@ async def test_rejected_optional_updates_cannot_confirm_trial():
     body = 'Хочу пробный урок сейчас.'
     source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-17T12:45:00+00:00'}
     saved = {'conversationId': 'conversation',
-             'reply': 'Не удалось завершить запрос: запись на пробный не подтверждена. Напиши ещё раз, и я проверю запись.',
+             'reply': 'Не удалось выполнить запрос. Можешь написать мне ещё раз?',
              'degraded': True}
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
         {'status': 'claimed', 'input': source}, saved]))
@@ -169,7 +169,8 @@ async def test_extracted_personal_keys_are_stable_and_match_backend_contract():
 
 
 @pytest.mark.asyncio
-async def test_after_minutes_reaches_real_booking_adapter(monkeypatch):
+@pytest.mark.parametrize('delay,expected_start', [(5, '11:53'), (30, '12:18')])
+async def test_after_minutes_reaches_real_booking_adapter(monkeypatch, delay, expected_start):
     import app.foundation_tutor as module
     class Clock(datetime):
         @classmethod
@@ -180,27 +181,28 @@ async def test_after_minutes_reaches_real_booking_adapter(monkeypatch):
                   timezone='UTC', version=1, duration_minutes=15, launch_mode='executable')
     backend = SimpleNamespace(receipt=AsyncMock(return_value=None), snapshot=AsyncMock(return_value={}),
                               command=AsyncMock(return_value=lesson))
-    body = 'давай сегодня через 30 минут, норм будет?'
+    body = f'давай через {delay} минут?'
     result = await FoundationTutor(backend, None, None).execute('scope', 'request',
         {'id': 'current', 'body': body, 'occurred_at': '2026-11-13T11:48:00+00:00'},
         'create_trial_booking', dict(intent='explicit_request', evidence=body,
-        schedule=dict(mode='after_minutes', delayMinutes=30, timezone=None)))
+        schedule=dict(mode='after_minutes', delayMinutes=delay, timezone=None)))
     assert result['ok']
     assert backend.command.call_args.args[2] == 'lesson.create'
-    assert backend.command.call_args.args[3]['startsAt'] == '2026-11-13T12:18:00+00:00'
+    assert backend.command.call_args.args[3]['startsAt'] == f'2026-11-13T{expected_start}:00+00:00'
     assert result['booking']['id'] == 'lesson'
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('action', ['create_trial_booking', 'reschedule_trial_booking'])
 @pytest.mark.parametrize('timing', ['now', 'scheduled'])
-async def test_immediate_action_finishes_without_extra_model_reply_and_replays(action, timing):
+async def test_trial_booking_finishes_without_extra_model_reply_and_replays(action, timing):
     import json
-    from app.foundation_tutor import booking_projection
+    from app.foundation_tutor import booking_projection, scheduled_reply
     body = 'Я готов, можем начать'
     lesson = dict(id='lesson', student_id='student', status='scheduled', starts_at='2026-11-13T12:18:00+00:00',
                   timezone='UTC', version=1, duration_minutes=15, launch_mode='executable', timing=timing)
-    saved = dict(conversationId='conversation', reply='' if timing == 'now' else 'До встречи!', booking=lesson)
+    reply = '' if timing == 'now' else scheduled_reply(booking_projection(lesson), action == 'reschedule_trial_booking')
+    saved = dict(conversationId='conversation', reply=reply, booking=lesson)
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot(body)), command=AsyncMock(side_effect=[
         {'status': 'running', 'input': {'id': 'current', 'body': body}}, saved,
         {'status': 'ready', 'response': saved}]))
@@ -213,6 +215,31 @@ async def test_immediate_action_finishes_without_extra_model_reply_and_replays(a
     result = await tutor.respond(request, 'scope')
     assert result == await tutor.respond(request, 'scope')
     assert result['booking']['timing'] == timing
-    assert model.complete.await_count == (1 if timing == 'now' else 2)
+    assert model.complete.await_count == 1
     assert tutor.execute.await_count == 1
     assert backend.command.call_args_list[1].args[3]['reply'] == saved['reply']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('tool_name', ['get_trial_booking', 'create_trial_booking'])
+async def test_follow_up_uses_existing_trial_after_direct_read_or_rejected_mutation(tool_name):
+    body = 'Куда подключаться?'
+    lesson = dict(id='lesson', student_id='student', status='scheduled', starts_at='2026-11-18T07:43:58+00:00',
+                  timezone='UTC', version=1, duration_minutes=30, launch_mode='executable', timing='scheduled')
+    source = {'id': 'current', 'body': body}
+    mock_snapshot = {**snapshot(body), 'booking': lesson}
+    finish = AsyncMock(side_effect=lambda scope, key, action, payload: (
+        {'status': 'running', 'input': source} if action == 'run.claim' else
+        {'conversationId': 'conversation', **payload}))
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=mock_snapshot), command=finish, receipt=AsyncMock(return_value=None))
+    model = SimpleNamespace(complete=AsyncMock(side_effect=[
+        {'role': 'assistant', 'tool_calls': [{'id': 'call', 'function': {
+            'name': tool_name, 'arguments': '{}'}}]},
+        {'content': '{"reply":"Подключайся в Speaky."}'},
+    ]))
+    result = await FoundationTutor(backend, model, ContextBuilder(backend)).respond(
+        TutorRequest(sessionId='session', requestId='request', text=body, receivedAt=1794987579), 'scope')
+    assert result['joinLessonId'] == 'lesson'
+    assert result['booking'] is None
+    assert result['reply'].startswith('Пробный уже записан' if tool_name == 'create_trial_booking' else 'Подключайся в Speaky')
+    assert [call.args[2] for call in finish.call_args_list] == ['run.claim', 'run.complete']

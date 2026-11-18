@@ -23,16 +23,29 @@ from app.tutor_diagnostics import record_tool
 from app.subscription_tools import SUBSCRIPTION_MODELS
 
 
+MONTHS = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+          'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
+
+
 def booking_label(booking):
     if booking['status'] == 'cancelled':
         return 'Пробное занятие отменено.\nЕсли добавлял его в календарь, удали событие там.'
     local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
     weekdays = ('понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье')
-    months = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
     return (f"Пробное занятие · бесплатно\n"
-            f"{local.day} {months[local.month - 1]} {local.year}, {weekdays[local.weekday()]}\n"
+            f"{local.day} {MONTHS[local.month - 1]} {local.year}, {weekdays[local.weekday()]}\n"
             f"{local:%H:%M} · {booking['timezone']} · {booking['durationMinutes']} минут\n"
             + ('Звонок в Speaky' if booking.get('launchMode') == 'executable' else 'Подключение пока недоступно'))
+
+
+def scheduled_reply(booking, rescheduled=False):
+    local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
+    day = f'{local.day} {MONTHS[local.month - 1]}'
+    display_zone = 'МСК' if booking['timezone'] == 'Europe/Moscow' else booking['timezone']
+    confirmation = 'Перенёс пробный' if rescheduled else 'Записал тебя на бесплатный пробный'
+    calendar = ' Если добавлял урок в календарь, обнови время.' if rescheduled else ''
+    return (f'{confirmation} на {day} в {local:%H:%M} ({display_zone}). '
+            f'Урок на {booking["durationMinutes"]} минут. Подключайся по кнопке в этом сообщении.{calendar}')
 
 
 def booking_projection(lesson: dict | None) -> dict | None:
@@ -68,6 +81,10 @@ class FoundationTutor:
             'For booking mutations, evidence must be a verbatim substring of this current message '
             'that supports the requested action, not a quote from history or a paraphrase. '
             'A matching quote alone does not authorize an action: determine the current intent. '
+            'If asked where or how to join an agreed trial, call get_trial_booking. This is a read, '
+            'never a booking mutation. For an executable active trial the adapter attaches the actual '
+            'lesson button to your reply. Say it opens the call in Speaky and opens a waiting screen '
+            'if the lesson has not started. Do not assume the action requested in history is requested again. '
             'An explicit current request needs no additional confirmation. '
             'The Telegram adapter may have delivered part or all of a fixed introduction; '
             'its confirmed messages are in history. Respond to the current message immediately, '
@@ -84,6 +101,8 @@ class FoundationTutor:
         degraded = False
         rejected_tools = 0
         rejected_trial_change = None
+        join_lesson = None
+        rescheduled = False
         try:
             committed = claim.get('committed', [])
             if committed:
@@ -92,6 +111,8 @@ class FoundationTutor:
                 memory_committed = any(operation["action"].startswith("memory.") or operation["action"] in ("tutor.update_context", "onboarding.update") for operation in committed)
                 payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
+                rescheduled = bool(changed and any(operation['action'] == 'lesson.reschedule'
+                                                   for operation in committed))
                 raise RuntimeError('recovering_committed_operation')
             with anyio.fail_after(55):
                 for _ in range(6):
@@ -125,12 +146,17 @@ class FoundationTutor:
                             payment_committed = True
                         if function['name'] in SCHEDULE_MODELS and result.get('ok'):
                             schedule_committed = True
-                        if result.get('ok') and result.get('booking') and function['name'] != 'get_trial_booking':
-                            changed = result['booking']
+                        if result.get('ok') and result.get('booking'):
+                            if function['name'] == 'get_trial_booking':
+                                if result['booking'].get('launchMode') == 'executable':
+                                    join_lesson = result['booking']['id']
+                            elif function['name'] in ('create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking'):
+                                changed = result['booking']
+                                rescheduled = function['name'] == 'reschedule_trial_booking'
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
-                    if changed and changed.get('timing') == 'now' and changed['status'] in ('scheduled', 'in_progress'):
-                        # The durable invitation is the response; no extra model round or goodbye.
-                        reply = ''
+                    if changed and changed['status'] in ('scheduled', 'in_progress'):
+                        # The committed booking owns the confirmation. No further model round is needed.
+                        reply = '' if changed.get('timing') == 'now' else scheduled_reply(changed, rescheduled)
                         break
                     if rejected_tools >= 2:
                         messages.append({'role': 'system', 'content': (
@@ -157,7 +183,10 @@ class FoundationTutor:
             if payment_committed:
                 reply = 'Запрос по подписке сохранён. Тестовая оплата не списывает деньги; статус можно уточнить здесь.'
             elif changed:
-                reply = booking_label(changed)
+                if changed['status'] == 'scheduled' and changed.get('timing') != 'now':
+                    reply = scheduled_reply(changed, rescheduled)
+                else:
+                    reply = booking_label(changed)
             elif schedule_committed:
                 reply = 'Изменения расписания сохранены. Встречи можно посмотреть в «Мои встречи».'
             elif memory_committed:
@@ -165,25 +194,32 @@ class FoundationTutor:
             else:
                 reply = 'Не удалось подготовить ответ. Напиши ещё раз, пожалуйста.'
         if rejected_trial_change and changed is None:
-            reply = {
-                'create_trial_booking': 'Пробный пока не записан. Напиши ещё раз, и я проверю запись.',
-                'reschedule_trial_booking': 'Не удалось подтвердить перенос пробного. Проверь «Мои встречи» и напиши ещё раз.',
-                'cancel_trial_booking': 'Не удалось подтвердить отмену пробного. Проверь «Мои встречи» и напиши ещё раз.',
-            }[rejected_trial_change]
+            current = (await self.backend.snapshot(scope, 'text')).get('booking')
+            join_lesson = current['id'] if current and current.get('launch_mode') == 'executable' else None
+            if rejected_trial_change == 'create_trial_booking':
+                reply = ('Пробный уже записан. Подключайся по кнопке в этом сообщении.' if join_lesson
+                         else 'Я не смог подтвердить новую запись.')
+            else:
+                operation = 'перенос' if rejected_trial_change == 'reschedule_trial_booking' else 'отмену'
+                reply = f'Я не смог подтвердить {operation} пробного.'
+                if join_lesson:
+                    reply += ' Текущая запись доступна по кнопке в этом сообщении.'
             degraded = True
-        elif rejected_tools >= 2 and changed is None:
-            reply = 'Не удалось завершить запрос: запись на пробный не подтверждена. Напиши ещё раз, и я проверю запись.'
+        elif rejected_tools >= 2 and changed is None and join_lesson is None:
+            reply = 'Не удалось выполнить запрос. Можешь написать мне ещё раз?'
             degraded = True
-        committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', {
-            'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded,
-        })
+        result = {'reply': reply, 'bookingId': changed['id'] if changed else None, 'degraded': degraded}
+        if join_lesson and not changed:
+            result['joinLessonId'] = join_lesson
+        committed = await self.backend.command(scope, f'finish:{request.requestId}', 'run.complete', result)
         return self.response(committed)
 
     @staticmethod
     def response(saved: dict) -> dict:
         booking = booking_projection(saved.get('booking'))
         return dict(conversationId=saved['conversationId'], reply=saved['reply'], booking=booking,
-                    bookingText=booking_label(booking) if booking else None, degraded=saved.get('degraded', False))
+                    bookingText=booking_label(booking) if booking else None, degraded=saved.get('degraded', False),
+                    joinLessonId=saved.get('joinLessonId'))
 
     async def execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         record_tool(request_id, name, 'dispatch', 'started')
@@ -200,12 +236,19 @@ class FoundationTutor:
         try:
             if name == 'update_onboarding':
                 args = UpdateOnboarding.model_validate(arguments)
-                if any(change.evidence not in source['body'] for change in args.changes):
-                    raise ValueError('invalid_evidence')
-                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                supported = [change for change in args.changes
+                             if change.evidence.strip() and change.evidence in source['body']]
+                if not supported:
+                    return {'ok': False, 'error': 'invalid_evidence', 'guidance':
+                            'Copy an exact quote from the current message for every changed field. Omit unsupported fields.'}
+                payload = args.model_copy(update={'changes': supported}).model_dump()
+                identity = hashlib.sha256(json.dumps([request_id, name, payload], sort_keys=True).encode()).hexdigest()
                 result = await self.backend.command(scope, identity, 'onboarding.update',
-                    {'sourceId': source['id'], **args.model_dump()})
-                return {'ok': True, 'saved': True, 'learningState': result}
+                    {'sourceId': source['id'], **payload})
+                response = {'ok': True, 'saved': True, 'learningState': result}
+                if len(supported) != len(args.changes):
+                    response['guidance'] = 'Some fields lacked evidence and were skipped. Only the returned changes were saved.'
+                return response
             if name in MEMORY_MODELS:
                 return await execute_memory(self.backend, scope, request_id, source, name, arguments)
             if name == 'get_subscription':

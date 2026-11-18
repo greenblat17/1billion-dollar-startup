@@ -7,11 +7,13 @@ import java.time.Instant
 
 internal val TELEGRAM_INTRO_TEXTS = listOf(
     "Привет! 👋",
-    "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
-    "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
+    "Меня зовут Саша. Я твой ИИ-репетитор по английскому.",
+    "Со мной можно подготовиться к собеседованию, освоиться после переезда или просто почувствовать себя увереннее в разговоре.",
     "Расскажи, пожалуйста, для чего ты изучаешь английский?",
 )
-private val introPauses = listOf(0L, 750L, 1250L, 750L)
+/** Allow time to read the preceding message at roughly 24 characters per second. */
+internal fun introductionPauseMillis(previous: String): Long =
+    (500L + previous.codePointCount(0, previous.length) * 42L).coerceIn(1100L, 6500L)
 
 internal data class IntroductionPart(val index: Int, val waitMillis: Long)
 
@@ -96,7 +98,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
         c.appendEvent(student, c.conversation(student, "telegram"), "intro:$request:$part", "assistant", TELEGRAM_INTRO_TEXTS[part], now, now)
         c.update("""UPDATE telegram_introduction SET next_part=?,due_at=?,
             status=CASE WHEN status='active' AND ?=4 THEN 'completed' ELSE status END WHERE student_id=?""",
-            part + 1, now.plusMillis(introPauses.getOrElse(part + 1) { 0 }), part + 1, student)
+            part + 1, now.plusMillis(introductionPauseMillis(TELEGRAM_INTRO_TEXTS[part])), part + 1, student)
     }
 
     suspend fun uncertain(chat: Long, request: String) = database.transaction { c, _ ->

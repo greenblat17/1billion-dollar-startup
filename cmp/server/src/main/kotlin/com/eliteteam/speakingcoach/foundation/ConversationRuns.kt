@@ -35,7 +35,7 @@ internal class ConversationRuns {
 
     fun complete(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
         requireRole(scope, "text")
-        args.only("reply", "bookingId", "degraded")
+        args.only("reply", "bookingId", "degraded", "joinLessonId")
         assertRun(connection, scope, now)
         val booking = args.optionalText("bookingId")?.let { connection.lesson(scope, it) }
         // The durable invitation owns immediate-start delivery and its visible history.
@@ -50,7 +50,9 @@ internal class ConversationRuns {
             val event = connection.appendEvent(scope.studentId, conversation, "reply:$request", "assistant", reply, now, now)
             connection.update("UPDATE conversation_event SET expires_at=? WHERE id=?", deadline, event.text("id"))
         }
-        val response = json("conversationId" to conversation, "reply" to reply, "booking" to booking, "degraded" to args["degraded"])
+        val joinLesson = args.optionalText("joinLessonId")?.let { connection.currentTrialInvitation(scope.studentId, it, now) }
+        val response = json("joinLessonId" to joinLesson, "conversationId" to conversation, "reply" to reply,
+            "booking" to booking, "degraded" to args["degraded"])
         connection.update("UPDATE tutor_inbox SET status='ready',response=?::jsonb,lease_until=NULL,expires_at=LEAST(expires_at,?) WHERE student_id=? AND request_id=?", response, deadline, scope.studentId, request)
         val input = connection.document("SELECT to_jsonb(i) FROM tutor_inbox i WHERE student_id=? AND request_id=?", scope.studentId, request) ?: reject("not_owned")
         val job = connection.enqueueJob(scope.studentId, "memory.extract", input.text("event_id"), null,
@@ -68,4 +70,12 @@ internal fun assertRun(connection: Connection, scope: ExecutionScope, now: Insta
     if (scope.fence == null || input.number("fence") != scope.fence || input.text("status") != "running" ||
         Instant.parse(input.text("lease_until")) <= now
     ) reject("stale_run")
+}
+
+
+/** An invitation can open the lobby before the scheduled start. It expires with its lesson. */
+internal fun Connection.currentTrialInvitation(student: String, id: String, now: Instant): String? {
+    val lesson = document("""SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND id=? AND kind='trial'
+        AND status IN ('scheduled','in_progress') AND launch_mode='executable'""", student, id)
+    return lesson?.takeIf { now < slotEnd(it) }?.text("id")
 }

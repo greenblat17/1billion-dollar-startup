@@ -243,6 +243,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
                 ORDER BY e.occurred_at,e.sequence LIMIT 1001""", scope.studentId, lessonId, now) else emptyList()
         val roadmap = connection.currentRoadmap(scope.studentId)
         val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress') ORDER BY created_at DESC LIMIT 1", scope.studentId)
+            ?.takeUnless { purpose == "text" && now >= slotEnd(it) }
         json("version" to 1, "student" to student, "textMode" to connection.textConversationMode(scope.studentId), "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
             "learningState" to StudentLearningState().read(connection, scope.studentId, now),
             "topicKnowledge" to connection.document("SELECT to_jsonb(c) FROM learning_catalog_current c WHERE singleton=TRUE")?.let {

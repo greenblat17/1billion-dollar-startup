@@ -119,12 +119,13 @@ class FoundationIntegrationTest {
             com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9200, request.requestId,
                 typing = { typing++ }, send = { sent += it; sent.size.toLong() },
                 pause = { paused += it; clock.current = clock.current.plusMillis(it) })
-            assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
-                "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
+            assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я твой ИИ-репетитор по английскому.",
+                "Со мной можно подготовиться к собеседованию, освоиться после переезда или просто почувствовать себя увереннее в разговоре.",
                 "Расскажи, пожалуйста, для чего ты изучаешь английский?"), sent)
             assertEquals(3, typing)
             // PostgreSQL rounds each persisted due_at to microseconds; three pauses may gain a few ms.
-            assertTrue(paused in 2750L..2760L)
+            val expectedPauses = sent.dropLast(1).sumOf(::introductionPauseMillis)
+            assertTrue(paused in expectedPauses..expectedPauses + 10)
             val student = service.identity.resolve("telegram", "9200")
             val scope = service.identity.issue(student, "operator")
             assertEquals(listOf("/start") + sent, service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
@@ -986,10 +987,15 @@ class FoundationIntegrationTest {
             val second = request.copy(requestId = "message:2")
             val nextScope = bridge.accept(second, false)
             service.op(nextScope, "run.claim", json())
-            service.op(nextScope, "run.complete", json("reply" to "Договорились", "bookingId" to lesson.text("id"), "degraded" to false))
+            val followUp = service.op(nextScope, "run.complete", json("reply" to "Открой Speaky по кнопке.",
+                "joinLessonId" to lesson.text("id"), "degraded" to false))
+            assertEquals(lesson.text("id"), followUp.text("joinLessonId"))
+            val followUpResponse = response.copy(booking = null, joinLessonId = lesson.text("id"))
+            assertEquals(lesson.text("id"), bridge.withDelivery(second, followUpResponse).joinLessonId)
             service.op(operator, "lesson.cancel", json("lessonId" to lesson.text("id"), "expectedVersion" to 1))
             assertEquals(false, bridge.beginDelivery(delivery.copy(requestId = second.requestId)))
             assertEquals(false, bridge.withDelivery(second, response).cardDelivered)
+            assertEquals(null, bridge.withDelivery(second, followUpResponse).joinLessonId)
         }
     }
 
