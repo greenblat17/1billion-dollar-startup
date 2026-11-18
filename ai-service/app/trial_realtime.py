@@ -110,6 +110,8 @@ class RealtimeTrialSession(TrialJournal):
         self.v55 = self.lesson.get('trial_version') == 'v5.5'
         self.trial_state = admitted.get('trialExecution') or {}
         self.trial_learner_has_spoken = False
+        self.trial_response_items = []
+        self.trial_recovery_pending = self.trial_recovery_used = False
         self.phase_hints = set()
         self.input_audio_ms = 0
         self.input_spans = {}
@@ -339,10 +341,21 @@ class RealtimeTrialSession(TrialJournal):
                 self.phase_hints.add('wrap_up')
                 instructions = ('At a natural pause, wrap up only what actually happened. Ask for feedback, '
                                 'confirm only the backend nextLesson, then say goodbye.')
+        recovering = self.trial_recovery_pending
+        if recovering:
+            if self.speaking or self.pending_inputs:
+                return
+            self.trial_recovery_pending = False
+            self.trial_recovery_used = True
+            instructions = ('Say a brief goodbye in Russian in one sentence.' if self.finish_next else
+                            'Continue naturally from what the learner already heard. Speak one short sentence and pause.')
+            allow_tools = False
         if self.v55 and self.finish_next and (
             self.trial_state.get('phase') == 'wrapup' or self.trial_state.get('connectedSeconds', 0) >= 1500
         ):
             instructions = trial_v55.GOODBYE
+            if recovering:
+                instructions += ' Keep this to the delivery promise and goodbye.'
             allow_tools = False
         response = {} if instructions is None else {'instructions': instructions}
         if not allow_tools:
@@ -423,6 +436,7 @@ class RealtimeTrialSession(TrialJournal):
             await self.send({'type': 'input_audio_buffer.commit', 'event_id': 'mute_commit'})
 
     async def interrupt(self, notify=True):
+        self.cancel_trial_recovery()
         self.finish_next = self.want_finish = False
         affected = []
         for key, item in self.items.items():
@@ -433,6 +447,10 @@ class RealtimeTrialSession(TrialJournal):
         event('trial_interrupt', reason='provider_speech_started', pending_playback=len(affected))
         if affected and notify:
             await self.socket.send_json({'type': 'interrupt'})
+
+    def cancel_trial_recovery(self):
+        if self.trial_recovery_pending:
+            self.trial_recovery_pending = self.want_response = self.finish_next = False
 
     async def settle(self, key, report):
         item = self.items.get(key)
@@ -449,7 +467,9 @@ class RealtimeTrialSession(TrialJournal):
                     and played >= max(0, duration - 50))
         if report.get('complete') is True and not item['cancelled'] and not complete:
             return
-        if complete and item['text'] is None:
+        incomplete = item.get('generation_incomplete', False)
+        if complete and ((self.v55 and not item.get('generation_done'))
+                         or (item['text'] is None and not incomplete)):
             item['report'] = report
             return
         if not complete and item['bytes']:
@@ -460,7 +480,8 @@ class RealtimeTrialSession(TrialJournal):
         await self.command('voice.playback', utteranceId=key, complete=complete, playedMs=played)
         if complete and item['text']:
             saved = await self.append('assistant', item['text'], source=f'{self.episode}:{key}',
-                              metadata={'providerItemId': key, 'finality': 'final', 'playbackComplete': True, 'playedMs': played} if self.v55 else None)
+                              metadata={'providerItemId': key, 'finality': 'partial' if incomplete else 'final',
+                                        'playbackComplete': True, 'playedMs': played} if self.v55 else None)
             if self.action is not None and saved.get('eventId'):
                 if type(saved.get('sequence')) is not int:
                     raise ValueError('missing_conversation_sequence')
@@ -471,12 +492,39 @@ class RealtimeTrialSession(TrialJournal):
         elif played:
             await self.append('assistant', '[Прерванная устная реплика; точный услышанный фрагмент неизвестен.]',
                               source=f'{self.episode}:{key}',
-                              metadata={'providerItemId': key, 'finality': 'partial', 'playbackComplete': False, 'playedMs': played} if self.v55 else None)
+                              metadata={'providerItemId': key, 'finality': 'partial', 'playbackComplete': complete, 'playedMs': played} if self.v55 else None)
         item['settled'] = True
-        if complete and item['finish']:
+        if complete and item['finish'] and (not self.v55 or (item['bytes'] and item['text'])):
             self.want_finish = True
         await self.finish_if_ready()
         await self.maybe_respond()
+
+    async def settle_trial_response(self, response, limited):
+        keys, self.trial_response_items = self.trial_response_items, []
+        if limited:
+            was_finishing = self.finish_next or any(self.items[key]['finish'] for key in keys)
+            self.want_finish = self.finish_next = False
+            learner_turn = self.speaking or self.last_input_stage == 'speech_stopped' or self.want_response
+            if not self.trial_recovery_used and not learner_turn:
+                self.trial_recovery_pending = self.want_response = True
+                self.finish_next = was_finishing
+        completed = {output.get('id') for output in response.get('output', [])
+                     if output.get('type') == 'message' and output.get('status') == 'completed'}
+        for key in keys:
+            item = self.items[key]
+            item['generation_done'] = True
+            if limited:
+                item['finish'] = False
+                item['generation_incomplete'] = key not in completed or not item['text']
+                if not item['bytes']:
+                    item['settled'] = True
+                    continue
+                if not item['done']:
+                    item['done'] = True
+                    if not item['cancelled']:
+                        await self.socket.send_json({'type': 'audio_end', 'id': key})
+            if item['report']:
+                await self.settle(key, item['report'])
 
     async def finish_if_ready(self):
         if (not self.want_finish or self.response_active or self.pending_inputs or self.truncations or self.ended
@@ -577,6 +625,11 @@ class RealtimeTrialSession(TrialJournal):
         elif kind == 'input_audio_buffer.committed':
             self.last_input_stage = 'committed'
             if self.v55:
+                self.cancel_trial_recovery()
+                self.finish_next = self.want_finish = False
+                for item in self.items.values():
+                    if not item['settled']:
+                        item['finish'] = False
                 self.turn_times.setdefault(message['item_id'], timestamp())
             self.speaking = False
             self.pending_timing = {'turn_id': message['item_id'], 'committed_at': time.monotonic(),
@@ -676,6 +729,8 @@ class RealtimeTrialSession(TrialJournal):
             self.response_active = True
         elif kind == 'response.output_item.added' and message['item']['type'] == 'message':
             key = message['item']['id']
+            if self.v55 and key not in self.items:
+                self.trial_response_items.append(key)
             self.items.setdefault(key, dict(bytes=0, text=None, done=False, settled=False, cancelled=False,
                                             finish=self.finish_next, content_index=0, sent_at=time.monotonic(),
                                             interrupt_at=None, report=None, timing=dict(self.response_timing)))
@@ -683,7 +738,7 @@ class RealtimeTrialSession(TrialJournal):
         elif kind == 'response.output_audio.delta':
             key = message['item_id']
             item = self.items[key]
-            if item['cancelled'] or item['settled']:
+            if item['cancelled'] or item['settled'] or item.get('generation_done'):
                 return
             data = base64.b64decode(message['delta'], validate=True)
             if len(data) % 2 or item['bytes'] + len(data) > 6_000_000:
@@ -709,29 +764,37 @@ class RealtimeTrialSession(TrialJournal):
             await self.socket.send_bytes(data)
         elif kind == 'response.output_audio.done':
             item = self.items[message['item_id']]
-            item['done'] = True
-            if not item['cancelled']:
-                await self.socket.send_json({'type': 'audio_end', 'id': message['item_id']})
+            if not item['done']:
+                item['done'] = True
+                if not item['cancelled']:
+                    await self.socket.send_json({'type': 'audio_end', 'id': message['item_id']})
         elif kind == 'response.output_audio_transcript.done':
             item = self.items[message['item_id']]
             item['text'] = message['transcript'][:12000]
             if item['report']:
                 await self.settle(message['item_id'], item['report'])
         elif kind == 'response.done':
-            self.response_active = False
             response = message['response']
             usage = response.get('usage') or {}
+            status = safe_response_status(response)
             event('trial_realtime_response', outcome=response['status'], model=self.settings.trial_realtime_model,
                   usage={k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens',
                                               'input_token_details', 'output_token_details') if k in usage},
-                  **safe_response_status(response))
-            if response['status'] not in ('completed', 'cancelled'):
+                  **status)
+            limited = self.v55 and response['status'] == 'incomplete' and status['status_reason'] == 'max_output_tokens'
+            if not limited and response['status'] not in ('completed', 'cancelled'):
                 raise RealtimeProviderError((response.get('status_details') or {}).get('error', {}))
             if response['status'] == 'cancelled':
                 await self.interrupt()
-            for output in response.get('output', []):
-                if output['type'] == 'function_call':
-                    await self.tool(output)
+            if self.v55:
+                # Resolve deferred playback before allowing an end or another response.
+                self.response_active = True
+                await self.settle_trial_response(response, limited)
+            self.response_active = False
+            if not limited:
+                for output in response.get('output', []):
+                    if output['type'] == 'function_call':
+                        await self.tool(output)
             await self.finish_if_ready()
             await self.maybe_respond()
 

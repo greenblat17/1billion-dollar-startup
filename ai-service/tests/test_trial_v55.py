@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.trial_realtime import RealtimeTrialSession
+from app.trial_realtime import RealtimeProviderError, RealtimeTrialSession
 from app.trial_policy import TrialAnalyzer
 from app.trial_v55 import phase_hint
 from tests.test_trial_realtime import ADMITTED, SETTINGS, output, session, sent
@@ -95,6 +95,160 @@ async def test_finish_tool_sets_roadmap_handoff_only_for_normal_wrapup(phase, se
     assert s.ended
     assert s.backend.command.call_args_list[-2].args[3]['body'] == goodbye
     assert s.backend.command.call_args.args[3]['reason'] == 'natural_goodbye'
+
+
+async def played_trial_output(s, key, text, *, finish=False):
+    await output(s, key, finish=finish)
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': key})
+    await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': key, 'transcript': text})
+    await s.settle(key, {'complete': True, 'playedMs': 100})
+
+
+async def hit_trial_output_limit(s, *items):
+    await s.provider_event({'type': 'response.done', 'response': {
+        'status': 'incomplete', 'status_details': {'reason': 'max_output_tokens'},
+        'output': list(items),
+    }})
+
+
+@pytest.mark.asyncio
+async def test_trial_output_limit_keeps_played_evidence_and_recovers_once():
+    s = v55_session()
+    s.append = AsyncMock(wraps=s.append)
+    s.trial_state = {'phase': 'wrapup', 'connectedSeconds': 1541}
+    await s.provider_event({'type': 'response.created'})
+    await played_trial_output(s, 'complete', 'Tell me about your next meeting.')
+    await played_trial_output(s, 'cut', 'To prepare for the meeting, you')
+    assert not s.append.await_count
+
+    await hit_trial_output_limit(
+        s, {'type': 'message', 'id': 'complete', 'status': 'completed'},
+        {'type': 'message', 'id': 'cut', 'status': 'incomplete'},
+        {'type': 'function_call', 'name': 'finish_after_reply', 'call_id': 'cut-tool', 'arguments': '{}'},
+    )
+
+    assert [(call.args[1], call.kwargs['metadata']) for call in s.append.await_args_list] == [
+        ('Tell me about your next meeting.', {
+            'providerItemId': 'complete', 'finality': 'final', 'playbackComplete': True, 'playedMs': 100,
+        }),
+        ('To prepare for the meeting, you', {
+            'providerItemId': 'cut', 'finality': 'partial', 'playbackComplete': True, 'playedMs': 100,
+        }),
+    ]
+    assert sent(s) == [{'type': 'response.create', 'response': {
+        'instructions': 'Continue naturally from what the learner already heard. Speak one short sentence and pause.',
+        'tool_choice': 'none',
+    }}]
+    assert s.trial_state == {'phase': 'wrapup', 'connectedSeconds': 1541}
+    await played_trial_output(s, 'cut-again', 'We can')
+    await hit_trial_output_limit(s)
+    assert len([event for event in sent(s) if event['type'] == 'response.create']) == 1
+    assert not s.ended
+    assert not any(call.args[2] == 'voice.end' for call in s.backend.command.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_trial_output_limit_keeps_audio_when_completed_item_has_no_transcript():
+    s = v55_session()
+    s.append = AsyncMock(wraps=s.append)
+    await output(s, 'missing-transcript')
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': 'missing-transcript'})
+    await s.settle('missing-transcript', {'complete': True, 'playedMs': 100})
+    await hit_trial_output_limit(s, {'type': 'message', 'id': 'missing-transcript', 'status': 'completed'})
+    assert s.append.await_args.kwargs['metadata'] == {
+        'providerItemId': 'missing-transcript', 'finality': 'partial', 'playbackComplete': True, 'playedMs': 100,
+    }
+    assert sent(s)[-1]['type'] == 'response.create'
+
+
+@pytest.mark.asyncio
+async def test_trial_cut_goodbye_waits_for_playback_and_only_complete_recovery_finishes():
+    s = v55_session()
+    s.append = AsyncMock(wraps=s.append)
+    s.trial_state = {'phase': 'wrapup', 'connectedSeconds': 1800}
+    await s.provider_event({'type': 'response.created'})
+    await output(s, 'cut-goodbye', finish=True)
+    await hit_trial_output_limit(s)
+    assert s.socket.send_json.await_args.args[0] == {'type': 'audio_end', 'id': 'cut-goodbye'}
+    assert not sent(s)
+    sent_count = s.socket.send_json.await_count
+    await s.provider_event({'type': 'response.output_audio.done', 'item_id': 'cut-goodbye'})
+    assert s.socket.send_json.await_count == sent_count
+    assert not s.ended
+
+    await s.settle('cut-goodbye', {'complete': True, 'playedMs': 100})
+    assert s.append.await_args.kwargs['metadata'] == {
+        'providerItemId': 'cut-goodbye', 'finality': 'partial', 'playbackComplete': True, 'playedMs': 100,
+    }
+    assert sent(s)[-1]['response']['tool_choice'] == 'none'
+    assert 'Вы получите в Telegram персональный план занятий' in sent(s)[-1]['response']['instructions']
+    await played_trial_output(s, 'recovery', 'Вы получите персональный план в Telegram. До встречи!',
+                              finish=s.finish_next)
+    assert not s.ended
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
+    assert s.ended
+    assert s.append.await_args.kwargs['metadata']['finality'] == 'final'
+    assert [call.args[3]['reason'] for call in s.backend.command.await_args_list
+            if call.args[2] == 'voice.end'] == ['natural_goodbye']
+
+
+@pytest.mark.asyncio
+async def test_trial_barge_in_supersedes_queued_goodbye_recovery():
+    s = v55_session()
+    s.append = AsyncMock(wraps=s.append)
+    s.trial_state = {'phase': 'wrapup', 'connectedSeconds': 1800}
+    await output(s, 'cut-goodbye', finish=True)
+    await hit_trial_output_limit(s)
+    await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'learner'})
+    await s.settle('cut-goodbye', {'complete': False, 'playedMs': 60})
+    assert s.append.await_args.kwargs['metadata']['playedMs'] == 60
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
+    assert sent(s)[-1]['type'] == 'conversation.item.truncate'
+    await s.provider_event({'type': 'conversation.item.truncated', 'item_id': 'cut-goodbye'})
+    assert sent(s)[-1] == {'type': 'response.create', 'response': {}}
+    assert not s.finish_next and not s.ended
+
+
+@pytest.mark.asyncio
+async def test_trial_learner_commit_wins_over_an_inflight_goodbye_recovery():
+    s = v55_session()
+    s.trial_state = {'phase': 'wrapup', 'connectedSeconds': 1800}
+    s.finish_next = True
+    await s.provider_event({'type': 'response.output_item.added',
+                            'item': {'type': 'message', 'id': 'silent-goodbye'}})
+    await hit_trial_output_limit(s)
+    assert s.items['silent-goodbye']['settled']
+    assert sent(s)[-1]['response']['tool_choice'] == 'none'
+
+    await played_trial_output(s, 'recovery', 'До встречи!', finish=s.finish_next)
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
+    assert sent(s)[-1] == {'type': 'response.create', 'response': {}}
+    assert not s.ended
+    assert not any(call.args[2] == 'voice.end' for call in s.backend.command.await_args_list)
+
+
+@pytest.mark.asyncio
+async def test_trial_limit_between_speech_stop_and_commit_does_not_start_recovery():
+    s = v55_session()
+    await s.provider_event({'type': 'response.created'})
+    await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'learner'})
+    await s.provider_event({'type': 'input_audio_buffer.speech_stopped', 'item_id': 'learner'})
+    await hit_trial_output_limit(s)
+    assert not sent(s)
+    await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'learner'})
+    assert sent(s) == [{'type': 'response.create', 'response': {}}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('details', [{'reason': 'content_filter'}, {'reason': 'unrecognized'}, None])
+async def test_other_trial_incomplete_reasons_fail_without_recovery(details):
+    s = v55_session()
+    with pytest.raises(RealtimeProviderError):
+        await s.provider_event({'type': 'response.done', 'response': {
+            'status': 'incomplete', 'status_details': details,
+        }})
+    assert not sent(s)
 
 
 @pytest.mark.asyncio
