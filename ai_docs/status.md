@@ -371,6 +371,13 @@ Merge, deploy и живой Realtime/Telegram/S3 не выполнялись.
 Goal Map v1 сохраняет категории `G01`–`G08` и дословную Personal Goal в одной версии
 Learning Goal. Roadmap учитывает оба поля. Старые записи читаются в прежнем формате.
 Деплой не заполняет пропущенные цели из истории.
+Ktor и AI `0f6e504` поставлены на DEV. Интеграционный тест с PostgreSQL проверил
+одну версию цели и повтор операции. В изолированном прогоне Sonnet передал `G01`
+на короткий ответ и `G05`, `G03`, `G01` на составную цель. В обоих случаях цитата
+совпала с ответом ученика. Этот прогон использовал тестовый профиль в памяти.
+[Ktor](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44370811943) ·
+[AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44371567410) ·
+[PostgreSQL](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44370821459)
 
 18 ноября 2026, локальная реализация от `36eeda3`.
 После ручного прогона обновили промпт Stage 1. На DEV AI поставлен `1fb4c6c`,
