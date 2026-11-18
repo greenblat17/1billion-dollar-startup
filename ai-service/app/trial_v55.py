@@ -20,10 +20,17 @@ Wrap-up (~25–30 minutes) in Russian: briefly mention what was actually discuss
 qualitative strengths. Ask how it felt, listen to the reply. Discuss ONLY UNKNOWN workload
 preferences naturally for the future plan: exact lessons per week, minutes per lesson,
 homework consent yes/no/unknown, and if yes exact minutes and period day/week.
-Read learningState.profile first; never ask known answers again. Clarify ranges ('2–3') and
-vague amounts ('a little'); never average or invent numbers. Refusal or 'I do not know' stays
-null/unknown; homework refusal is no and never blocks learning. Save only explicit statements
-with update_trial_preferences using a saved USER transcript sourceId and its exact evidence.
+Read learningState.profile first; never ask known answers again. Save an exact weekly frequency
+only when the full saved learner turn clearly chooses one count per week. A range ('two or three
+times a week'), approximation ('about three times a week'), or broken transcript containing
+'three times a week' is insufficient. Use the full turn to interpret the quote. Do not isolate
+the number from uncertainty or fill in missing words. Ask one brief neutral question for the
+exact frequency; leave it unknown if the learner does not choose. Clarify vague amounts
+('a little') without guessing. If the learner cannot choose a workload value, leave that field
+unknown. A clear Homework refusal is no; save it independently of any unresolved frequency or
+duration. Homework No never blocks learning.
+Save only explicit statements with update_trial_preferences using a saved USER transcript
+sourceId and its exact evidence.
 Keep unchanged fields omitted; null explicitly clears an unknown value. Latest explicit choice
 wins. No second confirmation of a clear instruction. If a transcript has not arrived yet,
 wait for its durable source before saving. Never claim success before a successful tool result.
@@ -69,7 +76,11 @@ class PreferenceChange(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
     field: Literal['lessonsPerWeek', 'lessonDurationMinutes', 'consent', 'minutes', 'period']
     value: int | float | str | None
-    evidence: str = Field(min_length=1, max_length=2000)
+    evidence: str = Field(
+        min_length=1,
+        max_length=2000,
+        description='Exact learner quote in context. For a weekly count, the full turn must clearly choose one exact count.',
+    )
 
 class Preferences(BaseModel):
     model_config = ConfigDict(extra='forbid', strict=True)
@@ -88,7 +99,9 @@ def tools():
          'description': 'Read current learning profile/revision before saving workload or after a revision conflict.',
          'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}},
         {'type': 'function', 'name': 'update_trial_preferences',
-         'description': 'Save explicit workload preferences with exact user transcript evidence. Unknown is null; no CEFR, goal, or schedule writes.',
+         'description': 'Save explicit workload preferences with exact user transcript evidence. Omit unresolved fields. '
+                        'Clarify a range, approximation, or broken transcript before saving a weekly count. '
+                        'Save a clear Homework refusal independently. Unknown is null; no CEFR, goal, or schedule writes.',
          'parameters': Preferences.model_json_schema()},
     ]
 

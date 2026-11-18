@@ -30,6 +30,16 @@ async def test_v55_configuration_restores_phase_and_exposes_only_narrow_learning
     names = {t['name'] for t in config['tools']}
     assert {'update_trial_preferences', 'get_trial_preferences', 'set_trial_phase'} <= names
     assert 'learning.update' not in names and 'update_onboarding' not in names
+    instructions = ' '.join(config['instructions'].split())
+    assert "range ('two or three times a week')" in instructions
+    assert "approximation ('about three times a week')" in instructions
+    assert "broken transcript containing 'three times a week' is insufficient" in instructions
+    assert 'leave it unknown if the learner does not choose' in instructions
+    tool = next(t for t in config['tools'] if t['name'] == 'update_trial_preferences')
+    assert 'Omit unresolved fields' in tool['description']
+    assert 'Save a clear Homework refusal independently' in tool['description']
+    evidence = tool['parameters']['$defs']['PreferenceChange']['properties']['evidence']
+    assert 'the full turn must clearly choose one exact count' in evidence['description']
     connected = s.socket.send_json.call_args_list[0].args[0]
     assert connected['trialExecution']['connectedSeconds'] == 800
 
@@ -304,6 +314,25 @@ async def test_preferences_require_durable_user_source_and_preserve_null():
     assert command.args[3]['changes'][1]['value'] is None
     await s.tool({'name': 'update_trial_preferences', 'arguments': json.dumps(arguments), 'call_id': 'save'})
     assert s.backend.command.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_trial_can_forward_homework_no_without_writing_unresolved_frequency():
+    s = v55_session()
+    workload_turn = 'Or you can happen like we do for three times a week and do a little homework.'
+    refusal = 'I do not want homework.'
+    s.memory_sources = {
+        'workload': {'id': 'workload', 'body': workload_turn},
+        'refusal': {'id': 'refusal', 'body': refusal},
+    }
+    changes = [{'field': 'consent', 'value': 'no', 'evidence': refusal}]
+    await s.tool({'name': 'update_trial_preferences', 'call_id': 'save-refusal',
+                  'arguments': json.dumps({'sourceId': 'refusal', 'expectedRevision': 2, 'changes': changes})})
+
+    s.backend.command.assert_awaited_once_with(s.scope, 'episode:save-refusal', 'trial.preferences', {
+        'lessonId': s.lesson_id, 'callSessionId': s.episode, 'sourceId': 'refusal',
+        'expectedRevision': 2, 'changes': changes,
+    })
 
 
 @pytest.mark.asyncio
