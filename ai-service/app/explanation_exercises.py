@@ -11,9 +11,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from openai import APIStatusError
+from openai import APIConnectionError, APIStatusError
 
-from app.diagnostics import event
+from app.diagnostics import event as log_event
 from app.learning_content_generation import ACTION_KINDS
 
 
@@ -194,7 +194,7 @@ class TeachingActionSession:
                     'event': None, 'next': 'continue', 'repeatOf': repeated.attempt_id or repeated.event_id}
         try:
             verdict = await self._evaluate(answer, prior)
-        except APIStatusError:
+        except (APIStatusError, APIConnectionError):
             return {'spokenFeedback': 'Не получилось проверить ответ. Можешь повторить его или попросить другое упражнение.',
                     'event': None, 'next': 'help', 'assessmentUnavailable': True}
         except TeachingActionError:
@@ -210,6 +210,8 @@ class TeachingActionSession:
         ungrounded_error = (exercise and kind == 'incorrect'
                             and not self._grounded_error(verdict.get('errorEvidence'), answer.text))
         if ungrounded_error:
+            log_event('sp14_assessment_rejected', operation='sp14_teaching_action', stage='evidence',
+                  reason='ungrounded_verdict', source_event_id=answer.event_id)
             kind = 'uncertain'
         last_hint = next((item for item in reversed(prior) if item.role == 'assistant' and
                           item.purpose == 'hint'), None)
@@ -321,19 +323,22 @@ class TeachingActionSession:
             raw = await self.model.complete_json(
                 instructions, json.dumps(context, ensure_ascii=False),
                 operation='sp14_teaching_action', retry=False, response_format=ASSESSMENT_FORMAT)
-        except APIStatusError as error:
-            event('sp14_assessment_rejected', **diagnostics, stage='provider',
-                  reason='assessment_provider_error', http_status=error.status_code)
+        except (APIStatusError, APIConnectionError) as error:
+            status = getattr(error, 'status_code', None)
+            log_event('sp14_assessment_rejected', error=error, **diagnostics, stage='provider',
+                  outcome='rejected' if status and status < 500 else 'failed',
+                  reason='assessment_provider_error', http_status=status)
             raise
         try:
             result = json.loads(raw)
         except (ValueError, TypeError) as error:
             position = {'line': error.lineno, 'column': error.colno} if isinstance(error, json.JSONDecodeError) else {}
-            event('sp14_assessment_rejected', **diagnostics, stage='parse', reason='invalid_assessment_json',
+            log_event('sp14_assessment_rejected', **diagnostics, stage='parse', reason='invalid_assessment_json',
                   actualType=type(raw).__name__, length=len(raw) if isinstance(raw, (str, bytes, bytearray)) else None,
                   **position)
             raise TeachingActionError('invalid_assessment_json') from error
         if issue := _assessment_issue(result, h['method']):
-            event('sp14_assessment_rejected', **diagnostics, stage='shape', reason='invalid_assessment', **issue)
+            log_event('sp14_assessment_rejected', **diagnostics, stage='shape', reason='invalid_assessment', **issue)
             raise TeachingActionError('invalid_assessment')
+        log_event('sp14_assessment_validated', **diagnostics, stage='shape')
         return result

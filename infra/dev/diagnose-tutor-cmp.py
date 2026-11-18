@@ -15,7 +15,10 @@ from urllib.request import ProxyHandler, build_opener
 EVENTS = {'tutor_http_failed', 'tutor_failed'}
 JOB_ID_PATTERN = r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}'
 STACK_FRAME_PATTERN = r'[A-Za-z0-9_.$<>]+:-?\d{1,6}'
-FIELDS = {'trace_id': r'[0-9a-f]{32}', 'error_id': r'[0-9a-f-]{36}',
+FIELDS = {'trace_id': r'[0-9a-f]{32}|[0-9a-f-]{36}', 'error_id': r'[0-9a-f]{32}|[0-9a-f-]{36}',
+          'upstream_error_id': r'[0-9a-f]{32}|[0-9a-f-]{36}', 'request_id': r'[0-9a-f]{32}',
+          'operation': r'[a-z][a-z0-9_.]{0,70}', 'reason_code': r'[a-z][a-z0-9_]{0,70}',
+          'stage': r'[a-z][a-z0-9_.]{0,70}', 'job_status': r'[a-z_]{1,40}',
           'error_type': r'[A-Za-z][A-Za-z0-9_]{0,79}', 'cause_type': r'[A-Za-z][A-Za-z0-9_]{0,79}',
           'provider_code': r'[a-z][a-z0-9_]{0,100}', 'error_code': r'[a-z][a-z0-9_]{0,100}',
           'http_status': r'[1-5][0-9]{2}', 'sql_state': r'[A-Z0-9]{5}'}
@@ -41,8 +44,10 @@ def safe_events(logs, job_id=''):
             continue
         fields = {key: value for key, pattern in FIELDS.items()
                   if isinstance(value := data.get(key), str) and re.fullmatch(pattern, value)}
+        if type(data.get('http_status')) is int and 100 <= data['http_status'] <= 599:
+            fields['http_status'] = data['http_status']
         if job_id:
-            if event != 'foundation_job_failed' or data.get('job_id') != job_id:
+            if event not in ('foundation_job_failed', 'foundation_job', 'foundation_job_ai_call') or data.get('job_id') != job_id:
                 continue
             stack = data.get('stack')
             if isinstance(stack, list):
@@ -61,19 +66,21 @@ def safe_ai_events(payload, trace_id):
         for timestamp, line in stream.get('values', []):
             _, marker, raw = line.partition('runtime_event ')
             if not marker:
+                _, marker, raw = line.partition('provider_call ')
+            if not marker:
                 continue
             try:
                 data = json.loads(raw)
             except ValueError:
                 continue
             if not isinstance(data, dict) or data.get('service') != 'ai' or (
-                data.get('event') != 'foundation_failed' or data.get('trace_id') != trace_id
+                data.get('event') not in ('foundation_failed', 'foundation_compute', 'provider_failed') or data.get('trace_id') != trace_id
             ):
                 continue
-            event = {'timestamp_ns': timestamp, 'trace_id': trace_id}
-            for key in ('stage', 'error_type', 'error_code', 'cause_type'):
+            event = {'timestamp_ns': timestamp, 'trace_id': trace_id, 'event': data['event']}
+            for key in ('stage', 'error_type', 'error_code', 'cause_type', 'operation', 'reason_code'):
                 value = data.get(key)
-                if isinstance(value, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,100}', value):
+                if isinstance(value, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_.]{0,100}', value):
                     event[key] = value
             stack = data.get('stack')
             if isinstance(stack, list):
@@ -91,8 +98,8 @@ def safe_ai_events(payload, trace_id):
 def archived_ai_events(job_id, since, until):
     trace_id = hashlib.sha256(job_id.encode()).hexdigest()[:32]
     query = urlencode({
-        'query': '{service_name="ai-service",environment="dev"} |= "runtime_event" '
-                 f'|= "foundation_failed" |= "{trace_id}"',
+        'query': '{service_name="ai-service",environment="dev"} |~ "runtime_event|provider_call" '
+                 f'|= "{trace_id}"',
         'start': int(since.timestamp()) * 10**9,
         'end': int(until.timestamp()) * 10**9,
         'limit': 20,

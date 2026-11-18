@@ -8,7 +8,7 @@ import httpx
 import openai
 import pytest
 
-from app.diagnostics import context_fields, diagnostic_context, error_fields, event
+from app.diagnostics import context_fields, diagnostic_context, error_fields, event, request_trace
 from app.foundation_client import FoundationClient
 from app.trial_providers import KoraTrialTTS
 
@@ -20,7 +20,7 @@ def records(caplog):
 
 def denied():
     response = httpx.Response(402, request=httpx.Request('POST', 'https://openrouter.ai/api/v1/audio/transcriptions'),
-                             headers={'x-request-id': 'provider-request', 'retry-after': '10'})
+                             headers={'x-request-id': 'req_1234567890', 'retry-after': '10'})
     return openai.APIStatusError('private exception repr', response=response, body={'error': {
         'code': 402, 'message': 'Credits exhausted. token=SECRET_VALUE input "PRIVATE_WORDS"',
         'metadata': {'reason': 'in_flight_budget_exhausted', 'limit_source': 'openrouter_in_flight_budget',
@@ -33,9 +33,9 @@ def test_provider_reason_survives_without_payloads_or_secret(monkeypatch):
     assert result['provider_error']['reason'] == 'in_flight_budget_exhausted'
     assert result['provider_error']['limit_source'] == 'openrouter_in_flight_budget'
     assert result['provider_error']['code'] == '402'
-    assert result['provider_request_id'] == 'provider-request'
-    assert result['retry_after'] == '10'
-    assert 'Credits exhausted' in result['provider_error']['message']
+    assert result['provider_request_id'] == 'req_1234567890'
+    assert result['retry_after'] == 10
+    assert 'message' not in result['provider_error']
     for secret in ('PRIVATE_WORDS', 'PRIVATE_RAW', 'SECRET_VALUE', 'private exception repr'):
         assert secret not in json.dumps(result)
 
@@ -66,7 +66,7 @@ async def test_backend_trace_propagates_and_transport_failure_has_stage(caplog):
                 await backend.command('SECRET_SCOPE', 'operation', 'voice.end', {})
     assert seen[0].headers['X-Diagnostic-Trace'] == 'trace'
     failed = next(r for r in records(caplog) if r['event'] == 'backend_failed')
-    assert failed['operation_id'] == 'operation'
+    assert failed['operation_id'] == request_trace('operation')
     assert failed['error_type'] == 'ConnectError'
     assert failed['stage'] == 'transport'
     assert failed['stack']
@@ -114,11 +114,173 @@ def test_client_diagnostics_authenticates_and_rejects_free_text(caplog):
     app = FastAPI()
     install_trial_api(app, backend, None, None, None, None, None)
     with TestClient(app) as client:
-        response = client.post('/miniapp/diagnostics', json={'initData': 'SECRET_INIT', 'attemptId': 'attempt',
+        response = client.post('/miniapp/diagnostics', json={'initData': 'SECRET_INIT', 'attemptId': 'b036917a-1c72-45a4-a483-e085bc075da3',
                                'stage': 'microphone', 'code': 'PRIVATE_WORDS'})
         assert response.status_code == 200
         assert records(caplog)[-1]['client_code'] == 'unknown'
-        assert records(caplog)[-1]['trace_id'] == 'attempt'
+        assert records(caplog)[-1]['trace_id'] == 'b036917a-1c72-45a4-a483-e085bc075da3'
         backend._request.side_effect = BackendFailure('invalid_telegram_auth', 403)
         assert client.post('/miniapp/diagnostics', json={'initData': 'bad'}).status_code == 403
     assert 'PRIVATE_WORDS' not in caplog.text and 'SECRET_INIT' not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('detailed', [True, False])
+async def test_provider_400_records_only_allowlisted_details_and_schema(detailed, caplog):
+    from app.explanation_exercises import ASSESSMENT_FORMAT
+    from app.llm import OpenAiChatModel
+
+    detail = {'code': 400, 'message': 'private_learner_name', 'type': 'private_token',
+              'param': 'private_prompt', 'metadata': {'raw': {'token': 'private_payload'},
+                                                    'provider_name': 'private_upstream'}}
+    if detailed:
+        detail.update(code='invalid_json_schema', type='invalid_request_error',
+                      param='response_format.json_schema.schema')
+        detail['metadata']['provider_name'] = 'OpenAI'
+    response = httpx.Response(400, request=httpx.Request('POST', 'https://openrouter.ai/api/v1/chat/completions'),
+                             headers={'x-request-id': 'req_1234567890' if detailed else 'private_header'})
+    failure = openai.APIStatusError('private_exception', response=response, body={'error': detail})
+    complete = AsyncMock(side_effect=failure)
+    client = SimpleNamespace(base_url='https://openrouter.ai/api/v1',
+                             chat=SimpleNamespace(completions=SimpleNamespace(create=complete)))
+    trace = 'acfe7df0352849799b985376a26d3032'
+    with diagnostic_context(trace_id=trace):
+        with pytest.raises(openai.APIStatusError):
+            await OpenAiChatModel(client, 'configured-model').complete_json(
+                'private_prompt', 'private_transcript', operation='sp14_teaching_action', retry=False,
+                response_format=ASSESSMENT_FORMAT)
+        error_id = event('sp14_assessment_rejected', error=failure, stage='provider', reason_code='assessment_provider_error')
+
+    complete.assert_awaited_once()
+    assert complete.await_args.kwargs['response_format'] == ASSESSMENT_FORMAT
+    [provider] = [json.loads(r.message.partition('provider_call ')[2]) for r in caplog.records
+                  if r.message.startswith('provider_call ')]
+    [boundary] = records(caplog)
+    assert provider['trace_id'] == boundary['trace_id'] == trace
+    assert provider['error_id'] == boundary['error_id'] == error_id
+    assert provider['http_status'] == 400 and provider['failure_class'] == 'expected'
+    assert provider['provider'] == 'openrouter' and provider['operation'] == 'sp14_teaching_action'
+    assert provider['schema_name'] == ASSESSMENT_FORMAT['json_schema']['name']
+    assert len(provider['schema_hash']) == 64
+    assert provider['stack'] and 'stack' not in boundary
+    if detailed:
+        assert provider['provider_error'] == {
+            'code': 'invalid_json_schema', 'type': 'invalid_request_error',
+            'field': 'response_format.json_schema.schema',
+        }
+        assert provider['upstream'] == 'openai' and provider['provider_request_id'] == 'req_1234567890'
+        assert provider['provider_details_missing'] == []
+    else:
+        assert provider['provider_error'] == {'code': '400'}
+        assert provider['provider_details_missing'] == ['type', 'field', 'upstream', 'request_id']
+    assert 'private_' not in caplog.text
+
+
+def test_nested_runtime_fields_and_correlation_headers_exclude_external_values(caplog):
+    from app.diagnostics import correlation_headers
+    allowed = 'a' * 32
+    assert correlation_headers(httpx.Headers({
+        'X-Diagnostic-Trace': allowed, 'X-Diagnostic-Lesson': 'private_name',
+        'X-Diagnostic-Call': 'private_token', 'X-Diagnostic-Job': '123456789',
+        'X-Request-ID': 'private_request',
+    })) == {'trace_id': allowed}
+    caplog.set_level(logging.INFO)
+    event('schema_check', usage={'input_tokens': 12, 'input_token_details': {
+        'audio_tokens': 10, 'cached_tokens': 'private_token', 'body': 'private_transcript'}},
+        fields=[{'field': 'topic', 'length': 12, 'body': {'token': 'private_token'}}],
+        payload={'initData': 'private_init'})
+    [row] = records(caplog)
+    assert row['usage'] == {'input_tokens': 12, 'input_token_details': {'audio_tokens': 10}}
+    assert row['fields'] == [{'field': 'topic', 'length': 12}]
+    assert 'private_' not in caplog.text
+
+
+def test_dev_consumer_reads_old_and_new_provider_records(monkeypatch, capsys):
+    import runpy
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    error_id, trace_id = 'c' * 32, 'd' * 32
+    data = {'service': 'ai', 'event': 'provider_failed', 'trace_id': trace_id, 'http_status': 400}
+    lines = [
+        'tutor_tool ' + json.dumps({'tool': 'get_trial_booking', 'stage': 'apply', 'outcome': 'completed'}),
+        'runtime_event ' + json.dumps(data | {'error_id': 'e' * 32}),
+        'provider_call ' + json.dumps(data | {'error_id': error_id, 'provider_details_missing': [], 'provider_error': {
+            'code': 'invalid_json_schema', 'field': 'response_format', 'message': 'private_response'}}),
+    ]
+    monkeypatch.setattr(subprocess, 'run',
+                        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout='\n'.join(lines)))
+    monkeypatch.setattr(sys, 'argv', ['diagnose-tutor.py', error_id])
+    script = Path(__file__).resolve().parents[2] / 'infra/dev/diagnose-tutor.py'
+    with pytest.raises(SystemExit) as exit:
+        runpy.run_path(str(script))
+    assert exit.value.code == 0
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result['found'] and result['match']['provider_error']['field'] == 'response_format'
+    assert result['related'][0]['error_id'] == 'e' * 32
+    assert 'private_response' not in output
+
+
+
+def test_wrapped_upstream_error_extracts_structured_fields_without_raw_payload():
+    response = httpx.Response(400, request=httpx.Request('POST', 'https://openrouter.ai/api/v1/chat/completions'))
+    error = openai.APIStatusError('private_exception', response=response, body={'error': {
+        'code': 400,
+        'metadata': {'provider_name': 'OpenAI', 'raw': json.dumps({'error': {
+            'code': 'invalid_json_schema', 'type': 'invalid_request_error', 'param': 'response_format',
+            'message': 'private_transcript', 'input': {'authorization': 'private_token'},
+        }})},
+    }})
+    fields = error_fields(error)
+    assert fields['provider_error'] == {'code': 'invalid_json_schema', 'gateway_code': '400',
+                                        'type': 'invalid_request_error', 'field': 'response_format'}
+    assert fields['provider_details_missing'] == ['request_id']
+    assert 'private_' not in json.dumps(fields)
+
+
+@pytest.mark.asyncio
+async def test_audio_batch_success_is_quiet_and_failure_keeps_correlation(caplog):
+    caplog.set_level(logging.INFO, logger='app.diagnostics')
+    status = 200
+
+    def handle(request):
+        return httpx.Response(status, json={'ok': True, 'result': {}} if status == 200 else {
+            'ok': False, 'error': 'storage_unavailable'})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        client = FoundationClient('http://backend', 'private_token', http)
+        with diagnostic_context(trace_id='f' * 32):
+            await client.command('private_scope', 'test-operation', 'voice.audio', {})
+            assert not records(caplog)
+            status = 503
+            from app.foundation_client import BackendFailure
+            with pytest.raises(BackendFailure):
+                await client.command('private_scope', 'test-operation', 'voice.audio_stored', {})
+    [row] = records(caplog)
+    assert (row['operation'], row['stage'], row['trace_id']) == ('voice.audio_stored', 'response', 'f' * 32)
+    assert row['failure_class'] == 'transient'
+    assert 'private_' not in caplog.text
+
+
+def test_dev_backend_consumer_accepts_old_and_new_job_events():
+    import runpy
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / 'infra/dev/diagnose-tutor-cmp.py'
+    diagnostic = runpy.run_path(str(path))
+    job = '2ea6996c-f323-40b7-a722-ece6921d9c28'
+    records = [
+        {'event': 'foundation_job_failed', 'http_status': '503', 'error_id': '1' * 32},
+        {'event': 'foundation_job_ai_call', 'http_status': 503, 'upstream_error_id': '2' * 32},
+        {'event': 'foundation_job', 'stage': 'failure_persisted', 'job_status': 'retry_wait'},
+    ]
+    logs = '\n'.join('2026-11-18T03:58:17Z runtime_event ' + json.dumps({
+        'service': 'backend', 'job_id': job, 'provider_message': 'private_telegram_message', **record,
+    }) for record in records)
+    rows = diagnostic['safe_events'](logs, job)
+    assert [r['event'] for r in rows] == [r['event'] for r in records]
+    assert [r['http_status'] for r in rows[:2]] == ['503', 503]
+    assert rows[1]['upstream_error_id'] == '2' * 32 and rows[2]['job_status'] == 'retry_wait'
+    assert 'private_telegram_message' not in json.dumps(rows)

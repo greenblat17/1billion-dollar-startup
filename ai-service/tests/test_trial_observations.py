@@ -95,8 +95,11 @@ async def test_bad_assistant_reference_isolated_on_first_materialization(bad_ref
     ]
     assert only['support'] == 'independent'
     logs = [json.loads(record.message.removeprefix('runtime_event ')) for record in caplog.records]
-    assert logs == [{'service': 'ai', 'event': 'trial_observation_candidate_rejected', 'reason': reason,
-                     'reference_purpose': 'hint', 'source_role': role}]
+    [record] = logs
+    assert (record['service'], record['event'], record['reason_code']) == (
+        'ai', 'trial_observation_candidate_rejected', reason)
+    assert (record['reference_purpose'], record['source_role']) == ('hint', role)
+    assert record['failure_class'] == 'expected'
     model.complete_json.assert_awaited_once()
     assert model.complete_json.call_args.kwargs['retry'] is False
 

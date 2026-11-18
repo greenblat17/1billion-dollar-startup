@@ -56,6 +56,21 @@ internal class TrialWorker(private val service: FoundationService, private val h
             c.update("UPDATE trial_notice SET status='generating',lease_until=?,fence=fence+1 WHERE id=?", now.plusSeconds(90), current.text("id"))
             c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE id=?", current.text("id"))
         } ?: return
+        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(notice.text("id")),
+            "notice_id" to notice.text("id"), "lesson_id" to notice.text("lesson_id"))) {
+            RuntimeDiagnostics.record("trial_notice", "claim", extra = mapOf("outcome" to "started", "event_kind" to notice.text("kind")))
+            try {
+                deliverNotice(notice)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                RuntimeDiagnostics.record("trial_notice_failed", "deliver", error)
+                throw error
+            }
+        }
+    }
+
+    private suspend fun deliverNotice(notice: JsonObject) {
         val student = notice.text("student_id")
         val scheduledTrial = if (notice.text("kind") in scheduledNoticeKinds) service.database.transaction(readOnly = true) { c, _ ->
             c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=? AND kind='trial'", notice.text("lesson_id"))
@@ -67,13 +82,14 @@ internal class TrialWorker(private val service: FoundationService, private val h
             val response = http.post("${aiRoot.trimEnd('/')}/internal/trial/followup") {
                 header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(notice.text("id")))
                 header("X-Diagnostic-Lesson", notice.text("lesson_id"))
+                header("X-Diagnostic-Notice", notice.text("id"))
                 header("X-Internal-Token", internalToken); header("X-Execution-Scope", execution)
                 contentType(ContentType.Application.Json); setBody(notice.toString())
             }
             if (response.status.value !in 200..299) {
                 RuntimeDiagnostics.record("trial_followup_failed", "ai_response", extra = mapOf(
                     "notice_id" to notice.text("id"),
-                    "trace_id" to RuntimeDiagnostics.trace(notice.text("id"))) + RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
+                    "trace_id" to RuntimeDiagnostics.trace(notice.text("id"))) + RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText(), response.headers["X-Error-ID"]))
                 service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='failed' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
                 return
             }
@@ -98,6 +114,7 @@ internal class TrialWorker(private val service: FoundationService, private val h
         else if (notice.text("kind") in setOf("morning", "reminder")) tutorBookingMarkup(false)
         else json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
             json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
+        RuntimeDiagnostics.record("trial_notice", "telegram_request", extra = mapOf("outcome" to "started", "provider" to "telegram"))
         for (part in tutorTextParts(reply)) {
             val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
                 contentType(ContentType.Application.Json)
@@ -112,12 +129,14 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 return
             }
         }
-        service.database.transaction { c, now ->
+        val recorded = service.database.transaction { c, now ->
             c.lockStudent(student)
             val updated = c.update("UPDATE trial_notice SET status='sent' WHERE id=? AND status='unknown' AND fence=? AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)", notice.text("id"), notice.number("fence"), student)
-            if (updated == 0) return@transaction
+            if (updated == 0) return@transaction false
             c.appendEvent(student, c.conversation(student, "telegram"), "notice:${notice.text("id")}:${notice.number("fence")}", "assistant", reply, now, now)
+            true
         }
+        if (recorded) RuntimeDiagnostics.record("trial_notice", "delivery_persist", extra = mapOf("job_status" to "sent"))
     }
 
     private fun noticeApplies(c: java.sql.Connection, notice: JsonObject, lesson: JsonObject, now: java.time.Instant): Boolean {

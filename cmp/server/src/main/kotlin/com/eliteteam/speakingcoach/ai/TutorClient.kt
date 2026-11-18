@@ -85,6 +85,7 @@ class TutorClient(private val root: String, private val http: HttpClient, privat
         val bridge = foundation
         val scope = bridge?.accept(request, start)
         val path = if (bridge != null) "/internal/foundation/tutor/turn?start=$start" else "/internal/tutor/${if (start) "start" else "turn"}"
+        val started = System.nanoTime()
         val response = http.post("$root$path") {
             header(AI_INTERNAL_TOKEN_HEADER, token)
             header("X-Diagnostic-Trace", RuntimeDiagnostics.current()["trace_id"].orEmpty())
@@ -94,9 +95,19 @@ class TutorClient(private val root: String, private val http: HttpClient, privat
             setBody(request)
         }
         if (!response.status.isSuccess()) RuntimeDiagnostics.record("tutor_http_failed", "ai_response",
-            extra = RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText()))
+            extra = RuntimeDiagnostics.httpFields(response.status.value, response.bodyAsText(), response.headers["X-Error-ID"]))
         check(response.status.isSuccess()) { "Tutor request failed: ${response.status}" }
-        val answer: TutorResponse = response.body()
+        val answer: TutorResponse = try {
+            response.body()
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            RuntimeDiagnostics.record("tutor_failed", "parse", error, mapOf("reason_code" to "invalid_ai_response"))
+            throw error
+        }
+        RuntimeDiagnostics.record("tutor_http", "response", extra = mapOf("operation" to "tutor_turn",
+            "provider" to "ai", "http_status" to response.status.value.toString(),
+            "duration_ms" to RuntimeDiagnostics.elapsed(started)))
         return bridge?.withDelivery(request, answer) ?: answer
     }
 }

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 import asyncio
 import json
 import logging
+from app.diagnostics import event as diagnostic_event
 import time
 from contextvars import ContextVar, Token
 from datetime import datetime, timezone
@@ -45,9 +46,8 @@ async def record_voice_cost(
     ledger, attempt_id = bound
     try:
         await ledger.record(attempt_id, component, provider, model, result, cost, generation_id)
-    except Exception:
-        # Accounting failures must not prevent a voice response, but must be visible.
-        logger.exception("voice cost record failed attempt_id=%s component=%s", attempt_id, component)
+    except Exception as error:
+        diagnostic_event("voice_cost_write_failed", error=error, operation=component, stage="persist")
 
 
 class VoiceCostLedger:

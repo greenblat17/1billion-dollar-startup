@@ -511,16 +511,19 @@ async def test_assessment_completion_log_has_limits_usage_and_no_content(caplog)
             )
 
     client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
-    with caplog.at_level("INFO", logger="app.llm"):
+    with caplog.at_level("INFO", logger="app.diagnostics"):
         with pytest.raises(ValueError, match="completion token limit"):
             await OpenAiChatModel(client, "openai/gpt-5.6-luna").complete_json(
                 "private prompt", "private transcript", max_tokens=1200,
                 operation="onboarding_assessment",
             )
     log = caplog.text
-    assert "operation=onboarding_assessment" in log
-    assert "model=openai/gpt-5.6-luna max_completion_tokens=1200" in log
-    assert "finish_reason=length prompt_tokens=60 completion_tokens=1200 reasoning_tokens=900" in log
+    row = next(json.loads(r.message.split("runtime_event ", 1)[1]) for r in caplog.records
+               if '"event": "model_completion"' in r.message)
+    assert row["operation"] == "onboarding_assessment"
+    assert (row["model"], row["max_completion_tokens"]) == ("openai/gpt-5.6-luna", 1200)
+    assert (row["finish_reason"], row["prompt_tokens"], row["completion_tokens"], row["reasoning_tokens"]) == (
+        "length", 60, 1200, 900)
     assert "private prompt" not in log
     assert "private transcript" not in log
     assert "private output" not in log

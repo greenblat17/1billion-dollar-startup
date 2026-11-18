@@ -394,10 +394,9 @@ async def test_personal_memory_keeps_only_items_with_valid_user_evidence(caplog)
                       'observations': [], 'notes': []}
     model.complete_json.assert_awaited_once()
     assert model.complete_json.call_args.kwargs['retry'] is False
-    assert [json.loads(record.getMessage().removeprefix('runtime_event ')) for record in caplog.records] == [{
-        'service': 'ai', 'event': 'trial_personal_memory_evidence_rejected',
-        'rejected_facts': 4, 'rejected_candidates': 2,
-    }]
+    [event] = [json.loads(record.getMessage().removeprefix('runtime_event ')) for record in caplog.records]
+    assert event['event'] == 'trial_personal_memory_evidence_rejected'
+    assert (event['rejected_facts'], event['rejected_candidates']) == (4, 2)
 
 
 @pytest.mark.asyncio

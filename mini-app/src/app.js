@@ -80,7 +80,12 @@ function failure(code,errorId){
   !terminal.includes(code),errorId,
   code==='microphone_denied'?'В настройках устройства разрешите Telegram доступ к микрофону. Если урок открыт в браузере, проверьте разрешения сайта. Затем нажмите «Повторить подключение».':'');
 }
-async function api(action,extra={}){const response=await fetch('/miniapp/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,initData:tg?.initData||'',...extra})});const data=await response.json();if(!response.ok)throw Error(data.detail||'connection_lost');return data;}
+async function api(action,extra={}){const response=await fetch('/miniapp/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,initData:tg?.initData||'',...extra})});const data=await response.json();if(!response.ok){
+ const error=Error(typeof data.detail==='string'?data.detail:'connection_lost');
+ const errorId=response.headers?.get('X-Error-ID');
+ if(/^[a-f0-9]{32}$/.test(errorId||''))error.errorId=errorId;
+ throw error;
+}return data;}
 function lessonTiming(lesson){
  const fixed=/^UTC([+-])(\d{2}):(\d{2})$/.exec(lesson.timezone);
  const minutes=fixed?(Number(fixed[2])*60+Number(fixed[3]))*(fixed[1]==='+'?1:-1):0;
@@ -117,7 +122,7 @@ async function list(){
  if(button.disabled)button.textContent=({completed:'Урок завершён',cancelled:'Урок отменён'})[lesson.status]||(lesson.launch_mode==='placeholder'?'Подключение пока недоступно':'Урок недоступен');
  button.onclick=async()=>{lessonId=lesson.id;await connect();focusScreen();};card.append(title,time,date,button);$('meetings').append(card);}
  for(const schedule of data.schedules){if(!schedule.agreement.demo||schedule.agreement.cancelled)continue;const card=document.createElement('article');const text=document.createElement('p');text.textContent=(schedule.agreement.executable?'Согласованное расписание: ':'Предварительное расписание: ')+schedule.agreement.localTime+' · '+schedule.timezone;const note=document.createElement('small');note.textContent='Демонстрация оплаты. Деньги не списываются, подписка не включается.'+(schedule.agreement.executable?'':' Будущие звонки пока недоступны.');const button=document.createElement('button');const paid=data.demoReceipts.some(r=>r.schedule_id===schedule.id);button.textContent=paid?'Тестовая оплата подтверждена':'Оплатить · демо';button.disabled=paid;button.onclick=async()=>{button.disabled=true;try{await api('demo_pay',{scheduleId:schedule.id});button.textContent='Тестовая оплата подтверждена';}catch{button.disabled=false;button.textContent='Повторить демо-оплату';}};card.append(text,note,button);$('schedules').append(card);}
- }catch(error){failure(error.message);}}
+ }catch(error){failure(error.message,error.errorId);}}
 async function connect(continueFrom=0){
  clearTimeout(waitingTimer);const generation=++connectionGeneration;
  attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
@@ -173,7 +178,7 @@ async function connect(continueFrom=0){
    else if(message.type==='finished'){closing=true;cleanup();tg.close();}
    }catch(error){diagnosticStage='playback';reportFailure(error.name);failure('connection_lost');}
   };
- }catch(error){if(generation!==connectionGeneration||closing)return;reportFailure(error.name);failure(({NotAllowedError:'microphone_denied',SecurityError:'microphone_denied',NotFoundError:'microphone_missing',NotReadableError:'microphone_busy'})[error.name]||error.message);}
+ }catch(error){if(generation!==connectionGeneration||closing)return;reportFailure(error.name);failure(({NotAllowedError:'microphone_denied',SecurityError:'microphone_denied',NotFoundError:'microphone_missing',NotReadableError:'microphone_busy'})[error.name]||error.message,error.errorId);}
 }
 function play(bytes){
  if(!current||!playing.has(current))return;
@@ -260,7 +265,7 @@ async function calendar(){
    else downloadCalendar(file);
   };
   card.append(download,note);$('meetings').append(card);
- }catch(error){failure(error.message);}
+ }catch(error){failure(error.message,error.errorId);}
 }
 function downloadCalendar(file){const url=URL.createObjectURL(file);const link=document.createElement('a');link.href=url;link.download=file.name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 

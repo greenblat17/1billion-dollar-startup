@@ -8,7 +8,6 @@ import base64
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import json
-import re
 from uuid import uuid4
 import math
 import time
@@ -17,7 +16,7 @@ from urllib.parse import urlencode
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
-from app.diagnostics import diagnostic_context, event
+from app.diagnostics import diagnostic_context, event, provider_code, provider_id
 from app.trial_journal import TrialJournal, timestamp
 from app.memory_policy import MEMORY_POLICY
 from app.memory_tools import MEMORY_TOOLS, MEMORY_MODELS, execute_memory
@@ -43,7 +42,7 @@ RESUME_TEACHING_TOOL = {'type': 'function', 'name': 'resume_prepared_action',
 class RealtimeProviderError(RuntimeError):
     def __init__(self, payload):
         # Diagnostics extracts and redacts these fields; exception text never includes the body.
-        self.body = {'error': {k: payload[k] for k in ('code', 'type', 'message', 'reason') if k in payload}}
+        self.body = {'error': {k: payload[k] for k in ('code', 'type', 'param', 'reason') if k in payload}}
         super().__init__('realtime_provider_error')
 
 
@@ -56,7 +55,7 @@ def safe_response_status(response):
     error = details.get('error')
     error = error if isinstance(error, dict) else {}
     code = error.get('code')
-    code = code if isinstance(code, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,80}', code) else None
+    code = provider_code(code)
     usage = response.get('usage')
     usage = usage if isinstance(usage, dict) else {}
     output_tokens = usage.get('output_tokens')
@@ -420,28 +419,26 @@ class RealtimeTrialSession(TrialJournal):
 
     async def save_learning_observation(self, observation):
         operation = observation_operation_id(observation)
+        anchor = observation['anchorEventId']
+        action = {'operation': 'learning_observation', 'source_event_id': anchor}
         try:
-            await self.backend.record_learning_observation(self.scope, operation, observation)
+            try:
+                await self.backend.record_learning_observation(self.scope, operation, observation)
+            except BackendFailure as error:
+                if error.status < 500:
+                    raise
+                # Resolve an uncertain write with the original receipt ID.
+                event('learning_observation_recovery', **action, stage='persist', outcome='started',
+                      reason_code='resolve_write_receipt')
+                await self.backend.record_learning_observation(self.scope, operation, observation)
         except BackendFailure as error:
-            if error.status >= 500:
-                # Retry the same receipt ID. If still unknown, stop teaching and expose recovery.
-                try:
-                    await self.backend.record_learning_observation(self.scope, operation, observation)
-                except BackendFailure:
-                    await self.socket.send_json({'type': 'error', 'code': 'learning_observation_pending',
-                                                 'lessonId': self.lesson_id, 'eventId': observation['anchorEventId'],
-                                                 'errorId': observation['anchorEventId']})
-                    event('learning_observation_write_failed', error=error, stage='persist',
-                          lesson_id=self.lesson_id, source_event_id=observation['anchorEventId'])
-                    raise RuntimeError('learning_observation_recovery_required') from error
-            else:
-                await self.socket.send_json({'type': 'error', 'code': 'learning_observation_pending',
-                                             'lessonId': self.lesson_id, 'eventId': observation['anchorEventId'],
-                                             'errorId': observation['anchorEventId']})
-                event('learning_observation_write_failed', error=error, stage='persist',
-                      lesson_id=self.lesson_id, source_event_id=observation['anchorEventId'])
-                raise RuntimeError('learning_observation_recovery_required') from error
+            error_id = event('learning_observation_write_failed', error=error, **action, stage='persist',
+                             reason_code='learning_observation_pending')
+            await self.socket.send_json({'type': 'error', 'code': 'learning_observation_pending',
+                                         'lessonId': self.lesson_id, 'eventId': anchor, 'errorId': error_id})
+            raise RuntimeError('learning_observation_recovery_required') from error
         self.action_events.append(observation)
+        event('learning_observation_written', **action, stage='persist')
 
     async def refresh_problem_proposal(self):
         if not self.regular or self.proposal is not None:
@@ -680,6 +677,7 @@ class RealtimeTrialSession(TrialJournal):
                 return  # VAD committed the same input before our explicit mute commit.
             raise RealtimeProviderError(message.get('error', {}))
         if kind == 'input_audio_buffer.speech_started':
+            event('trial_voice_input', stage='speech_started', item_id=provider_id(message.get('item_id')))
             self.last_input_stage = 'speech_started'
             if self.v55 and message.get('item_id'):
                 self.turn_times.setdefault(message['item_id'], timestamp())
@@ -696,12 +694,13 @@ class RealtimeTrialSession(TrialJournal):
                 self.input_spans.setdefault(message['item_id'], {})['audioEndMs'] = message['audio_end_ms']
             self.speaking = False
             self.turn_stopped_at = time.monotonic()
-            event('trial_turn_stopped', item_id=message.get('item_id'),
+            event('trial_turn_stopped', item_id=provider_id(message.get('item_id')),
                   provider_audio_end_ms=message.get('audio_end_ms'))
         elif kind == 'conversation.item.truncated':
             self.truncations.pop(message['item_id'], None)
             await self.maybe_respond()
         elif kind == 'input_audio_buffer.committed':
+            event('trial_voice_input', stage='commit', item_id=provider_id(message.get('item_id')))
             self.last_input_stage = 'committed'
             self.cancel_regular_recovery()
             if self.v55:
@@ -725,7 +724,7 @@ class RealtimeTrialSession(TrialJournal):
             if key in self.transcribed:
                 return
             usage = message.get('usage') or {}
-            event('trial_realtime_transcription', model='gpt-4o-mini-transcribe',
+            event('trial_realtime_transcription', stage='transcript', item_id=provider_id(key), model='gpt-4o-mini-transcribe',
                   usage={k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens', 'input_token_details') if k in usage})
             self.transcribed.add(key)
             self.pending_inputs.discard(key)
@@ -803,11 +802,12 @@ class RealtimeTrialSession(TrialJournal):
                                   source_event_id=saved['eventId'])
                             observation = None
                         except Exception as error:
+                            error_id = event('learning_observation_analysis_failed', error=error, stage='classify',
+                                             reason_code='learning_observation_pending',
+                                             lesson_id=self.lesson_id, source_event_id=saved['eventId'])
                             await self.socket.send_json({'type': 'error', 'code': 'learning_observation_pending',
                                                          'lessonId': self.lesson_id, 'eventId': saved['eventId'],
-                                                         'errorId': saved['eventId']})
-                            event('learning_observation_analysis_failed', error=error, stage='classify',
-                                  lesson_id=self.lesson_id, source_event_id=saved['eventId'])
+                                                         'errorId': error_id})
                             raise RuntimeError('learning_observation_recovery_required') from error
                         if observation is not None:
                             await self.save_learning_observation(observation)
@@ -845,7 +845,7 @@ class RealtimeTrialSession(TrialJournal):
                 timing = item['timing']
                 def elapsed(start, end):
                     return None if start is None else max(0, round((end - start) * 1000))
-                event('trial_realtime_first_audio', item_id=key, turn_id=timing.get('turn_id'),
+                event('trial_realtime_first_audio', item_id=provider_id(key), turn_id=provider_id(timing.get('turn_id')),
                       stop_to_commit_ms=elapsed(timing.get('stopped_at'), timing.get('committed_at', first_received_at)),
                       commit_to_request_ms=elapsed(timing.get('committed_at'), timing.get('requested_at', first_received_at)),
                       request_to_audio_ms=elapsed(timing.get('requested_at'), first_received_at),
@@ -868,7 +868,8 @@ class RealtimeTrialSession(TrialJournal):
             response = message['response']
             usage = response.get('usage') or {}
             status = safe_response_status(response)
-            event('trial_realtime_response', outcome=response['status'], model=self.settings.trial_realtime_model,
+            event('trial_realtime_response', stage='response', outcome=(response['status'] if response['status'] in {
+                'completed', 'cancelled', 'failed', 'incomplete', 'in_progress'} else 'unknown'), model=self.settings.trial_realtime_model,
                   usage={k: usage[k] for k in ('input_tokens', 'output_tokens', 'total_tokens',
                                               'input_token_details', 'output_token_details') if k in usage},
                   **status)
@@ -1051,6 +1052,8 @@ class RealtimeTrialSession(TrialJournal):
         while not self.ended:
             message = await self.socket.receive()
             if message['type'] == 'websocket.disconnect':
+                event('trial_disconnected', stage='receive', close_code=message.get('code'),
+                      last_input_stage=self.last_input_stage, pending_input_count=len(self.pending_inputs))
                 return
             async with self.lock:
                 audio = message.get('bytes')
@@ -1177,6 +1180,10 @@ class RealtimeTrialSession(TrialJournal):
                         for task in tasks:
                             task.cancel()
                         await asyncio.gather(*tasks, return_exceptions=True)
+            except RealtimeProviderError as error:
+                event('trial_session_failed', error=error, stage='provider', provider='openai',
+                      operation='realtime', reason_code='realtime_provider_error')
+                raise
             except Exception as error:
                 event('trial_session_failed', error=error, stage='realtime')
                 raise

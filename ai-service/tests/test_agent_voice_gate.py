@@ -38,7 +38,9 @@ def test_agent_grant_requires_dev_flag_and_loopback(monkeypatch, environment, en
         with client.websocket_connect('/miniapp/voice') as socket:
             socket.send_json({'protocol': 'realtime-pcm-v1', 'agentGrant': 'untrusted',
                               'lessonId': 'lesson', 'attemptId': 'attempt'})
-            assert socket.receive_json() == {'type': 'error', 'code': 'not_permitted'}
+            error = socket.receive_json()
+            assert error['type'] == 'error' and error['code'] == 'not_permitted'
+            assert len(error['errorId']) == 32
     assert backend.calls == 0
 
 

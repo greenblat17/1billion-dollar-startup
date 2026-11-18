@@ -272,3 +272,24 @@ async def test_sp02_telegram_admission_capture_completion_and_context():
         with pytest.raises(BackendFailure, match='lesson_unavailable'):
             await backend._request('POST', '/trial/access', '', json={
                 'initData': urlencode(fields), 'action': 'open', 'lessonId': lesson['id'], 'attemptId': uuid4().hex})
+
+
+@pytest.mark.asyncio
+async def test_foundation_correlation_and_protected_diagnostics():
+    root, token = os.environ['SP00_TEST_URL'], os.environ['SP00_TEST_TOKEN']
+    trace = uuid4().hex
+    async with httpx.AsyncClient() as http:
+        denied = await http.get(root + '/internal/foundation/v1/diagnostics',
+                                headers={'X-Diagnostic-Trace': trace})
+        assert denied.status_code == 401
+        assert denied.json() == {'ok': False, 'error': 'unauthorized'}
+        assert denied.headers['X-Diagnostic-Trace'] != trace
+        assert len(denied.headers['X-Error-ID']) == 32
+        invalid = await http.post(root + '/internal/foundation/v1/commands',
+                                  headers={'X-Internal-Token': token, 'X-Execution-Scope': 'invalid-scope',
+                                           'X-Diagnostic-Trace': trace, 'X-Diagnostic-Call': 'private-header'},
+                                  content='{')
+        assert invalid.status_code == 400
+        assert invalid.json() == {'ok': False, 'error': 'invalid_payload'}
+        assert invalid.headers['X-Diagnostic-Trace'] == trace
+        assert len(invalid.headers['X-Request-ID']) == len(invalid.headers['X-Error-ID']) == 32

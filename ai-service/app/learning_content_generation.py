@@ -323,8 +323,8 @@ class LearningContentGenerator:
         try:
             return json.loads(raw)
         except (TypeError, ValueError) as error:
-            event('learning_content_draft_rejected', stage='compute_validation', operation=operation, method=method,
-                  **_validation_issue('draft', 'invalid_json', raw))
+            event('learning_content_draft_rejected', stage='parse', operation=operation, method=method,
+                  reason_code='invalid_generated_json', **_validation_issue('draft', 'invalid_json', raw))
             raise ContentGenerationError('invalid_generated_json') from error
 
     def _check_draft(self, draft: Any, document_fields: dict, operation: str, *, attempt: int) -> dict | None:
@@ -354,32 +354,32 @@ class LearningContentGenerator:
             'If the list is empty, the alternatives check is complete.'
         )
         operation = 'learning_content_validate' if attempt == 1 else 'learning_content_validate_repair'
-        diagnostic = {'stage': 'compute_validation', 'operation': operation, 'method': method, 'attempt': attempt}
+        diagnostic = {'operation': operation, 'method': method, 'attempt': attempt}
         try:
             review_raw = await self.model.complete_json(
                 review_instructions, json.dumps({'context': context, 'draft': draft}, ensure_ascii=False),
                 operation=operation, retry=False, response_format=_review_response_format())
         except APIStatusError as error:
             if error.status_code in {400, 422}:
-                event('learning_content_review_rejected', **diagnostic, field='review',
+                event('learning_content_review_rejected', error=error, **diagnostic, stage='provider', field='review',
                       rule='provider_rejected', http_status=error.status_code)
                 raise ContentGenerationError('review_provider_rejected') from error
             raise
         try:
             review = json.loads(review_raw)
         except (TypeError, ValueError) as error:
-            event('learning_content_review_rejected', **diagnostic,
+            event('learning_content_review_rejected', **diagnostic, stage='parse', reason_code='invalid_validation_json',
                   **_validation_issue('review', 'invalid_json', review_raw))
             raise ContentGenerationError('invalid_validation_json') from error
         if issue := _review_validation_issue(review):
-            event('learning_content_review_rejected', **diagnostic, **issue)
+            event('learning_content_review_rejected', **diagnostic, stage='compute_validation', **issue)
             raise ContentGenerationError('semantic_validation_failed', review)
         if not review['checkedAlternatives']:
-            event('learning_content_review_rejected', **diagnostic, field='checkedAlternatives',
+            event('learning_content_review_rejected', **diagnostic, stage='compute_validation', field='checkedAlternatives',
                   rule='alternatives_unchecked', passed=review['passed'], reasonCodes=review['reasons'])
             raise ContentGenerationError('semantic_validation_failed', review)
         if not review['passed']:
-            event('learning_content_review_rejected', **diagnostic, field='passed',
+            event('learning_content_review_rejected', **diagnostic, stage='compute_validation', field='passed',
                   rule='semantic_rejection', reasonCodes=review['reasons'])
         return review
 

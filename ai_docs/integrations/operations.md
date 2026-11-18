@@ -665,28 +665,65 @@ HTML/assets → frontend, API/diagnostics/voice → AI. Остальные inter
 Это исправляет падение шести trial-тестов при package-server в Redeploy DEV run 43196289189.
 
 
-## Поиск причины сбоя SP-02
+## Диагностика Speaky
 
-События `runtime_event` содержат trace_id; голосовые — также lesson_id/call_session_id.
-`provider_failed` и неуспешный `provider_stream` содержат безопасные поля provider_error,
-HTTP status, request ID и Retry-After, если провайдер их вернул. `error_id` связывает экран ошибки с серверной записью.
-В Loki ищите сначала error_id или lesson_id, затем trace_id среди обоих сервисов:
+AI и Ktor пишут JSON с одинаковыми полями `timestamp` (UTC), `level`, `service`, `event`,
+`operation`, `stage`, `outcome`, `trace_id`, `request_id`, `error_id`, `duration_ms` и `reason_code`.
+Неизвестные значения имеют `null`. `failure_class` различает ожидаемый отказ, временную ошибку,
+неожиданный сбой и отмену. Он описывает наблюдение, а повторы определяет контракт операции.
+Стек содержит имена кадров и номера строк и остаётся на первом зарегистрированном уровне.
+Успешные записи аудиопакетов, heartbeat и playback не создают отдельные строки.
+Для них используйте интервальные счётчики `trial_audio_state`.
+
+### Ручной поиск
+
+1. Скопируйте «Код ошибки» с экрана Mini App или `X-Error-ID` из HTTP-ответа. Для принятого HTTP-запроса
+   в ответе также есть `X-Diagnostic-Trace` и `X-Request-ID`. Для звонка без ответа сервера возьмите
+   UUID `attemptId` из первого WebSocket-сообщения, не копируя остальные поля. Тот же UUID несёт
+   отдельный клиентский отчёт `miniapp_failed`. При полном отсутствии сети отчёт может не дойти.
+2. Найдите строку по `error_id`, затем повторите запрос по её `trace_id`. Для смены WebSocket
+   ищите все эпизоды по `lesson_id`, для одного эпизода — по `call_session_id`.
+3. Фоновая работа имеет отдельный trace — первые 32 знака SHA-256 от ID job или уведомления.
+   Свяжите урок и worker по `lesson_id`, затем смотрите `job_id` и `fence` для конкретной попытки.
+   `failure_persisted` показывает фактический `job_status`: `retry_wait` или `failed`.
+   `persist` с `succeeded` или `superseded` появляется после подтверждения транзакции.
+   Для Roadmap ищите `initial_roadmap_delivery`. Для Review — `lesson.review` и `post_lesson_review`
+   на передаче сохранённого результата через Foundation snapshot.
 
 ```logql
-{service_name=~"ai-service|speaking-coach"} |= "runtime_event" |= "<trace_id>"
+{service_name=~"ai-service|speaking-coach"} |~ "runtime_event|provider_call|tutor_tool" |= "<error_id or trace_id>"
 ```
 
-На хосте без Loki:
+Без Loki выполните на соответствующем хосте `docker logs --since 15m ai-service 2>&1 | rg -F '<id>'`
+или `docker logs --since 15m speaking-coach 2>&1 | rg -F '<id>'`. Доступ к логам операторский.
+В **Redeploy DEV** используйте действующие параметры `diagnose_error_id`, `diagnose_call_session_id`
+или пару `diagnose_tutor_at` / `diagnose_foundation_job_id`. Чтение показывает только разрешённые поля.
+Внутренние `/diagnostics` и `/jobs` по-прежнему требуют service token и operator scope.
 
-```sh
-docker logs --since 15m ai-service 2>&1 | rg 'runtime_event|provider_call|tutor_tool'
-docker logs --since 15m speaking-coach 2>&1 | rg 'runtime_event'
-```
+### Примеры безопасных цепочек
 
-`miniapp_failed` — клиентский отчёт с проверенной Telegram auth, но его code описывает наблюдение браузера,
-а не доказанную причину сервера. Он доставляется отдельно от WebSocket; при полном отсутствии сети доставка невозможна.
-Не включайте HTTP debug с заголовками/телами для расследования: initData, scopes и API keys не должны попадать в логи.
+| Сценарий | Последовательность |
+| --- | --- |
+| SP-14, 400 с деталями | `provider_failed` / `response`: `http_status=400`, `provider=openrouter`, `provider_error.code=invalid_json_schema`, `provider_error.type=invalid_request_error`, `provider_error.field=response_format.json_schema.schema`. Если доступны, есть `upstream`, `provider_request_id`, имя и SHA-256 схемы. Затем `sp14_assessment_rejected` / `provider` с тем же `error_id`. |
+| SP-14, общий 400 | `provider_error.code="400"`, `provider_details_missing=["type","field","upstream","request_id"]` при отсутствии этих полей. Схема, её имя и хеш описывают отправленную форму. Исторические [прогон 44232148052](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44232148052) и [диагностика 44234169942](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44234169942) не установили причину. Новый лог должен оставлять её неизвестной и в отдельном таком же probe. При отказе SP-14 даёт подсказку без вердикта и без записи оценки. |
+| Сбой записи Observation | `backend_command_failed` / `persist` → `foundation_failed` / `persist` → `backend_failed` / `response`. При неизвестном результате существующее восстановление проверяет ту же операцию. Если запись по-прежнему не подтверждена, Mini App показывает `learning_observation_pending` и `errorId`. Ранее подтверждённая реплика остаётся в истории. |
+| Незавершённый голосовой ход | `trial_voice_input` / `speech_started` → `trial_disconnected` или `trial_session` / `closed` с `last_input_stage=speech_started`. Отсутствие `commit`, `transcript` и `response` показывает последнее наблюдаемое звено. Этого недостаточно, чтобы назвать причину остановки. |
 
+`runtime_event` остаётся основной меткой. Метки `provider_call` и `tutor_tool` сохраняют старые
+поля потребителей и используют общий JSON-контракт. Новые скрипты читают старые и новые строки. В активном AI runtime `user_id` в старой проекции
+приходит как `null`. Для расследования используйте `trace_id` вместо идентификатора пользователя.
+Фильтры, которые ищут только `runtime_event` для `provider_failed` или `tutor_failed`, расширьте
+на обе совместимые метки. Установите новые скрипты одновременно с сервисами или до них.
+Не включайте отладочный вывод заголовков, тел запросов и кадров. Свободный текст провайдера
+не попадает в диагностику. Неизвестные внешние коды, поля и ID могут быть отброшены.
+
+### Интеграция в CI
+
+Запустите существующий workflow **Foundation integration**. Его шаг `scripts/test-foundation.sh`
+при `TEST_POSTGRES_URL` из workflow запускает `:server:foundationIntegrationTest` и HTTP-harness.
+В `ai-service/integration/test_foundation_http.py::test_foundation_correlation_and_protected_diagnostics`
+проверяются заголовки корреляции и закрытый доступ. Повторно проверьте доставку stdout в Loki
+с обеих служб после выкладки. Локальные unit-тесты работают с подставными HTTP и WebSocket.
 
 ## Самостоятельный Mini App frontend
 

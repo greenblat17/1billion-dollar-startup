@@ -21,17 +21,43 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
     private val runs = ConversationRuns()
     private val tutorContext = TutorContextOperations(memory)
 
+    private val diagnosticActions = setOf(
+        "deletion.replay", "job.apply", "job.claim", "job.fail",
+        "job.renew", "job.retry", "learning.action.request", "learning.content.create",
+        "learning.content.issue", "learning.content.revise", "learning.forget", "learning.observation.invalidate",
+        "learning.observation.record", "learning.observation.revise", "learning.plan.create", "learning.plan.revise",
+        "learning.roadmap.priority.save", "learning.roadmap.problem.decide", "learning.roadmap.save", "learning.score.fixture",
+        "learning.task.create", "learning.task.progress", "learning.task.transition", "learning.task.update",
+        "learning.topic.record", "learning.update", "lesson.append", "lesson.cancel",
+        "lesson.complete", "lesson.create", "lesson.episode", "lesson.get",
+        "lesson.list", "lesson.next", "lesson.reschedule", "memory.confirm",
+        "memory.discuss", "memory.forget", "memory.policy", "memory.propose",
+        "memory.record", "memory.reject", "memory.review", "memory.search",
+        "notification.reminder", "onboarding.update", "reminder.request", "retention.prune",
+        "roadmap.revise", "run.claim", "run.complete", "schedule.agree",
+        "schedule.create", "schedule.materialize", "schedule.materialize.request", "student.delete",
+        "subscription.checkout", "subscription.get", "trial.phase", "trial.preferences",
+        "trial.ready", "trial.schedule", "trial.schedules", "voice.append",
+        "voice.audio", "voice.audio_stored", "voice.end", "voice.heartbeat", "voice.playback",
+    )
+
+    private val mediaCommands = setOf("voice.audio", "voice.audio_stored", "voice.heartbeat", "voice.playback")
+
     suspend fun command(token: String, request: JsonObject): JsonObject = RuntimeDiagnostics.withContext(mapOf(
-        "operation_id" to (RuntimeDiagnostics.id(request.optionalText("operationId")) ?: "invalid"),
+        "operation_id" to (request.optionalText("operationId")?.take(250)?.let { RuntimeDiagnostics.ingressId(it) ?: RuntimeDiagnostics.trace(it) } ?: "invalid"),
+        "trace_id" to (RuntimeDiagnostics.current()["trace_id"] ?: RuntimeDiagnostics.newId()),
     )) {
-        val action = RuntimeDiagnostics.id(request.optionalText("action")) ?: "invalid"
-        RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "started"))
+        val action = request.optionalText("action")?.takeIf { it in diagnosticActions } ?: "unknown"
+        val started = System.nanoTime()
+        if (action !in mediaCommands) RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "started", "operation" to action))
         try {
             executeCommand(token, request).also {
-                RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "completed"))
+                if (action !in mediaCommands) RuntimeDiagnostics.record("backend_command", action, extra = mapOf("outcome" to "completed", "operation" to action,
+                    "duration_ms" to RuntimeDiagnostics.elapsed(started)))
             }
         } catch (error: Exception) {
-            if (error !is kotlinx.coroutines.CancellationException) RuntimeDiagnostics.record("backend_command_failed", action, error)
+            if (error !is kotlinx.coroutines.CancellationException) RuntimeDiagnostics.record("backend_command_failed", if (error is java.sql.SQLException) "persist" else action, error,
+                mapOf("operation" to action, "duration_ms" to RuntimeDiagnostics.elapsed(started)))
             throw error
         }
     }

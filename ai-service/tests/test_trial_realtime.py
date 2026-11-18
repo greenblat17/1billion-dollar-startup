@@ -806,9 +806,9 @@ async def test_latency_stages_use_matching_turn_and_measure_archive(monkeypatch,
     clock = [100.0]
     monkeypatch.setattr('app.trial_realtime.time', SimpleNamespace(monotonic=lambda: clock[0]))
     with caplog.at_level('INFO', logger='app.diagnostics'):
-        await s.provider_event({'type': 'input_audio_buffer.speech_stopped', 'item_id': 'user1', 'audio_end_ms': 500})
+        await s.provider_event({'type': 'input_audio_buffer.speech_stopped', 'item_id': 'item_1234567890', 'audio_end_ms': 500})
         clock[0] = 100.1
-        await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'user1'})
+        await s.provider_event({'type': 'input_audio_buffer.committed', 'item_id': 'item_1234567890'})
         clock[0] = 100.4
         async def slow_archive(*args):
             clock[0] += 0.2
@@ -818,7 +818,7 @@ async def test_latency_stages_use_matching_turn_and_measure_archive(monkeypatch,
         s.log_audio_state({})  # Empty interval is valid.
     events = [json.loads(r.message.split('runtime_event ', 1)[1]) for r in caplog.records]
     latency = next(r for r in events if r['event'] == 'trial_realtime_first_audio')
-    assert latency['turn_id'] == 'user1'
+    assert latency['turn_id'] == 'item_1234567890'
     assert latency['stop_to_commit_ms'] == 100
     assert latency['commit_to_request_ms'] == 0
     assert latency['request_to_audio_ms'] == 300
@@ -900,3 +900,46 @@ async def test_regular_mute_does_not_commit_again_after_provider_auto_commit():
     ])
     await s.receive()
     assert not any(e['type'] == 'input_audio_buffer.commit' for e in sent(s))
+
+
+@pytest.mark.asyncio
+async def test_storage_uncertainty_reuses_receipt_and_exposes_logged_error(caplog):
+    from app.foundation_client import BackendFailure
+
+    s = regular_session()
+    anchor = '2ea6996c-f323-40b7-a722-ece6921d9c28'
+    observation = {'anchorEventId': anchor, 'evidenceSlot': 'teaching_action', 'lessonId': s.lesson_id}
+    s.backend.record_learning_observation = AsyncMock(side_effect=[
+        BackendFailure('transport_outcome_unknown', 503), BackendFailure('storage_unavailable', 503)])
+    with caplog.at_level('INFO', logger='app.diagnostics'):
+        with pytest.raises(RuntimeError, match='learning_observation_recovery_required'):
+            await s.save_learning_observation(observation)
+    first, second = s.backend.record_learning_observation.await_args_list
+    assert first == second
+    assert s.action_events == []
+    error = s.socket.send_json.await_args.args[0]
+    assert error['code'] == 'learning_observation_pending' and error['eventId'] == anchor
+    logs = [json.loads(record.message.partition('runtime_event ')[2]) for record in caplog.records]
+    assert [(row['event'], row['stage']) for row in logs] == [
+        ('learning_observation_recovery', 'persist'), ('learning_observation_write_failed', 'persist')]
+    assert logs[-1]['error_id'] == error['errorId']
+    assert logs[-1]['failure_class'] == 'transient'
+
+
+@pytest.mark.asyncio
+async def test_disconnected_uncommitted_turn_reports_last_observed_stage(caplog):
+    import app.diagnostics as diagnostics
+
+    s = session()
+    s.socket.receive = AsyncMock(return_value={'type': 'websocket.disconnect', 'code': 1006})
+    trace = 'b' * 32
+    with diagnostics.diagnostic_context(trace_id=trace), caplog.at_level('INFO', logger='app.diagnostics'):
+        await s.provider_event({'type': 'input_audio_buffer.speech_started',
+                                'item_id': 'item_1234567890', 'transcript': 'private_transcript'})
+        await s.receive()
+    logs = [json.loads(record.message.partition('runtime_event ')[2]) for record in caplog.records]
+    assert ('trial_voice_input', 'speech_started') in [(row['event'], row['stage']) for row in logs]
+    assert not any(row['stage'] in ('commit', 'transcript', 'response') for row in logs)
+    assert logs[-1]['event'] == 'trial_disconnected'
+    assert logs[-1]['last_input_stage'] == 'speech_started' and logs[-1]['trace_id'] == trace
+    assert 'private_transcript' not in caplog.text

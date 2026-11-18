@@ -114,7 +114,9 @@ def test_unconfigured_trial_cannot_start_paid_providers():
     install_trial_api(app, backend, None, None, None, SimpleNamespace(), None)
     with TestClient(app) as client:
         with client.websocket_connect('/miniapp/voice') as socket:
-            assert socket.receive_json() == {'type': 'error', 'code': 'trial_not_configured'}
+            error = socket.receive_json()
+            assert error['type'] == 'error' and error['code'] == 'trial_not_configured'
+            assert len(error['errorId']) == 32
     backend._request.assert_not_called()
 
 

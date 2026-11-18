@@ -2,18 +2,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
+from uuid import uuid4
 
 import httpx
-from app.diagnostics import context_fields, diagnostic_context, event
+from app.diagnostics import context_fields, diagnostic_context, event, opaque_id, request_trace
 from app.learning_observations import LearningObservation
 from app.learning_content import LearningContentDocument
+
+
+# The voice session emits interval counters and transition events for these hot paths.
+_MEDIA_COMMANDS = frozenset({'voice.audio', 'voice.audio_stored', 'voice.heartbeat', 'voice.playback'})
 
 
 @dataclass
 class BackendFailure(Exception):
     code: str
     status: int
+    upstream_error_id: str | None = None
 
     def __str__(self) -> str:
         return self.code
@@ -25,30 +32,57 @@ class FoundationClient:
         self.service_token = service_token
         self.http = http
 
-    async def _request(self, method: str, path: str, scope: str, **kwargs) -> dict[str, Any]:
+    async def _request(self, method: str, path: str, scope: str, *, command: str | None = None, **kwargs) -> dict[str, Any]:
+        started = perf_counter()
+        context = context_fields()
+        trace_id = context.get('trace_id') or uuid4().hex
+        boundary = {'operation': command or 'foundation_http', 'method': method, 'trace_id': trace_id}
+
+        def record(stage, **fields):
+            return event('backend_failed' if 'reason_code' in fields else 'backend_request',
+                         **boundary, stage=stage, duration_ms=int((perf_counter() - started) * 1000), **fields)
+
         try:
             response = await self.http.request(method, self.root + path, headers={
                 'X-Internal-Token': self.service_token, 'X-Execution-Scope': scope,
-                'X-Diagnostic-Trace': context_fields().get('trace_id', ''),
-                'X-Diagnostic-Lesson': context_fields().get('lesson_id', ''),
-                'X-Diagnostic-Call': context_fields().get('call_session_id', ''),
+                'X-Diagnostic-Trace': trace_id,
+                **{header: context.get(key, '') for key, header in (
+                    ('lesson_id', 'X-Diagnostic-Lesson'),
+                    ('call_session_id', 'X-Diagnostic-Call'), ('job_id', 'X-Diagnostic-Job'),
+                    ('notice_id', 'X-Diagnostic-Notice'),
+                )},
             }, timeout=15, **kwargs)
         except httpx.TransportError as error:
-            event("backend_failed", error=error, stage="transport", method=method, route=path.split("/operations/")[0])
+            failure = BackendFailure('transport_outcome_unknown', 503)
+            failure._diagnostic_error_id = record('transport', error=error, reason_code=failure.code, http_status=503)
             # An uncertain write is recovered with its original operation ID, never a new ID.
-            raise BackendFailure('transport_outcome_unknown', 503) from None
+            raise failure from None
         try:
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError('invalid_backend_response')
         except ValueError as error:
-            event("backend_failed", error=error, stage="decode", http_status=response.status_code)
-            raise BackendFailure('invalid_backend_response', 502) from None
+            failure = BackendFailure('invalid_backend_response', 502)
+            failure._diagnostic_error_id = record('decode', error=error, reason_code=failure.code,
+                                                  http_status=response.status_code)
+            raise failure from None
         if not response.is_success or payload.get('ok') is not True:
-            failure = BackendFailure(payload.get('error', 'backend_unavailable'), response.status_code)
-            event('backend_failed', error=failure, stage='response')
+            code = payload.get('error')
+            upstream_id = opaque_id(response.headers.get('X-Error-ID'))
+            failure = BackendFailure(code if isinstance(code, str) else 'backend_unavailable',
+                                     response.status_code, upstream_id)
+            failure._diagnostic_error_id = record('response', error=failure,
+                                                  reason_code='backend_rejected' if response.status_code < 500
+                                                  else 'backend_unavailable', error_id=upstream_id,
+                                                  upstream_error_id=upstream_id)
             raise failure
         result = payload.get('result')
         if not isinstance(result, dict):
-            raise BackendFailure('invalid_backend_response', 502)
+            failure = BackendFailure('invalid_backend_response', 502)
+            record('validate', error=failure, reason_code=failure.code, http_status=response.status_code)
+            raise failure
+        if command not in _MEDIA_COMMANDS:
+            record('response', http_status=response.status_code)
         return result
 
     async def snapshot(self, scope: str, purpose: str, lesson_id: str | None = None) -> dict:
@@ -314,12 +348,14 @@ class FoundationClient:
         })
 
     async def command(self, scope: str, operation_id: str, action: str, arguments: dict) -> dict:
-        with diagnostic_context(operation_id=operation_id):
-            event('backend_command', stage=action, outcome='started')
-            result = await self._request('POST', '/commands', scope, json={
+        with diagnostic_context(operation_id=opaque_id(operation_id) or request_trace(operation_id)):
+            if action not in _MEDIA_COMMANDS:
+                event('backend_command', operation=action, stage=action, outcome='started')
+            result = await self._request('POST', '/commands', scope, command=action, json={
                 'version': 1, 'operationId': operation_id, 'action': action, 'args': arguments,
             })
-            event('backend_command', stage=action, outcome='completed')
+            if action not in _MEDIA_COMMANDS:
+                event('backend_command', operation=action, stage=action, outcome='completed')
             return result
 
     async def receipt(self, scope: str, operation_id: str) -> dict | None:

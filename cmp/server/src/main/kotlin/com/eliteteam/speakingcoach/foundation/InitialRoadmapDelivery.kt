@@ -12,6 +12,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -53,20 +54,37 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             }
             current
         } ?: return
-        if (delivery.text("status") == "pending") prepare(delivery) else sendNext(delivery)
+        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(delivery.text("id")),
+            "delivery_id" to delivery.text("id"), "lesson_id" to delivery.text("lesson_id"))) {
+            try {
+                if (delivery.text("status") == "pending") {
+                    RuntimeDiagnostics.record("initial_roadmap_delivery", "claim", extra = mapOf("outcome" to "started"))
+                    prepare(delivery)
+                } else sendNext(delivery)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                RuntimeDiagnostics.record("initial_roadmap_delivery_failed", "persist", error)
+                throw error
+            }
+        }
     }
 
     private suspend fun prepare(delivery: JsonObject) {
         val student = delivery.text("student_id")
         val execution = service.identity.issue(student, "voice", lesson = delivery.text("lesson_id"))
-        val response = runCatching {
+        val response = try {
             http.post("${aiRoot.trimEnd('/')}/internal/trial/initial-roadmap") {
                 header("X-Internal-Token", internalToken)
+                header("X-Diagnostic-Trace", RuntimeDiagnostics.current()["trace_id"].orEmpty())
+                header("X-Diagnostic-Lesson", delivery.text("lesson_id"))
                 header("X-Execution-Scope", execution)
                 contentType(ContentType.Application.Json)
                 setBody(json("roadmapRevision" to delivery.number("roadmap_revision")).toString())
             }
-        }.getOrElse { error ->
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
             RuntimeDiagnostics.record("initial_roadmap_prepare_failed", "ai_request", error)
             retryPreparation(delivery)
             return
@@ -87,24 +105,26 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
         if (reply.isNullOrBlank()) {
             RuntimeDiagnostics.record("initial_roadmap_prepare_failed", "ai_response", extra = mapOf(
                 "delivery_id" to delivery.text("id"), "http_status" to response.status.value.toString()) +
-                RuntimeDiagnostics.httpFields(response.status.value, body))
+                RuntimeDiagnostics.httpFields(response.status.value, body, response.headers["X-Error-ID"]))
             retryPreparation(delivery)
             return
         }
-        service.database.transaction { c, _ ->
+        val changed = service.database.transaction { c, _ ->
             c.lockStudent(student)
             c.update("""UPDATE initial_roadmap_delivery SET status='ready',body=?,lease_until=NULL
                 WHERE id=? AND status='generating' AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)""",
                 reply, delivery.text("id"), student)
         }
+        if (changed > 0) RuntimeDiagnostics.record("initial_roadmap_delivery", "prepare_persist", extra = mapOf("job_status" to "ready"))
     }
 
     private suspend fun retryPreparation(delivery: JsonObject) {
-        service.database.transaction { c, now ->
+        val changed = service.database.transaction { c, now ->
             val delay = 30L * (1L shl minOf(6, delivery.number("attempts").toInt()))
             c.update("UPDATE initial_roadmap_delivery SET status='pending',lease_until=? WHERE id=? AND status='generating'",
                 now.plusSeconds(delay), delivery.text("id"))
         }
+        if (changed > 0) RuntimeDiagnostics.record("initial_roadmap_delivery", "prepare_retry", extra = mapOf("job_status" to "pending"))
     }
 
     private suspend fun sendNext(delivery: JsonObject) {
@@ -123,17 +143,21 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             if (claimed == 0) return@transaction null
             recipient
         } ?: return
+        val partFields = mapOf("provider" to "telegram", "part" to index.toString())
+        RuntimeDiagnostics.record("initial_roadmap_delivery", "telegram_request", extra = partFields + ("outcome" to "started"))
         val markup = if (index == parts.lastIndex) json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(
             kotlinx.serialization.json.JsonArray(listOf(json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
         else null
-        val response = runCatching {
+        val response = try {
             http.post("https://api.telegram.org/bot$botToken/sendMessage") {
                 contentType(ContentType.Application.Json)
                 setBody(telegramRequestJson.encodeToString(TutorTextRequest(subject.toLong(), parts[index].text,
                     parts[index].entities, markup)))
             }
-        }.getOrElse { error ->
-            RuntimeDiagnostics.record("initial_roadmap_delivery_unknown", "telegram_request", error)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            RuntimeDiagnostics.record("initial_roadmap_delivery_unknown", "telegram_request", error, partFields + ("outcome" to "unknown"))
             return
         }
         val sentBody = response.bodyAsText()
@@ -144,15 +168,18 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
                 "part" to index.toString()) + RuntimeDiagnostics.httpFields(response.status.value, sentBody))
             return
         }
-        service.database.transaction { c, now ->
+        val recorded = service.database.transaction { c, now ->
             c.lockStudent(student)
             val changed = c.update("""UPDATE initial_roadmap_delivery SET status=?,next_part=? WHERE id=? AND status='unknown'
                 AND next_part=? AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)""",
                 if (index == parts.lastIndex) "sent" else "ready", index + 1, delivery.text("id"), index, student)
-            if (changed == 0) return@transaction
+            if (changed == 0) return@transaction false
             c.appendEvent(student, c.conversation(student, "telegram"), "roadmap:${delivery.text("id")}:$index",
                 "assistant", parts[index].text, now, now)
+            true
         }
+        if (recorded) RuntimeDiagnostics.record("initial_roadmap_delivery", "delivery_persist", extra =
+            partFields + ("job_status" to if (index == parts.lastIndex) "sent" else "ready"))
     }
 }
 
