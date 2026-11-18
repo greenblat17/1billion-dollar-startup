@@ -7,8 +7,9 @@ from app.learning_content_generation import issued_handoff
 
 
 class Model:
-    def __init__(self, verdict='correct', *, previous_wrong=False, switch_target=None):
+    def __init__(self, verdict='correct', *, previous_wrong=False, switch_target=None, error_evidence=None):
         self.verdict, self.previous_wrong, self.switch_target = verdict, previous_wrong, switch_target
+        self.error_evidence = error_evidence
         self.calls = []
 
     async def complete_json(self, system, data, **kwargs):
@@ -16,7 +17,8 @@ class Model:
         return json.dumps({'verdict': self.verdict, 'feedback': 'That conveys the past event well.',
                            'rationale': 'The meaning satisfies the past-event criterion.',
                            'previousAnswerWasIncorrect': self.previous_wrong,
-                           **({'switchTarget': self.switch_target} if self.switch_target else {})})
+                           **({'switchTarget': self.switch_target} if self.switch_target else {}),
+                           **({'errorEvidence': self.error_evidence} if self.error_evidence is not None else {})})
 
 
 def handoff(method='Exercises', kind='sentence_transformation'):
@@ -124,11 +126,41 @@ async def test_switch_destination_is_preserved_without_grading(target, expected)
     ('uncertain', 'unresolved', 'uncertain'),
     ('defective', 'invalid', 'invalid')])
 async def test_errors_and_defects_keep_distinct_outcomes(verdict, expected, quality):
-    result = await TeachingActionSession(handoff(), Model(verdict)).respond(answer(), [])
+    evidence = {'criterion': 'Express a completed event in past tense.', 'quote': 'I go'}
+    result = await TeachingActionSession(handoff(), Model(verdict, error_evidence=evidence)).respond(
+        answer(text='I go to work yesterday.'), [])
     event = result['event']
     assert event['outcome'] == expected and event['quality']['status'] == quality
     assert event['route'] == ('stage_progress' if quality == 'usable' else 'unresolved')
     assert 'score' not in event and 'progress' not in event
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('evidence', [
+    None,
+    {'criterion': 'Unknown criterion', 'quote': 'we are already addicted'},
+    {'criterion': 'Express a completed event in past tense.', 'quote': 'we have already fixed it'},
+    {'criterion': 'Express a completed event in past tense.', 'quote': 'addict'},
+])
+async def test_uncorroborated_exercise_error_requests_repeat_without_hint(evidence):
+    from app.teaching_observations import observation_from_action, observation_operation_id
+
+    model = Model('incorrect', error_evidence=evidence)
+    action = TeachingActionSession(handoff(), model)
+    saved = answer(text='We found them on yesterday, and we are already addicted.')
+    result = await action.respond(saved, [])
+    observation = observation_from_action(result['event'], saved, [])
+    assert observation['outcome'] == 'unresolved' and observation['route'] == 'unresolved'
+    assert observation['initialOutcome'] == observation['support'] == 'unknown'
+    assert observation['quality'] == {'status': 'uncertain', 'signals': [{
+        'reason': 'ambiguous_interpretation', 'component': 'sp14.explanation_exercises',
+        'sourceEventId': saved['eventId'],
+    }]}
+    assert result['next'] == 'continue' and 'Повтори' in result['spokenFeedback']
+    assert 'An unrelated or incoherent transcript' in model.calls[0][0]
+    repeat = await action.respond(saved, [])
+    assert observation_operation_id(observation) == observation_operation_id(
+        observation_from_action(repeat['event'], saved, []))
 
 
 @pytest.mark.asyncio

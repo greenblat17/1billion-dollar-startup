@@ -13,10 +13,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.foundation_client import BackendFailure
+from app.explanation_exercises import TeachingActionSession
 from app.trial_api import install_trial_api
 from app.trial_realtime import RealtimeTrialSession, RealtimeProviderError, open_realtime
 from app.learning_content_generation import ContentGenerationError
-from tests.test_explanation_exercises import handoff as exercise_handoff
+from tests.test_explanation_exercises import Model as ExerciseModel, handoff as exercise_handoff
 
 SETTINGS = SimpleNamespace(openai_realtime_api_key='test-never-live', trial_realtime_model='gpt-realtime-2.1', trial_realtime_voice='marin')
 ADMITTED = {'scope': 'private-scope', 'lesson': {'id': 'lesson', 'starts_at': '2026-11-12T12:00:00+00:00', 'duration_minutes': 15}, 'callSessionId': 'episode'}
@@ -504,6 +505,42 @@ def regular_session():
         {'eventId': f'saved-{index}', 'sequence': index} for index in range(1, 12)
     ])
     return s
+
+
+@pytest.mark.asyncio
+async def test_uncertain_exercise_turn_replays_one_observation_and_allows_a_clean_repeat():
+    s = regular_session()
+    s.practice_started = True
+    s.maybe_respond = AsyncMock()
+    model = ExerciseModel('incorrect')
+    handoff = exercise_handoff()
+    handoff['payload']['stimulus'] = 'We found a bug yesterday. It is fixed now.'
+    handoff['payload']['targetOperation'] = 'Use Past Simple for yesterday and Present Perfect for the result now.'
+    s.action = TeachingActionSession(handoff, model)
+    s.backend.record_learning_observation = AsyncMock(side_effect=[
+        BackendFailure('temporary', 503), {'created': True}, {'created': True},
+    ])
+    s.backend.learning_problems = AsyncMock(return_value={'items': []})
+    corrupted = {'type': 'conversation.item.input_audio_transcription.completed',
+                 'event_id': 'provider-event-1', 'item_id': 'provider-item-1',
+                 'transcript': 'We found them on yesterday, and we are already addicted.'}
+    await s.provider_event(corrupted)
+    await s.provider_event({**corrupted, 'event_id': 'provider-event-replay'})
+    calls = s.backend.record_learning_observation.await_args_list
+    assert len(calls) == 2 and calls[0].args == calls[1].args
+    [observation] = s.action_events
+    assert observation['anchorEventId'] == 'saved-1' and observation['route'] == 'unresolved'
+    assert observation['quality']['status'] == 'uncertain'
+    assert s.append.await_count == 1 and len(model.calls) == 1
+    assert s.action_history == [] and s.action_reply_purpose == 'context'
+
+    model.verdict, model.previous_wrong = 'correct', True
+    await s.provider_event({**corrupted, 'event_id': 'provider-event-2', 'item_id': 'provider-item-2',
+                            'transcript': 'We found a bug yesterday, and we have already fixed it.'})
+    positive = s.action_events[-1]
+    assert positive['anchorEventId'] == 'saved-2' and positive['outcome'] == 'independent_correct'
+    assert positive['route'] == 'stage_progress'
+    assert s.backend.record_learning_observation.await_args.args[1] != calls[0].args[1]
 
 
 async def regular_audio(s, key, transcript):
