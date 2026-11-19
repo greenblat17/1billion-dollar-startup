@@ -49,10 +49,10 @@ class TrialIntegrationTestV55 {
     }
     private suspend fun FoundationService.op(scope: String, action: String, args: JsonObject, id: String = newId()) =
         command(scope, json("version" to 1, "operationId" to id, "action" to action, "args" to args))
-    private suspend fun lesson(s: FoundationService, subject: String, starts: Instant): JsonObject {
+    private suspend fun lesson(s: FoundationService, subject: String, starts: Instant, duration: Long = 30): JsonObject {
         val student = s.identity.resolve("telegram", subject)
         return s.op(s.identity.issue(student, "operator"), "lesson.create", json("kind" to "trial", "launchMode" to "executable",
-            "startsAt" to starts.toString(), "timezone" to "UTC", "durationMinutes" to 30))
+            "startsAt" to starts.toString(), "timezone" to "UTC", "durationMinutes" to duration))
     }
     private suspend fun open(s: FoundationService, subject: String, id: String, now: Instant) = TrialAccess(s).access(
         json("action" to "open", "initData" to auth(subject, now), "lessonId" to id, "attemptId" to newId()), bot)
@@ -86,6 +86,46 @@ class TrialIntegrationTestV55 {
             assertEquals(1800L, events(s, l, b.text("scope")).obj("execution").number("connectedSeconds"))
             s.op(b.text("scope"), "voice.end", JsonObject(voice(l, b) + json("reason" to "natural_goodbye")))
             assertEquals("lesson_unavailable", assertFailsWith<FoundationFailure> { open(s, "100", l.text("id"), clock.value) }.code)
+        }
+    }
+
+    @Test fun sp24PreservesEnglishClockAndPreferredAddressAcrossReconnect() = runTest {
+        store { s, clock ->
+            val start = clock.value
+            val l = lesson(s, "100", start, duration = TRIAL_SLOT_MINUTES)
+            val a = open(s, "100", l.text("id"), clock.value)
+            assertEquals(1200L, ready(s, l, a).number("plannedSeconds"))
+            val first = voice(l, a)
+            val source = s.op(a.text("scope"), "voice.append", JsonObject(first + json(
+                "sourceId" to "name-1", "role" to "user", "body" to "Зови меня Алекс", "occurredAt" to clock.value.toString())))
+            val saved = s.op(a.text("scope"), "student.preferred_address", JsonObject(first + json(
+                "sourceId" to source.text("eventId"), "value" to "Алекс", "evidence" to "Зови меня Алекс")))
+            assertEquals("voice_explicit", saved.text("source"))
+            assertEquals(source.text("eventId"), saved.text("sourceEventId"))
+            advance(s, clock, l, a, 120)
+            assertEquals(120_000L, s.op(a.text("scope"), "trial.phase", JsonObject(first + json(
+                "phase" to "conversation"))).number("conversationStartMs"))
+            advance(s, clock, l, a, 420)
+            s.op(a.text("scope"), "voice.end", JsonObject(first + json("reason" to "technical_disconnect")))
+            clock.value = clock.value.plusSeconds(60)
+            val b = open(s, "100", l.text("id"), clock.value)
+            val second = voice(l, b)
+            val state = ready(s, l, b)
+            assertEquals(540_000L, state.number("connectedMs"))
+            assertEquals(1_020_000L, state.number("conversationEndMs"))
+            val reopened = s.snapshot(b.text("scope"), "voice", l.text("id"))
+            assertEquals(saved, reopened.obj("student").obj("profile").obj("preferredAddress"))
+            advance(s, clock, l, b, 450)
+            val wrapup = JsonObject(second + json("phase" to "wrapup"))
+            clock.value = clock.value.plusMillis(29_999)
+            assertEquals("trial_conversation_in_progress", assertFailsWith<FoundationFailure> {
+                s.op(b.text("scope"), "trial.phase", wrapup)
+            }.code)
+            clock.value = clock.value.plusMillis(1)
+            assertEquals("wrapup", s.op(b.text("scope"), "trial.phase", wrapup).text("phase"))
+            s.op(b.text("scope"), "voice.end", JsonObject(second + json("reason" to "natural_goodbye")))
+            val operator = s.identity.issue(l.text("student_id"), "operator")
+            assertEquals("trial.observe", s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job").text("kind"))
         }
     }
 

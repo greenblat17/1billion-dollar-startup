@@ -38,17 +38,22 @@ internal class TrialCommands {
             }
             "voice.end" -> {
                 val reason = args.text("reason")
-                if (reason !in setOf("natural_goodbye", "end_button", "technical_disconnect")) reject("invalid_reason")
+                val sp24 = trialSp24(lesson)
+                if (reason !in setOf("natural_goodbye", "end_button", "technical_disconnect") &&
+                    !(sp24 && reason == "learner_requested")) reject("invalid_reason")
+                if (sp24 && reason == "natural_goodbye" && lesson.text("trial_phase") != "wrapup") reject("invalid_trial_phase")
                 c.update("UPDATE call_session SET status='ended',ended_at=?,trial_seen_at=CASE WHEN trial_ready_at IS NOT NULL THEN ?::timestamptz ELSE NULL END,end_reason=?,lease_until=NULL WHERE id=?", now, now, reason, session.text("id"))
                 if (trialV55(lesson)) TrialCallEvents().lifecycle(c, scope, session, "ended", json("reason" to reason), now)
-                if (trialV55(lesson) && reason == "end_button") TrialExecution().complete(c, lesson, reason, now)
+                if (sp24 && reason == "technical_disconnect") c.extendTrialReconnect(lesson, now)
+                val earlyTrial = trialV55(lesson) && reason in setOf("end_button", "learner_requested")
+                if (earlyTrial) TrialExecution().complete(c, lesson, reason, now)
                 if (reason == "natural_goodbye") {
                     val connectedRegularSeconds = if (lesson.text("kind") == "regular") c.rows(
                         """SELECT COALESCE(SUM(EXTRACT(EPOCH FROM ended_at-started_at)),0)
                             FROM call_session WHERE student_id=? AND lesson_id=? AND ended_at IS NOT NULL""",
                         scope.studentId, scope.lessonId) { it.getDouble(1) }.single() else 0.0
                     c.update("UPDATE lesson SET status='completed',ended_early=?,outcome_reason=?,version=version+1 WHERE id=?",
-                        if (trialV55(lesson)) TrialExecution().state(c, lesson, now).number("connectedSeconds") < 1500
+                        if (sp24) false else if (trialV55(lesson)) TrialExecution().state(c, lesson, now).number("connectedSeconds") < 1500
                         else lesson.text("kind") == "regular" &&
                             connectedRegularSeconds < lesson.number("duration_minutes") * 60 - 180,
                         reason, scope.lessonId)
@@ -56,9 +61,13 @@ internal class TrialCommands {
                 }
                 val earlyRegularExit = reason == "end_button" &&
                     now < Instant.parse(lesson.text("starts_at")).plusSeconds(lesson.number("duration_minutes") * 60 - 180)
-                if (lesson.text("kind") == "trial" || earlyRegularExit) c.trialNotice(scope.studentId, lesson.text("id"), scope.epoch,
-                    if (reason == "natural_goodbye") "followup" else reason, now.plusSeconds(if (reason == "natural_goodbye") 3 else 30))
-                json("ended" to true, "completed" to (reason == "natural_goodbye" || (trialV55(lesson) && reason == "end_button")))
+                val schedulingFollowup = sp24 && earlyTrial && lesson.optionalText("trial_regular_reaction") == "yes"
+                val followup = reason == "natural_goodbye" || schedulingFollowup
+                if ((lesson.text("kind") == "trial" && (reason != "learner_requested" || schedulingFollowup)) || earlyRegularExit) {
+                    c.trialNotice(scope.studentId, lesson.text("id"), scope.epoch,
+                        if (followup) "followup" else reason, now.plusSeconds(if (followup) 3 else 30))
+                }
+                json("ended" to true, "completed" to (reason == "natural_goodbye" || earlyTrial))
             }
             else -> reject("unknown_action")
         }

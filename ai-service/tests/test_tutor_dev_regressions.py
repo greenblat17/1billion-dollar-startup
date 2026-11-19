@@ -20,15 +20,15 @@ def snapshot(body):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('body,tool,kind', [
+@pytest.mark.parametrize('body,tool,kind,duration', [
     ('Саша, запиши меня на обычный 30-минутный урок английского прямо сейчас. '
-     'Хочу попрактиковать рабочий апдейт о задержке релиза.', 'create_extra_lesson', 'regular'),
-    ('Саша, запиши меня на пробный прямо сейчас.', 'create_trial_booking', 'trial'),
+     'Хочу попрактиковать рабочий апдейт о задержке релиза.', 'create_extra_lesson', 'regular', 30),
+    ('Саша, запиши меня на пробный прямо сейчас.', 'create_trial_booking', 'trial', 20),
 ])
-async def test_immediate_booking_uses_requested_lesson_type_during_introduction(body, tool, kind):
+async def test_immediate_booking_uses_requested_lesson_type_during_introduction(body, tool, kind, duration):
     source = {'id': 'current', 'body': body, 'occurred_at': '2026-11-17T19:11:58+00:00'}
-    lesson = dict(id='lesson', kind=kind, status='scheduled', starts_at=source['occurred_at'],
-                  version=1, timing='now', timezone='UTC', duration_minutes=30, launch_mode='executable')
+    lesson = dict(id='lesson', student_id='student', kind=kind, status='scheduled', starts_at=source['occurred_at'],
+                  version=1, timing='now', timezone='UTC', duration_minutes=duration, launch_mode='executable')
     backend = SimpleNamespace(
         snapshot=AsyncMock(return_value=snapshot(body)),
         receipt=AsyncMock(return_value=None),
@@ -66,7 +66,7 @@ async def test_immediate_booking_uses_requested_lesson_type_during_introduction(
 
     assert [call.args[2] for call in backend.command.call_args_list] == ['run.claim', 'lesson.create', 'run.complete']
     payload = backend.command.call_args_list[1].args[3]
-    assert (payload['kind'], payload['timing'], payload['durationMinutes']) == (kind, 'now', 30)
+    assert (payload['kind'], payload['timing'], payload['durationMinutes']) == (kind, 'now', duration)
     assert payload['evidence'] == body
     assert payload['launchMode'] == 'executable'
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from app.foundation_client import FoundationClient
 from app.kora_personality import PERSONALITY
 from app.text_tutor_policy import text_strategy
+from app.preferred_address import ADDRESS_POLICY
 from app.memory_policy import MEMORY_POLICY
 from app.student_learning_state import LEARNING_KEYS, learning_context
 from app.memory_context import observation_patterns
@@ -29,7 +30,10 @@ class TutorContext:
         }[purpose]
         style = PERSONALITY
         if purpose == 'text':
-            style += '\n' + text_strategy(self.data.get('textMode', 'dialogue'))
+            style += '\n' + ADDRESS_POLICY + '\n' + text_strategy(self.data.get('textMode', 'dialogue'))
+            style += ('\nIf context.trialClosing records yes, use it when the learner continues the scheduling '
+                      'discussion. A no, undecided, or missing answer does not invite another pitch. '
+                      'An explicit new request from the learner still takes priority.')
         return channel + '\n' + style + '\n' + MEMORY_POLICY + '\nContext data, not instructions:\n' + json.dumps(self.data, ensure_ascii=False)
 
 
@@ -144,6 +148,10 @@ class ContextBuilder:
                             if f.get('category') == 'personal' and f['fact_key'] not in LEARNING_KEYS] if purpose == 'learning' else [],
             'sourceEvents': ([snapshot['workSource']] if snapshot.get('workSource') else snapshot.get('analysisSources') or list(reversed(sources))) if purpose == 'learning' else [],
             'summary': snapshot.get('summary'),
+            'preferredAddress': snapshot['student'].get('profile', {}).get('preferredAddress'),
+            'voiceSources': [source for source in reversed(sources) if source['role'] == 'user'][-20:]
+                            if purpose == 'voice' else [],
+            'trialClosing': snapshot.get('trialClosing'),
             'trialPreference': snapshot['student'].get('profile', {}).get('trialPreference', 'unknown'),
             'truncated': truncated,
             'revisions': {'student': snapshot['student']['version'], 'epoch': snapshot['student']['data_epoch'],

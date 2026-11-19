@@ -56,7 +56,9 @@ internal class TrialAccess(private val service: FoundationService) {
         if (lesson.text("kind") !in setOf("trial", "regular") || lesson.text("launch_mode") != "executable" || lesson.text("status") !in setOf("scheduled", "in_progress")) reject("lesson_unavailable")
         val start = Instant.parse(lesson.text("starts_at"))
         if (now < start) reject("too_early")
-        if ((lesson.text("status") == "scheduled" || trialV55(lesson)) && now >= slotEnd(lesson)) reject("lesson_expired")
+        TrialExecution().expire(c, lesson, now)
+        val current = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
+        if ((lesson.text("status") == "scheduled" || trialV55(lesson)) && now >= trialReconnectEnd(current)) reject("lesson_expired")
         if (lesson.text("kind") == "regular" && lesson.number("duration_minutes") !in 15..60) reject("invalid_lesson")
         val entitlement = if (lesson.text("kind") == "regular") {
             val previous = lesson.optionalText("admission_entitlement_id")
@@ -65,7 +67,7 @@ internal class TrialAccess(private val service: FoundationService) {
             } else c.activeEntitlement(student, now) ?: reject("subscription_required")
         } else null
         val briefing = if (lesson.text("kind") == "trial") {
-            json("kind" to "trial", "objective" to "30-minute friendly Trial: Russian warm-up, English conversation, Russian wrap-up. No CEFR, scores or timelines.")
+            json("kind" to "trial", "objective" to "${lesson.number("duration_minutes")}-minute friendly Trial: Russian warm-up, English conversation, Russian wrap-up. No CEFR, scores or timelines.")
         } else if (lesson.text("status") == "in_progress") {
             lesson["execution_snapshot"] as? JsonObject ?: reject("not_ready")
         } else {
@@ -76,7 +78,6 @@ internal class TrialAccess(private val service: FoundationService) {
         val attempt = args.text("attemptId")
         if (attempt.length !in 1..100) reject("invalid_attempt")
         // An expired transport is recoverable; its Lesson is not automatically completed.
-        TrialExecution().expire(c, lesson, now)
         if (c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", lesson.text("id")) != null) reject("active_episode")
         if (c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND attempt_id=?", lesson.text("id"), attempt) != null) reject("attempt_already_used")
         val id = newId()
@@ -91,7 +92,7 @@ internal class TrialAccess(private val service: FoundationService) {
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")),
             "regularExecution" to regularExecution,
             "issuedTeachingContent" to regularExecution?.get("issuedTeachingContent"),
-            "trialExecution" to if (trialV55(lesson)) TrialExecution().state(c, lesson, now) else null)
+            "trialExecution" to if (trialV55(lesson)) TrialExecution().state(c, current, now) else null)
     }
 }
 

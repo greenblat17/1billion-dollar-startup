@@ -37,7 +37,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "roadmap.revise", "run.claim", "run.complete", "schedule.agree",
         "schedule.create", "schedule.materialize", "schedule.materialize.request", "student.delete",
         "subscription.checkout", "subscription.get", "trial.phase", "trial.preferences",
-        "trial.ready", "trial.schedule", "trial.schedules", "voice.append",
+        "trial.ready", "trial.reaction", "student.preferred_address", "trial.schedule", "trial.schedules", "voice.append",
         "voice.audio", "voice.audio_stored", "voice.end", "voice.heartbeat", "voice.playback",
     )
 
@@ -129,6 +129,8 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "learning.roadmap.problem.decide" -> RoadmapPriority().decide(connection, scope, args, now)
         "learning.task.update", "learning.task.transition", "learning.task.progress" ->
             LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
+        "student.preferred_address" -> StudentPreferredAddress().save(connection, scope, args, now)
+        "trial.reaction" -> TrialClosing().react(connection, scope, args, now)
         "trial.preferences" -> TrialPreferences().update(connection, scope, args, now)
         "trial.ready" -> TrialExecution().ready(connection, scope, args, now)
         "trial.phase" -> TrialExecution().phase(connection, scope, args, now)
@@ -243,8 +245,12 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
                 ORDER BY e.occurred_at,e.sequence LIMIT 1001""", scope.studentId, lessonId, now) else emptyList()
         val roadmap = connection.currentRoadmap(scope.studentId)
         val booking = connection.document("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND kind='trial' AND status IN ('scheduled','in_progress') ORDER BY created_at DESC LIMIT 1", scope.studentId)
-            ?.takeUnless { purpose == "text" && now >= slotEnd(it) }
-        json("version" to 1, "student" to student, "textMode" to connection.textConversationMode(scope.studentId), "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
+            ?.takeUnless { purpose == "text" && now >= trialReconnectEnd(it) }
+        val trialClosing = if (purpose == "text") connection.document(
+            """SELECT jsonb_build_object('lessonId',id,'regularReaction',trial_regular_reaction) FROM lesson
+                WHERE student_id=? AND kind='trial' AND status='completed' AND trial_version='v5.5' AND duration_minutes=?
+                ORDER BY starts_at DESC LIMIT 1""", scope.studentId, TRIAL_SLOT_MINUTES) else null
+        json("version" to 1, "student" to student, "trialClosing" to trialClosing, "textMode" to connection.textConversationMode(scope.studentId), "goal" to goal, "summary" to connection.document("SELECT to_jsonb(s) FROM tutor_summary s WHERE student_id=? AND expires_at>?", scope.studentId, now), "facts" to JsonArray(facts), "observations" to JsonArray(observations),
             "learningState" to StudentLearningState().read(connection, scope.studentId, now),
             "topicKnowledge" to connection.document("SELECT to_jsonb(c) FROM learning_catalog_current c WHERE singleton=TRUE")?.let {
                 StudentTopicKnowledge().read(connection, scope.studentId, it.text("version"), null, 0, false, now)

@@ -1,5 +1,6 @@
 """Native tools for preliminary scheduling. No payment or entitlement mutation."""
 from typing import Literal
+from app.preferred_address import TEXT_TOOL
 from app.subscription_tools import SUBSCRIPTION_TOOLS
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -129,7 +130,7 @@ class TrialTutorModel:
             function = dict(tool['function'])
             if function['name'] == 'create_trial_booking':
                 function['description'] = (
-                    'Book the free 30-minute voice trial when the request or agreed meeting is a trial. '
+                    'Book the free 20-minute voice trial when the request or agreed meeting is a trial. '
                     'Use create_extra_lesson for an explicit one-off regular lesson. An immediate start '
                     'specifies time, not lesson type. The evidence field must copy a contiguous substring '
                     'of the CURRENT learner message exactly, with its original spelling and punctuation. '
@@ -153,7 +154,7 @@ class TrialTutorModel:
                 function['description'] += (' For minutes from the current message use after_minutes with delayMinutes; no timezone is required. '
                     'shift_minutes is ONLY a shift of an existing booking. Choose exactly one schedule mode; never mix fields.')
             tools.append({'type': 'function', 'function': function})
-        return await self.llm.complete_tools(messages, tools + [ONBOARDING_TOOL] + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)
+        return await self.llm.complete_tools(messages, tools + [ONBOARDING_TOOL, TEXT_TOOL] + SCHEDULE_TOOLS + SUBSCRIPTION_TOOLS + MEMORY_TOOLS)
 
 
     async def finalize(self, messages):

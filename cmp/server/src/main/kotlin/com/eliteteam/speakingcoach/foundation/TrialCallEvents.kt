@@ -12,7 +12,7 @@ internal class TrialCallEvents {
         args.only("lessonId", "callSessionId", "sourceId", "role", "body", "occurredAt", "metadata", "revision")
         val session = c.activeTrial(scope, args, now)
         val metadata = args["metadata"] as? JsonObject ?: json()
-        metadata.only("providerItemId", "finality", "audioStartMs", "audioEndMs", "playbackComplete", "playedMs")
+        metadata.only("providerItemId", "finality", "audioStartMs", "audioEndMs", "playbackComplete", "playedMs", "trialClosingOffer")
         if (metadata.optionalText("finality") !in setOf(null, "final", "partial")) reject("invalid_finality")
         for (key in listOf("audioStartMs", "audioEndMs", "playedMs")) {
             if (metadata.containsKey(key)) {
@@ -56,6 +56,12 @@ internal class TrialCallEvents {
             VALUES (?,?,?,?,?,?,?,'transcript',?,?::jsonb,?,?) ON CONFLICT(id) DO UPDATE SET revision=EXCLUDED.revision,metadata=EXCLUDED.metadata,input_digest=EXCLUDED.input_digest""",
             id, scope.studentId, scope.lessonId, session.text("id"), sourceKey, event.text("eventId"), revision,
             Instant.parse(args.text("occurredAt")), enriched, fingerprint, now.plusSeconds(HISTORY_SECONDS))
+        if (metadata.optionalText("trialClosingOffer") == "true" && args.text("role") == "assistant" &&
+            metadata.optionalText("finality") == "final" && metadata.optionalText("playbackComplete") == "true") {
+            c.update("""UPDATE lesson SET trial_offer_sequence=?
+                WHERE id=? AND trial_version='v5.5' AND duration_minutes=? AND trial_phase='wrapup' AND trial_offer_sequence IS NULL""",
+                event.number("sequence"), scope.lessonId, TRIAL_SLOT_MINUTES)
+        }
         return JsonObject(event + json("rawEventId" to id, "revision" to revision))
     }
 

@@ -44,7 +44,8 @@ def test_complete_free_trial_roadmap_does_not_invent_level_gap_or_date():
     assert 'ещё не начата (0%)' in output
     assert 'Сейчас важнее разговор' in output
     assert 'Ориентир по времени' not in output
-    assert 'обсудим здесь удобный ритм' in output
+    assert 'Этот план бесплатный' in output
+    assert 'обсудим здесь удобный ритм' not in output
 
 
 def test_timeline_only_when_saved_revision_matches_and_has_range():
@@ -76,7 +77,7 @@ def test_early_deadline_is_explained_without_promising_a_faster_date():
                  'deadline': {'desired': '2026-12-18', 'relation': 'earlier_than_range'}}
     output = render_initial_roadmap(*inputs)
     assert 'Желаемый срок 2026-12-18 раньше даже самой ранней даты прогноза.' in output
-    assert 'обсудить более частые или длинные занятия либо перенести срок' in output
+    assert 'Изменение частоты, длительности занятий или желаемого срока повлияет на ориентир' in output
     inputs[4]['roadmapRevision'] = 2
     assert '2026-12-18' not in render_initial_roadmap(*inputs)
 

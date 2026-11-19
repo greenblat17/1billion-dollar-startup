@@ -9,6 +9,8 @@ from uuid import uuid4
 import anyio
 
 from app.context_builder import ContextBuilder
+from app.preferred_address import PreferredAddress
+from app.trial_sp24 import SLOT_MINUTES
 from app.memory_tools import MEMORY_MODELS, execute_memory
 from app.foundation_client import BackendFailure, FoundationClient
 from app.tutor import TutorRequest
@@ -123,7 +125,7 @@ class FoundationTutor:
             if committed:
                 bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
                 schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
-                memory_committed = any(operation["action"].startswith("memory.") or operation["action"] in ("tutor.update_context", "onboarding.update") for operation in committed)
+                memory_committed = any(operation["action"].startswith("memory.") or operation["action"] in ("tutor.update_context", "onboarding.update", "student.preferred_address") for operation in committed)
                 payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
                 rescheduled = bool(changed and any(operation['action'] == 'lesson.reschedule'
@@ -155,7 +157,9 @@ class FoundationTutor:
                                 rejected_trial_change = function['name']
                         if function['name'] in ('update_learner_context', 'update_onboarding') and result.get('saved'):
                             memory_committed = True
-                        if function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory') and result.get('ok') is not False:
+                        if ((function['name'] == 'set_preferred_address' or
+                                (function['name'] in MEMORY_MODELS and function['name'] not in ('search_memory', 'discuss_memory')))
+                                and result.get('ok') is not False):
                             memory_committed = True
                         if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
                             payment_committed = True
@@ -249,6 +253,12 @@ class FoundationTutor:
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
         stage = 'validate_arguments'
         try:
+            if name == 'set_preferred_address':
+                args = PreferredAddress.model_validate(arguments)
+                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                address = await self.backend.command(scope, identity, 'student.preferred_address',
+                    {'sourceId': source['id'], **args.model_dump()})
+                return {'ok': True, 'preferredAddress': address}
             if name == 'update_onboarding':
                 args = UpdateOnboarding.model_validate(arguments)
                 supported = [change for change in args.changes
@@ -353,7 +363,7 @@ class FoundationTutor:
                 command.update(startsAt=starts, timezone=zone, timing=timing)
                 if name == 'create_trial_booking':
                     action = 'lesson.create'
-                    command.update(kind='trial', launchMode='executable', durationMinutes=30, timing=timing)
+                    command.update(kind='trial', launchMode='executable', durationMinutes=SLOT_MINUTES, timing=timing)
                 else:
                     action = 'lesson.reschedule'
                     command['launchMode'] = 'executable'

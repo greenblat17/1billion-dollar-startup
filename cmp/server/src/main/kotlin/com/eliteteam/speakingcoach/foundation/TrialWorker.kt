@@ -145,7 +145,8 @@ internal class TrialWorker(private val service: FoundationService, private val h
         return when (notice.text("kind")) {
             in scheduledNoticeKinds -> lesson.text("status") == "scheduled" &&
                 scheduledNoticeApplies(notice.text("kind"), java.time.Instant.parse(notice.text("due_at")), start, now)
-            "followup" -> lesson.text("status") == "completed" && lesson.optionalText("outcome_reason") == "natural_goodbye"
+            "followup" -> lesson.text("status") == "completed" && (lesson.optionalText("outcome_reason") == "natural_goodbye" ||
+                (trialSp24(lesson) && lesson.optionalText("trial_regular_reaction") == "yes"))
             "no_show" -> lesson.text("status") == "scheduled" && now < java.time.Instant.parse(lesson.text("starts_at")).plusSeconds(lesson.number("duration_minutes") * 60)
             else -> {
                 val last = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", lesson.text("id"))
@@ -181,7 +182,8 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 }
                 if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(600) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
                 if (lesson.text("status") == "scheduled" && now >= end) c.update("UPDATE lesson SET status='missed',version=version+1 WHERE id=? AND status='scheduled'", id)
-                if (trialV55(lesson) && lesson.text("status") == "in_progress" && now >= end &&
+                if (trialV55(lesson) && lesson.text("status") == "in_progress" &&
+                    now >= trialReconnectEnd(c.lesson(ExecutionScope(student, "operator", epoch), id)) &&
                     c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", id) == null) {
                     TrialExecution().complete(c, lesson, "technical_disconnect", now)
                     c.trialNotice(student, id, epoch, "technical_disconnect", now)

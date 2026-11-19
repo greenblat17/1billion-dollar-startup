@@ -25,7 +25,7 @@ internal class LessonManagement {
         if (kind == "regular" && duration !in 15..60) reject("invalid_lesson")
         if (kind !in setOf("trial", "regular") || mode !in setOf("placeholder", "executable") || duration !in 1..60) reject("invalid_lesson")
         if (scope.role == "text") {
-            if ((kind == "trial" && duration != 30L) || (kind == "regular" && (duration !in 15..60 || mode != "executable"))) reject("not_permitted")
+            if ((kind == "trial" && duration != TRIAL_SLOT_MINUTES) || (kind == "regular" && (duration !in 15..60 || mode != "executable"))) reject("not_permitted")
             evidence(connection, scope, args, now)
             if (args.optionalText("timing") != "now" && starts <= now) reject("time_in_past")
         }
@@ -55,7 +55,7 @@ internal class LessonManagement {
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
             occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled", now, now,
         )
-        if (kind == "trial" && duration == 30L) connection.update("UPDATE lesson SET trial_version='v5.5' WHERE id=?", id)
+        if (kind == "trial" && duration in setOf(TRIAL_SLOT_MINUTES, 30L)) connection.update("UPDATE lesson SET trial_version='v5.5' WHERE id=?", id)
         if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
         if (kind == "regular" && connection.currentRoadmap(scope.studentId) == null &&
             RoadmapPreparation().state(connection, scope.studentId) == null) RoadmapPreparation().enqueue(connection, scope.studentId, now)

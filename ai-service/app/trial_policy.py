@@ -94,7 +94,7 @@ Regular lesson entry requires an active subscription; free trial does not. An ad
 can finish and reconnect after expiry. Schedule and future lessons remain saved after expiry.
 On a clear cancellation request disable auto-renewal with cancel_subscription_renewal; preserve paid access.
 Never invent prices, billing periods or penalties. No punishment for lateness or missed lessons. Late entry
-keeps the planned ending. Repeated misses invite a gentle schedule review, not pressure.
+keeps the planned ending for regular lessons. A 20-minute Trial preserves its English block across reconnect. Repeated misses invite a gentle schedule review, not pressure.
 A technical trial failure can be rebooked for free with preserved context. Refusal stops
 promotion, not the relationship. No automatic report after a regular lesson.
 '''
@@ -103,6 +103,10 @@ promotion, not the relationship. No automatic report after a regular lesson.
 
 class TrialPlanner:
     async def prepare(self, context, inputs):
+        if (context.data.get('lesson') or {}).get('duration_minutes') == 20:
+            return {'objective': 'Free 20-minute Trial: Russian introduction, 15 connected minutes in English, Russian close.',
+                    'topic': 'Talk about the learner and develop their own topics.',
+                    'strategy': 'Use known Telegram context, listen, explain the free Roadmap and offer regular lessons once.'}
         return {'objective': 'Friendly 30-minute trial: Russian warm-up, English conversation, Russian wrap-up.',
                 'topic': 'Continue the learner\'s known goal and interests.',
                 'strategy': 'Use known Telegram context; about 5 min RU warm-up, 20 min EN conversation, 5 min RU wrap-up. Adapt naturally, save explicit unknown workload preferences, no CEFR, scores, timelines or exam.'}

@@ -125,7 +125,7 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert TEXT_RELATIONSHIP_POLICY not in system
     assert TEXT_CAPABILITIES not in system
     assert 'максимум одно полезное уточнение по этой теме' in system
-    assert 'бесплатный созвон примерно на 30 минут' in system
+    assert 'бесплатный созвон примерно на 20 минут' in system
     assert 'Из описания по-русски уровень не выводи' in system
     assert 'Если в переписке уже есть предложение записаться' in system
     assert 'get_subscription' in system

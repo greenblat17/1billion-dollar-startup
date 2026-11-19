@@ -100,12 +100,12 @@ def render_initial_roadmap(state: dict, saved: dict, priority: dict,
             if deadline.get('desired') and relation == 'earlier_than_range':
                 lines.append(f"Желаемый срок {deadline['desired']} раньше даже самой ранней даты прогноза. "
                              'При текущей нагрузке он выглядит слишком коротким. '
-                             'Можно обсудить более частые или длинные занятия либо перенести срок.')
+                             'Изменение частоты, длительности занятий или желаемого срока повлияет на ориентир.')
             elif deadline.get('desired') and relation == 'within_range':
                 lines.append(f"Желаемый срок {deadline['desired']} попадает в предварительный диапазон.")
             elif deadline.get('desired') and relation == 'later_than_range':
                 lines.append(f"Желаемый срок {deadline['desired']} позже верхней границы предварительного диапазона.")
-    lines += ['', 'Если хочешь, обсудим здесь удобный ритм следующих занятий и уточним предположения по ходу практики.']
+    lines += ['', 'Этот план бесплатный. Если уточнишь цель или заметишь неточность, напиши мне здесь.']
     return '\n'.join(lines)
 
 
