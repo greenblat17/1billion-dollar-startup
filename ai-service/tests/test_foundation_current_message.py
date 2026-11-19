@@ -119,6 +119,8 @@ async def test_live_text_uses_consultation_policy_without_legacy_five_topic_requ
     assert PERSONALITY in messages[0]['content']
     assert INTRODUCTION_WRITING_STYLE in messages[0]['content']
     assert 'Короткий уместный отклик допустим.' in messages[-2]['content']
+    assert 'ставь точки между предложениями' in messages[-2]['content']
+    assert 'опускай финальную точку' in messages[-2]['content']
     assert 'Тире в reply запрещено.' in messages[-2]['content']
     assert TEXT_RELATIONSHIP_POLICY not in system
     assert TEXT_CAPABILITIES not in system
@@ -146,7 +148,7 @@ async def test_introduction_supplies_previous_clarification_and_preserves_paragr
     data['facts'] = [
         dict(category='personal', fact_key='difficulty', value='Трудно понимать на слух', kind='user_report', revision=1),
     ]
-    reply = 'Пробный бесплатный.\n\nА для чего тебе нужен английский?'
+    reply = 'Пробный бесплатный. Созвонимся примерно на 30 минут\n\nА для чего тебе нужен английский?'
     saved = {}
 
     async def command(scope, key, action, payload):
@@ -216,6 +218,8 @@ async def test_explicit_dialogue_mode_keeps_kora_without_consultation_strategy()
     assert TEXT_RELATIONSHIP_POLICY in prompt
     assert TEXT_CAPABILITIES in prompt
     assert 'Как Саша пишет в этом диалоге' not in prompt
+    assert 'ставь точки между предложениями' in prompt
+    assert 'опускай финальную точку' in prompt
 
 
 @pytest.mark.asyncio

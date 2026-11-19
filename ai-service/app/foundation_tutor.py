@@ -99,12 +99,14 @@ class FoundationTutor:
             + ('This is a returning Telegram start event: continue the relationship using known context, without restarting onboarding. ' if start else '')
             + 'Current event metadata: ' + json.dumps(
                 {'id': source['id'], 'occurred_at': source.get('occurred_at')}, ensure_ascii=False)
+            + '\nВ reply ставь точки между предложениями. В конце каждого Telegram-сообщения '
+            'опускай финальную точку. Вопросительный и восклицательный знаки сохраняй.'
         )})
         if introducing:
             messages[-1]['content'] += (
                 '\nНачни reply с ответа, вопроса, приглашения или отклика на конкретную деталь. '
-                'Короткий уместный отклик допустим. В reply используй точки и запятые '
-                'для связи мыслей. Один знак вопроса максимум. Тире в reply запрещено.'
+                'Короткий уместный отклик допустим. '
+                'Один знак вопроса максимум. Тире в reply запрещено.'
             )
         messages.append({'role': 'user', 'content': text})
         changed = None
