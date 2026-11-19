@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {"name": "tasks", "request": {"kind": "read", "resource": "tasks"}},
+    {
+      "name": "task",
+      "request": {"kind": "read", "resource": "task", "resourceId": {"$ref": "tasks.response.result.items.0.id"}}
+    },
+    {
+      "name": "score",
+      "request": {"kind": "read", "resource": "score", "resourceId": {"$ref": "tasks.response.result.items.0.id"}}
+    },
+    {
+      "name": "score_history",
+      "request": {"kind": "read", "resource": "score", "resourceId": {"$ref": "tasks.response.result.items.0.id"}, "history": true}
+    },
+    {"name": "observations", "request": {"kind": "read", "resource": "observations"}},
+    {"name": "jobs", "request": {"kind": "read", "resource": "jobs"}}
+  ]
+}

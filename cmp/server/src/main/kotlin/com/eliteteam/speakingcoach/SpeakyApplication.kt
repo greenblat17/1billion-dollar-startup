@@ -9,6 +9,7 @@ import com.eliteteam.speakingcoach.foundation.FoundationChat
 import com.eliteteam.speakingcoach.foundation.FoundationWorker
 import com.eliteteam.speakingcoach.foundation.HttpLearningComputer
 import com.eliteteam.speakingcoach.foundation.installFoundation
+import com.eliteteam.speakingcoach.foundation.agentTestRoutes
 import com.eliteteam.speakingcoach.telegram.buildSpeakyTelegram
 import com.eliteteam.speakingcoach.telegram.installSpeakingCoachWebhook
 import com.eliteteam.speakingcoach.telegram.newTelegramWebhookScope
@@ -64,6 +65,9 @@ internal fun Application.speakyModule(config: AppConfig) {
     routing {
         get("/health") { call.respondText("ok") }
         trialRoutes(foundation, config.aiInternalToken, config.telegramBotToken ?: "")
+        if (config.speakyEnv == "dev" && System.getenv("AGENT_TEST_ENABLED") == "true") {
+            agentTestRoutes(foundation, tutor, config.aiInternalToken)
+        }
     }
     val miniUrl = System.getenv("MINI_APP_URL")?.trim().orEmpty()
     if (miniUrl.startsWith("https://") && !config.telegramBotToken.isNullOrBlank()) {

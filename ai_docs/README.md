@@ -7,9 +7,29 @@ Telegram служит перепиской; приложение в целево
 
 | Вопрос | Документ |
 | --- | --- |
+| DEV-приёмка волн 1–9 и диалоги агента с Сашей | [Матрица AC](acceptance/dev-waves-1-9-matrix.md), [текстовые результаты](acceptance/runs/text-ac-results.md), [regular lesson AC](acceptance/runs/regular-lesson-ac-2026-11-17.md), [оставшиеся проверки](acceptance/remaining-ac-execution.md) |
+| SP-19A/B: Stage Score и реальные Observations | [Контракт и границы проверки](integrations/learning-score.md), [статус](status.md#совместная-интеграция-волны-7) |
+| SP-20: Post-Lesson Review | [Контракт и границы проверки](integrations/post-lesson-review.md), [статус](status.md#совместная-интеграция-волны-9) |
+| Новый SP-17A: доказательные Observations | [Контракт и handoff](integrations/learning-observations.md), [план](plans/2026-11-16-sp17a-observation-contract.md), [готовность](status.md#новый-sp-17a-observation-contract--core) |
+| SP-17B: Trial → Observations | [Контракт](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
+| SP-07: Post-Trial Assessment | [Диагностический handoff](integrations/trial-assessment.md), [продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
+| SP-08: первая Roadmap | [Контракт и границы проверки](plans/2026-11-17-sp08-roadmap-handoff.md), [готовность](status.md#совместная-интеграция-волны-5) |
+| SP-09/10: приоритеты и сроки Roadmap | [Готовность и границы проверки](status.md#совместная-интеграция-волны-6) |
+| SP-11A: первая доставка Roadmap в Telegram | [Статус и границы проверки](status.md#совместная-интеграция-волны-7) |
+| SP-18: предложения новых Learning Tasks | [Статус и границы проверки](status.md#совместная-интеграция-волны-7) |
+| SP-14/15: Teaching Actions | [Готовность и граница SP-16/17C](status.md#совместная-интеграция-волны-5) |
+| SP-17C: результаты Teaching Actions | [Observation contract](integrations/learning-observations.md), [готовность](status.md#совместная-интеграция-волны-6) |
+| SP-12A v5.5: Task Learning Plan / Stage | [Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |
+| SP-12B v5.5: шаблоны методов и переходы Plan | [Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы), [утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md), [готовность](status.md#sp-12b-v55-педагогическая-логика) |
+| SP-13A v5.5: Learning Content Contract | [Контракт и handoff](integrations/learning-content.md), [план](plans/2026-11-16-sp13a-content-contract.md), [примеры](../content-contract/v1/examples.json) |
+| SP-13B v5.5: генерация и смысловая проверка | [Реализация и handoff](integrations/learning-content-generation.md) |
+| Новый SP-02: учебные каталоги | [Темы по CEFR и навыку](product/2026-11-15-learning-catalog-review.md), [исходный JSON](../learning-catalog/v1/catalog.json), [готовность](status.md#новый-sp-02-v55-учебные-каталоги) |
+| Новый SP-04 v5.5: Learning Tasks | [Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55) |
+| Новый SP-03 v5.5: учебное состояние | [Утверждённый план](plans/2026-11-15-sp03-student-learning-state.md), [контракт и владение данными](../architecture.md#student-learning-state-sp-03-v55) |
 | Актуальная продуктовая модель персонального обучения, уроков и Roadmap | [Продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
 | Исходная концепция Саши, интерфейсов и жизненного цикла | [Продукт v0.5 — исторический источник](product/2026-11-08-ai-tutor-experience-v0.5.md) |
 | Общий фундамент и исходная матрица проверок | [SP-00](plans/2026-11-10-sp00-foundation.md) |
+| Новый SP-06 v5.5: 30-минутный Trial | [Исполнение и handoff](integrations/trial-v55.md), [утверждённый план](plans/2026-11-16-sp06-trial-lesson-v55.md) |
 | Целевой пробный урок | [Продукт v5.5, раздел 7](product/2026-11-14-personalized-learning-v5.5.md) |
 | Как был реализован прежний пробный урок | [SP-02](plans/2026-11-11-sp02-trial-lesson.md) |
 | Исходное UX-ТЗ от Start до записи на пробный | [Первое знакомство](product/2026-11-13-first-acquaintance-ux.md) |
@@ -26,6 +46,8 @@ Telegram служит перепиской; приложение в целево
 | Визуальный стиль Mini App и макет звонка | [Стайлгайд и HTML-макеты](design/README.md) |
 | Как запустить и проверить локально | [Запуск и CI](integrations/operations.md#run-locally-env-ci) |
 | Как обслуживать окружения и сохранять данные | [Эксплуатация и deploy](integrations/operations.md#выкладка-и-восстановление) |
+| Как запускать изолированную агентскую приёмку текста | [Агентская приёмка](integrations/agent-acceptance.md) |
+| Как выбирать GPT-6.2 Sol/Astra для задач Codex | [Работа с моделями Codex](integrations/codex-models.md) |
 
 [Продуктовая v5.5](product/2026-11-14-personalized-learning-v5.5.md) — актуальный источник целевого педагогического поведения. Это концепция, а не подтверждение реализации или поставки.
 [Продуктовая v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md) сохранена без изменений для происхождения решений. При расхождении с v5.5 действует v5.5; ранние планы SP-00–SP-08 описывают согласованный тогда объём, а не меняют этот приоритет.

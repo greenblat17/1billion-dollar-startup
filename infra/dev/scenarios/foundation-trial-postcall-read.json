@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {"name": "jobs", "request": {"kind": "read", "resource": "jobs"}},
+    {"name": "roadmap", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "tasks", "request": {"kind": "read", "resource": "tasks"}},
+    {"name": "tasks_page_2", "request": {"kind": "read", "resource": "tasks", "offset": 50}},
+    {"name": "tasks_page_3", "request": {"kind": "read", "resource": "tasks", "offset": 100}},
+    {"name": "contents", "request": {"kind": "read", "resource": "contents"}}
+  ]
+}

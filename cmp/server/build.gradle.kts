@@ -48,8 +48,21 @@ dependencies {
 
 // PostgreSQL suites run only in foundationIntegrationTest. Missing DB configuration there is a failure, not a skip.
 tasks.test {
+    exclude("**/LearningObservationsIntegrationTest*")
+    exclude("**/LearningTasksIntegrationTest*")
+    exclude("**/LearningPlansIntegrationTest*")
+    exclude("**/LearningContentIntegrationTest*")
+    exclude("**/LearningScoresIntegrationTest*")
+    exclude("**/LearningObservationScoreIntegrationTest*")
+    exclude("**/PersonalizedRoadmapIntegrationTest*")
+    exclude("**/RoadmapPriorityIntegrationTest*")
+    exclude("**/ProblemDetectionIntegrationTest*")
+    exclude("**/InitialRoadmapDeliveryIntegrationTest*")
+    exclude("**/StudentLearningIntegrationTest*")
+    exclude("**/LearningCatalogIntegrationTest*")
     exclude("**/FoundationIntegrationTest*")
     exclude("**/TrialIntegrationTest*")
+    exclude("**/PostLessonReviewIntegrationTest*")
 }
 val foundationIntegrationTest by tasks.registering(Test::class) {
     description = "Run foundation and trial integration contracts against real PostgreSQL"
@@ -58,7 +71,26 @@ val foundationIntegrationTest by tasks.registering(Test::class) {
     classpath = sourceSets.test.get().runtimeClasspath
     include("**/FoundationIntegrationTest*")
     include("**/TrialIntegrationTest*")
+    include("**/PostLessonReviewIntegrationTest*")
+    include("**/LearningTasksIntegrationTest*")
+    include("**/LearningObservationsIntegrationTest*")
+    include("**/LearningPlansIntegrationTest*")
+    include("**/LearningContentIntegrationTest*")
+    include("**/LearningScoresIntegrationTest*")
+    include("**/LearningObservationScoreIntegrationTest*")
+    include("**/PersonalizedRoadmapIntegrationTest*")
+    include("**/RoadmapPriorityIntegrationTest*")
+    include("**/ProblemDetectionIntegrationTest*")
+    include("**/InitialRoadmapDeliveryIntegrationTest*")
+    include("**/StudentLearningIntegrationTest*")
+    include("**/LearningCatalogIntegrationTest*")
     outputs.upToDateWhen { false }
+}
+
+val learningCatalog by tasks.registering(JavaExec::class) {
+    description = "Validate, import a draft, or explicitly publish a reviewed learning catalog"
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("com.eliteteam.speakingcoach.foundation.LearningCatalogCliKt")
 }
 
 val foundationHarness by tasks.registering(JavaExec::class) {

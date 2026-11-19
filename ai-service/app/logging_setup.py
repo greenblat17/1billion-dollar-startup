@@ -6,10 +6,14 @@ import os
 _FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 
 
-def configure_process_logging(level: str, log_file: str) -> None:
+def configure_process_logging(level: str, log_file: str, *, payload_free: bool = False) -> None:
     logging.basicConfig(level=level, format=_FORMAT)
     root = logging.getLogger()
     root.setLevel(level)
+    if payload_free:
+        # Protocol handlers can log URLs, auth headers or frames at verbose levels.
+        for name in ('httpx', 'httpcore', 'openai', 'websockets', 'botocore', 'boto3', 's3transfer'):
+            logging.getLogger(name).setLevel(logging.CRITICAL + 1)
     path = log_file.strip()
     if not path:
         return

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.context_builder import TutorContext
+from app.learning_results import LessonPlan
 from app.regular_lesson import LessonPlanner
 from tests.test_trial_realtime import session, sent, output
 
@@ -20,11 +21,24 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
         'facts': [{'fact_key': 'leisure', 'value': 'hiking', 'source_event_id': 'source-1'}],
         'observations': [{'content': 'Needs time to give reasons', 'uncertainty': 'limited'}]}, [], False)
     assert await LessonPlanner(model).prepare(context, {}) == plan
+    instructions = model.complete_json.call_args.args[0]
+    assert 'Write strategy in 3–5 short sentences.' in instructions
+    assert 'Aim for no more than 1200 characters.' in instructions
     payload = json.loads(model.complete_json.call_args.args[1])
     assert payload == context.data
-    from app.learning_results import LessonPlan
     assert model.complete_json.call_args.kwargs == {'operation': 'regular_lesson_prepare', 'retry': False,
         'response_format': LessonPlan.response_format()}
+    model.complete_json.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_planner_keeps_valid_strategy_above_prompt_length_target():
+    plan = {'objective': 'Explain a release delay clearly', 'topic': 'Work updates', 'strategy': 'x' * 3000}
+    model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(plan)))
+    context = TutorContext({'lesson': {'kind': 'regular'}}, [], False)
+
+    assert await LessonPlanner(model).prepare(context, {}) == plan
+    model.complete_json.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -32,10 +46,39 @@ async def test_production_planner_uses_shared_evidence_and_distinct_objective_an
     {'objective': 'x', 'topic': 'x', 'strategy': ['bad']},
     {'objective': 'x', 'topic': 'x', 'strategy': 'x' * 3001},
     {'objective': 'x', 'topic': 'x', 'strategy': 'x', 'invented': 'x'}])
-async def test_planner_rejects_invalid_results_without_fallback(result):
+async def test_planner_rejects_invalid_results_after_one_repair(result):
     model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(result)))
     with pytest.raises(ValueError, match='invalid_plan'):
         await LessonPlanner(model).prepare(TutorContext({'lesson': {'kind': 'regular'}}, [], False), {})
+    assert [call.kwargs['operation'] for call in model.complete_json.await_args_list] == [
+        'regular_lesson_prepare', 'regular_lesson_prepare_repair']
+    assert all(not call.kwargs['retry'] for call in model.complete_json.await_args_list)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('field,value,field_type,length,reason', [
+    ('objective', '   ', 'str', 3, 'blank'),
+    ('topic', ['PRIVATE_INVALID_TOPIC'], 'list', None, 'expected_string'),
+    ('strategy', 'PRIVATE_INVALID_STRATEGY' * 200, 'str', 4800, 'too_long'),
+])
+async def test_planner_repairs_invalid_field_with_metadata_only(field, value, field_type, length, reason, caplog):
+    caplog.set_level('INFO', logger='app.diagnostics')
+    valid = {'objective': 'Explain a release delay clearly', 'topic': 'Work updates',
+             'strategy': 'Discuss the cause and agree on one next step.'}
+    invalid = dict(valid, **{field: value})
+    model = SimpleNamespace(complete_json=AsyncMock(side_effect=[json.dumps(invalid), json.dumps(valid)]))
+    context = TutorContext({'lesson': {'kind': 'regular'}, 'goal': 'B2 for work'}, [], False)
+
+    assert await LessonPlanner(model).prepare(context, {}) == valid
+    _, repair = model.complete_json.await_args_list
+    issue = {'field': field, 'type': field_type, 'length': length, 'reason': reason}
+    assert json.dumps(issue) in repair.args[0]
+    assert json.loads(repair.args[1]) == context.data
+    assert repair.kwargs == {'operation': 'regular_lesson_prepare_repair', 'retry': False,
+                             'response_format': LessonPlan.response_format()}
+    assert '"event": "regular_lesson_plan_rejected"' in caplog.text
+    assert json.dumps(issue) in caplog.text
+    assert 'PRIVATE_INVALID' not in repair.args[0] + caplog.text
 
 
 @pytest.mark.asyncio
@@ -48,6 +91,9 @@ async def test_trial_preparation_does_not_start_new_paid_planner():
 
 def regular_session(minutes=30, elapsed=0):
     s = session()
+    s.backend.catalog = AsyncMock(return_value={'version': 'v1', 'topics': [], 'problems': []})
+    s.backend.learning_tasks = AsyncMock(return_value={'items': [], 'nextOffset': None})
+    s.backend.learning_problems = AsyncMock(return_value={'items': []})
     s.lesson = dict(s.lesson, kind='regular', duration_minutes=minutes,
         starts_at=(datetime.now(timezone.utc) - timedelta(seconds=elapsed)).isoformat(),
         execution_snapshot={'status': 'ready', 'plan': {'content': {
@@ -71,7 +117,7 @@ async def test_regular_configuration_uses_admitted_plan_memory_and_actual_next_m
     assert data['nextLesson'] is None
     assert 'not yet\navailable' not in config['instructions']
     assert config['audio']['output']['voice'] == 'marin'
-    assert {t['name'] for t in config['tools']} == {'finish_after_reply', 'search_memory', 'discuss_memory', 'record_memory', 'set_memory_policy', 'review_observation', 'confirm_memory', 'reject_memory', 'forget_memory'}
+    assert {t['name'] for t in config['tools']} == {'finish_after_reply', 'search_memory', 'discuss_memory', 'record_memory', 'set_memory_policy', 'review_observation', 'confirm_memory', 'reject_memory', 'forget_memory', 'decide_learning_problem', 'get_learning_catalog', 'set_preferred_address'}
 
 
 @pytest.mark.asyncio
@@ -89,6 +135,8 @@ async def test_finish_refreshes_cancelled_next_lesson_and_waits_for_playback():
     await s.provider_event({'type': 'response.output_audio_transcript.done', 'item_id': 'reply', 'transcript': 'Goodbye'})
     assert not s.ended
     await s.settle('reply', {'complete': True, 'playedMs': 100})
+    assert not s.ended
+    await s.provider_event({'type': 'response.done', 'response': {'status': 'completed'}})
     assert s.ended
     assert s.backend.command.call_args.args[2] == 'voice.end'
 

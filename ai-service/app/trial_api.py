@@ -1,15 +1,44 @@
 """Public Mini App edge; all admission/business state is delegated to authenticated foundation."""
 import asyncio
 from uuid import uuid4
-from app.diagnostics import diagnostic_context, event, identifier
+from app.diagnostics import diagnostic_context, event, opaque_id
 from contextlib import suppress
 import json
+import ipaddress
+import os
+from secrets import compare_digest
 
-from fastapi import Header, HTTPException, Request, WebSocket
+from fastapi import Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from app.foundation_client import BackendFailure
 from app.trial_realtime import RealtimeTrialSession
 from app.lesson_calendar import calendar_export
+
+
+def _docker_default_gateway():
+    """Return only the container's default gateway, never an arbitrary private peer."""
+    try:
+        with open('/proc/net/route', encoding='ascii') as routes:
+            next(routes)
+            for row in routes:
+                fields = row.split()
+                if len(fields) > 3 and fields[1] == '00000000' and int(fields[3], 16) & 2:
+                    return ipaddress.IPv4Address(bytes.fromhex(fields[2])[::-1])
+    except (OSError, ValueError, StopIteration):
+        pass
+    return None
+
+
+def _agent_voice_peer_kind(peer):
+    try:
+        address = ipaddress.ip_address(peer)
+    except ValueError:
+        return None
+    if address.is_loopback:
+        return 'loopback'
+    if address.version == 4 and address.is_private and address == _docker_default_gateway():
+        return 'docker_gateway'
+    return None
 
 def install_trial_api(app, backend, contexts, model, client, settings, audio_store, speech=None):
     @app.post('/miniapp/api')
@@ -34,7 +63,9 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                     item['url'] = await audio_store.link(item['object_key'])
             return result
         except BackendFailure as error:
-            raise HTTPException(error.status, error.code) from None
+            raise HTTPException(error.status, error.code, headers={
+                'X-Error-ID': error._diagnostic_error_id,
+            } if getattr(error, '_diagnostic_error_id', None) else None) from None
 
     @app.post('/miniapp/diagnostics')
     async def client_diagnostic(request: Request):
@@ -51,7 +82,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             stage = payload.get('stage')
             if stage not in {'microphone', 'audio_context', 'worklet', 'socket', 'playback', 'buffer', 'connect'}:
                 raise HTTPException(400)
-            with diagnostic_context(trace_id=payload.get('attemptId')):
+            with diagnostic_context(trace_id=opaque_id(payload.get('attemptId'))):
                 event('miniapp_failed', stage=stage,
                       client_code=payload.get('code') if payload.get('code') in {
                           'NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError',
@@ -61,54 +92,88 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                       close_code=payload.get('closeCode') if isinstance(payload.get('closeCode'), int) else None)
             return {'ok': True}
         except BackendFailure as error:
-            raise HTTPException(error.status, error.code) from None
+            raise HTTPException(error.status, error.code, headers={
+                'X-Error-ID': error._diagnostic_error_id,
+            } if getattr(error, '_diagnostic_error_id', None) else None) from None
         except (ValueError, KeyError, TypeError):
             raise HTTPException(400) from None
 
     @app.websocket('/miniapp/voice')
     async def voice(socket: WebSocket):
         trace_id = uuid4().hex
-        with diagnostic_context(trace_id=trace_id):
+        with diagnostic_context(trace_id=trace_id, request_id=uuid4().hex):
             await socket.accept()
             admitted = None
             stage = 'authenticate'
+            event('trial_socket', stage='receive', outcome='started')
             try:
                 if not getattr(settings, 'openai_realtime_api_key', None) or audio_store is None:
-                    await socket.send_json({'type': 'error', 'code': 'trial_not_configured'})
+                    code = 'trial_not_configured'
+                    error_id = event('trial_failed', error_id=uuid4().hex, stage=stage, reason_code=code)
+                    await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
                     return
                 # Auth is the first frame, never a query string or a loggable URL.
                 raw = await asyncio.wait_for(socket.receive_text(), 10)
                 if len(raw) > 20000:
+                    event('trial_failed', stage='validate', outcome='rejected', reason_code='request_too_large')
                     return
                 request = json.loads(raw)
-                trace_id = identifier(request.get('attemptId')) or trace_id
+                if not isinstance(request, dict):
+                    raise ValueError('invalid_voice_request')
+                trace_id = opaque_id(request.get('attemptId')) or trace_id
                 with diagnostic_context(trace_id=trace_id):
                     if request.get('protocol') != 'realtime-pcm-v1':
-                        await socket.send_json({'type': 'error', 'code': 'client_update_required'})
+                        code = 'client_update_required'
+                        error_id = event('trial_failed', error_id=uuid4().hex, stage='validate',
+                                         outcome='rejected', reason_code=code)
+                        await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
                         return
                     stage = 'audio_credentials'
                     await asyncio.wait_for(audio_store.check_credentials(), 10)
                     stage = 'admission'
-                    admitted = await backend._request('POST', '/trial/access', '', json={
-                        'action': 'open', 'initData': request['initData'], 'lessonId': request['lessonId'],
-                        'attemptId': request['attemptId'],
-                    })
-                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings)
+                    admission = {'action': 'open', 'lessonId': request['lessonId'],
+                                 'attemptId': request['attemptId']}
+                    if 'agentGrant' in request:
+                        peer = socket.client.host if socket.client else ''
+                        peer_kind = _agent_voice_peer_kind(peer)
+                        dev = os.getenv('SPEAKY_ENV') == 'dev'
+                        enabled = os.getenv('AGENT_TEST_ENABLED') == 'true'
+                        token_valid = compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
+                                                     (settings.ai_internal_token or '').encode())
+                        if not (dev and enabled and peer_kind and token_valid) or 'initData' in request:
+                            error_id = event('agent_voice_denied', error_id=uuid4().hex, stage='authorize',
+                                             reason_code='not_permitted', dev=dev, enabled=enabled,
+                                             peer_kind=peer_kind or 'other', token_valid=token_valid,
+                                             mixed_auth='initData' in request)
+                            await socket.send_json({'type': 'error', 'code': 'not_permitted', 'errorId': error_id})
+                            return
+                        admission['agentGrant'] = request['agentGrant']
+                    else:
+                        admission['initData'] = request['initData']
+                    admitted = await backend._request('POST', '/trial/access', '', json=admission)
+                    event('trial_socket', stage='admission', lesson_id=admitted['lesson']['id'],
+                          call_session_id=admitted.get('callSessionId'))
+                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings, model)
                     stage = 'session'
                     with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
                         await session.run()
+            except WebSocketDisconnect as error:
+                event('trial_disconnected', trace_id=trace_id, stage=stage, close_code=error.code)
             except BackendFailure as error:
                 error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id,
+                                 reason_code='backend_failure',
                                  lesson_id=admitted['lesson']['id'] if admitted else None,
                                  call_session_id=admitted.get('callSessionId') if admitted else None)
                 with suppress(Exception):
                     await socket.send_json({'type': 'error', 'code': error.code, 'errorId': error_id})
             except Exception as error:
-                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id,
+                code = ('budget_exhausted' if getattr(error, 'status_code', None) == 402 else
+                        'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost')
+                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id, reason_code=code,
+                                 outcome='rejected' if stage == 'authenticate' and isinstance(error, ValueError) else 'failed',
                                  lesson_id=admitted['lesson']['id'] if admitted else None,
                                  call_session_id=admitted.get('callSessionId') if admitted else None)
                 with suppress(Exception):
-                    code = 'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost'
                     await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
             finally:
                 with suppress(Exception):
@@ -142,6 +207,20 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             }.get(kind)
             if directive is None:
                 raise HTTPException(400)
+        if (context.data.get('lesson') or {}).get('trial_version') == 'v5.5' and kind in ('followup', 'end_button', 'technical_disconnect'):
+            # New educational delivery belongs to SP-07/08/11A. Never substitute the old roadmap.
+            if kind == 'technical_disconnect':
+                lesson = context.data['lesson']
+                from datetime import datetime, timezone, timedelta
+                deadline = datetime.fromisoformat(lesson['starts_at']) + timedelta(minutes=lesson['duration_minutes'])
+                if lesson.get('trial_reconnect_until'):
+                    deadline = max(deadline, datetime.fromisoformat(lesson['trial_reconnect_until']))
+                if lesson['status'] == 'in_progress' and datetime.now(timezone.utc) < deadline:
+                    return {'reply': 'Связь прервалась. Можно вернуться в тот же урок до конца согласованного времени встречи.'}
+                return {'reply': 'Связь прервалась, и время для возвращения в эту встречу прошло. Можем договориться о новом бесплатном пробном уроке.'}
+            if kind == 'followup' and context.data['lesson'].get('trial_regular_reaction') == 'yes':
+                return {'reply': 'Давай договоримся о расписании регулярных занятий. В какие дни и в какое время тебе удобно?'}
+            return {'reply': 'Спасибо за разговор! Если захочешь что-то добавить или обсудить, напиши мне здесь.'}
         text = await model.complete_json(
             'You are Sasha, the same AI tutor. Return JSON {"reply":string}: 1–3 natural Russian sentences (up to 6 when explaining the saved roadmap), or an empty reply when the directive requests suppression. '
             + directive + ' Executable lessons are real agreed meetings. Payment is discussed in Telegram. Only backend billing status proves subscription access; the current mock provider never charges real money. '
@@ -153,3 +232,20 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             json.dumps({'context': context.data, 'history': context.history}, ensure_ascii=False),
             operation='trial_followup', retry=False)
         return {'reply': json.loads(text)['reply']}
+
+    @app.post('/internal/trial/initial-roadmap')
+    async def initial_roadmap(request: Request, x_execution_scope: str = Header()):
+        from app.roadmap_delivery import prepare_initial_roadmap
+        body = await request.json()
+        if not isinstance(body, dict):
+            raise HTTPException(400, 'invalid_roadmap_revision')
+        revision = body.get('roadmapRevision')
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 1:
+            raise HTTPException(400, 'invalid_roadmap_revision')
+        try:
+            reply = await prepare_initial_roadmap(backend, x_execution_scope, revision)
+        except ValueError as error:
+            if str(error) in {'stale_roadmap', 'initial_priority_not_ready', 'incomplete_roadmap_order'}:
+                raise HTTPException(409, str(error)) from error
+            raise
+        return {'reply': reply, 'roadmapRevision': revision}

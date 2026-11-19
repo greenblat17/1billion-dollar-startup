@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "name": "owned_lesson",
+      "request": {"kind": "command", "operationId": {"$uuid": true}, "action": "lesson.list", "args": {}}
+    },
+    {"name": "owned_contents", "request": {"kind": "read", "resource": "contents"}},
+    {
+      "name": "issue_prepared_content",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.content.issue",
+        "args": {
+          "contentId": {"$ref": "owned_contents.response.result.contents.0.contentId"},
+          "expectedRevision": {"$ref": "owned_contents.response.result.contents.0.revision"},
+          "lessonId": {"$ref": "owned_lesson.response.result.lessons.0.id"}
+        }
+      }
+    },
+    {
+      "name": "content_readback",
+      "request": {"kind": "read", "resource": "content", "resourceId": {"$ref": "owned_contents.response.result.contents.0.contentId"}}
+    },
+    {
+      "name": "score_readback",
+      "request": {"kind": "read", "resource": "score", "resourceId": {"$ref": "owned_contents.response.result.contents.0.taskId"}}
+    }
+  ]
+}

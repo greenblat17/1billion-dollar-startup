@@ -1,0 +1,13 @@
+{
+  "turns": [
+    {"text": "I need to explain a delayed release in a work meeting. Can we talk about that?"},
+    {"atConnectedSeconds": 450, "text": "Our team started testing on Monday. We found one more bug yesterday."},
+    {"atConnectedSeconds": 915, "trailingSilenceSeconds": 4, "text": "I'm ready to practise giving the team an update. Can we start?"},
+    {"atConnectedSeconds": 990, "text": "We found a bug yesterday, and we have already fixed it."},
+    {"atConnectedSeconds": 1065, "text": "Can you give me one hint about when to use the present perfect?"},
+    {"atConnectedSeconds": 1140, "text": "Let me try another example: we started testing on Monday, and we have not finished the tests yet."},
+    {"atConnectedSeconds": 1215, "text": "I don't want to continue this exercise. Could we have a short conversation instead?"},
+    {"atConnectedSeconds": 1290, "text": "Thanks. Please end this lesson now and tell me what we should do next time."}
+  ],
+  "expectFinished": true
+}

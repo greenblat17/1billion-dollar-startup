@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.ai.HttpClipClient
 import com.eliteteam.speakingcoach.analytics.VoiceAttemptRecorder
 import com.eliteteam.speakingcoach.analytics.InteractionAudit
 import com.eliteteam.speakingcoach.TelegramOperationalMetrics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.speaking.SessionClipQueue
 import dev.inmo.tgbotapi.bot.TelegramBot
 import dev.inmo.tgbotapi.extensions.api.bot.setMyCommands
@@ -19,10 +20,12 @@ import io.ktor.server.application.call
 import io.ktor.server.request.header
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
+import io.ktor.server.response.header
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.openapi.hide
 import io.ktor.server.routing.post
 import io.ktor.utils.io.ExperimentalKtorApi
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -81,13 +84,18 @@ internal fun Route.installSpeakingCoachWebhook(
         transformer(telegramUpdateJson.decodeFromString(UpdateDeserializationStrategy, envelope.toString()))
     }
     post {
+        val traceId = RuntimeDiagnostics.newId()
+        val fields = mapOf("trace_id" to traceId, "request_id" to traceId, "operation" to "telegram_webhook")
+        call.response.header("X-Diagnostic-Trace", traceId)
         if (!java.security.MessageDigest.isEqual(call.request.header(TELEGRAM_WEBHOOK_SECRET_HEADER).orEmpty().toByteArray(), secret.toByteArray())) {
-            log.warn("Rejected Telegram webhook")
+            RuntimeDiagnostics.record("telegram_webhook", "authorize", extra = fields + mapOf(
+                "outcome" to "rejected", "reason_code" to "unauthorized", "http_status" to "403"))
+                ?.let { call.response.header("X-Error-ID", it) }
             call.respond(HttpStatusCode.Forbidden)
             return@post
         }
         operationalMetrics.recordWebhookRequest()
-        log.info("Accepted Telegram webhook")
+        RuntimeDiagnostics.record("telegram_webhook", "receive", extra = fields + ("outcome" to "started"))
         try {
             val raw = call.receiveText()
             val update = telegramUpdateJson.decodeFromString(
@@ -105,11 +113,13 @@ internal fun Route.installSpeakingCoachWebhook(
                 call.respond(HttpStatusCode.OK)
                 return@post
             }
-            log.info("Accepted Telegram update {}", update.updateId)
             transformer(update)
             call.respond(HttpStatusCode.OK)
-        } catch (error: Throwable) {
-            log.error("Failed to handle Telegram webhook", error)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            RuntimeDiagnostics.record("telegram_webhook_failed", "dispatch", error, fields)
+                ?.let { call.response.header("X-Error-ID", it) }
             call.respond(HttpStatusCode.InternalServerError)
         }
     }.hide()

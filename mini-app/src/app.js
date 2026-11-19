@@ -58,7 +58,7 @@ function failure(code,errorId){
  const titles={
   microphone_denied:'Нужен доступ к микрофону',microphone_missing:'Микрофон не найден',microphone_busy:'Микрофон недоступен',
   lesson_unavailable:'Урок недоступен',lesson_expired:'Время встречи прошло',
-  connection_lost:'Связь прервалась',active_episode:'Урок уже открыт',
+  connection_lost:'Связь прервалась',learning_observation_pending:'Нужна проверка урока',active_episode:'Урок уже открыт',
   invalid_telegram_auth:'Откройте урок из Telegram',telegram_auth_expired:'Нужно открыть урок заново',
   subscription_required:'Подписка не активна',client_update_required:'Нужно обновить приложение',
   plan_not_ready:'Урок ещё готовится',analysis_not_ready:'Саша разбирает прошлый урок',
@@ -68,18 +68,24 @@ function failure(code,errorId){
   lesson_unavailable:'Проверьте договорённость с Сашей в Telegram.',
   lesson_expired:'Напишите Саше в Telegram, чтобы договориться о новой встрече.',
   connection_lost:'Можно вернуться в тот же урок. Попробуйте подключиться снова.',
+  learning_observation_pending:'Ваш ответ сохранён, но учебное наблюдение не записалось. Напишите Саше в Telegram и сообщите код ошибки. Прогресс по этому ответу не подтверждён.',
   microphone_denied:'Разрешите микрофон, чтобы поговорить с Сашей.',
   subscription_required:'Напишите Саше в Telegram, чтобы продлить подписку.',
   invalid_telegram_auth:'Вернитесь в чат с Сашей и нажмите кнопку входа в урок.',
   telegram_auth_expired:'Вернитесь в чат с Сашей и снова откройте урок.',
  };
- const terminal=['invalid_telegram_auth','telegram_auth_expired','lesson_expired','lesson_unavailable','client_update_required','subscription_required','plan_failed','analysis_failed','roadmap_failed','trial_not_configured'];
+ const terminal=['invalid_telegram_auth','telegram_auth_expired','lesson_expired','lesson_unavailable','client_update_required','subscription_required','plan_failed','analysis_failed','roadmap_failed','trial_not_configured','learning_observation_pending'];
  renderError(titles[code]||'Не удалось подключиться',
   descriptions[code]||errors[code]||'Проверьте сеть и доступ к микрофону. Затем попробуйте снова.',
   !terminal.includes(code),errorId,
   code==='microphone_denied'?'В настройках устройства разрешите Telegram доступ к микрофону. Если урок открыт в браузере, проверьте разрешения сайта. Затем нажмите «Повторить подключение».':'');
 }
-async function api(action,extra={}){const response=await fetch('/miniapp/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,initData:tg?.initData||'',...extra})});const data=await response.json();if(!response.ok)throw Error(data.detail||'connection_lost');return data;}
+async function api(action,extra={}){const response=await fetch('/miniapp/api',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,initData:tg?.initData||'',...extra})});const data=await response.json();if(!response.ok){
+ const error=Error(typeof data.detail==='string'?data.detail:'connection_lost');
+ const errorId=response.headers?.get('X-Error-ID');
+ if(/^[a-f0-9]{32}$/.test(errorId||''))error.errorId=errorId;
+ throw error;
+}return data;}
 function lessonTiming(lesson){
  const fixed=/^UTC([+-])(\d{2}):(\d{2})$/.exec(lesson.timezone);
  const minutes=fixed?(Number(fixed[2])*60+Number(fixed[3]))*(fixed[1]==='+'?1:-1):0;
@@ -105,7 +111,7 @@ function renderWaiting(lesson){
  view('lobby');setLobbyMode('waiting');
  const timing=lessonTiming(lesson);
  $('lobby-title').textContent='Ждём начала занятия';
- $('lobby-time').textContent=timing.time;$('lobby-date').textContent=timing.date;
+ $('lobby-time').textContent=timing.time;$('lobby-date').textContent=timing.date+(lesson.kind==='trial'?' · '+lesson.duration_minutes+' минут':'');
  $('lobby-note').textContent='Подключимся автоматически, когда начнётся урок. Разрешите доступ к микрофону, если появится запрос.';
  $('meetings').replaceChildren();$('schedules').replaceChildren();
 }
@@ -116,7 +122,7 @@ async function list(){
  if(button.disabled)button.textContent=({completed:'Урок завершён',cancelled:'Урок отменён'})[lesson.status]||(lesson.launch_mode==='placeholder'?'Подключение пока недоступно':'Урок недоступен');
  button.onclick=async()=>{lessonId=lesson.id;await connect();focusScreen();};card.append(title,time,date,button);$('meetings').append(card);}
  for(const schedule of data.schedules){if(!schedule.agreement.demo||schedule.agreement.cancelled)continue;const card=document.createElement('article');const text=document.createElement('p');text.textContent=(schedule.agreement.executable?'Согласованное расписание: ':'Предварительное расписание: ')+schedule.agreement.localTime+' · '+schedule.timezone;const note=document.createElement('small');note.textContent='Демонстрация оплаты. Деньги не списываются, подписка не включается.'+(schedule.agreement.executable?'':' Будущие звонки пока недоступны.');const button=document.createElement('button');const paid=data.demoReceipts.some(r=>r.schedule_id===schedule.id);button.textContent=paid?'Тестовая оплата подтверждена':'Оплатить · демо';button.disabled=paid;button.onclick=async()=>{button.disabled=true;try{await api('demo_pay',{scheduleId:schedule.id});button.textContent='Тестовая оплата подтверждена';}catch{button.disabled=false;button.textContent='Повторить демо-оплату';}};card.append(text,note,button);$('schedules').append(card);}
- }catch(error){failure(error.message);}}
+ }catch(error){failure(error.message,error.errorId);}}
 async function connect(continueFrom=0){
  clearTimeout(waitingTimer);const generation=++connectionGeneration;
  attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
@@ -157,10 +163,11 @@ async function connect(continueFrom=0){
    if(message.type==='connected'){
     if(message.protocol!=='realtime-pcm-v1'||message.inputSampleRate!==24000){failure('client_update_required');return;}
     $('mute').disabled=false;renderMicrophone();
-    send({type:'metric',name:'join',milliseconds:performance.now()-joining});$('notice').hidden=true;started=continueFrom||Date.now();ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
+    send({type:'metric',name:'join',milliseconds:performance.now()-joining});$('notice').hidden=true;started=message.trialExecution?Date.now()-(message.trialExecution.connectedMs??message.trialExecution.connectedSeconds*1000):(continueFrom||Date.now());ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
     const source=ctx.createMediaStreamSource(mic);worklet=new AudioWorkletNode(ctx,'capture');source.connect(worklet);const silent=ctx.createGain();silent.gain.value=0;worklet.connect(silent).connect(ctx.destination);
     worklet.port.onmessage=e=>{capturedFrames++;if(ws.readyState===WebSocket.OPEN&&!muted){if(ws.bufferedAmount>128000){diagnosticStage='buffer';failure('buffer_overflow');return;}ws.send(e.data);sentFrames++;}};
     pinger=setInterval(()=>{const track=mic?.getAudioTracks()[0];send({type:'ping',audio:{capturedFrames,sentFrames,muted,trackEnabled:track?.enabled===true,trackMuted:track?.muted===true,trackEnded:track?.readyState==='ended',contextRunning:ctx?.state==='running',pageHidden:document.hidden,playing:playing.size}});},5000);
+   }else if(message.type==='trial_clock'){started=Date.now()-(message.trialExecution.connectedMs??message.trialExecution.connectedSeconds*1000);
    }else if(message.type==='audio_start'){current=message.id;playing.set(current,{sources:[],segments:[],start:Math.max(cursor,ctx.currentTime+.02),duration:0,timer:null,first:true});}
    else if(message.type==='audio_end'){const item=playing.get(message.id);if(item){const end=cursor;item.timer=setTimeout(()=>acknowledgePlayback(message.id,end),Math.max(0,(end-ctx.currentTime)*1000));}}
    else if(message.type==='user_turn_complete'){turnCompletedAt=performance.now();}
@@ -171,7 +178,7 @@ async function connect(continueFrom=0){
    else if(message.type==='finished'){closing=true;cleanup();tg.close();}
    }catch(error){diagnosticStage='playback';reportFailure(error.name);failure('connection_lost');}
   };
- }catch(error){if(generation!==connectionGeneration||closing)return;reportFailure(error.name);failure(({NotAllowedError:'microphone_denied',SecurityError:'microphone_denied',NotFoundError:'microphone_missing',NotReadableError:'microphone_busy'})[error.name]||error.message);}
+ }catch(error){if(generation!==connectionGeneration||closing)return;reportFailure(error.name);failure(({NotAllowedError:'microphone_denied',SecurityError:'microphone_denied',NotFoundError:'microphone_missing',NotReadableError:'microphone_busy'})[error.name]||error.message,error.errorId);}
 }
 function play(bytes){
  if(!current||!playing.has(current))return;
@@ -258,7 +265,7 @@ async function calendar(){
    else downloadCalendar(file);
   };
   card.append(download,note);$('meetings').append(card);
- }catch(error){failure(error.message);}
+ }catch(error){failure(error.message,error.errorId);}
 }
 function downloadCalendar(file){const url=URL.createObjectURL(file);const link=document.createElement('a');link.href=url;link.download=file.name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
 

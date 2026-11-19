@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -15,6 +16,7 @@ from openai import AsyncOpenAI
 
 from app.correction_policy import SPOKEN_CORRECTION_POLICY
 from app.dialogue import ChatMessage
+from app.diagnostics import event
 from app.load_test import load_test_active
 from app.metrics import MetricsStore
 from app.metrics_v2 import client_for, current_session, read_provider_cost
@@ -255,15 +257,25 @@ class OpenAiChatModel:
 
     async def complete_tools(self, messages: list[dict], tools: list[dict]) -> dict:
         """Native tool messages; no fabricated JSON action envelope or clip job."""
+        openrouter = "openrouter.ai" in str(self._client.base_url)
+        extra_body = {"provider": {"require_parameters": True}} if openrouter else {}
+        is_luna = self._model in {"openai/gpt-6-luna", "gpt-6-luna"}
+        # GPT-6 Luna supports Chat Completions tools only with reasoning disabled.
+        if is_luna and openrouter:
+            extra_body["reasoning"] = {"effort": "none"}
+        elif is_luna:
+            extra_body["reasoning_effort"] = "none"
         response = await logged_provider_call(
             lambda: self._client.chat.completions.create(
                 model=self._model, messages=messages,
-                **({"tools": tools, "tool_choice": "auto"} if tools else {}), temperature=0.7, max_tokens=1800,
+                **({"tools": tools, "tool_choice": "auto"} if tools else {}),
+                **({} if is_luna else {"temperature": 0.7}),
+                max_tokens=1800,
                 response_format={"type": "json_schema", "json_schema": {"name": "tutor_reply", "strict": True,
                     "schema": {"type": "object", "properties": {"reply": {"type": "string"},
                                "trialOffered": {"type": "boolean"}},
                                "required": ["reply", "trialOffered"], "additionalProperties": False}}},
-                extra_body={"provider": {"require_parameters": True}} if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else {},
+                extra_body=extra_body,
             ), kind="llm", provider=provider_from_url(self._client.base_url),
             model=self._model, purpose="tutor", cost_of=read_provider_cost,
         )
@@ -296,6 +308,12 @@ class OpenAiChatModel:
         model_name = model or self._model
         token_limit = self._max_tokens if max_tokens is None else max_tokens
 
+        shape = {}
+        schema = (response_format or {}).get("json_schema")
+        if isinstance(schema, dict):
+            shape = {"schema_name": schema.get("name"), "schema_hash": hashlib.sha256(
+                json.dumps(schema, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+
         async def call() -> Any:
             extra_body = {"provider": {"require_parameters": True}} if "openrouter.ai" in str(getattr(self._client, "base_url", "")) else {}
             if reasoning_effort is not None:
@@ -316,7 +334,8 @@ class OpenAiChatModel:
                         ),
                     ),
                     kind="llm", provider=provider_from_url(getattr(self._client, "base_url", None)),
-                    model=model_name, purpose=purpose, cost_of=read_provider_cost,
+                    model=model_name, purpose=purpose, cost_of=read_provider_cost, operation=operation,
+                    shape={**shape, "max_completion_tokens": token_limit},
                 )
             except Exception as error:
                 if load_test_active():
@@ -325,16 +344,19 @@ class OpenAiChatModel:
                         current_session(), purpose, model_name, int((time.perf_counter() - started) * 1000),
                         type(error).__name__,
                     )
-                if operation:
-                    logger.warning(
-                        "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%s "
-                        "finish_reason=unavailable prompt_tokens=unavailable completion_tokens=unavailable "
-                        "reasoning_tokens=unavailable error_type=%s",
-                        anonymous_user_id(), operation, model_name, token_limit, type(error).__name__,
-                    )
                 await record_attempt(self._metrics, 0, 0, started, purpose, success=False)
                 raise
             prompt_tokens, completion_tokens = read_usage(response)
+            if operation:
+                choices = getattr(response, "choices", None) or []
+                finish = getattr(choices[0], "finish_reason", None) if choices else None
+                event("model_completion", operation=operation, stage="validate", model=model_name,
+                      finish_reason=finish if finish in ("stop", "length", "tool_calls", "content_filter") else None,
+                      outcome="rejected" if finish == "length" or not choices else "completed",
+                      reason_code="completion_token_limit" if finish == "length" else "no_choices" if not choices else None,
+                      max_completion_tokens=token_limit, prompt_tokens=prompt_tokens,
+                      completion_tokens=completion_tokens, reasoning_tokens=read_reasoning_tokens(response),
+                      duration_ms=int((time.perf_counter() - started) * 1000))
             generation_ms = read_generation_time_ms(response)
             if client_for(current_session()) == "telegram" and not load_test_active() and generation_ms is not None:
                 LLM_GENERATION_METRICS.record(completion_tokens, generation_ms)
@@ -345,23 +367,15 @@ class OpenAiChatModel:
                     current_session(), purpose, model_name, int((time.perf_counter() - started) * 1000),
                     prompt_tokens, completion_tokens, getattr(response, "usage", None) is not None,
                 )
-            if operation:
-                choices = getattr(response, "choices", None) or []
-                logger.info(
-                    "llm completion user_id=%s operation=%s model=%s max_completion_tokens=%s "
-                    "finish_reason=%s prompt_tokens=%d completion_tokens=%d reasoning_tokens=%s",
-                    anonymous_user_id(), operation, model_name, token_limit,
-                    getattr(choices[0], "finish_reason", None) if choices else None,
-                    prompt_tokens, completion_tokens, read_reasoning_tokens(response),
-                )
+
             await record_attempt(self._metrics, prompt_tokens, completion_tokens, started, purpose, success=True)
             if self._v2 is not None:
                 try:
                     await self._v2.record_llm(
                         "", purpose, model or self._model, prompt_tokens, completion_tokens, read_provider_cost(response),
                     )
-                except Exception:
-                    logger.warning("failed to record provider cost", exc_info=True)
+                except Exception as error:
+                    event("provider_cost_write_failed", error=error, stage="persist")
             return response
 
         async def call_with_choices() -> Any:

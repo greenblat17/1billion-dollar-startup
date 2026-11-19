@@ -3,6 +3,7 @@ package com.eliteteam.speakingcoach.telegram
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.ai.TutorClient
 import com.eliteteam.speakingcoach.ai.TutorRequest
+import com.eliteteam.speakingcoach.ai.TutorResponse
 import com.eliteteam.speakingcoach.ai.TutorDelivery
 import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.api.send.sendBotAction
@@ -14,6 +15,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonElement
@@ -28,7 +30,7 @@ import java.time.Instant
 /** Native disabled button is absent from tgbotapi 36.1.0; use the Bot API wire shape. */
 internal fun tutorBookingMarkup(active: Boolean, lessonId: String? = null, miniUrl: String = System.getenv("MINI_APP_URL").orEmpty(), calendar: Boolean = false): JsonObject = buildJsonObject {
     put("inline_keyboard", buildJsonArray {
-        if (active && !calendar) add(buildJsonArray { add(buildJsonObject {
+        if (active) add(buildJsonArray { add(buildJsonObject {
             put("text", "Начать урок")
             if (lessonId != null && miniUrl.startsWith("https://")) {
                 put("style", "primary")
@@ -90,7 +92,7 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
         val foundation = client.foundation
         if (start && foundation != null && foundation.prepareIntroduction(request, chatId, message.messageId.long)) {
             deliverIntroduction(foundation.introduction, chatId, requestId,
-                typing = { bot.sendBotAction(message.chat.id, TypingAction) },
+                typing = { withTimeoutOrNull(900) { bot.sendBotAction(message.chat.id, TypingAction) } },
                 send = { introText ->
                     val sent = bot.execute(TutorTextRequest(chatId, introText, emptyList(), tutorProgressMarkup(miniUrl = "")))
                     (sent as JsonObject).getValue("message_id").jsonPrimitive.long
@@ -113,21 +115,30 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
                     if (!response.cardDelivered) return@coroutineScope
                     return@let
                 }
-                val widget = response.cardMessageId == null || response.cardIsWidget
-                val cardId = deliverBookingCard(chatId, booking, requireNotNull(response.bookingText),
-                    response.cardMessageId, widget) { bot.execute(it) }
+                val widget = response.cardMessageId != null && response.cardIsWidget
+                val caption = if (foundation != null && booking.status == "scheduled") {
+                    response.reply
+                } else requireNotNull(response.bookingText)
+                val cardId = try {
+                    checkNotNull(withTimeoutOrNull(8_000) {
+                        deliverBookingCard(chatId, booking, caption, response.cardMessageId, widget) { bot.execute(it) }
+                    }) { "Telegram booking delivery timed out" }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    // The booking is committed. Leave the delivery receipt unknown and release intake;
+                    // a replay cannot safely resend, and a new booking inquiry reads the current lesson.
+                    if (foundation == null) throw error
+                    RuntimeDiagnostics.record("telegram_booking_delivery_unknown", "send_or_edit", error)
+                    return@coroutineScope
+                }
                 client.delivered(TutorDelivery(sessionId, requestId,
                     bookingId = booking.id, cardMessageId = cardId, version = booking.version, cardIsWidget = widget))
             }
-            if (response.booking?.startsImmediately != true && response.reply.isNotBlank() && response.replyMessageId == null && client.beginDelivery(TutorDelivery(sessionId, requestId))) {
-                var lastMessageId: Long? = null
-                for (part in tutorTextParts(response.reply)) {
-                    val sent = bot.execute(TutorTextRequest(requireNotNull(telegramChatNumber(message.chat.id)),
-                        part.text, part.entities, if (response.showProgressNavigation) tutorProgressMarkup() else tutorProgressMarkup(miniUrl = ""),
-                        TutorReplyParameters(message.messageId.long, true)))
-                    lastMessageId = (sent as JsonObject).getValue("message_id").jsonPrimitive.long
-                }
-                client.delivered(TutorDelivery(sessionId, requestId, replyMessageId = lastMessageId))
+            val alreadyConfirmed = response.booking?.startsImmediately == true ||
+                (foundation != null && response.booking?.status == "scheduled")
+            if (!alreadyConfirmed) {
+                deliverReply(response, sessionId, requestId, chatId, message.messageId.long)
             }
             client.foundation?.beginPayment(sessionId, requestId)?.let { payment ->
                 val id = payment.getValue("id").jsonPrimitive.content
@@ -137,5 +148,31 @@ internal class TutorTelegramChat(private val bot: BehaviourContext, private val 
             }
 
         } finally { typing.cancelAndJoin() }
+    }
+
+    private suspend fun deliverReply(response: TutorResponse, session: String, request: String, chat: Long, incoming: Long) {
+        if (response.reply.isBlank() || response.replyMessageId != null || !client.beginDelivery(TutorDelivery(session, request))) return
+        val parts = if (response.splitIntroductionReply) introductionTextParts(response.reply)
+            else tutorTextParts(response.reply)
+        var lastMessageId: Long? = null
+        try {
+            for ((index, part) in parts.withIndex()) {
+                val markup = when {
+                    response.joinLessonId != null && index == parts.lastIndex -> tutorBookingMarkup(true, response.joinLessonId)
+                    response.showProgressNavigation -> tutorProgressMarkup()
+                    else -> tutorProgressMarkup(miniUrl = "")
+                }
+                val sent = bot.execute(TutorTextRequest(chat, part.text, part.entities, markup,
+                    if (client.foundation == null) TutorReplyParameters(incoming, true) else null))
+                lastMessageId = (sent as JsonObject).getValue("message_id").jsonPrimitive.long
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (client.foundation == null) throw error
+            RuntimeDiagnostics.record("telegram_reply_delivery_unknown", "send", error)
+            return
+        }
+        client.delivered(TutorDelivery(session, request, replyMessageId = lastMessageId))
     }
 }

@@ -1,7 +1,14 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.ai.TutorClient
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import com.eliteteam.speakingcoach.speakyModule
 import com.eliteteam.speakingcoach.AppConfig
@@ -32,6 +39,73 @@ class FoundationIntegrationTest {
         com.eliteteam.speakingcoach.ai.TutorRequest("tg-$chat", "message:$message", text, at.epochSecond.toDouble())
 
     @Test
+    fun agentVoiceStateReadsOwnedRegularAndPreservesTrialEvidence() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val subject = newId()
+            val student = service.identity.resolve("agent_test", subject)
+            val operator = service.identity.issue(student, "operator")
+            suspend fun lesson(kind: String) = service.op(operator, "lesson.create", json("kind" to kind,
+                "launchMode" to "executable", "startsAt" to clock.instant().toString(),
+                "durationMinutes" to 30, "timezone" to "UTC")).text("id")
+
+            val regular = lesson("regular")
+            val trial = lesson("trial")
+            val regularCall = newId()
+            val trialCall = newId()
+            service.database.transaction { c, now ->
+                for ((lessonId, callId) in listOf(regular to regularCall, trial to trialCall)) {
+                    c.update("""INSERT INTO call_session(id,student_id,lesson_id,attempt_id,status,started_at)
+                        VALUES (?,?,?,?,'connected',?)""", callId, student, lessonId, newId(), now)
+                }
+                c.update("""INSERT INTO trial_audio(object_key,student_id,lesson_id,call_session_id,data_epoch,direction,
+                    sequence,created_at,expires_at,status) VALUES ('regular-greeting',?,?,?,1,'assistant',1,?,?,'stored')""",
+                    student, regular, regularCall, now, now.plusSeconds(600))
+                TrialCallEvents().lifecycle(c, ExecutionScope(student, "operator", 1),
+                    json("id" to trialCall, "lesson_id" to trial), "connected", json(), now)
+                c.enqueueJob(student, "lesson.content.prepare", "content", regular, json(), now)
+                c.enqueueJob(student, "lesson.evaluate", "evaluation", regular, json(), now)
+                c.enqueueJob(student, "lesson.review", "review", regular, json(), now)
+                c.enqueueJob(student, "trial.observe", "observations", trial, json(), now)
+            }
+            val greeting = service.op(operator, "lesson.append", json("lessonId" to regular, "callSessionId" to regularCall,
+                "sourceId" to "greeting", "role" to "assistant", "body" to "Welcome", "occurredAt" to clock.instant().toString()))
+            val token = "agent-test-token"
+            HttpClient(MockEngine { error("voice-state must not call the tutor") }).use { tutorHttp ->
+                testApplication {
+                    application { routing { agentTestRoutes(service, TutorClient("http://ai.local", tutorHttp, token), token) } }
+                    suspend fun read(owner: String, lessonId: String, status: HttpStatusCode): JsonObject {
+                        val response = client.get("/internal/agent-test/v1/$owner/voice-state?lessonId=$lessonId") {
+                            header("X-Internal-Token", token)
+                        }
+                        val body = response.bodyAsText()
+                        assertEquals(status, response.status, body)
+                        return foundationJson.parseToJsonElement(body).jsonObject
+                    }
+                    val regularState = read(subject, regular, HttpStatusCode.OK)
+                    assertEquals(regular, regularState.obj("state").obj("lesson").text("id"))
+                    assertEquals(greeting.text("eventId"), regularState.obj("state")["events"]!!.jsonArray.single().jsonObject.text("id"))
+                    val envelope = regularState.obj("trialEvents")
+                    assertEquals(1L, envelope.number("schemaVersion"))
+                    assertEquals(regular, envelope.obj("lesson").text("id"))
+                    assertEquals(JsonArray(emptyList()), envelope["events"])
+                    assertEquals("regular-greeting", regularState["audio"]!!.jsonArray.single().jsonObject.text("object_key"))
+                    assertEquals(setOf("lesson.prepare", "lesson.content.prepare", "lesson.evaluate", "lesson.review"),
+                        regularState["jobs"]!!.jsonArray.map { it.jsonObject.text("kind") }.toSet())
+                    assertEquals("not_owned", read(newId(), regular, HttpStatusCode.BadRequest).text("error"))
+
+                    val trialState = read(subject, trial, HttpStatusCode.OK)
+                    val trialEvents = trialState.obj("trialEvents")
+                    assertEquals("warmup", trialEvents.obj("execution").text("phase"))
+                    assertEquals("connected", trialEvents["events"]!!.jsonArray.single().jsonObject.text("kind"))
+                    assertEquals("trial.observe", trialState["jobs"]!!.jsonArray.single().jsonObject.text("kind"))
+                    assertEquals(JsonArray(emptyList()), trialState["audio"])
+                }
+            }
+        }
+    }
+
+    @Test
     fun firstStartDeliversFourSeparateMessagesAndOnlyConfirmedHistory() = runTest {
         val clock = MutableClock()
         withStore(clock) { service ->
@@ -45,11 +119,13 @@ class FoundationIntegrationTest {
             com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9200, request.requestId,
                 typing = { typing++ }, send = { sent += it; sent.size.toLong() },
                 pause = { paused += it; clock.current = clock.current.plusMillis(it) })
-            assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
-                "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
+            assertEquals(listOf("Привет! 👋", "Меня зовут Саша. Я твой ИИ-репетитор по английскому.",
+                "Со мной можно подготовиться к собеседованию, освоиться после переезда или просто почувствовать себя увереннее в разговоре.",
                 "Расскажи, пожалуйста, для чего ты изучаешь английский?"), sent)
             assertEquals(3, typing)
-            assertEquals(2750L, paused)
+            // PostgreSQL rounds each persisted due_at to microseconds; three pauses may gain a few ms.
+            val expectedPauses = sent.dropLast(1).sumOf(::introductionPauseMillis)
+            assertTrue(paused in expectedPauses..expectedPauses + 10)
             val student = service.identity.resolve("telegram", "9200")
             val scope = service.identity.issue(student, "operator")
             assertEquals(listOf("/start") + sent, service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
@@ -139,8 +215,11 @@ class FoundationIntegrationTest {
             bridge.introduction.sent(9230, request.requestId, 0, 41) // receipt replay
             val restarted = FoundationChat(service)
             assertTrue(restarted.prepareIntroduction(request, 9230, 1))
-            clock.current = clock.current.plusSeconds(1)
-            assertEquals(1, restarted.introduction.next(9230, request.requestId)!!.index)
+            val next = requireNotNull(restarted.introduction.next(9230, request.requestId))
+            assertEquals(1, next.index)
+            assertTrue(next.waitMillis > 0)
+            assertEquals(false, restarted.introduction.claim(9230, request.requestId, 1))
+            clock.current = clock.current.plusMillis(next.waitMillis + 1)
             assertTrue(restarted.introduction.claim(9230, request.requestId, 1))
             assertEquals(false, bridge.introduction.claim(9230, request.requestId, 1))
             assertEquals("introduction_busy", assertFailsWith<FoundationFailure> {
@@ -203,7 +282,7 @@ class FoundationIntegrationTest {
             assertEquals("introduction", snapshot.text("textMode"))
             assertEquals(listOf("/start"), snapshot["events"]!!.jsonArray.map { it.jsonObject.text("body") })
             service.database.transaction(readOnly = true) { c, _ ->
-                for (table in listOf("memory_fact", "learning_goal", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
+                for (table in listOf("memory_fact", "learning_goal", "student_learning_state", "student_topic_knowledge", "lesson", "trial_notice", "subscription", "tutor_inbox")) {
                     assertEquals(0L, c.rows("SELECT count(*) FROM $table WHERE student_id IN (?,?)", old, fresh) { it.getLong(1) }.single())
                 }
                 assertEquals(0L, c.rows("SELECT count(*) FROM foundation_job WHERE student_id=? AND status<>'cancelled'", old) { it.getLong(1) }.single())
@@ -295,11 +374,14 @@ class FoundationIntegrationTest {
     private suspend fun FoundationService.goal(student: String, value: String, revision: Long): JsonObject {
         val request = newId()
         val input = history.accept(student, request, value, Instant.now(), false)
-        val token = identity.issue(student, "text", request)
-        op(token, "run.claim", json())
-        val result = op(token, "memory.record", json("sourceId" to input.text("event_id"), "evidence" to value,
-            "category" to "learning", "key" to "goal", "value" to value, "kind" to "user_report", "expectedVersion" to revision))
-        op(token, "run.complete", json("reply" to "saved", "degraded" to false))
+        val token = identity.issue(student, "operator")
+        assertEquals(revision, database.transaction(readOnly = true) { c, _ -> c.goalRevision(student) })
+        val sequence = database.transaction(readOnly = true) { c, _ ->
+            c.document("SELECT to_jsonb(e) FROM conversation_event e WHERE id=?", input.text("event_id"))!!.number("sequence")
+        }
+        val result = op(token, "learning.update", json("expectedRevision" to learningState(token).number("revision"),
+            "patch" to json(), "goal" to value, "component" to "test", "sources" to JsonArray(listOf(
+                json("type" to "event", "id" to input.text("event_id"), "revision" to sequence)))))
         return result
     }
 
@@ -436,7 +518,7 @@ class FoundationIntegrationTest {
             try {
                 pg("pg_dump", "--format=custom", "--schema=$schema", "--file=$backup")
                 val operator = service.identity.issue(student, "operator")
-                service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 1))
+                service.op(operator, "learning.forget", json("expectedRevision" to 1))
                 val ledger = service.database.transaction(readOnly = true) { c, _ -> c.documents("SELECT to_jsonb(d) FROM foundation_deletion d WHERE student_id=?", student) }
                 service.close()
                 DriverManager.getConnection("jdbc:$raw").use { connection ->
@@ -572,9 +654,9 @@ class FoundationIntegrationTest {
             service.goal(student, "new private objective", 1)
             val operator = service.identity.issue(student, "operator")
             assertEquals("version_conflict", assertFailsWith<FoundationFailure> {
-                service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 1))
+                service.op(operator, "learning.forget", json("expectedRevision" to 1))
             }.code)
-            service.op(operator, "memory.forget", json("category" to "learning", "key" to "goal", "expectedVersion" to 2))
+            service.op(operator, "learning.forget", json("expectedRevision" to 2))
             assertEquals("scope_expired", assertFailsWith<FoundationFailure> { service.snapshot(operator, "text") }.code)
             service.database.transaction { connection, _ ->
                 assertEquals(3L, connection.goalRevision(student))
@@ -769,6 +851,26 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun agentFixtureSourceReplaysWithoutBlockingRealText() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val student = service.identity.resolve("agent_test", "385c9b0d-ad6a-49e2-a14b-dd29f1261a99")
+            val at = clock.instant()
+            val event = appendAgentFixtureSource(service, student, "fixture-1", at)
+            val replay = appendAgentFixtureSource(service, student, "fixture-1", at)
+            assertEquals(event.text("id"), replay.text("id"))
+            assertEquals(event.number("sequence"), replay.number("sequence"))
+            assertEquals("operation_conflict", assertFailsWith<FoundationFailure> {
+                appendAgentFixtureSource(service, student, "fixture-1", at.plusSeconds(1))
+            }.code)
+
+            service.history.accept(student, "learner-1", "Hello", at, false)
+            val scope = service.identity.issue(student, "text", request = "learner-1")
+            assertEquals("Hello", service.op(scope, "run.claim", json()).obj("input").text("body"))
+        }
+    }
+
+    @Test
     fun telegramBridgePersistsInputAndDeliveryAndRejectsAGroupIdentity() = runTest {
         withStore { service ->
             val bridge = FoundationChat(service)
@@ -888,10 +990,15 @@ class FoundationIntegrationTest {
             val second = request.copy(requestId = "message:2")
             val nextScope = bridge.accept(second, false)
             service.op(nextScope, "run.claim", json())
-            service.op(nextScope, "run.complete", json("reply" to "Договорились", "bookingId" to lesson.text("id"), "degraded" to false))
+            val followUp = service.op(nextScope, "run.complete", json("reply" to "Открой Speaky по кнопке.",
+                "joinLessonId" to lesson.text("id"), "degraded" to false))
+            assertEquals(lesson.text("id"), followUp.text("joinLessonId"))
+            val followUpResponse = response.copy(booking = null, joinLessonId = lesson.text("id"))
+            assertEquals(lesson.text("id"), bridge.withDelivery(second, followUpResponse).joinLessonId)
             service.op(operator, "lesson.cancel", json("lessonId" to lesson.text("id"), "expectedVersion" to 1))
             assertEquals(false, bridge.beginDelivery(delivery.copy(requestId = second.requestId)))
             assertEquals(false, bridge.withDelivery(second, response).cardDelivered)
+            assertEquals(null, bridge.withDelivery(second, followUpResponse).joinLessonId)
         }
     }
 
@@ -903,7 +1010,7 @@ class FoundationIntegrationTest {
             val input = service.history.accept(student, "request", "Book tomorrow", clock.instant(), false)
             val first = service.identity.issue(student, "text", "request")
             service.op(first, "run.claim", json())
-            val booking = service.op(first, "lesson.create", json("kind" to "trial", "launchMode" to "placeholder", "durationMinutes" to 15,
+            val booking = service.op(first, "lesson.create", json("kind" to "trial", "launchMode" to "placeholder", "durationMinutes" to TRIAL_SLOT_MINUTES,
                 "startsAt" to clock.instant().plusSeconds(86400).toString(), "timezone" to "UTC", "sourceId" to input.text("event_id"), "evidence" to "Book tomorrow"))
             clock.current = clock.current.plusSeconds(91)
             val recovered = service.identity.issue(student, "text", "request")

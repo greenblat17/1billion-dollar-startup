@@ -1,0 +1,5 @@
+{
+  "steps": [
+    { "name": "foreign_task", "request": { "kind": "read", "resource": "task", "resourceId": "ade713a3-f3b1-4468-8aa9-3069ae91f3cd" } }
+  ]
+}

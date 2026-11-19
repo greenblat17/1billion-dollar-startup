@@ -63,7 +63,8 @@ async def test_analyzer_rejects_invented_source_id():
 async def test_preparation_does_not_require_roadmap_or_invent_evaluation():
     result = await TrialPlanner().prepare(SimpleNamespace(data={}), {})
     assert set(result) == {'objective', 'topic', 'strategy'}
-    assert 'No roadmap or exam' in result['strategy']
+    assert 'RU warm-up' in result['strategy'] and 'EN conversation' in result['strategy']
+    assert 'no CEFR, scores, timelines or exam' in result['strategy']
 
 
 @pytest.mark.asyncio
@@ -113,7 +114,9 @@ def test_unconfigured_trial_cannot_start_paid_providers():
     install_trial_api(app, backend, None, None, None, SimpleNamespace(), None)
     with TestClient(app) as client:
         with client.websocket_connect('/miniapp/voice') as socket:
-            assert socket.receive_json() == {'type': 'error', 'code': 'trial_not_configured'}
+            error = socket.receive_json()
+            assert error['type'] == 'error' and error['code'] == 'trial_not_configured'
+            assert len(error['errorId']) == 32
     backend._request.assert_not_called()
 
 

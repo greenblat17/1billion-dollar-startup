@@ -1,0 +1,16 @@
+{
+  "turns": [
+    {"text": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?"},
+    {"atConnectedSeconds": 300, "text": "I need to explain a problem to my team in a meeting. Could we practise that?"},
+    {"atConnectedSeconds": 480, "text": "Yesterday I try to explain a bug, but I couldn't find the words."},
+    {"atConnectedSeconds": 660, "text": "Could you ask me a simpler question? I'm a little nervous."},
+    {"atConnectedSeconds": 840, "text": "I want to tell my manager that the deadline is risky, but politely."},
+    {"atConnectedSeconds": 1020, "text": "Maybe I can say: We need more time because the tests are not finished."},
+    {"atConnectedSeconds": 1200, "text": "Can we switch topic and talk about my weekend for a moment?"},
+    {"atConnectedSeconds": 1380, "text": "I visited my friends and we cooked dinner together. It was relaxing."},
+    {"atConnectedSeconds": 1510, "text": "For future lessons I could meet two or three times a week, and do a little homework."},
+    {"atConnectedSeconds": 1640, "text": "I choose two lessons each week, thirty minutes each. I do not want homework."},
+    {"atConnectedSeconds": 1800, "text": "I feel more comfortable speaking now. What would you recommend I practise next?"}
+  ],
+  "expectFinished": true
+}

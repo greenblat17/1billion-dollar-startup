@@ -1,6 +1,558 @@
 # Состояние Speaky
 
-Срез документации: 2026-11-14. Сведения о коде и поставке ниже отражают прежний срез 2026-11-13: база `origin/dev` `44f7e03db7e9261228f5cb7b48dd12894d360bf0`, ветка `bb/telegram-null-fix-thr_u4vaxexf6a`; актуальность этой ревизии сейчас не проверялась.
+Срез документации: 2026-11-19. Волны 1–9 отправлены в [PR #58](https://github.com/greenblat17/1billion-dollar-startup/pull/58) к `dev`; PR не слит. На DEV работают Ktor `f278064`, AI `608204a` и Mini App `2f38856`. [Поставка Ktor](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44228945164) · [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235099025) · [Проверка готовности](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44235453616). Каталог `speaky-v55-v2` временно опубликован только на DEV: [run 44150548146](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44150548146) проверил SHA-256 и чтение 163 тем. Разметка для PROD не утверждена. Живые текстовые сценарии и состояния PostgreSQL записаны в [отчёте по AC](acceptance/runs/text-ac-results.md). [Проверка Telegram](acceptance/runs/telegram-vlama-2026-11-17.md) подтвердила `/start`, прямую запись Trial и доставку кнопки «Начать урок». Mini App показал включённый микрофон и идущий таймер. [Сценарий оставшейся проверки Telegram](acceptance/runs/telegram-mini-app-readonly-2026-11-18.md) фиксирует серверную готовность и шаги проверки доставки Roadmap. Короткий синтетический голосовой прогон описан [отдельно](acceptance/runs/agent-voice-dev-2026-11-17.md). [Решение о готовности MVP](acceptance/mvp-readiness-2026-11-17.md) отделяет работающие пути от блокеров. Волны 10–11 исключены из текущего поручения.
+
+## SP-24 — пробный звонок
+
+Локальный рефакторинг промптов поверх PR #58 (`2b382a5c`). Семь этапов SP-24 управляют
+промптом и инструментами Realtime. Relay ждёт подтверждения `session.update` перед
+генерацией. Общий Core Persona задаёт характер Kora H и женский род в Trial,
+Telegram и regular voice. Гайды этих режимов остаются отдельными.
+Существующие 15- и 30-минутные встречи сохраняют длительность, календарь и прежний сценарий.
+Для нового Trial повторный вход доступен до конца слота или в течение двух минут
+после разрыва, если этот срок истекает позже.
+[SP-24](https://app.notion.com/p/41d045c3d5768132a2e1c49ed77ae912) · [Trial Conversation Guidelines](https://app.notion.com/p/41d045c3d576810a8c65f9ec74f4a8aa).
+
+| AC | Локальное покрытие | Ручная приёмка |
+|---|---|---|
+| 01 | 20 минут служат ориентиром. Таймер Conversation стартует с первого английского аудио на relay. Ktor хранит отметку и разрешает переход через 900 000 мс подключения. Время разрыва не входит в Conversation. | Прослушать полный звонок и сверить слышимые границы с фазами, включая reconnect. |
+| 02, 02A | Backend ждёт ответ после отдельного приветствия. «Да, по имени» оставляет этап выяснения обращения открытым. Явный отказ допускает переход к объяснению формата. Выбранное обращение сохраняется в общем Student profile со ссылкой на реплику. | Проверить приветствие, неоднозначный ответ, отказ, смену обращения, перебивание и повторный вход. |
+| 03–07 | В Conversation действует отдельный гайд свободного разговора. Регрессии проверяют инструкции слушать, развивать тему ученика, адаптировать речь и избегать упражнений и устных оценок. | Прослушать A2 и B1 с длинным ответом, паузой, затруднением, сменой темы и вопросом об ошибке. |
+| 08–10 | Roadmap и предложение регулярных занятий — отдельные этапы. Согласие после сыгранного предложения запускает обсуждение расписания в Telegram. Ранний выход идёт напрямую к прощанию. Состояние восстанавливается по событиям воспроизведения и решениям ученика. | Пройти согласие, отказ, вопрос или неопределённость и ранний выход. Сверить произнесённую реакцию и Telegram. |
+| 11 | Завершение и ранний выход ставят штатные задачи на реальных событиях. Генератор и доставка не зависят от ответа на предложение. Локальные тесты проверяют контракт генератора и рендер сохранённой Roadmap. | Проверить jobs и однократную бесплатную доставку при согласии и отказе. |
+| 12 | Проверки с заглушками подтверждают переходы и передачу данных. | Прослушать контрольные звонки A2 и B1. Сверить тайминг, ветки финала, Observations и Assessment с записью. |
+
+При отсутствующей цели или целевом CEFR `trial.assess` может завершиться, но
+`roadmap.generate` не ставится. Это возможно после прямой записи или раннего
+выхода. Саша объясняет, какие данные нужно уточнить в Telegram. Автоматическая
+доставка после такого уточнения требует отдельного контракта. При малоинформативной
+речи Assessment сохраняет Unknown там, где нет достаточных наблюдений. Roadmap
+использует сохранённые источники, а прогноз требует данных о нагрузке.
+
+Локальное сравнение на одинаковых событиях подтвердило исправление «Да, по имени»
+и раздельные этапы финала. В обеих версиях подтверждённое предложение не
+повторяется при reconnect. Число генераций после неоднозначного ответа и после
+реакции на предложение совпало.
+Для приёмки остаются PostgreSQL-проверка восстановления по журналу,
+голосовые сценарии и доставка в Telegram. Рефакторинг остаётся в worktree.
+
+## Приёмка и диагностика на DEV
+
+**Живое знакомство и приглашение на Trial, 18 ноября.** В контрольном диалоге
+Trial сохранён в 07:39:05 UTC на 07:43:58 UTC. Telegram отклонил `sendWidget` с 400
+`INPUT_MEDIA_WIDGET_NOT_ALLOWED` после отдельного подтверждения. Первую кнопку
+доставило уведомление о начале. Следующие сообщения поступили за секунду,
+но ждали три 180-секундные аренды предыдущего хода. Повторные вызовы `create_trial_booking`
+отклонились с `invalid_evidence`. Обработчик подставил ложный статус.
+Цель, самооценка B1, сравнение говорения и аудирования и целевой B2 сохранились
+в Telegram-истории. Структурированный профиль, ревизия цели и подтверждённые
+факты отсутствовали. В памяти остались четыре неподтверждённых кандидата.
+
+Новый путь формирует паузы по длине текста и отправляет будущий Trial одним сообщением
+с кнопкой после commit. Ошибка Telegram освобождает очередь. Вопрос о входе получает
+ссылку на актуальную запись. Правила допуска к голосу сохраняются. Ручная приёмка
+в Telegram остаётся за пользователем. [Контракт](integrations/tutor-chat.md#telegram-карточки-и-форматирование).
+
+**Диагностика Speaky v5.5 в отдельной рабочей копии.** Ktor, AI, WebSocket и worker используют общий контракт.
+Mini App показывает поисковый код серверного сбоя. Успешные операции с аудиопакетами видны в интервальных счётчиках.
+SP-14 связывает ответ провайдера, хеш схемы, проверку результата и запись Observation. Источник общего HTTP 400 остаётся неизвестным.
+Схема SP-14 и правила начисления Score прежние. Прошли 992 Python, 335 Kotlin и 16 Mini App тестов, сборки и detekt.
+Подставные отказы и старые форматы логов покрыты локальными тестами.
+Проверка реального HTTP с PostgreSQL добавлена в существующий Foundation CI. Доставка логов и живые сценарии на DEV ожидают отдельной приёмки.
+[Контракт, поиск и команда CI](integrations/operations.md#диагностика-speaky).
+
+Полный Trial v5.5 на DEV с AI `ca98328` и Ktor `677f416` завершился штатно за 1852 подключённые секунды. Подтверждены вступление с рабочей целью, переход к английскому после хода ученика и устное обещание персонального плана в Telegram. Сессия пережила два лимита Realtime, сохранила частичный ответ и один раз продолжила короткой репликой. Сохранены 11 Observations, Assessment и Roadmap с 119 задачами, из них 13 с `goalFocus=true`. Отказ от Homework распознан, но в профиле остался Unknown. На AI `28bc9a4` повтор сохранил Homework No со ссылкой на точную реплику. Репетитор завершил звонок на 28:05 без просьбы ученика закончить. `lesson.evaluate` завершился успешно, а `trial.observe` отклонил ссылку на реплику ассистента. После поставки `f278064` штатный повтор задачи сохранил шесть Observations. Assessment и Roadmap со 115 задачами завершились успешно. Homework No сохранился. Доставка в Telegram открыта. [Повтор Homework No](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44221601058). [Полный Trial](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44211362053) · [Jobs и Roadmap](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44215727576) · [Профиль и Observations](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44215727113).
+
+Для обычного урока на DEV подтверждены запись, подготовка плана и выдача проверенного материала. В прогоне с настоящим Explanation явное выключение микрофона позволило сохранить реплику на входе в практику. Голосовой ответ достиг лимита до полного задания. В отдельном прогоне Exercises задание, ответ и обратная связь сохранились. Распознавание исказило правильную реплику и привело к ошибочному снижению Score с 50 до 45, Progress остался 0. Просьба закончить тоже исказилась, Review не создан. Восстановление обычного урока после лимита и проверка опоры отрицательного вердикта поставлены на DEV. В повторе Exercise прозвучал полностью. ASR исказил ответ и просьбу закончить. Обработка вердикта запросила повтор, Exercise Observation и Review отсутствуют. [Повтор Exercises](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44218046430). В контрольном прогоне с Piper и явным mute правильный ответ сохранился дословно. Провайдер оценки вернул HTTP 400, ошибка оборвала звонок до записи Observation и Review. Score остался 50/50, Progress 0%. На DEV поставлена обработка отказа без разрыва звонка и записи оценки. Прошли 983 теста. Причина HTTP 400 и живая проверка обработки остаются открытыми. [Контрольный прогон](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44232148052) · [Диагностика](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44234169942). Автоматическое окончание речи и защита оценки при ненадёжном распознавании остаются открытыми. [Explanation](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44205626307) · [Exercises](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44207227081) · [Состояние после урока](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44210662149) · [Реестр критериев](acceptance/dev-ac-reconciliation-2026-11-17.md).
+
+Для Roadmap проверено штатное формирование текста со 100 задачами и прогнозом. Диапазон дат совпал с независимым расчётом. После поставки `17ce6cb` текст объясняет, что желаемый срок раньше начала прогнозного диапазона, и предлагает изменить нагрузку или дату. Диапазон сохранился. Доставка в Telegram остаётся открытой. [Повтор штатного ответа](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44221444108).
+
+Изолированный `agent_test` Student на DEV проводит текстовые реплики через живой
+AI/Foundation pipeline и возвращает состояние PostgreSQL. BB агент проверил
+естественное знакомство, прямую запись Trial, уточнение нагрузки и исправление цели.
+Ложное обещание сохранить нагрузку/Homework исправлено в текстовой политике и
+повторно проверено; поля останутся Unknown до Trial. При исправлении цели запись
+прошла, но ответ один раз деградировал до шаблона из-за provider 429.
+Первые два Telegram запроса на Trial не создали запись: сначала были отвергнуты
+аргументы booking, затем модель дважды неверно вызвала onboarding update.
+Следующий живой повтор вернул буквальный `placeholder` без вызова инструмента.
+После исправления и поставки AI service прямой запрос создал booking: безопасная
+[диагностика](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44091174219)
+показала `booking_present=true`, а Telegram показал кнопку входа. Один отклонённый
+неизвестный инструмент перед успешным booking остаётся предметом диагностики.
+Полная [матрица AC](acceptance/dev-waves-1-9-matrix.md), [диалоги](acceptance/runs/text-ac-results.md)
+и [следующие интерфейсы приёмки](acceptance/remaining-ac-execution.md) сохраняют
+отдельные статусы `pass/fail/blocked`. Описание адаптера: [агентская приёмка](integrations/agent-acceptance.md).
+
+## Совместная интеграция волны 9
+
+SP-20 запускает Review после завершённого обычного урока. Он читает сохранённые
+Observations, предложения Problems и Stage Score, не вводя вторых формул. При
+`masteryReady` и реальном пригодном evidence переводит Task в Mastered с историей;
+незавершённые Tasks остаются. Сохранённый Review даёт следующему уроку контекст
+предыдущей работы и запускает обновление приоритета SP-09. Повторное событие
+проверяется по ревизии источников. Текст заметок берётся из живого источника,
+чтобы не сохранять его дольше срока хранения.
+
+SP-17C пока не выдаёт утверждённый вывод Known/Not Known. SP-20 не меняет Topic
+Knowledge без него. SP-11B и SP-21 остаются вне волн 1–9. После объединения прошли
+821 Python tests, Kotlin unit, `buildFatJar` и `detekt`. CI применил V64 и прошёл
+127 PostgreSQL integration tests, Redis migration rehearsal и HTTP-проверки.
+Живой цикл урока и качество решений модели ещё не подтверждены.
+
+## Совместная интеграция волны 8
+
+Обычный Mini App урок получает текущую Task, Plan, Stage и Score. При наличии
+подготовленного проверенного Content admission выдаёт его для SP-14/15 Voice Actions;
+иначе урок остаётся разговорным. Мягкий ориентир 30 минут: Conversation 15,
+Practice 13, Wrap-up 2. Сохранённая работа переводит Task в In Progress; ранний
+конец сохраняет незавершённое. Свободная беседа создаёт SP-17 Observation для SP-18
+лишь при подтверждённой каталогом паре Topic/Problem и пригодном evidence. Новая
+Task не создаётся до сохранённого ответа ученика; SP-09 применяет согласие или отказ.
+При неясном результате записи Observation повтор с тем же ID выполняется один раз,
+после чего урок останавливается с кодом явного восстановления.
+
+После объединения прошли 819 Python tests, Kotlin unit, `buildFatJar`, `detekt`
+и 16 Mini App tests. PostgreSQL интеграция SP-16, живой Voice/Telegram и качество
+решений модели не проверены. Post-Lesson Review добавлен в волне 9.
+
+## Совместная интеграция волны 7
+
+SP-11A доставляет сохранённую первую Roadmap в Telegram после Trial без проверки
+подписки. При неизвестном результате отправки повтор останавливается. SP-19B
+пересчитывает Stage Score и Task Progress по текущим Observations, включая исправления,
+удаление источников и новую ревизию Plan. SP-18 считает отдельный экспериментальный
+Problem Score вне активной Task и выдаёт предложение, но не создаёт Task автоматически.
+
+После объединения прошли 813 Python tests, Kotlin unit, `buildFatJar` и `detekt`.
+Новые PostgreSQL тесты SP-11A/19B/18 локально не запущены: host исчерпал SysV
+shared memory IDs. CI применил V61–V63, прошёл 126 PostgreSQL сценариев и
+миграционный прогон после исправления устаревшего импорта тестовой модели.
+Реальная Telegram-доставка, голосовой урок, качество оценок и DEV/PROD не проверены.
+SP-16 ещё должен создавать free-conversation Observations для SP-18 и спрашивать ученика
+о новой Task.
+
+## Совместная интеграция волны 6
+
+SP-09 хранит приоритеты отдельно от исходной Roadmap и принимает согласие либо отказ
+ученика по предложенной Problem. SP-10 даёт осторожный диапазон сроков по согласованной
+нагрузке и источнику Cambridge; каждый Skill имеет отдельный старт, самооценка отмечена
+как предварительная. SP-17C переводит результаты Teaching Actions в формат SP-17A
+и записывает их после сохранения реплики. Он передаёт SP-20 историю Topic evidence,
+но пока не меняет Topic Knowledge без согласованного правила достаточности.
+
+После объединения прошли 809 Python tests, Kotlin unit, `buildFatJar` и `detekt`.
+Новые PostgreSQL тесты SP-09/17C локально не запускались: host исчерпал все 32 SysV
+shared memory IDs. CI проверяет миграцию V60 и транзакционные сценарии; предыдущие
+прогоны остановили три неточные проверки времени Telegram introduction. SP-16 ещё
+должен подать Content в обычный урок; SP-19B должен читать реальные Observations.
+Живая педагогика и срок достижения цели не подтверждены.
+
+## Совместная интеграция волны 5
+
+SP-08 создаёт первую персональную Roadmap после SP-07 Assessment: четыре MVP Skills,
+отдельные стартовые уровни, явные гипотезы, сохраняемые версии и Tasks с начальным
+Progress 0%. SP-14 исполняет Explanation/Exercises, SP-15 — Exposure/Conversation.
+Оба передают предложения evidence без расчёта Stage Score. Обычный Voice Agent имеет
+hook для выданного Content, но SP-16 ещё должен передать его при admission и вести урок;
+SP-17C должен сохранить результаты как Observations.
+
+После объединения прошли 783 Python и 328 Kotlin unit tests, `buildFatJar` и `detekt`.
+Новый PostgreSQL тест Roadmap зарегистрирован в отдельном integration suite; локальный
+PostgreSQL сейчас не стартует из-за общего лимита shared memory. Миграция V59 и
+сквозной Roadmap ещё требуют PostgreSQL/HTTP проверки. Живая модель и голос не проверены.
+Решения и ограничения: [implementation-decisions.md](../implementation-decisions.md).
+
+## Совместная интеграция волны 4
+
+SP-07 запускает отдельную диагностику после успешного `trial.observe`. Она сохраняет
+предварительные CEFR и Topic Knowledge через SP-03; системный Listening остаётся Unknown.
+SP-13B готовит материал по Task/Stage через SP-13A и отклоняет его при неудачной
+семантической проверке. SP-19A хранит Stage Score и Task Progress по типизированным
+fixture-событиям; реальный Observation consumer остаётся SP-19B.
+
+Локально после объединения прошли 737 Python, 328 Kotlin unit, 121 PostgreSQL integration
+и 15 HTTP тестов Python → Ktor → PostgreSQL. `buildFatJar`, `detekt` и миграция V58
+прошли. Тестовая PostgreSQL 14.10 и Ktor harness использовались изолированно.
+Живая модель, Voice Agent, Telegram, DEV/PROD и сквозной Roadmap не проверены.
+CI волны 4 после закрепления PostgreSQL-клиента 16 прошёл сборки, но три старых
+Telegram/PostgreSQL теста исчерпали минутный `runTest` timeout. Причина, вероятно,
+в округлении положительного ожидания менее 1 мс до нуля. Цикл исправлен,
+точный unit-тест добавлен; повторный CI ещё требуется.
+
+## Совместная интеграция волны 3
+
+Локально прошли 722 Python unit, 324 Kotlin unit, 119 PostgreSQL integration и 15 HTTP
+сценариев Python → Ktor → PostgreSQL. Дополнительный HTTP тест проверил передачу StageRef
+из реального SP-12B Plan в SP-13A Content. `buildFatJar`, `detekt` и Flyway V55 прошли;
+тестовый Ktor и отдельная PostgreSQL 14.10 остановлены. Каталог и ответы модели в проверках
+синтетические; качество живой классификации Trial и генерации материала не подтверждено.
+
+В Notion SP-12B подтверждены 3/5 AC (адаптация во время урока и завершение Stage ждут SP-16/19),
+SP-17B — 4/5 (потребление SP-07 ещё не реализовано), SP-13A — 5/5 на уровне контракта.
+Галочки не означают готовности всей SP-12, SP-13 или SP-17.
+
+## Новый SP-13A: Learning Content Contract
+
+После интервью пользователь явно разрешил реализацию 2026-11-17. Изолированная ветка
+`bb/sp-13a-content-contract-thr_i92t3guqfy` основана на `2487b22` из draft PR #58;
+её результат включён в PR, но ещё не поставлен на DEV/PROD.
+
+- V55 хранит Content конкретной Task и исторического Plan/Stage, неизменяемые версии текста,
+  выдачу в regular Lesson и отметку дефектной версии. Новая подготовка требует текущий StageRef;
+  старое выданное задание остаётся читаемым после изменения Plan.
+- Один документ покрывает Explanation, Exercises, Exposure и Conversation с кратким голосовым
+  условием, форматом действия и допустимыми вариантами ответа. Это описание материала;
+  SP-13A не оценивает фактический ответ ученика и не меняет Plan, CEFR, Stage Score или Progress.
+- Структуру и Task/Stage ownership проверяет Ktor. Запись пока только operator, чтение в student
+  scope; Python FoundationClient предоставляет адаптеры. `validation.status=passed` от trusted
+  producer требуется для выдачи, но реальный AI semantic validator ещё принадлежит SP-13B.
+- Personal forget удаляет сохранённый материал, сохраняя Task/Plan. Full learning reset,
+  новый `/start` и student.delete удаляют его каскадом от Task. Legacy lesson plan не менялся.
+- Локально прошли 705 Python tests, 324 Kotlin unit tests, 118 PostgreSQL integration tests,
+  2 новых HTTP Python → Ktor → PostgreSQL tests; `buildFatJar`, `detekt`, миграция V55 на
+  отдельной PostgreSQL 14.10 и проверка JSON-примеров. Тестовый каталог и Content синтетические.
+  Живая генерация/голос/ASR, SP-14/15 execution, SP-17C Observations, Score, DEV/PROD и
+  пользовательская приёмка не проверены.
+
+[Контракт и handoff](integrations/learning-content.md), [план и evidence](plans/2026-11-16-sp13a-content-contract.md),
+[синтетические примеры](../content-contract/v1/examples.json).
+
+## Совместная интеграция волны 2
+
+SP-06, SP-17A и SP-12A собраны от `7e3800b` и добавлены в общую ветку
+`bb/sp-02-05-v5-5` / draft PR #58. Три исходные ветки сохранены. V52–V54 применены к отдельной PostgreSQL 14.10.
+Observation StageRef разрешается по исторической ревизии реального Learning Plan.
+
+Совместно прошли 705 Python, 321 Kotlin unit, 115 PostgreSQL integration, 44 HTTP integration и
+16 Mini App tests; `buildFatJar`, `detekt` и Mini App build прошли. HTTP проверял Python → Ktor → PostgreSQL.
+Старые HTTP-сценарии образовательного Trial проверены на синтетическом 15-минутном legacy-уроке,
+новый 30-минутный Trial — отдельным сценарием. Это не перенос пользовательских записей.
+Педагогический каталог опубликован только как синтетический test fixture.
+
+Интеграция опубликована в draft PR #58; merge и deploy не выполнялись. Живой звонок, Telegram, S3, визуальная приёмка,
+DEV/PROD и полная цепочка Trial → Assessment → Roadmap не проверены.
+
+## SP-17B: Trial → Observations
+
+После утверждения пользователем SP-17B реализован в отдельной ветке от `2487b22` и включён в draft PR #58.
+Завершение Trial v5.5 ставит отдельный `trial.observe` job. Python extractor читает
+сохранённые raw events и опубликованный каталог, связывает точные цитаты с
+`sourceEventId/sourceSequence`. Поддерживает Speaking, Grammar, Vocabulary и ограниченное Listening по ТЗ v1.0.
+Ktor применяет batch через SP-17A `LearningObservations` в одной транзакции,
+сохраняет ревизии и отклоняет устаревший результат.
+`GET /trial/events` показывает `observationStatus`; `assessmentStatus` теперь
+обновляется SP-07. Listening после Trial имеет системный CEFR Unknown;
+самооценка хранится отдельно. Ни Roadmap, ни Plan, ни Content не создаются.
+
+В DEV Trial `44221601058` модель вернула невалидную ссылку context/hint, поэтому
+`trial.observe` завершился `invalid_result` до записи. Правка на DEV исключает такой
+кандидат перед сборкой batch, если остаётся валидное свидетельство. Ktor разрешает
+этот batch только при первой материализации. Он проверяет отсутствие прежних
+Observations под блокировкой ученика. Полностью отклонённая выдача остаётся ошибкой.
+[Проверка PostgreSQL](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44226379380) прошла. Повтор на DEV подтвердил пропуск недоступной ссылки и сохранение шести Observations с десятью проверенными ссылками.
+[Job и сохранённое состояние](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44225295813).
+
+Локально прошли Python unit suite (708), новый extractor suite (4),
+Kotlin unit (321), PostgreSQL integration (116) и HTTP Python → Ktor → PostgreSQL (1)
+с фиксированным результатом модели. Fat JAR, detekt, относительные ссылки документации
+и `git diff --check` прошли. Новая Flyway миграция не нужна: используются V52/V53.
+Merge, deploy и живой Realtime/Telegram/S3 не выполнялись.
+Качество классификации естественной речи не доказано синтетическими тестами.
+
+[План и сценарии](plans/2026-11-16-sp17b-trial-observation-integration.md).
+
+## Новый SP-06 v5.5: Trial Lesson
+
+План утверждён пользователем 2026-11-16. Работа началась в отдельной ветке
+`bb/sp-06-trial-lesson-v5-5-thr_tvbpxhm5dn` от `7e3800b`; результат включён в draft PR #58.
+
+- Новый Trial: 30 минут подключённого времени, RU warm-up → EN conversation → RU wrap-up.
+  Мягкие фазы и таймер сохраняются между подключениями; модель не должна называть CEFR/баллы/сроки.
+- Reconnect возможен до конца исходного слота; остаток времени можно использовать после его конца.
+  Кнопка завершает Trial окончательно; оставшийся отключённым урок закрывается как прерванный.
+- Native tool сохраняет intensity/Homework через SP-03 с цитатой, source ownership и revision.
+  Нет разрешения писать CEFR, Goal, Topics или расписание. Unknown/null и Homework no допустимы.
+- V52 хранит clock/phase и raw call metadata. Scoped GET events/audio доступны будущему SP-17B.
+  Stable IDs/revisions, nullable ASR confidence, реальные audio references; детектор ASR ошибок отсутствует.
+- Новый Trial отделён от старого educational evaluation/Roadmap. Personal Memory extraction сохранён.
+  Штатную цепочку Assessment → Roadmap → Telegram добавили SP-07/08/09/11A. Живая доставка остаётся открытой.
+- Локально: Python 701 passed; Kotlin 309 unit + 96 PostgreSQL integration passed;
+  после последнего ограничения read-scope повторно прошли 7 Trial integration tests.
+  HTTP Python → Ktor → PostgreSQL: 11 passed. Mini App: 16 tests + production build passed.
+  `buildFatJar`, `detekt`, `git diff --check` и локальные ссылки проверены.
+- Browser Automation не открылся из-за `EATTESTATIONVERIFY`; визуальная приёмка не подтверждена.
+  Живая 30-минутная модель/Realtime/Telegram/S3 приёмка, DEV readiness и доставка Roadmap не проверены.
+- Обязательное последующее удаление старых обработчиков и их потребители перечислены в
+  [контракте/handoff](integrations/trial-v55.md#handoff-и-старый-pipeline); интеграцию ведёт родитель.
+
+[Утверждённый план](plans/2026-11-16-sp06-trial-lesson-v55.md). В Notion 12 AC отмечены по проверке кода; общий статус In progress.
+
+## SP-12A v5.5: Learning Plan Contract
+
+Реализован локально после явного утверждения в отдельной ветке `bb/sp-12a-learning-plan-contract-thr_kdrsx7xmdj`,
+от `7e3800b` общей SP-02–05. Результат включён в draft PR #58.
+
+- V54 хранит Plan конкретной Task, immutable definitions и историю текущего Stage.
+  Четыре Teaching Methods; один Stage на выбранный method. Binary condition без веса;
+  numeric weights неотрицательны и в сумме 1 при наличии numeric stages. Ненужные методы отсутствуют.
+- Создание/ревизия атомарно связывает Plan с Task, не меняет Skill/Topic/Problem, цель, lifecycle или Progress.
+  Task без Plan допустима. Generic task.update проверяет владельца, Task и текущую Plan revision.
+- StageRef = taskId/planId/planRevision/stageId; historical resolver сохраняет старую привязку после reorder/reweight/removal.
+  Смена method/kind/condition требует нового ID. Cursor revision отделена от definition revision;
+  повтор/возврат/выбор ученика не сбрасывает результаты и не создаёт новую попытку прохождения.
+- Internal API и FoundationClient: чтение в student scope, запись только operator, общий lock/receipts/revisions.
+  Нет новых native tools. SP-12A не выбирает методы по Problem, не создаёт content и не считает Score.
+- Plan не содержит личного текста/контента. Personal forget и retention сохраняют структуру;
+  learning.forget/reset/delete/replay удаляют Plan/revisions/history каскадом от Task.
+- Проверки: 697 Python, 314 Kotlin unit, 95 PostgreSQL integration, 20 реальных HTTP tests — passed.
+  `buildFatJar`, `detekt` — passed. HTTP проверяет Python → Ktor → PostgreSQL и регрессии SP-02–05;
+  7 новых HTTP-сценариев и 6 новых PostgreSQL-сценариев относятся к SP-12A.
+  После дополнения /start и deletion replay с заполненным Plan все 14 Plan/Task PostgreSQL-сценариев повторно passed.
+- V54 применена только к отдельному временному PostgreSQL 14.10; каталог синтетический, без пользовательских данных.
+  StageRef подключён к SP-17A в общей ветке. SP-13A/19A получают документированный контракт и fixtures,
+  это не подтверждение будущей AI/Voice/Score интеграции. DEV/PROD, merge и deploy не выполнялись.
+
+[Контракт и handoff](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md).
+
+## SP-12B v5.5: педагогическая логика
+
+После интервью план утверждён пользователем. Реализация из отдельной ветки
+`bb/sp-12b-pedagogical-logic-thr_fi3xp7cvaj` от `2487b22` включена в draft PR #58.
+
+- Python `PedagogicalPlanner` проверяет реальную Task и опубликованный каталог, затем создаёт SP-12A Plan
+  по одному из шести утверждённых базовых шаблонов. Методы и веса заданы заранее. Если шаблона нет,
+  возвращается `template_missing`; Task остаётся без Plan. Существующий Plan повторно не создаётся.
+- StageRef сохраняет Task/Plan/revision/Stage identity. Правило переходов использует готовый SP-19 результат:
+  выполненный binary requirement или numeric Score ≥85 двигает cursor на соседний Stage;
+  Score ≤15 даёт сигнал пересмотра и допускает явный возврат. Отказ оставляет cursor без изменений.
+  Score, Progress, completion и попытки SP-12B не выставляет.
+- Локально: полный Python набор — 717 passed, 1 стороннее предупреждение deprecation;
+  8 HTTP сценариев Python → Ktor → PostgreSQL passed, включая шесть реальных Plan и переходы.
+  Kotlin `:server:test :server:buildFatJar detekt` passed, 321 server unit tests без ошибок.
+  PostgreSQL 14.10 и каталог использовались только как отдельные синтетические тестовые ресурсы;
+  test harness и БД остановлены. Новых Flyway миграций нет.
+- В живой урок, Teaching Actions и Stage Score модуль пока не подключён: SP-16/19 и
+  последующие Action integrations впереди. Ограниченные Listening Observations из Trial v1.0
+  не пишут Topic Knowledge и не запускают автоматический Plan. DEV/PROD и живое качество обучения не проверены; merge/deploy не выполнялись.
+
+[Правила и handoff](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы),
+[утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md).
+
+## Совместная проверка SP-02–05
+
+В общей ветке прошли 695 Python, 309 Kotlin unit, 89 PostgreSQL integration и 13 HTTP integration-тестов.
+`buildFatJar`, `detekt` и проверка diff прошли. HTTP проверял Python → Ktor → PostgreSQL,
+включая создание Learning Task и запись профиля при знакомстве. PostgreSQL 14.10 и каталог были
+отдельными синтетическими тестовыми ресурсами; тестовые процессы остановлены.
+Педагогическое содержание Topic Map ещё ждёт приёмки; реальный каталог не опубликован.
+Живой диалог модели, Telegram, DEV/PROD и 30-минутный Trial не проверялись и не поставлялись.
+
+## Новый SP-17A: Observation Contract & Core
+
+План утверждён пользователем 2026-11-16. Реализация в отдельной ветке
+`bb/sp-17a-observation-contract-thr_3yyacry6cr` от `7e3800b`; результат включён в draft PR #58.
+
+- Единый evidence journal: источники и spans, Skill/nullable Topic/Problem, optional Task/Stage/Action,
+  independent/error/self-corrected/hinted, явные признаки качества и происхождение.
+- Устойчивые identities, защита retry/concurrent writes, revisions и invalidation без второй попытки.
+  Unknown classification не получает выдуманных ID. Нет автономного CEFR, Topic Knowledge или Score.
+- Внутренние API и Python types/client; запись operator-only, без новых native tools и production extractor.
+  Старый post-call analysis сохранён. SP-03 принимает `learning_observation` sources, включая все исходные event IDs.
+- V53 согласована с родителем, независима от V52/V54. Stage resolver — integration port;
+  в общей ветке он подключён к историческому Plan SP-12A. Binary Stage не становится numeric evidence.
+- Privacy, retention и полный reset/delete включают новый журнал и его историю.
+- Проверки: 697 Python tests, финальные 316 Kotlin unit, buildFatJar и detekt passed.
+  Полный PostgreSQL regression — 99 tests passed; после уточнения source availability и добавления
+  reset/replay сценариев все 12 Observation integration tests повторно passed.
+  36 реальных HTTP checks Python → Ktor → PostgreSQL passed, включая новый журнал и прежние consumers.
+  JSON handoff examples проверены backend validator и Python adapter; ссылки и diff проверены.
+- V53 применяется только к отдельному временному PostgreSQL 14.10 с синтетическими данными.
+  Тестовые backend и PostgreSQL остановлены после проверки.
+  Реальные Trial→Observation (SP-17B), Actions (SP-17C), live scoring и качество tagging/ASR не проверены.
+  Детектор ошибок ASR не добавлен. В Notion отмечены 5 AC дочерней SP-17A; основная SP-17 остаётся открытой. Merge/deploy не выполнялись.
+
+[Утверждённый план](plans/2026-11-16-sp17a-observation-contract.md),
+[контракт и handoff](integrations/learning-observations.md).
+
+## Новый SP-04 v5.5: Learning Tasks
+
+Реализован после явного утверждения плана; изменения включены в общую ветку SP-02–05.
+
+- Персональная Task связывает Goal revision + Skill + Topic + Problem. Проверяются опубликованный каталог,
+  совместимость Skill и принадлежность цели ученику. Создание всегда Identified/0%, Plan/Actions/Homework необязательны.
+- Lifecycle Identified → In Progress → Mastered → Reopened → In Progress, внешний Progress 0–100,
+  nullable priority и поздние ссылки сохраняются с устойчивым ID и историей before/after.
+- Повторное создание возвращает существующую Task, включая Mastered; разные Problems одного Topic независимы.
+  Student lock, revisions, receipts и DB constraint защищают конкурирующие записи и повторы.
+- Внутренние API и FoundationClient доступны; запись только operator, без новых AI tools.
+  Task Progress не меняет Topic Knowledge; SP-04 не рассчитывает освоение, порядок или Learning Plan.
+- Personal forget убирает свободные пояснения истории, сохраняя учебную работу и Progress.
+  Полный learning.forget, delete, новый /start и deletion replay удаляют Tasks и историю.
+- Проверки: 692 Python tests, 309 Kotlin unit, buildFatJar и detekt — passed.
+  12 реальных HTTP checks (Python → Ktor → PostgreSQL) — passed, без моделей и пользовательских данных.
+  Полный PostgreSQL-прогон: 88 tests — passed; включает 8 новых Task-сценариев.
+  После дополнения проверки завершения урока все 8 Task-сценариев повторно passed.
+- V51 применялась только к отдельному временному PostgreSQL 14.10. Каталог публиковался как синтетическая тестовая версия.
+  DEV/PROD и живой диалог не проверялись.
+- Следующие SP: генерация и адаптация Roadmap, Plan/Stages, Observations, scoring, уроки, Homework и UI.
+  В общей ветке SP-12A проверяет Plan (см. выше); Action/Homework refs остаются
+  непрозрачными идентификаторами до реализации их доменов.
+  Знакомство SP-05 не создаёт Tasks. Смена цели не перестраивает их автоматически.
+
+[Утверждённый план](plans/2026-11-16-sp04-learning-tasks.md), [контракт](../architecture.md#learning-tasks-sp-04-v55).
+
+## SP-23: естественная переписка Stage 1
+
+Goal Map v1 сохраняет категории `G01`–`G08` и дословную Personal Goal в одной версии
+Learning Goal. Roadmap учитывает оба поля. Старые записи читаются в прежнем формате.
+Деплой не заполняет пропущенные цели из истории.
+Ktor и AI `0f6e504` поставлены на DEV. Интеграционный тест с PostgreSQL проверил
+одну версию цели и повтор операции. В изолированном прогоне Sonnet передал `G01`
+на короткий ответ и `G05`, `G03`, `G01` на составную цель. В обоих случаях цитата
+совпала с ответом ученика. Этот прогон использовал тестовый профиль в памяти.
+[Ktor](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44370811943) ·
+[AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44371567410) ·
+[PostgreSQL](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44370821459)
+
+18 ноября 2026, локальная реализация от `36eeda3`.
+После ручного прогона обновили промпт Stage 1. На DEV AI поставлен `1fb4c6c`,
+хеш файла промпта в контейнере совпал. [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44309596631)
+В повторе четырёх исходных реплик длинных тире не было. Модель дважды использовала дефис как тире,
+пересказывала ответы и один раз вернула технический отказ. В отдельном ходе с полной целью,
+трудностью и уровнями модель сразу предложила бесплатный пробный. Тестовый профиль сохранил B1 и цель B2.
+Модель работала в контейнере DEV с тестовым профилем в памяти. Telegram и PostgreSQL в прогоне не участвовали.
+HTTP 402 остановил первый живой прогон. Во второй версии правила SP-23 стоят перед репликой
+ученика. Промпт запрещает дефис с пробелами вместо тире и уточняет, когда предлагать пробный.
+Версия 2 поставлена на DEV AI (`d687dd6`). В пяти ответах реальной модели осталось одно длинное
+тире, пересказ, предположение об уровне и повтор приглашения. Полной приёмки Stage 1 нет.
+[Поставка версии 2](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44321965203)
+В следующей итерации Stage 1 получил отдельную короткую стратегию с общим характером Kora.
+Модель использует правила SP-23 и сохраняет поля профиля только по текущему сообщению.
+В предварительной проверке выбранного промпта все восемь ответов прошли без тире и двойных
+вопросов. Модель ещё повторяла приглашение. Полная приёмка SP-23 остаётся открытой.
+На DEV AI поставлен `913da88`. В семи контрольных ответах нет тире и двойных вопросов.
+Сохраняются повтор вопроса о времени и шаблонная похвала. [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44325967548)
+На DEV AI поставлен `4775fdc` с обычной пунктуацией и короткими реакциями по смыслу.
+Из восьми реплик реальной модели четыре содержали длинное тире. В одной два вопроса.
+Модель учла пример с вопросами клиентов, но вернулись дежурная похвала и пересказ.
+Приёмка SP-23 не пройдена. [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44335301325)
+После этой поставки проверили три варианта со свободным откликом и разными правилами пунктуации.
+В каждом встретилось длинное тире. Третий прогон остановился на HTTP 402.
+Контрольный промпт с более узкой правкой стиля подготовлен локально. Живая проверка открыта.
+Для проверки ответов Stage 1 на DEV использовали `openai/gpt-6-luna` в AI `3980128`.
+Chat Completions использует `reasoning.effort=none` для native tools и пропускает параметр
+`temperature`. С этим параметром OpenRouter возвращал 404.
+Выбор памяти, обычный чат и обучение используют `KORA_MODEL`.
+Muse Spark снят с эксперимента после двух вызовов `update_learner_context` со строкой
+`"null"` вместо JSON `null` даже при `strict: true`.
+Локально прошли 144 теста затронутых компонентов.
+В трёх сценариях на DEV получены 8 ответов без технических отказов, длинного тире или двух
+вопросов в одной реплике. Три вызова памяти приняты с первого раза. Остались пересказ,
+формальный вопрос про CEFR и пропуск приглашения при полном контексте. В этом же сценарии
+явный B1 остался в пояснении к самооценке. Прогон использовал тестовый профиль в памяти.
+Живая Telegram-приёмка открыта. [Поставка AI](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44360053470)
+Stage 1 снова использует Sonnet 4.6 через `KORA_MODEL` на DEV. Текст промпта соответствует `3980128`.
+Локально в промпт текстового чата добавлено правило опускать финальную точку каждого
+сообщения. Точки между предложениями сохраняются. На DEV правка ещё не поставлена.
+
+Саша использует историю и память, задаёт один вопрос за ход и уточняет каждый неясный блок максимум один раз.
+После достаточного контекста предлагает бесплатный созвон около 30 минут и объясняет его пользу.
+Ясная просьба о записи сразу идёт в действующие native tools.
+Пустые строки в реплике Stage 1 задают 1–3 сообщения через действующий Telegram-адаптер.
+История хранит одну реплику. Действующая квитанция доставки защищает всю реплику при replay.
+Поля SP-05, передача контекста SP-06 и подтверждение с кнопкой Trial сохраняют действующие контракты.
+
+Контрольные сценарии для ручной приёмки на реальной модели в Telegram.
+[Задача и AC-01–10](https://app.notion.com/p/41c045c3d5768149a434f749fe3d044e)
+
+| Сценарий | Что проверить |
+| --- | --- |
+| Ответить «Для работы» | Один короткий следующий вопрос без похвалы, пересказа и объявления этапа. |
+| Сразу назвать цель, опыт, B1, целевой B2 и трудность | Известные сведения не спрашиваются повторно. |
+| Дважды ответить «Не знаю» на вопрос об уровне и уточнение | Другой вопрос или приглашение. Уровень остаётся неизвестным. |
+| Спросить «Ты человек или ИИ?» | Прямой ответ и уместное продолжение знакомства. |
+| Спросить, как проходит пробный и сколько стоят занятия | Бесплатный Trial и достоверные условия или честное указание, что цена неизвестна. |
+| Сразу попросить Trial сейчас или завтра вечером | Немедленная запись для «сейчас». Для «завтра вечером» согласование времени. Сохранённая запись получает рабочую кнопку. |
+| Рассказать о неудачном интервью | Короткая реакция по ситуации, без шаблонного утешения. |
+| Увести разговор к фильмам | Короткий ответ и уместный возврат без давления. |
+| Повторить начало с разными ответами | Естественные формулировки и 1–3 смысловых сообщения, один вопрос на всю реплику. При повторе события нет дублей. |
+| Дать достаточно контекста | Бесплатный созвон около 30 минут, его польза и один вопрос о времени. Без резюме ответов. |
+
+Локально прошли 997 Python-тестов, включая отдельный прогон 76 целевых тестов, и 337 Kotlin-тестов. Сборка fat JAR и detekt прошли.
+Подставная модель проверяет передачу контекста, сохранение абзацев и повтор хода. Kotlin проверяет разбиение и обычное форматирование.
+AC-10 остаётся ручной приёмкой пользователя на реальной модели и в Telegram.
+
+## Новый SP-05 v5.5: Telegram Onboarding
+
+Реализован локально после утверждения плана; изменения включены в общую ветку SP-02–05.
+План утверждён пользователем 2026-11-16; уточнения состава знакомства — в конце продуктовой v5.5.
+
+- Native tool `update_onboarding` сохраняет цель, текущую общую самооценку, target CEFR и дедлайн через SP-03.
+  Backend допускает только эти поля, проверяет текущий источник/цитаты, revision, scope и receipts.
+  Системный CEFR, Topics, Tasks и Roadmap не меняются; новая миграция не требуется.
+- Знакомство помогает выбрать A1–C1 по коротким описаниям. Unknown/отказ допустимы;
+  трудности остаются пользовательскими фактами, не диагнозом. История обучения отдельно не собирается.
+- Частота/длительность и Homework обсуждаются на Trial (SP-06). По уровню или цели не отказываем,
+  результат не гарантируем. После записи разговор завершается до инициативы ученика.
+- На срезе SP-05 Trial был 15 минут; локальный SP-06 выше переводит новые записи на 30 минут.
+- Проверки: 693 Python tests, Kotlin unit, buildFatJar и detekt — passed.
+  HTTP-сценарий Python → Ktor → PostgreSQL проверил запись профиля, немедленный Trial,
+  replay без повторного вызова модели и передачу профиля в голосовой контекст.
+  Модель в HTTP-проверке подставная. Полный PostgreSQL-набор: 80 прежних тестов passed, новый тест сначала упал на неверном ID фикстуры;
+  после исправления весь StudentLearningIntegrationTest прошёл повторно.
+- Живой модельный/Telegram-прогон не выполнен; OPENAI_API_KEY в окружении не настроен.
+  Естественность диалога и реальная передача в звонок остаются границей приёмки.
+  Deploy не выполнялся.
+
+## Новый SP-03 v5.5: учебное состояние
+
+Утверждённый foundation реализован локально поверх `32de1e0` в ветке `bb/sp-02-v5-5-thr_7zefuwzvsp`.
+
+Локальная правка после `3eddb89`: Homework Minutes допускает ноль; положительное значение по-прежнему требует day/week.
+Частота и длительность уроков требуют положительных чисел. Новый unit-тест, `:server:test`, `:server:buildFatJar`, `detekt` — passed.
+После этой правки совместный PostgreSQL-прогон SP-02–05 прошёл; DEV/PROD не менялись.
+
+- Student Learning State отделён от персональной Memory. Цель имеет одного владельца; старые Memory-writers учебных полей отключены.
+- Текущий CEFR: общий и по Skills, отдельно самооценка и Speaky; целевой CEFR только общий. Значения A1–C1/Unknown, без диапазонов.
+- Topic Knowledge: четыре состояния, история изменений, объяснения и проверяемые ссылки на источники; оценка закреплена за версией каталога.
+- Интенсивность и Homework Preferences структурированы, неизвестные числа — null. Чтение не создаёт оценок и не меняет данные.
+- Внутренние API, FoundationClient и отдельный ограниченный контекст обслуживают потребителей. Общая запись требует operator scope; SP-05 добавила ограниченную запись пользовательских полей при знакомстве.
+- Повторы, версии, ownership, сохранение между сессиями, retention, явное удаление и `/start` покрыты проверками.
+  Истечение срока транскрипта сохраняет учебную оценку; новые таблицы включены в удаление и replay deletion ledger.
+  Personal forget очищает зависимости исходных сообщений, сохраняя независимые поля и оценки.
+  Три регрессии покрывают историю источников, частичную очистку, источники цели и сохранение связи через удалённый Observation.
+  Полный сброс требует learning.forget/reset/delete; у гипотез без источников стирается только объяснение.
+- Локально: **690 Python tests; 305 Kotlin unit; полный PostgreSQL-прогон 80 tests;
+  31 HTTP tests** (10 foundation/catalog/student-state + 21 roadmap/memory/progress) — passed.
+  `:server:buildFatJar`, `detekt`, `git diff --check` — passed. PostgreSQL 14.10 был отдельным временным кластером;
+  каталог опубликован только как синтетическая тестовая версия. Сохраняется прежний Python dependency warning.
+- **Остаётся следующим задачам:** AI-заполнение через Post-Trial Assessment/Post-Lesson Review, педагогические переходы,
+  новый producer Observations, выбор Learning Tasks и UI. Нет механизма оспаривания Topic Knowledge, числового mastery и переноса старых учеников.
+- V50 применялась только к тестовым БД. Реализация SP-03 входит в общую ветку SP-02–05. DEV/PROD и живой диалог не проверялись.
+
+[План](plans/2026-11-15-sp03-student-learning-state.md), [контракт и границы](../architecture.md#student-learning-state-sp-03-v55).
+
+## Новый SP-02 v5.5: учебные каталоги
+
+Реализация сохранена в коммите `1166f02`; это отдельная задача от прежнего SP-02 про trial.
+
+Локальная правка после `3eddb89`: новый импорт защищает опубликованные ID от изменения смысла
+Skill/Problem и от изменения Skill, CEFR, objective, scope или coverageArea Topic. Названия и метаданные ревью можно уточнять.
+Удаление опубликованного ID из новой версии отклоняется.
+Черновики можно корректировать новой версией. Три catalog integration tests прошли на отдельном временном PostgreSQL;
+повторно прошли `:server:test`, `:server:buildFatJar` и `detekt`. Реальный каталог не публиковался.
+
+- Skill Map: шесть навыков; Speaking, Listening, Grammar и Vocabulary входят в MVP.
+- Topic Map: 163 целевые темы A1–C1. Источник — `learning-catalog/v1/catalog.json`, schemaVersion 2, версия `speaky-v55-v2`.
+- Problem Map: девять типов проблем. Reading/Writing сохранены в модели, без наполнения Topics.
+- Prerequisites и Curriculum Order исключены решением пользователя. Зависимости и порядок определяет будущая Roadmap Generation.
+- Backend реализует валидацию, версионный импорт в PostgreSQL и отдельную публикацию с записью приёмки.
+  Внутренний API читает опубликованный каталог; Python использует FoundationClient. V48/V49 не применялись к пользовательским базам.
+- После изменения формата прошли 3 Kotlin catalog unit, 3 Python adapter, 73 PostgreSQL integration и 8 HTTP integration tests;
+  buildFatJar, detekt и проверки генерации прошли. Это локальные проверки, не DEV/PROD-поставка.
+- [Темы и ожидаемые способности](product/2026-11-15-learning-catalog-review.md) ожидают содержательной приёмки.
+  Персональные Learning Tasks/Roadmap не входят в SP-02. Deploy не выполнялся.
 
 ## Новый продуктовый ориентир
 
@@ -12,7 +564,7 @@ PR #57 объединён в dev (`c2c988e`). Приветствие, страт
 Локально разделены немедленный старт и будущая запись по `timing`, без поиска фраз. После успешного `now` отправляется только durable-приглашение «Начать урок»; виджет, календарь и обещание напомнить подавлены, в историю не попадает несказанное прощание. Ясный запрос направляет модель вызвать tool в текущем ходе без второго согласия; после успешного действия лишнего вызова модели нет. Новая правка ещё не поставлена. Проверки: 678 Python, 300 Kotlin unit, 2 PostgreSQL-сценария (создание/перенос now, replay, рестарт worker, unknown send, история; будущие напоминания), buildFatJar, detekt — passed. Полный PostgreSQL-прогон прерван, его результат не подтверждён. Живой модельный/Telegram-прогон не выполнялся; выбор намерения живой моделью остаётся границей приёмки.
 Исправлены ошибки DEV-диалога: режим trial `after_minutes`, взаимоисключающие схемы времени, пропуск неподтверждённых полей optional memory, завершение после двух отказов tools без новых действий и совместимые ключи personal candidates. Проверки: 673 Python tests и `git diff --check` — passed. Реальные модельные проверки не запускались.
 Переделан HTML-виджет записи: компактная дата и диапазон времени, одна кнопка календаря, подтверждение перед виджетом и завершение после него. Утреннее напоминание без кнопок; вход в урок — в момент начала. Проверки: 297 Kotlin tests, buildFatJar, detekt, 673 Python tests — passed. Визуальная проверка — локальный Chrome, не Telegram. Ранее отправленные виджеты сохраняют старый HTML, их данные поддержаны.
-Mini App ждёт начала по серверному времени, учитывает перенос/отмену, затем автоматически подключается; ошибки микрофона объяснены. Trial-напоминания: 08:00 и за час без кнопок, приглашение с «Начать урок» в начале, мягкая неявка через 10 минут. Проверки: 13 Mini App, 674 Python, 298 Kotlin unit; PostgreSQL — 67/69 в полном прогоне, два устаревших ожидания обновлены и повторно прошли вместе с новым тестом раннего входа (3/3). buildFatJar, detekt, Mini App build и diff-check — passed. Живой Telegram/голосовой прогон агентом не выполнялся.
+Mini App ждёт начала по серверному времени, учитывает перенос/отмену, затем автоматически подключается. Trial-напоминания в 08:00 и за час идут без кнопок. Уведомление в начале и сообщение о неявке используют собственные receipts. Проверки: 13 Mini App, 674 Python, 298 Kotlin unit; PostgreSQL — 67/69 в полном прогоне, два устаревших ожидания обновлены и повторно прошли вместе с новым тестом раннего входа (3/3). buildFatJar, detekt, Mini App build и diff-check — passed. Живой Telegram/голосовой прогон агентом не выполнялся.
 Вопрос приветствия заменён на «Расскажи, пожалуйста, для чего ты изучаешь английский?» в коде, тесте и UX-документах.
 Доработка в ветке PR #57: каждый `/start` сбрасывает ученика во всех окружениях (V47), включая память, историю, уроки, прогресс и подписку. Replay команды не сбрасывает повторно; подготовка персонального урока не менялась. Сброс поставлен на DEV: [43418840976](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/43418840976), `7b2dbbd3f9a79964e72d3f24edf5ab5172c6fd29`; backend, AI, Mini App и readiness — success. Проверки сброса: 295 Kotlin unit и 68 PostgreSQL integration, 14 Python prompt/context tests — passed; buildFatJar, detekt и diff-check — passed.
 

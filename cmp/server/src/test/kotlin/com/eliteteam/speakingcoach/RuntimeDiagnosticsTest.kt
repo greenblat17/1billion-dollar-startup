@@ -20,11 +20,23 @@ class RuntimeDiagnosticsTest {
     }
 
     @Test
-    fun providerDescriptionDoesNotExposeQuotedInputOrCredentials() {
-        val result = RuntimeDiagnostics.cleanMessage("Refused input 'PRIVATE_TEXT' Bearer SECRET_VALUE https://api.telegram.org/bot12345:SECRET/sendMessage")
-        assertTrue(result.contains("Refused input"))
-        assertFalse(result.contains("PRIVATE_TEXT"))
-        assertFalse(result.contains("SECRET"))
+    fun untrustedIdentifiersAndNestedValuesAreDropped() {
+        assertEquals(null, RuntimeDiagnostics.ingressId("bearer-token-with-no-spaces"))
+        assertEquals(null, RuntimeDiagnostics.ingressId("1234567890"))
+        val result = RuntimeDiagnostics.fields("failed", "response", null, mapOf(
+            "provider_message" to "private_name", "unexpected" to "{\"token\":\"private_token\"}")).toString()
+        assertFalse(result.contains("private_"))
+    }
+
+    @Test
+    fun propagatedErrorsShareOneIdAndOneStack() {
+        val failure = SQLException("private query", "08006")
+        val first = RuntimeDiagnostics.fields("backend_command_failed", "persist", failure, emptyMap())
+        val second = RuntimeDiagnostics.fields("foundation_failed", "persist", failure, emptyMap())
+        assertEquals(first["error_id"], second["error_id"])
+        assertTrue("stack" in first)
+        assertFalse("stack" in second)
+        assertEquals("\"transient\"", second["failure_class"].toString())
     }
 
     @Test
@@ -43,7 +55,7 @@ class RuntimeDiagnosticsTest {
     fun httpFailureExtractsCodeWithoutCopyingResponsePayload() {
         val fields = RuntimeDiagnostics.httpFields(403, """{"error_code":403,"description":"Forbidden","payload":"PRIVATE_TEXT"}""")
         assertEquals("403", fields["provider_code"])
-        assertEquals("Forbidden", fields["provider_message"])
+        assertFalse("provider_message" in fields)
         assertFalse(fields.toString().contains("PRIVATE_TEXT"))
     }
 }

@@ -2,6 +2,21 @@
 import subprocess
 import sys
 
+from app.config import Settings
+
+
+def test_stage1_uses_kora_model_unless_overridden(monkeypatch):
+    monkeypatch.delenv('STAGE1_MODEL', raising=False)
+    monkeypatch.delenv('KORA_MODEL', raising=False)
+    monkeypatch.setenv('SPEAKY_ENV', 'dev')
+    monkeypatch.setenv('OPENAI_BASE_URL', 'https://openrouter.ai/api/v1')
+    settings = Settings.from_env()
+    assert settings.stage1_model is None
+    assert settings.kora_model == 'anthropic/claude-sonnet-4.6'
+
+    monkeypatch.setenv('STAGE1_MODEL', 'example/intro-model')
+    assert Settings.from_env().stage1_model == 'example/intro-model'
+
 
 def test_runtime_starts_without_redis_and_exposes_only_foundation_routes():
     program = '''
@@ -24,10 +39,20 @@ async def check():
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
                 assert (await client.get('/health')).json()['runtime'] == 'speaky'
-                assert (await client.post('/internal/foundation/compute', json={})).status_code == 401
+                unauthorized = await client.post('/internal/foundation/compute', json={},
+                    headers={'X-Diagnostic-Trace': 'f' * 32})
+                assert unauthorized.status_code == 401
+                assert unauthorized.headers['X-Diagnostic-Trace'] != 'f' * 32
+                assert len(unauthorized.headers['X-Error-ID']) == 32
+                malformed = await client.post('/internal/foundation/compute', content='{',
+                    headers={'X-Internal-Token': 'local-test', 'X-Execution-Scope': 'private-scope',
+                             'X-Diagnostic-Trace': 'e' * 32, 'X-Diagnostic-Call': 'private-header'})
+                assert malformed.status_code == 400
+                assert malformed.headers['X-Diagnostic-Trace'] == 'e' * 32
+                assert len(malformed.headers['X-Error-ID']) == len(malformed.headers['X-Request-ID']) == 32
                 for path in ('/internal/calls/open', '/internal/vocabulary/list', '/internal/tutor/turn', '/internal/metrics'):
                     assert (await client.post(path, headers={'X-Internal-Token': 'local-test'}, json={})).status_code == 404
-        assert {route.path for route in app.routes} == {'/health', '/internal/foundation/tutor/turn', '/internal/foundation/compute', '/internal/trial/followup', '/miniapp/api', '/miniapp/diagnostics', '/miniapp/voice'}
+        assert {route.path for route in app.routes} == {'/health', '/internal/foundation/tutor/turn', '/internal/foundation/compute', '/internal/trial/followup', '/internal/trial/initial-roadmap', '/miniapp/api', '/miniapp/diagnostics', '/miniapp/voice'}
 asyncio.run(check())
 '''
     import os
@@ -35,3 +60,4 @@ asyncio.run(check())
                OPENAI_API_KEY='local-test', REDIS_URL='redis://127.0.0.1:1')
     result = subprocess.run([sys.executable, '-c', program], env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
+    assert "private-scope" not in result.stderr and "private-header" not in result.stderr

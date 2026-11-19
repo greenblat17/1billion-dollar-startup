@@ -26,7 +26,7 @@ async def actor(http, root, token, subject, role='operator', **data):
     return response.json()
 
 
-class GoalModel:
+class PersonalModel:
     def __init__(self):
         self.count = 0
 
@@ -36,7 +36,7 @@ class GoalModel:
             import json
             return {'role': 'assistant', 'tool_calls': [{'id': 'goal-tool', 'type': 'function', 'function': {
                 'name': 'update_learner_context', 'arguments': json.dumps({
-                    'facts': [{'memory': 'learning', 'key': 'goal', 'value': 'relocation',
+                    'facts': [{'memory': 'personal', 'key': 'interest', 'value': 'relocation',
                                'evidence': 'relocation', 'kind': 'user_report'}],
                     'trialPreference': None, 'preferenceEvidence': None, 'summary': None,
                 }),
@@ -45,7 +45,7 @@ class GoalModel:
 
 
 @pytest.mark.asyncio
-async def test_text_tool_commits_in_ktor_and_voice_reads_same_goal():
+async def test_personal_memory_and_learning_goal_have_separate_writers_and_shared_context():
     root = os.environ['SP00_TEST_URL']
     token = os.environ['SP00_TEST_TOKEN']
     async with httpx.AsyncClient() as http:
@@ -53,8 +53,13 @@ async def test_text_tool_commits_in_ktor_and_voice_reads_same_goal():
         request = uuid4().hex
         text = await actor(http, root, token, subject, 'text', requestId=request, text='relocation', occurredAt=now())
         backend = FoundationClient(root, token, http)
+        operator = await actor(http, root, token, subject)
+        source = (await backend.snapshot(operator['scope'], 'text'))['events'][-1]
+        await backend.update_learning_state(operator['scope'], uuid4().hex, expected_revision=0,
+            patch={'targetLevel': 'B2'}, goal='relocation', component='test-onboarding',
+            sources=[{'type': 'event', 'id': source['id'], 'revision': source['sequence']}])
         contexts = ContextBuilder(backend)
-        model = GoalModel()
+        model = PersonalModel()
         tutor = FoundationTutor(backend, model, contexts)
         payload = TutorRequest(sessionId='tg-' + subject, requestId=request, text='relocation', receivedAt=time.time())
         answer = await tutor.respond(payload, text['scope'])
@@ -183,8 +188,14 @@ async def test_learning_result_returns_to_chat_without_reverting_a_new_goal():
         result = await engine.compute(worker_scope, job)
         request = uuid4().hex
         text = await actor(http, root, token, subject, 'text', requestId=request, text='relocation', occurredAt=now())
-        await FoundationTutor(backend, GoalModel(), ContextBuilder(backend)).respond(
+        await FoundationTutor(backend, PersonalModel(), ContextBuilder(backend)).respond(
             TutorRequest(sessionId='tg-' + subject, requestId=request, text='relocation', receivedAt=time.time()), text['scope'])
+        # The trusted learning interface changes the goal while the old analysis is in flight.
+        source = next(event for event in (await backend.snapshot(scope, 'text'))['events']
+                      if event['role'] == 'user' and event['body'] == 'relocation')
+        await backend.update_learning_state(scope, uuid4().hex, expected_revision=0, patch={},
+            goal='relocation', component='test-onboarding',
+            sources=[{'type': 'event', 'id': source['id'], 'revision': source['sequence']}])
         await engine.apply(worker_scope, job, result)
         await engine.apply(worker_scope, job, result)
         chat = await ContextBuilder(backend).build(scope, 'text')
@@ -202,7 +213,7 @@ async def test_shipping_python_app_uses_real_backend_scope_and_native_tools(monk
     async with httpx.AsyncClient() as http:
         subject, request = str(time.time_ns()), uuid4().hex
         text = await actor(http, root, token, subject, 'text', requestId=request, text='relocation', occurredAt=now())
-        model = GoalModel()
+        model = PersonalModel()
         monkeypatch.setattr('app.speaky_main.TrialTutorModel', lambda _: model)
         settings = replace(Settings.from_env(), foundation_backend_url=root, ai_internal_token=token,
                            openai_api_key='local-test', redis_url=None)
@@ -220,7 +231,9 @@ async def test_shipping_python_app_uses_real_backend_scope_and_native_tools(monk
                 headers['X-Execution-Scope'] = 'forged'
                 assert (await ai.post('/internal/foundation/tutor/turn', headers=headers, json=payload)).status_code == 403
         backend = FoundationClient(root, token, http)
-        assert (await backend.snapshot(text['scope'], 'text'))['goal']['content']['value'] == 'relocation'
+        snapshot = await backend.snapshot(text['scope'], 'text')
+        assert snapshot['goal'] is None
+        assert any(f['fact_key'] == 'interest' and f['value'] == 'relocation' for f in snapshot['facts'])
 
 
 @pytest.mark.asyncio
@@ -259,3 +272,24 @@ async def test_sp02_telegram_admission_capture_completion_and_context():
         with pytest.raises(BackendFailure, match='lesson_unavailable'):
             await backend._request('POST', '/trial/access', '', json={
                 'initData': urlencode(fields), 'action': 'open', 'lessonId': lesson['id'], 'attemptId': uuid4().hex})
+
+
+@pytest.mark.asyncio
+async def test_foundation_correlation_and_protected_diagnostics():
+    root, token = os.environ['SP00_TEST_URL'], os.environ['SP00_TEST_TOKEN']
+    trace = uuid4().hex
+    async with httpx.AsyncClient() as http:
+        denied = await http.get(root + '/internal/foundation/v1/diagnostics',
+                                headers={'X-Diagnostic-Trace': trace})
+        assert denied.status_code == 401
+        assert denied.json() == {'ok': False, 'error': 'unauthorized'}
+        assert denied.headers['X-Diagnostic-Trace'] != trace
+        assert len(denied.headers['X-Error-ID']) == 32
+        invalid = await http.post(root + '/internal/foundation/v1/commands',
+                                  headers={'X-Internal-Token': token, 'X-Execution-Scope': 'invalid-scope',
+                                           'X-Diagnostic-Trace': trace, 'X-Diagnostic-Call': 'private-header'},
+                                  content='{')
+        assert invalid.status_code == 400
+        assert invalid.json() == {'ok': False, 'error': 'invalid_payload'}
+        assert invalid.headers['X-Diagnostic-Trace'] == trace
+        assert len(invalid.headers['X-Request-ID']) == len(invalid.headers['X-Error-ID']) == 32

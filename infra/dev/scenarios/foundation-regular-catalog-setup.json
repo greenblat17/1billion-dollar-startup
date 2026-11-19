@@ -1,0 +1,110 @@
+{
+  "steps": [
+    {
+      "name": "state",
+      "request": {"kind": "read", "resource": "state"}
+    },
+    {
+      "name": "catalog",
+      "request": {
+        "kind": "catalog",
+        "args": {"version": "speaky-v55-v2", "topicId": "grammar-b1-perfect-past"}
+      }
+    },
+    {
+      "name": "task",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.task.create",
+        "args": {
+          "goalRevision": {"$ref": "state.response.result.goal.revision"},
+          "catalogVersion": "speaky-v55-v2",
+          "skillId": "grammar",
+          "topicId": "grammar-b1-perfect-past",
+          "problemId": "grammar_unknown",
+          "component": "foundation-acceptance"
+        }
+      }
+    },
+    {
+      "name": "roadmap",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.roadmap.save",
+        "args": {
+          "learningRevision": {"$ref": "state.response.result.revision"},
+          "roadmap": {
+            "schemaVersion": 1,
+            "catalogVersion": "speaky-v55-v2",
+            "goalRevision": {"$ref": "state.response.result.goal.revision"},
+            "targetLevel": {"$ref": "state.response.result.profile.targetLevel"},
+            "goal": {"$ref": "state.response.result.goal.content.value"},
+            "provisional": true,
+            "sequence": [
+              {
+                "topicId": "grammar-b1-perfect-past",
+                "skillId": "grammar",
+                "cefr": "B1",
+                "problemId": "grammar_unknown",
+                "knowledge": "Unknown",
+                "provisional": true,
+                "reason": "Synthetic hypothesis for reporting recent work updates",
+                "orderReason": "Relevant to a release update in a work meeting",
+                "goalFocus": true,
+                "taskId": {"$ref": "task.response.result.task.id"},
+                "order": 1
+              }
+            ],
+            "taskCount": 1,
+            "assumptions": [],
+            "history": [],
+            "scope": "initial_roadmap",
+            "timeline": null
+          }
+        }
+      }
+    },
+    {
+      "name": "priority",
+      "request": {
+        "kind": "command",
+        "operationId": {"$uuid": true},
+        "action": "learning.roadmap.priority.save",
+        "args": {
+          "expectedRevision": 0,
+          "decision": {
+            "schemaVersion": 1,
+            "roadmapRevision": {"$ref": "roadmap.response.result.roadmap.revision"},
+            "trigger": "learner_request",
+            "orderedTasks": [
+              {
+                "taskId": {"$ref": "task.response.result.task.id"},
+                "priority": 1,
+                "reason": "Practise reporting recent work updates",
+                "evidence": "hypothesis",
+                "prerequisiteTaskIds": []
+              }
+            ],
+            "nextTaskId": {"$ref": "task.response.result.task.id"},
+            "focusTaskIds": [{"$ref": "task.response.result.task.id"}],
+            "deferredTaskIds": [],
+            "declinedProblems": [],
+            "needsRoadmapReview": false,
+            "explanation": "Provisional focus for synthetic regular lesson setup",
+            "scope": "operational_priority"
+          }
+        }
+      }
+    },
+    {
+      "name": "task_readback",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": {"$ref": "task.response.result.task.id"}
+      }
+    }
+  ]
+}

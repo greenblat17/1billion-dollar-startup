@@ -18,7 +18,11 @@ internal data class ExecutionScope(
 internal class FoundationIdentity(private val database: FoundationDatabase) {
     /** Called only after a channel adapter authenticates the subject; never exposed as an AI tool. */
     suspend fun resolve(provider: String, subject: String): String = database.transaction { connection, _ ->
-        if (provider != "telegram" || subject.toLongOrNull()?.let { it > 0 } != true) reject("invalid_identity")
+        if (provider == "telegram") {
+            if (subject.toLongOrNull()?.let { it > 0 } != true) reject("invalid_identity")
+        } else if (provider == "agent_test") {
+            if (!runCatching { java.util.UUID.fromString(subject).toString() == subject }.getOrDefault(false)) reject("invalid_identity")
+        } else reject("invalid_identity")
         connection.rows("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", "$provider:$subject") { Unit }
         val existing = connection.rows(
             "SELECT student_id FROM student_identity WHERE provider=? AND subject=?", provider, subject,

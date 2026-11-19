@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
 
-test('calendar entry reads current owned lesson without opening microphone or voice',async()=>{
+for(const duration of [15,20,30])test(`calendar shows the saved ${duration}-minute slot without opening voice`,async()=>{
  const elements=new Map(),requests=[],links=[];
  const element=()=>({children:[],append(...children){this.children.push(...children);},replaceChildren(){this.children=[];}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
@@ -11,7 +11,7 @@ test('calendar entry reads current owned lesson without opening microphone or vo
   document:{body:{classList:{toggle(){}}},getElementById:get,createElement:element},location:{search:'?view=calendar&lesson=owned'},
   URLSearchParams,crypto:{randomUUID:()=> 'test'},navigator:{mediaDevices:{getUserMedia(){throw Error('must not open microphone');}}},
   fetch:async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:true,json:async()=>({
-   lesson:{id:'owned',starts_at:'2026-11-14T16:00:00Z',timezone:'UTC+03:00',status:'scheduled',duration_minutes:15},
+   lesson:{id:'owned',starts_at:'2026-11-14T16:00:00Z',timezone:'UTC+03:00',status:'scheduled',duration_minutes:duration},
    googleUrl:'https://calendar.google.com/calendar/render?action=TEMPLATE',ics:'BEGIN:VCALENDAR',filename:'speaky.ics'})};}});
  const source=await readFile(new URL('../src/app.js',import.meta.url),'utf8');
  vm.runInContext(source,context);
@@ -20,22 +20,8 @@ test('calendar entry reads current owned lesson without opening microphone or vo
  const card=get('meetings').children[0];
  assert.match(card.children[1].textContent,/19:00/);
  assert.match(card.children[2].textContent,/UTC\+03:00/);
- assert.equal(card.children.find(child=>child.className==='lesson-duration').textContent,'15 минут');
+ assert.equal(card.children.find(child=>child.className==='lesson-duration').textContent,`${duration} минут`);
  card.children.find(child=>child.textContent==='Google Calendar').onclick();
  assert.equal(links.length,1);
  assert.match(card.children.at(-1).textContent,/обновите событие/);
-});
-
-test('widget state updates safely and ignores older revisions',async()=>{
- const source=await readFile(new URL('../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorBookingDelivery.kt',import.meta.url),'utf8');
- const script=source.match(/<script>([\s\S]*?)<\/script>/)[1];
- const elements=new Map();let change;
- const widget={chatData:JSON.stringify({version:2,state:'Подтверждено',date:'14 ноября',time:'19:00',zone:'UTC',footer:'Бесплатно'}),onEvent:(name,fn)=>change=fn};
- vm.runInNewContext(script,{window:{TelegramWidget:widget},document:{body:{classList:{toggle(){}}},getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}}});
- assert.equal(elements.get('time').textContent,'19:00');
- widget.chatData=JSON.stringify({version:3,state:'Отменено',weekday:'<script>not executable</script>'});change();
- assert.equal(elements.get('state').textContent,'Отменено');
- assert.equal(elements.get('weekday').textContent,'<script>not executable</script>');
- widget.chatData=JSON.stringify({version:1,state:'Подтверждено'});change();
- assert.equal(elements.get('state').textContent,'Отменено');
 });

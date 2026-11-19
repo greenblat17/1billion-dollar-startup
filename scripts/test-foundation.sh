@@ -6,9 +6,12 @@ foundation_python="${FOUNDATION_TEST_PYTHON:-python3}"
 export SP00_TEST_PORT="${SP00_TEST_PORT:-58082}"
 export SP00_TEST_TOKEN="${SP00_TEST_TOKEN:-foundation-local-test-only}"
 export SP00_TEST_URL="http://127.0.0.1:${SP00_TEST_PORT}"
+export SP02_TEST_CATALOG="$foundation_root/learning-catalog/v1/catalog.json"
 foundation_log="$(mktemp -t speaky-foundation.XXXXXX)"
 cd "$foundation_root/cmp"
-./gradlew :server:foundationIntegrationTest --console=plain
+if [[ "${FOUNDATION_TEST_SUITE:-runtime}" == "runtime" ]]; then
+  ./gradlew :server:foundationIntegrationTest --console=plain
+fi
 "$foundation_python" - <<'PY'
 import os
 import socket
@@ -40,7 +43,7 @@ else:
 PY
 cd "$foundation_root/ai-service"
 case "${FOUNDATION_TEST_SUITE:-runtime}" in
-  runtime) "$foundation_python" -m pytest integration/test_foundation_http.py -q ;;
+  runtime) "$foundation_python" -m pytest integration/test_foundation_http.py integration/test_learning_catalog_http.py integration/test_student_learning_http.py integration/test_learning_content_http.py integration/test_trial_observations_http.py integration/test_trial_assessment_http.py integration/test_wave3_plan_content_http.py integration/test_learning_score_http.py -q ;;
   migration)
     : "${SP00_IMPORT_REDIS_URL:?Migration suite requires an isolated Redis source}"
     "$foundation_python" -m pytest integration/test_tutor_import_redis.py -q ;;

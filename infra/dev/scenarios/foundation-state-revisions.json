@@ -1,0 +1,138 @@
+{
+  "steps": [
+    {
+      "name": "before",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "source",
+      "request": {
+        "kind": "source",
+        "operationId": {
+          "$uuid": true
+        },
+        "occurredAt": {
+          "$now": true
+        }
+      }
+    },
+    {
+      "name": "levels",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.update",
+        "args": {
+          "expectedRevision": {
+            "$ref": "before.response.result.revision"
+          },
+          "patch": {
+            "currentLevels": {
+              "selfAssessment": {
+                "overall": {
+                  "level": "A2",
+                  "explanation": "Synthetic self-report"
+                },
+                "skills": {
+                  "speaking": {
+                    "level": "A2",
+                    "explanation": "Synthetic self-report"
+                  }
+                }
+              },
+              "speaky": {
+                "overall": {
+                  "level": "B1",
+                  "explanation": "Synthetic estimate"
+                },
+                "skills": {
+                  "speaking": {
+                    "level": "B2",
+                    "explanation": "Synthetic estimate"
+                  },
+                  "listening": {
+                    "level": "B1",
+                    "explanation": "Synthetic estimate"
+                  },
+                  "grammar": {
+                    "level": "A1",
+                    "explanation": "Synthetic estimate"
+                  },
+                  "vocabulary": {
+                    "level": "A2",
+                    "explanation": "Synthetic estimate"
+                  }
+                }
+              }
+            }
+          },
+          "component": "foundation-acceptance",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          }
+        }
+      }
+    },
+    {
+      "name": "after_levels",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "replay_levels",
+      "request": {
+        "$ref": "levels.request"
+      }
+    },
+    {
+      "name": "load",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.update",
+        "args": {
+          "expectedRevision": {
+            "$ref": "after_levels.response.result.revision"
+          },
+          "patch": {
+            "intensity": {
+              "lessonsPerWeek": 2,
+              "lessonDurationMinutes": 30
+            },
+            "homework": {
+              "consent": "yes",
+              "minutes": 15,
+              "period": "day"
+            }
+          },
+          "component": "foundation-acceptance",
+          "sources": {
+            "$ref": "source.response.result.sources"
+          }
+        }
+      }
+    },
+    {
+      "name": "after_load",
+      "request": {
+        "kind": "read",
+        "resource": "state"
+      }
+    },
+    {
+      "name": "replay_load",
+      "request": {
+        "$ref": "load.request"
+      }
+    }
+  ]
+}

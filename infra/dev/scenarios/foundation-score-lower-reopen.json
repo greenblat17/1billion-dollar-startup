@@ -1,0 +1,462 @@
+{
+  "steps": [
+    {
+      "name": "before",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "task_before",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "plan_before",
+      "request": {
+        "kind": "read",
+        "resource": "plan",
+        "resourceId": {
+          "$ref": "before.response.result.planId"
+        }
+      }
+    },
+    {
+      "name": "late_error",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "after_late_error",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "late_error_replay",
+      "request": {
+        "$ref": "late_error.request"
+      }
+    },
+    {
+      "name": "reopen",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "reopen": true,
+          "reason": "pedagogical_review"
+        }
+      }
+    },
+    {
+      "name": "after_reopen",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "reopen_replay",
+      "request": {
+        "$ref": "reopen.request"
+      }
+    },
+    {
+      "name": "error_01",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_02",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_03",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_04",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_05",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_06",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_07",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_08",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_09",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_10",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "error_11",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "after_error_11",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "error_12",
+      "request": {
+        "kind": "command",
+        "operationId": {
+          "$uuid": true
+        },
+        "action": "learning.score.fixture",
+        "args": {
+          "taskId": {
+            "$ref": "before.response.result.taskId"
+          },
+          "planId": {
+            "$ref": "before.response.result.planId"
+          },
+          "planRevision": {
+            "$ref": "before.response.result.planRevision"
+          },
+          "stageId": "exercises",
+          "fixtureEventId": {
+            "$uuid": true
+          },
+          "outcome": "uncorrected_error"
+        }
+      }
+    },
+    {
+      "name": "after_error_12",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    },
+    {
+      "name": "error_12_replay",
+      "request": {
+        "$ref": "error_12.request"
+      }
+    },
+    {
+      "name": "score_history",
+      "request": {
+        "kind": "read",
+        "resource": "score",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600",
+        "history": true
+      }
+    },
+    {
+      "name": "task_final",
+      "request": {
+        "kind": "read",
+        "resource": "task",
+        "resourceId": "92a65a8f-0e50-4b69-ba94-80964c071600"
+      }
+    }
+  ]
+}

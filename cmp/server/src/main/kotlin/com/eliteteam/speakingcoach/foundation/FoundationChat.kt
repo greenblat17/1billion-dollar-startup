@@ -82,19 +82,23 @@ internal class FoundationChat(private val service: FoundationService) {
 
     suspend fun withDelivery(request: TutorRequest, response: TutorResponse): TutorResponse {
         val student = student(request.sessionId)
-        return service.database.transaction(readOnly = true) { connection, _ ->
+        return service.database.transaction(readOnly = true) { connection, now ->
             val sent = connection.documents("SELECT to_jsonb(d) FROM tutor_delivery d WHERE student_id=? AND request_id=? AND outcome='sent'", student, request.requestId)
             val previousCard = response.booking?.let { booking -> connection.document("""SELECT to_jsonb(d) FROM lesson_telegram_card d
                 WHERE student_id=? AND lesson_id=? AND lesson_version<=?""", student, booking.id, booking.version) }
-            response.copy(replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
+            val currentInvitation = response.joinLessonId?.let { connection.currentTrialInvitation(student, it, now) }
+            val introduction = response.booking == null && connection.textConversationMode(student) == "introduction"
+            response.copy(joinLessonId = currentInvitation, replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
                 cardMessageId = previousCard?.number("message_id"),
                 cardIsWidget = previousCard?.optionalText("is_widget") == "true",
                 cardDelivered = sent.any { it.text("kind") == "card" },
-                showProgressNavigation = response.booking == null && connection.textConversationMode(student) != "introduction")
+                showProgressNavigation = response.booking == null && !introduction,
+                splitIntroductionReply = introduction && response.joinLessonId == null)
         }
     }
 
     private suspend fun student(session: String): String {
+        if (session.startsWith("agent-")) return service.identity.resolve("agent_test", session.removePrefix("agent-"))
         val subject = session.removePrefix("tg-")
         if (!session.startsWith("tg-") || subject.toLongOrNull()?.let { it > 0 } != true) reject("invalid_identity")
         return service.identity.resolve("telegram", subject)

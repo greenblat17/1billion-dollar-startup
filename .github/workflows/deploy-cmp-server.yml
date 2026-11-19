@@ -13,6 +13,11 @@ on:
         type: boolean
         default: false
 
+      agent_test:
+        description: DEV-only authenticated agent dialogue route
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -27,6 +32,7 @@ jobs:
     env:
       DESTINATION: ${{ inputs.destination }}
       BILLING_MOCK: ${{ inputs.billing_mock }}
+      AGENT_TEST: ${{ inputs.agent_test }}
       PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
       PROD_CMP_SERVER_USER: ${{ secrets.PROD_CMP_SERVER_USER }}
       PROD_CMP_SERVER_SSH_KEY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
@@ -71,6 +77,13 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
+          if [ "$DESTINATION" = dev ]; then
+            tmp=$(mktemp)
+            grep -v -e '^AGENT_TEST_ENABLED=' -e '^SPEAKY_ENV=' vps-upload/.env > "$tmp" || true
+            printf 'SPEAKY_ENV=dev\n' >> "$tmp"
+            printf 'AGENT_TEST_ENABLED=%s\n' "$AGENT_TEST" >> "$tmp"
+            mv "$tmp" vps-upload/.env
+          fi
           if [ -n "${METRICS_PASSWORD:-}" ]; then
             tmp=$(mktemp)
             grep -v '^METRICS_PASSWORD=' vps-upload/.env > "$tmp" || true

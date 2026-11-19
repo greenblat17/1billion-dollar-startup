@@ -73,6 +73,7 @@ class Settings:
     trial_s3_endpoint: str | None = None
     trial_realtime_model: str = "gpt-realtime-2.1"
     trial_realtime_voice: str = "marin"
+    stage1_model: str | None = None
 
     @staticmethod
     def from_env() -> Settings:
@@ -119,6 +120,7 @@ class Settings:
             hume_config_id=_env("HUME_CONFIG_ID"),
             hume_config_version=_env("HUME_CONFIG_VERSION", "0") or "0",
             kora_model=_env("KORA_MODEL", "anthropic/claude-sonnet-4.6") or "anthropic/claude-sonnet-4.6",
+            stage1_model=_env("STAGE1_MODEL"),
             kora_tts_model=_env("KORA_TTS_MODEL", "google/gemini-3.1-flash-tts-preview") or "google/gemini-3.1-flash-tts-preview",
             kora_tts_voice=_env("KORA_TTS_VOICE", "Leda") or "Leda",
             kora_h_enabled=_env("KORA_H_ENABLED", "false").lower() == "true",

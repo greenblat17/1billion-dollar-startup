@@ -1,0 +1,36 @@
+{
+  "studentId": "3d3db392-5ea8-45e7-b415-fd63aceb4b08",
+  "lessonId": "13eaa830-0c2b-4dd5-8e32-34ff4d299ec4",
+  "scenario": "infra/dev/scenarios/voice-short.json",
+  "result": "failed",
+  "attempts": [
+    {
+      "id": "b93fc191-03fa-4ba9-9bfc-1e0be654f83f",
+      "startedAt": 1794935472.1531823,
+      "events": [
+        {
+          "at": 1794935475.8959093,
+          "type": "error",
+          "code": "catalog_not_published",
+          "errorId": "bb127383d42b4c83b40e32157506f0fd"
+        }
+      ]
+    }
+  ],
+  "turns": [
+    {
+      "input": {
+        "text": "Hello, I want to practise speaking about my work."
+      },
+      "responseAudioIds": []
+    },
+    {
+      "input": {
+        "text": "I feel nervous when I speak in meetings."
+      },
+      "responseAudioIds": []
+    }
+  ],
+  "audio": [],
+  "error": "Relay error: catalog_not_published (bb127383d42b4c83b40e32157506f0fd)"
+}

@@ -7,13 +7,21 @@ import java.time.Instant
 
 internal val TELEGRAM_INTRO_TEXTS = listOf(
     "Привет! 👋",
-    "Меня зовут Саша. Я — твой личный ИИ-репетитор английского.",
-    "Я помогаю людям учить английский, чтобы:\n💼 Найти работу\n🌍 Переехать за границу\n💬 Перестать бояться английского и наконец начать ГОВОРИТЬ",
+    "Меня зовут Саша. Я твой ИИ-репетитор по английскому.",
+    "Со мной можно подготовиться к собеседованию, освоиться после переезда или просто почувствовать себя увереннее в разговоре.",
     "Расскажи, пожалуйста, для чего ты изучаешь английский?",
 )
-private val introPauses = listOf(0L, 750L, 1250L, 750L)
+/** Allow time to read the preceding message at roughly 24 characters per second. */
+internal fun introductionPauseMillis(previous: String): Long =
+    (500L + previous.codePointCount(0, previous.length) * 42L).coerceIn(1100L, 6500L)
 
 internal data class IntroductionPart(val index: Int, val waitMillis: Long)
+
+/** PostgreSQL rounds timestamps to microseconds; a positive sub-millisecond wait must not become zero. */
+internal fun introductionWaitMillis(now: Instant, due: Instant): Long {
+    val remaining = Duration.between(now, due)
+    return if (remaining.isNegative || remaining.isZero) 0 else remaining.toMillis().coerceAtLeast(1)
+}
 
 /** Each distinct /start creates a fresh student; a durable chat boundary makes replay harmless. */
 internal class TelegramIntroduction(private val database: FoundationDatabase) {
@@ -47,7 +55,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             val interrupted = c.rows("SELECT EXISTS(SELECT 1 FROM telegram_text_intake WHERE chat_id=? AND message_id>?)", chat, message) { it.getBoolean(1) }.single()
             c.update("""INSERT INTO telegram_introduction(student_id,chat_id,request_id,message_id,input_digest,data_epoch,status,due_at,expires_at)
                 SELECT id,?,?,?,?,data_epoch,?,?,? FROM student WHERE id=?""", chat, request.requestId, message, fingerprint,
-                if (interrupted) "cancelled" else "active", now, now.plusSeconds(7 * 86400), student)
+                if (interrupted) "cancelled" else "active", now.minusMillis(1), now.plusSeconds(7 * 86400), student)
             true
         }
 
@@ -65,7 +73,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             return@transaction null
         }
         if (row.text("status") != "active") return@transaction null
-        IntroductionPart(index, Duration.between(now, Instant.parse(row.text("due_at"))).toMillis().coerceAtLeast(0))
+        IntroductionPart(index, introductionWaitMillis(now, Instant.parse(row.text("due_at"))))
     }
 
     suspend fun claim(chat: Long, request: String, part: Int): Boolean = database.transaction { c, now ->
@@ -90,7 +98,7 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
         c.appendEvent(student, c.conversation(student, "telegram"), "intro:$request:$part", "assistant", TELEGRAM_INTRO_TEXTS[part], now, now)
         c.update("""UPDATE telegram_introduction SET next_part=?,due_at=?,
             status=CASE WHEN status='active' AND ?=4 THEN 'completed' ELSE status END WHERE student_id=?""",
-            part + 1, now.plusMillis(introPauses.getOrElse(part + 1) { 0 }), part + 1, student)
+            part + 1, now.plusMillis(introductionPauseMillis(TELEGRAM_INTRO_TEXTS[part])), part + 1, student)
     }
 
     suspend fun uncertain(chat: Long, request: String) = database.transaction { c, _ ->
