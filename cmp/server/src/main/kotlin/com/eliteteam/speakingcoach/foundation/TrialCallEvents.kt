@@ -12,7 +12,19 @@ internal class TrialCallEvents {
         args.only("lessonId", "callSessionId", "sourceId", "role", "body", "occurredAt", "metadata", "revision")
         val session = c.activeTrial(scope, args, now)
         val metadata = args["metadata"] as? JsonObject ?: json()
-        metadata.only("providerItemId", "finality", "audioStartMs", "audioEndMs", "playbackComplete", "playedMs", "trialClosingOffer")
+        metadata.only("providerItemId", "finality", "audioStartMs", "audioEndMs", "playbackComplete", "playedMs",
+            "trialClosingOffer", "trialDialogueStage", "trialDialogueInterrupted")
+        for (key in listOf("trialDialogueStage", "trialDialogueInterrupted")) {
+            val requiredFinality = if (key == "trialDialogueStage") "final" else "partial"
+            if (key in metadata && (args.text("role") != "assistant" ||
+                    metadata.optionalText(key) !in trialDialoguePlaybackStages ||
+                    metadata.optionalText("finality") != requiredFinality)) {
+                reject("invalid_trial_dialogue_playback")
+            }
+        }
+        if ("trialDialogueStage" in metadata && metadata.optionalText("playbackComplete") != "true") {
+            reject("invalid_trial_dialogue_playback")
+        }
         if (metadata.optionalText("finality") !in setOf(null, "final", "partial")) reject("invalid_finality")
         for (key in listOf("audioStartMs", "audioEndMs", "playedMs")) {
             if (metadata.containsKey(key)) {

@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
@@ -145,6 +146,32 @@ class TrialIntegrationTestV55 {
             assertEquals("true", s.op(b.text("scope"), "voice.end", end, "end-once").text("completed"))
             s.op(b.text("scope"), "voice.end", end, "end-once")
             assertEquals("lesson_unavailable", assertFailsWith<FoundationFailure> { open(s, "200", other.text("id"), clock.value) }.code)
+        }
+    }
+
+    @Test fun sp24ReconnectRestoresOnlySupportedDialogueCheckpoints() = runTest {
+        store { s, clock ->
+            val l = lesson(s, "100", clock.value, duration = TRIAL_SLOT_MINUTES)
+            val a = open(s, "100", l.text("id"), clock.value)
+            ready(s, l, a)
+            val first = voice(l, a)
+            fun turn(id: String, role: String, body: String, metadata: JsonObject = json()) = JsonObject(first + json(
+                "sourceId" to id, "role" to role, "body" to body,
+                "occurredAt" to clock.value.toString(), "metadata" to metadata,
+            ))
+            val learner = s.op(a.text("scope"), "voice.append", turn("reply", "user", "Лучше без имени"))
+            val decision = JsonObject(first + json("decision" to "name_refused", "sourceId" to learner.text("eventId"),
+                "evidence" to "Лучше без имени"))
+            s.op(a.text("scope"), "trial.dialogue", decision, "name-refusal")
+            s.op(a.text("scope"), "trial.dialogue", decision, "name-refusal")
+            val interrupted = s.op(a.text("scope"), "voice.append", turn("format", "assistant", "[Прервана]",
+                json("finality" to "partial", "playbackComplete" to false, "trialDialogueInterrupted" to "explain_format")))
+            s.op(a.text("scope"), "voice.end", JsonObject(first + json("reason" to "technical_disconnect")))
+            val reopened = open(s, "100", l.text("id"), clock.value)
+            val checkpoints = reopened.obj("trialDialogue")
+            assertEquals(learner.number("sequence"), checkpoints.number("name_refused"))
+            assertEquals(interrupted.number("sequence"), checkpoints.number("interrupted_explain_format"))
+            assertFalse("explain_format" in checkpoints)
         }
     }
 

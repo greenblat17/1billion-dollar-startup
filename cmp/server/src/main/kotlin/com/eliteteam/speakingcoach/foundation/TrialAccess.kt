@@ -92,7 +92,8 @@ internal class TrialAccess(private val service: FoundationService) {
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")),
             "regularExecution" to regularExecution,
             "issuedTeachingContent" to regularExecution?.get("issuedTeachingContent"),
-            "trialExecution" to if (trialV55(lesson)) TrialExecution().state(c, current, now) else null)
+            "trialExecution" to if (trialV55(lesson)) TrialExecution().state(c, current, now) else null,
+            "trialDialogue" to if (trialSp24(lesson)) TrialDialogue().checkpoints(c, current, now) else null)
     }
 }
 

@@ -37,7 +37,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
         "roadmap.revise", "run.claim", "run.complete", "schedule.agree",
         "schedule.create", "schedule.materialize", "schedule.materialize.request", "student.delete",
         "subscription.checkout", "subscription.get", "trial.phase", "trial.preferences",
-        "trial.ready", "trial.reaction", "student.preferred_address", "trial.schedule", "trial.schedules", "voice.append",
+        "trial.ready", "trial.reaction", "trial.dialogue", "student.preferred_address", "trial.schedule", "trial.schedules", "voice.append",
         "voice.audio", "voice.audio_stored", "voice.end", "voice.heartbeat", "voice.playback",
     )
 
@@ -131,6 +131,7 @@ internal class FoundationService(val database: FoundationDatabase, val billingCo
             LearningTasks().change(connection, scope, action.substringAfterLast('.'), args, now)
         "student.preferred_address" -> StudentPreferredAddress().save(connection, scope, args, now)
         "trial.reaction" -> TrialClosing().react(connection, scope, args, now)
+        "trial.dialogue" -> TrialDialogue().decide(connection, scope, args, now)
         "trial.preferences" -> TrialPreferences().update(connection, scope, args, now)
         "trial.ready" -> TrialExecution().ready(connection, scope, args, now)
         "trial.phase" -> TrialExecution().phase(connection, scope, args, now)
