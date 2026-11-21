@@ -64,13 +64,12 @@ Telegram **cannot** use local HTTP polling; webhook needs public HTTPS + cert.
 
 ### CI
 
-- `.github/workflows/cmp.yml` — detekt, Android/Desktop/iOS packages, `:server:test` + `buildFatJar`. **Деплоя нет.** Client packages bake `SPEAKING_COACH_API_BASE_URL=https://$DEV_CMP_SERVER_HOST` (PRs/feature; `PROD_CMP_SERVER_HOST` on `main`). Tests do not need the URL.
-- `.github/workflows/ai-service.yml` — pytest, upload app. **Деплоя нет.** Redis не трогает.
-- `.github/workflows/redeploy.yml` — **Redeploy DEV** (`workflow_dispatch`, `DEV_*`). Inputs `cmp_server`, `ai_server`, `mini_app` (все default on); `billing_mock` и `tutor_smoke` — opt-in. Выключенная — job skipped, workflow зелёный.
-- `.github/workflows/redeploy-prod.yml` — **Redeploy PROD**, только backend/AI, secrets `PROD_*`. Ветка задаёт код, workflow destination задаёт хост. Deployments: environment `deploy-dev` / `deploy-prod`; актуальные approval rules проверять отдельно. Concurrency на хост (`ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`), `cancel-in-progress: false`.
-- `.github/actions/setup-cmp` — Zulu JDK 21, Gradle cache.
+- [Speaky CI](../../.github/workflows/ci.yml) проверяет PR к `dev` и `main`.
+- [Runtime checks](../../.github/workflows/runtime-checks.yml) проверяет Ktor, Python, Mini App и Foundation на PostgreSQL. Состав проверок зависит от runtime выбранного коммита.
+- [Build Speaky release](../../.github/workflows/build-release.yml) запускает те же проверки и упаковывает готовые образы с манифестом.
+- [TutorStore migration check](../../.github/workflows/tutor-store-migration-check.yml) вручную проверяет импорт на временных PostgreSQL и Redis.
 
-Python 3.12. Dockerfiles install ffmpeg in ai-service image.
+Python 3.12. Сборка Ktor использует JDK 21. Dockerfile AI устанавливает FFmpeg.
 
 ### Legacy STT / TTS implementation notes
 
@@ -89,20 +88,21 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 Каталог ниже включает настройки сохранённого legacy/deploy кода. Для нового startup обязательные параметры перечислены в разделе SP-00; GROQ_API_KEY и Redis ему не нужны. Здесь имена, роль и вид значения. Сами секреты, пароли, токены и строки `GROQ_BASE_URL` / `OPENAI_BASE_URL` с хостов сюда не копируются.
 
-Legacy-шаблон имён: [`.env.example`](../../.env.example); он не перечисляет все новые foundation/Realtime/billing параметры, которые приведены ниже. Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`. Выкат: `.github/workflows/deploy-cmp-server.yml`, `deploy-ai-server.yml`.
+Legacy-шаблон имён: [`.env.example`](../../.env.example); он не перечисляет все новые foundation/Realtime/billing параметры, которые приведены ниже. Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`.
 
 Каталог описывает назначение настроек; наличие и значения в живых окружениях здесь не утверждаются.
 
-### Как это упаковано
+### Runtime-конфигурация на хостах
 
-На VPS два разных файла, не один общий:
+Готовые образы получают конфигурацию от текущих контейнеров и файлов на хосте.
+Следующая таблица описывает источник этих файлов в прежних workflow до перехода:
 
-| Файл на хосте | Откуда берётся при Redeploy |
+| Файл на хосте | Источник в прежней схеме |
 | --- | --- |
 | `/opt/speaking-coach/.env` | целиком из `DEV_CMP_SERVER_ENV` или `PROD_CMP_SERVER_ENV` |
 | `/opt/ai-service/.env` | из `DEV_AI_SERVER_ENV` или `PROD_AI_SERVER_ENV`; Kora H дописывается отдельным секретом списка |
 
-Секреты GitHub — repository Actions secrets, не Environment secrets. Отдельных ячеек `GROQ_API_KEY` или `TELEGRAM_BOT_TOKEN` в Actions нет: эти ключи живут внутри блоба. Исключение — `METRICS_PASSWORD`: это отдельная ячейка, и выкат CMP вырезает такую строку из блоба и дописывает значение из ячейки.
+В прежней схеме эти значения хранились в repository Actions secrets. Отдельных ячеек `GROQ_API_KEY` или `TELEGRAM_BOT_TOKEN` в Actions нет: эти ключи живут внутри блоба. Исключение — `METRICS_PASSWORD`: это отдельная ячейка, и выкат CMP вырезает такую строку из блоба и дописывает значение из ячейки.
 
 `AI_INTERNAL_TOKEN` по контракту выката один и тот же в блобе CMP и в блобе AI.
 
@@ -348,54 +348,58 @@ TLS и CA trust проверяются без отключения провер�
 AI: `/opt/ai-service/` (runtime, `.env`, `8090.allow`, backend CA при необходимости).
 Не удалять контейнеры хранилищ/volumes при рестарте приложений. Не запускать старый Redis deploy как условие Speaky startup.
 
-### Тесты авто, выкат только Redeploy
+### Активировать выкладку готовых образов
 
-`push` / `pull_request` по path: **CMP** (`cmp/**`, `infra/server/**`) и **AI service** (`ai-service/**`, `infra/ai-service/**`, `infra/redis/**`) — package и тесты. На сервер не едут.
+Код workflow в PR #58 добавлен к `dev`. Для работы кнопок опубликуйте новые workflow и
+доверенные скрипты на default branch `main` в рамках отдельного перехода.
+Подготовьте существующие контейнеры, базы, TLS, edge и конфигурацию хостов до активации.
 
-Выкат — два `workflow_dispatch`, ветка раннер не выбирает:
+1. Ограничьте `deploy-dev` и `deploy-prod` веткой `main`. Настройте ревьюеров для допуска кандидатов DEV и подтверждения PROD. Защитите изменения workflow на `main`.
+2. В каждом environment задайте secrets `SPEAKY_RELEASE_KTOR_HOST`, `SPEAKY_RELEASE_KTOR_USER`,
+   `SPEAKY_RELEASE_KTOR_SSH_KEY` и такие же `SPEAKY_RELEASE_AI_*`. В
+   `SPEAKY_RELEASE_KNOWN_HOSTS` поместите проверенные host keys с aliases
+   `speaky-dev-cmp` / `speaky-dev-ai` или `speaky-prod-cmp` / `speaky-prod-ai`.
+3. Задайте environment var `SPEAKY_RELEASE_RUNTIME_FAMILY` по проверенному runtime.
+   Для DEV Mini App задайте `SPEAKY_RELEASE_MINIAPP_URL` с путём `/miniapp`.
+   Для активации выставьте `SPEAKY_RELEASE_ENABLED=true` в нужном environment.
+4. Переключите CLI и панель BB на `ref: main`, а также inputs `release_run_id`
+   и `components`. Для кандидатов DEV выбирайте SHA в **Build Speaky release**.
+   Переход на готовые образы и переход PROD на Foundation согласуйте отдельно.
+5. После переключения потребителей отзовите прежние SSH-ключи выкладки и
+   удалите старые deploy secrets из repository scope. Проверьте старые refs
+   и ручные workflow, которые ещё могли пользоваться этими ключами.
 
-- [`.github/workflows/redeploy.yml`](../../.github/workflows/redeploy.yml) — **Redeploy DEV**, `destination: dev`, secrets `DEV_*`
-- [`.github/workflows/redeploy-prod.yml`](../../.github/workflows/redeploy-prod.yml) — **Redeploy PROD**, `destination: prod`, secrets `PROD_*`
+Если DEV работает на Foundation, а PROD на legacy, продвижение в PROD блокируется.
+Для legacy нужна согласованная проверка на совместимом DEV или отдельный переход PROD
+на Foundation. Сначала подтвердите фактический runtime обоих окружений.
 
-DEV: `cmp_server`, `ai_server`, `mini_app`; PROD: backend/AI без отдельного Mini App workflow.
-Отключённая компонента даёт skipped; общий success не доказывает её поставку.
-Выбранный git ref задаёт код, workflow destination — окружение. Проверять оба до запуска.
-Секреты — repository Actions secrets; фактические права/approval проверять на GitHub при поставке.
+### Выложить релиз
 
-Concurrency: `ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`, `cancel-in-progress: false` (очередь, не cancelled).
+1. Для кандидата DEV запустите **Build Speaky release** на `main` с полным
+   `source_sha`. После push в `main` сборка запускается автоматически.
+2. Возьмите ID успешного Build run. Запустите [Redeploy DEV](../../.github/workflows/redeploy.yml)
+   с этим ID и `components=all` либо списком через запятую, например `ktor,ai`.
+   Для DEV Foundation `all` включает Ktor, AI и Mini App.
+3. Для PROD используйте [Redeploy PROD](../../.github/workflows/redeploy-prod.yml) на
+   `main`. Введите ID сборки после push в `main`. Её DEV receipt должен
+   подтверждать те же артефакты выбранных компонентов. В PROD доступны Ktor и AI.
+4. Откройте summary. Для каждого компонента проверьте статус и ID образа.
+   При ошибке после активации Ktor проверьте текущее состояние и схему до восстановления.
 
-Имена DEV/PROD secrets и состав env приведены в [каталоге конфигурации](#переменные-окружения-speaky).
+Манифест и архивы хранятся 30 дней. Успешный rerun создаёт новую попытку релиза.
+Используйте результат текущей попытки. DEV receipt от предыдущей попытки не подтверждает новую.
 
-Пустой env blob останавливает поставку до SSH. TLS/CA и import marker должны быть готовы до старта.
-CMP Android/iOS/Desktop не поставляются как Mini App. Foundation jobs и receipts долговечны в PostgreSQL;
-provider-сессия и непереданные браузерные буферы при рестарте не сохраняются.
+Очередь действует на всё окружение. Redeploy загружает все выбранные образы перед
+активацией. Flyway остаётся частью запуска Ktor. Для повторной выкладки используйте
+тот же ID. Для восстановления на предыдущую версию сначала проверьте её схему и совместимость.
 
-Если Docker Hub отвечает `429 Too Many Requests` при проверке базового образа, DEV/PROD deploy-скрипты могут собрать новую версию из локального `ai-service:local` или `speaking-coach:local`. Контейнеры заменяются только после успешной сборки. Для AI запасной путь разрешён лишь при точном совпадении `requirements.txt` с установленным образом; он заменяет каталог `app` целиком. Если локального образа нет или зависимости изменились, деплой завершается ошибкой без замены работающего контейнера. Такой путь нужен для кратковременного лимита Docker Hub и не скрывает другие ошибки сборки.
+### Проверить окружение без выкладки
 
-### Ручной деплой
-
-При отдельно разрешённой ручной поставке используйте `infra/server/deploy-remote.sh`,
-`infra/ai-service/deploy-remote.sh` и `infra/miniapp/deploy-remote.sh` с согласованными артефактами.
-Сначала проверить backup, schema, import marker, CA и совместимость всех трёх компонентов.
-Обычный рестарт не должен создавать пустую замену БД или переписывать источник конфигурации.
-
-### Проверка DEV
-
-Redeploy DEV поддерживает `verify_only`: он проверяет без пересборки и рестарта.
-Readiness использует скрипт выбранного ref и expected SHA; отдельно сверять ревизию каждого артефакта.
-SSH использует сохранённые host keys из `infra/dev/known_hosts`.
-Workflow сравнивает digest артефактов, проверяет контейнеры, startup markers, AI/CMP health,
-CMP→AI auth и foundation context. Предыдущие image IDs записываются до замены контейнеров.
-
-После совместной выкладки Ktor и Python проверка отправляет контрольный запрос Mini App с пустой подписью Telegram.
-Она сверяет ревизии контейнеров и общие `trace_id` и `error_id` в двух Docker-логах.
-Результат `cross_service_logging_probe=passed` подтверждает связь одного отказа авторизации.
-Запрос не вызывает модель и не создаёт ученика.
-
-Опциональный `tutor_smoke` вызывает платную модель. Он не является обычной health-проверкой;
-в документационной задаче его не запускают. На degraded-ответе smoke останавливается без ретраев.
-Зелёный readiness не означает приёмку диалога или Telegram UX.
-[Последнее зафиксированное состояние DEV](../status.md) хранятся отдельно от инструкции.
+Запустите [DEV diagnostics](../../.github/workflows/dev-diagnostics.yml) на `main`.
+Живые проверки выполняет [DEV acceptance](../../.github/workflows/dev-acceptance.yml).
+Готовность контейнеров и проверка внутреннего API входят в отчёт Redeploy.
+Состояние действующего DEV фиксируется в [status.md](../status.md).
+См. [DEV-операции](dev-operator-workflows.md) и [обслуживание инфраструктуры](infrastructure-maintenance.md).
 
 ## Режимы Ktor и техническая диагностика
 
@@ -720,8 +724,8 @@ AI и Ktor пишут [общий JSON v1](../../contracts/logging/v1/envelope.j
 
 Без Loki выполните на соответствующем хосте `docker logs --since 15m ai-service 2>&1 | rg -F '<id>'`
 или `docker logs --since 15m speaking-coach 2>&1 | rg -F '<id>'`. Доступ к логам операторский.
-В **Redeploy DEV** используйте действующие параметры `diagnose_error_id`, `diagnose_call_session_id`
-или пару `diagnose_tutor_at` / `diagnose_foundation_job_id`. Чтение показывает только разрешённые поля.
+В **DEV diagnostics** передайте ID ошибки, ID звонка или время и ID задачи.
+Чтение показывает только разрешённые поля.
 Внутренние `/diagnostics` и `/jobs` по-прежнему требуют service token и operator scope.
 
 ### Примеры безопасных цепочек
@@ -755,18 +759,11 @@ AI и Ktor пишут [общий JSON v1](../../contracts/logging/v1/envelope.j
 `mini-app/dist` не входит в AI image. Отдельный контейнер `mini-app` раздаёт артефакт через nginx:8080
 в Docker network `speaking-coach`; наружу порт не публикуется, secrets в frontend отсутствуют.
 
-Workflow **Deploy Mini App DEV** обновляет только frontend. В **Redeploy DEV** появился `mini_app`;
-при совместной поставке frontend и переключение edge завершаются до обновления AI.
-Первая миграция обязательна до выкладки AI без static routes. Public URL и MINI_APP_URL не меняются.
-Caddy направляет HTML/assets в mini-app, а `/miniapp/api`, `/miniapp/diagnostics`, `/miniapp/voice` — в AI.
-`install-edge.py` проверяет конфигурацию и меняет только собственный DEV vhost, сохраняет backup и
-возвращает конфигурацию при ошибке reload. Остальные сайты и auth не изменяются.
-
-Версия UI: `docker exec mini-app cat /usr/share/nginx/html/version.json`.
-Откат UI — запуск frontend workflow на предыдущем git ref; откат edge — сохранённый Caddyfile.before-mini-app-*.
-Frontend workflow использует существующие DEV_AI_SERVER_HOST/USER/SSH_KEY только для доставки.
-PROD frontend ещё требует отдельной схемы поставки; этот workflow работает только с DEV.
-
+В **Redeploy DEV** выберите `components=miniapp` для отдельной выкладки готового образа.
+URL и `MINI_APP_URL` задаёт edge. Caddy направляет HTML и assets в Mini App, а API,
+диагностику и Voice в AI. Изменение edge выполняется отдельно.
+Redeploy сверяет ревизию по `/version.json` внутри контейнера и SHA-256
+`/miniapp/assets/app.js` на публичном edge.
 
 ### Realtime latency diagnostics
 
@@ -811,11 +808,8 @@ Mock worker продлевает due периоды раз в 30 секунд, �
 Не включать mock на PROD как платную подписку. Реальный провайдер, webhook verification,
 refunds и reconciliation требуют следующей реализации и отдельной приёмки.
 
-Для DEV workflow `Redeploy DEV` имеет opt-in `billing_mock=true`: он подставляет
-синтетические `100 TEST / 1 сутки` только в staging `.env`, не меняет GitHub secrets
-и проверяет конфигурацию после рестарта. PROD запрещён этой опцией. Последующий deploy
-без опции снова использует env secret; для продолжения DEV-теста передавайте опцию явно.
-
+Для DEV используйте [DEV test config](../../.github/workflows/dev-test-config.yml)
+для ограниченного по времени включения mock billing и агентского режима.
 
 ## SP-06–SP-08: jobs, память и прогресс
 

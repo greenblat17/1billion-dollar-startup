@@ -81,7 +81,8 @@ def main():
         port = info['NetworkSettings']['Ports']['8090/tcp'][0]['HostPort']
         print('ai_health_status=', request('http://127.0.0.1:' + port + '/health')[0])
         print('config_ready=' + json.dumps({k: bool(env.get(k)) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'FOUNDATION_BACKEND_URL']}))
-        print('model=' + env.get('KORA_MODEL', 'anthropic/claude-sonnet-4.6'))
+        if '--operator' not in sys.argv:
+            print('model=' + env.get('KORA_MODEL', 'anthropic/claude-sonnet-4.6'))
         assert all(env.get(k) for k in ['OPENAI_API_KEY', 'AI_INTERNAL_TOKEN', 'FOUNDATION_BACKEND_URL'])
         probe = """
 import os, ssl, urllib.request, urllib.error
@@ -150,7 +151,10 @@ print('trial_audio_credentials_and_bucket_read=passed; write_and_erasure=unverif
     bot_token = env.get('TELEGRAM_BOT_TOKEN', env.get('TELEGRAM_TOKEN'))
     if bot_token:
         status, body = request('https://api.telegram.org/bot' + bot_token + '/getMe')
-        print('dev_bot_username=', json.loads(body).get('result', {}).get('username'))
+        if '--operator' in sys.argv:
+            print('telegram_get_me_status=', status)
+        else:
+            print('dev_bot_username=', json.loads(body).get('result', {}).get('username'))
     if '--smoke' in sys.argv:
         raise RuntimeError('Legacy synthetic smoke is unavailable in SP-00; use scoped integration tests')
     if '--logging-smoke' in sys.argv:

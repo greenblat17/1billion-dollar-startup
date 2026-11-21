@@ -1,0 +1,43 @@
+name: DEV speech benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      ai_revision:
+        description: Expected running AI source SHA (40 hex characters)
+        type: string
+        required: true
+      allow_paid_stt:
+        description: Allow one warm-up and ten measured STT calls
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-deploy-dev
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  measure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: deploy-dev
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Measure STT against the running DEV AI image
+        shell: bash
+        env:
+          DEV_KNOWN_HOSTS: ${{ secrets.SPEAKY_RELEASE_KNOWN_HOSTS }}
+          AI_HOST: ${{ secrets.SPEAKY_RELEASE_AI_HOST }}
+          AI_USER: ${{ secrets.SPEAKY_RELEASE_AI_USER }}
+          AI_KEY: ${{ secrets.SPEAKY_RELEASE_AI_SSH_KEY }}
+          AI_REVISION: ${{ inputs.ai_revision }}
+          ALLOW_PAID: ${{ inputs.allow_paid_stt }}
+        run: bash infra/dev/speech-benchmark.sh

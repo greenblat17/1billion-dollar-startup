@@ -1,0 +1,66 @@
+name: DEV test config
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Enable selected fixtures temporarily or disable all fixtures
+        type: choice
+        required: true
+        default: disable
+        options: [disable, enable]
+      agent_test:
+        description: Enable isolated agent_test on DEV Ktor and AI
+        type: boolean
+        default: false
+      billing_mock:
+        description: Enable mock billing on DEV Ktor (100 TEST per day)
+        type: boolean
+        default: false
+      duration_minutes:
+        description: Expiry time in minutes (5 to 90, enable only)
+        type: number
+        default: 30
+      ktor_revision:
+        description: Expected running Ktor source SHA (40 hex characters)
+        type: string
+        required: true
+      ai_revision:
+        description: Expected running AI source SHA (40 hex characters)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-deploy-dev
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: deploy-dev
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Apply DEV test configuration
+        env:
+          MODE: ${{ inputs.mode }}
+          AGENT_TEST: ${{ inputs.agent_test }}
+          BILLING_MOCK: ${{ inputs.billing_mock }}
+          DURATION: ${{ inputs.duration_minutes }}
+          KTOR_REVISION: ${{ inputs.ktor_revision }}
+          AI_REVISION: ${{ inputs.ai_revision }}
+          DEV_KNOWN_HOSTS: ${{ secrets.SPEAKY_RELEASE_KNOWN_HOSTS }}
+          KTOR_HOST: ${{ secrets.SPEAKY_RELEASE_KTOR_HOST }}
+          KTOR_USER: ${{ secrets.SPEAKY_RELEASE_KTOR_USER }}
+          KTOR_KEY: ${{ secrets.SPEAKY_RELEASE_KTOR_SSH_KEY }}
+          AI_HOST: ${{ secrets.SPEAKY_RELEASE_AI_HOST }}
+          AI_USER: ${{ secrets.SPEAKY_RELEASE_AI_USER }}
+          AI_KEY: ${{ secrets.SPEAKY_RELEASE_AI_SSH_KEY }}
+        run: bash infra/dev/test-config.sh

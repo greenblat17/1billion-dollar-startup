@@ -11,7 +11,7 @@
 
 ## Подготовленный адаптер
 
-Маршрут Ktor `/internal/agent-test/v1/{uuid}` включается только при `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true`. Redeploy DEV получает флаг `agent_test=true`. Маршрут принимает запросы только с loopback DEV-хоста и с `X-Internal-Token`; внешний reverse proxy не используется. UUID относится к `student_identity.provider=agent_test`, не к Telegram. У ученика нет Telegram chat ID, поэтому TrialWorker и Roadmap delivery не получают адресата.
+Маршрут Ktor `/internal/agent-test/v1/{uuid}` включается только при `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true`. После перехода на готовые образы настройку включает **DEV test config**. Маршрут принимает запросы только с loopback DEV-хоста и с `X-Internal-Token`; внешний reverse proxy не используется. UUID относится к `student_identity.provider=agent_test`, не к Telegram. У ученика нет Telegram chat ID, поэтому TrialWorker и Roadmap delivery не получают адресата.
 
 `POST /turn` принимает `{messageId, text, receivedAt}`. `messageId` и ID ученика — UUID. `receivedAt` — Unix seconds в пределах суток до текущего времени или минуты после. Повторяйте тот же payload с тем же `messageId`; это ключ идемпотентности. Маршрут вызывает действующий `TutorClient` → AI service → FoundationTutor/native tools → PostgreSQL. Он возвращает ответ и сохранённый snapshot. `GET /state` читает snapshot того же ученика. Модель не заменяется fixture.
 
@@ -39,7 +39,7 @@ python3 infra/dev/agent-dialogue.py --message 'Я боюсь говорить н
   --output /secure/agent-work-anxiety.json
 ```
 
-На DEV подсессия вызывает существующий `Redeploy DEV` с `agent_message`, `agent_student_id` и выключенными флагами поставки. Отдельный job по SSH запускает `agent-dialogue.py` на DEV-хосте через loopback. Секрет остаётся в `/opt/speaking-coach/.env`; JSON transcript и читаемый Markdown возвращаются как приватный артефакт GitHub Actions. Следующий ход агент придумывает сам и передаёт тот же UUID. Код и модель не заменяются fixture. При HTTP 402 повтор не запускается.
+После активации новой схемы запустите **DEV acceptance** с `mode=text`, `learner_message` и ожидаемыми SHA Ktor и AI. Для продолжения передайте тот же `student_id`. Платный вызов требует явного разрешения. Транскрипт остаётся на закрытом DEV-хосте. В Actions доступна техническая сводка. После HTTP 402 автоматического повтора нет.
 
 Команда локального CLI возвращает ID тестового ученика и ответ Саши. Следующий ход агент отправляет с тем же `--output` и `--student-id UUID`. В окружении команды нужен `AI_INTERNAL_TOKEN`; в саму командную строку и transcript его не записывайте.
 
@@ -55,7 +55,7 @@ python3 infra/dev/agent-dialogue.py --message 'Я боюсь говорить н
 
 `infra/dev/agent-voice.py` работает через закрытые SSH-туннели к DEV-хостам. Ktor `POST /internal/agent-test/v1/{student}/voice-grant` требует service token и loopback, выдаёт одноразовый 60-секундный допуск для принадлежащего этому `agent_test` ученику исполняемого Trial или regular lesson. V65 добавляет отдельную роль допуска в PostgreSQL. AI service принимает допуск в первом кадре существующего `/miniapp/voice` только при `SPEAKY_ENV=dev`, `AGENT_TEST_ENABLED=true`, service token в WebSocket header и peer из loopback либо точного default gateway Docker bridge. Последний адрес возникает при SSH-туннеле через опубликованный порт контейнера; произвольный private peer не подходит. Foundation поглощает допуск при `open`, проверяет роль, срок, epoch, владельца урока и отсутствие Telegram identity. Обычный Telegram `initData` маршрут сохраняется. Никакой публичный reverse proxy для внутренних маршрутов не настраивается.
 
-`Redeploy DEV` передаёт `agent_test=true` обоим сервисам только при их поставке; AI service получает `SPEAKY_ENV=dev` и `AGENT_TEST_ENABLED=true` через приватный env-файл. Для проверки требуются новые версии Ktor и AI service, применённая V65 и оба health endpoint. Выключенный флаг или PROD отклоняет этот путь.
+**DEV test config** включает `agent_test` на обоих сервисах на ограниченное время. При выкладке готового образа сохраняется действующая конфигурация хоста. Для проверки требуются новые версии Ktor и AI service, применённая V65 и оба health endpoint. Выключенный флаг или PROD отклоняет этот путь.
 
 Перед запуском скопируйте CLI и JSON сценария на DEV-хост в закрытый каталог. На хосте нужны Python 3.12 и `websockets==15.0.1` (из `ai-service/requirements.txt`); `ffmpeg` нужен для преобразования или синтеза, но готовый mono PCM WAV 24 кГц читается без него. Сценарий с `text` также требует `say` или `espeak-ng`. Проверьте loopback порты Ktor и AI service без публикации маршрутов наружу.
 

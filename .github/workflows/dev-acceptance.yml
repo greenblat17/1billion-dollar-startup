@@ -1,0 +1,143 @@
+name: DEV acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Acceptance mode
+        type: choice
+        required: true
+        options: [text, foundation, foundation-entitlement, voice]
+      ktor_revision:
+        description: Expected running Ktor source SHA (40 hex characters)
+        type: string
+        required: true
+      ai_revision:
+        description: Expected running AI source SHA (40 hex characters)
+        type: string
+        required: true
+      scenario:
+        description: Foundation JSON filename or Voice scenario name
+        type: string
+        default: foundation-read.json
+      student_id:
+        description: Synthetic student UUID (required for Voice and entitlement)
+        type: string
+      lesson_id:
+        description: Owned synthetic lesson UUID (Voice only)
+        type: string
+      learner_message:
+        description: Synthetic learner message (public workflow input, text only)
+        type: string
+      allow_paid_model_calls:
+        description: Allow provider charges for one text, voice or Foundation scenario with commands
+        type: boolean
+        default: false
+      max_attempts:
+        description: Attempt limit (one per run)
+        type: choice
+        default: '1'
+        options: ['1']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-deploy-dev
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require trusted main and validate inputs
+        shell: bash
+        env:
+          MODE: ${{ inputs.mode }}
+          SCENARIO: ${{ inputs.scenario }}
+          KTOR_REVISION: ${{ inputs.ktor_revision }}
+          AI_REVISION: ${{ inputs.ai_revision }}
+          ALLOW_PAID: ${{ inputs.allow_paid_model_calls }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == refs/heads/main ]] || { echo 'DEV acceptance must run from main' >&2; exit 2; }
+          [[ "$KTOR_REVISION" =~ ^[0-9a-f]{40}$ && "$AI_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          if [[ "$MODE" == text || ( "$MODE" == voice && "$SCENARIO" != read-only ) ]]; then
+            [[ "$ALLOW_PAID" == true ]] || { echo 'Enable paid model calls explicitly' >&2; exit 2; }
+          fi
+
+  prepare-controlled-audio:
+    needs: validate
+    if: inputs.mode == 'voice' && inputs.scenario == 'regular-action-controlled-input' && inputs.allow_paid_model_calls
+    uses: ./.github/workflows/prepare-controlled-voice-audio.yml
+    with:
+      recipient_certificate: ${{ vars.SPEAKY_DEV_AUDIO_RECIPIENT_CERTIFICATE }}
+
+  accept:
+    needs: [validate, prepare-controlled-audio]
+    if: >-
+      ${{ !cancelled() && needs.validate.result == 'success' && (needs.prepare-controlled-audio.result == 'success' ||
+          needs.prepare-controlled-audio.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: deploy-dev
+    env:
+      MODE: ${{ inputs.mode }}
+      SCENARIO: ${{ inputs.scenario }}
+      STUDENT_ID: ${{ inputs.student_id }}
+      LESSON_ID: ${{ inputs.lesson_id }}
+      LEARNER_MESSAGE: ${{ inputs.learner_message }}
+      KTOR_REVISION: ${{ inputs.ktor_revision }}
+      AI_REVISION: ${{ inputs.ai_revision }}
+      ALLOW_PAID: ${{ inputs.allow_paid_model_calls }}
+      ATTEMPTS: ${{ inputs.max_attempts }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        if: inputs.mode == 'voice'
+        with:
+          python-version: '3.12'
+      - name: Download encrypted controlled audio
+        if: needs.prepare-controlled-audio.result == 'success'
+        uses: actions/download-artifact@v7
+        with:
+          name: dev-controlled-audio-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/encrypted-voice
+      - name: Decrypt controlled audio on the ephemeral runner
+        if: needs.prepare-controlled-audio.result == 'success'
+        shell: bash
+        env:
+          RECIPIENT_KEY: ${{ secrets.SPEAKY_DEV_AUDIO_RECIPIENT_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${RECIPIENT_KEY:?Set the DEV audio recipient private key}"
+          key="$RUNNER_TEMP/voice-recipient.pem"
+          archive="$RUNNER_TEMP/voice-inputs.tar"
+          trap 'rm -f "$key" "$archive"' EXIT
+          printf '%s\n' "$RECIPIENT_KEY" > "$key"
+          openssl cms -decrypt -binary -inform DER -inkey "$key" \
+            -in "$RUNNER_TEMP/encrypted-voice/voice-inputs.cms" -out "$archive"
+          mkdir -m 700 "$RUNNER_TEMP/voice-inputs"
+          tar -xf "$archive" --no-same-owner --no-same-permissions -C "$RUNNER_TEMP/voice-inputs"
+      - name: Verify offline audio before Voice admission
+        if: inputs.mode == 'voice'
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout --kill-after=5s 45s python3 -m pip install --quiet --disable-pip-version-check websockets==15.0.1
+          if [[ "$SCENARIO" != read-only ]]; then bash infra/dev/prepare-acceptance-voice.sh "$SCENARIO"; fi
+      - name: Run one acceptance attempt on DEV
+        env:
+          DEV_KNOWN_HOSTS: ${{ secrets.SPEAKY_RELEASE_KNOWN_HOSTS }}
+          KTOR_HOST: ${{ secrets.SPEAKY_RELEASE_KTOR_HOST }}
+          KTOR_USER: ${{ secrets.SPEAKY_RELEASE_KTOR_USER }}
+          KTOR_KEY: ${{ secrets.SPEAKY_RELEASE_KTOR_SSH_KEY }}
+          AI_HOST: ${{ secrets.SPEAKY_RELEASE_AI_HOST }}
+          AI_USER: ${{ secrets.SPEAKY_RELEASE_AI_USER }}
+          AI_KEY: ${{ secrets.SPEAKY_RELEASE_AI_SSH_KEY }}
+        run: bash infra/dev/acceptance-remote.sh

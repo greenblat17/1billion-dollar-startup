@@ -8,19 +8,12 @@ import sys
 from pathlib import Path
 
 
-def env_values(path):
-    values = {}
-    for line in path.read_text().splitlines():
-        if "=" not in line or line.lstrip().startswith("#"):
-            continue
-        key, value = line.split("=", 1)
-        values[key] = value.strip().strip('"').strip("'")
-    return values
-
-
 def main():
     work = Path(sys.argv[1]).resolve()
-    values = env_values(Path("/opt/speaking-coach/.env"))
+    raw = subprocess.check_output(
+        ["docker", "inspect", "--format", "{{json .Config.Env}}", "speaking-coach"], text=True
+    )
+    values = dict(item.split("=", 1) for item in json.loads(raw) if "=" in item)
     if values.get("SPEAKY_ENV") != "dev" or values.get("AGENT_TEST_ENABLED") != "true":
         raise SystemExit("DEV agent test route is disabled: "
                          f"environment_is_dev={values.get('SPEAKY_ENV') == 'dev'}, "

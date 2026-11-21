@@ -5,6 +5,7 @@ import json
 import os
 import re
 import ssl
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -52,8 +53,14 @@ def resolve(value, previous):
     return value
 
 
-def run(work, env_path=Path("/opt/speaking-coach/.env"), opener=None):
-    values = env_values(env_path)
+def run(work, env_path=None, opener=None):
+    if env_path is None:
+        raw = subprocess.check_output(
+            ["docker", "inspect", "--format", "{{json .Config.Env}}", "speaking-coach"], text=True
+        )
+        values = dict(item.split("=", 1) for item in json.loads(raw) if "=" in item)
+    else:
+        values = env_values(env_path)
     if values.get("SPEAKY_ENV") != "dev" or values.get("AGENT_TEST_ENABLED") != "true":
         raise ValueError("agent_test_disabled")
     token, port = values.get("AI_INTERNAL_TOKEN"), values.get("SERVER_PORT")
