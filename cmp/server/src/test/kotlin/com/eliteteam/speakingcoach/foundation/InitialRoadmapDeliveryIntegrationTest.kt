@@ -26,8 +26,8 @@ class InitialRoadmapDeliveryIntegrationTest {
                 val manifest = catalogFixture()
                 LearningCatalog(service.database).import(LearningCatalogModel.document(manifest).toString())
                 LearningCatalog(service.database).publish(manifest.version, "synthetic-test", "fixture only")
-                suspend fun eligible(subject: String, legacySource: Boolean = true): String {
-                    val student = service.identity.resolve("telegram", subject)
+                suspend fun eligible(subject: String, legacySource: Boolean = true, provider: String = "telegram"): String {
+                    val student = service.identity.resolve(provider, subject)
                     val lesson = newId()
                     service.database.transaction { c, now ->
                         c.update("INSERT INTO learning_goal(student_id,revision,content,created_at) VALUES (?,1,?::jsonb,?)",
@@ -47,6 +47,13 @@ class InitialRoadmapDeliveryIntegrationTest {
                             newId(), lesson, now, now.plusSeconds(3600), student)
                     }
                     return student
+                }
+                val syntheticStudent = eligible(newId(), provider = "agent_test")
+                val oldDelivery = newId()
+                service.database.transaction { c, now ->
+                    c.update("""INSERT INTO initial_roadmap_delivery(id,student_id,lesson_id,roadmap_revision,data_epoch,
+                        status,body,created_at) SELECT ?,student_id,id,1,1,'ready','Fixture without Telegram',?
+                        FROM lesson WHERE student_id=?""", oldDelivery, now.minusSeconds(3600), syntheticStudent)
                 }
                 val sentStudent = eligible("10001")
                 var telegramCalls = 0

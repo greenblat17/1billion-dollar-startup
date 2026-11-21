@@ -34,6 +34,41 @@ import kotlin.test.assertTrue
 
 class FoundationIntegrationTest {
     @Test
+    fun retentionReportsOnlyCommittedChangesAndIsQuietOnReplay() = runTest {
+        withStore(MutableClock()) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            val secret = "logging-control-secret-retention"
+            val eventId = service.database.transaction { c, now ->
+                c.appendEvent(student, c.conversation(student, "agent_test"), newId(), "user", secret, now, now).text("id")
+                    .also { c.update("UPDATE conversation_event SET expires_at=? WHERE id=?", now.minusSeconds(1), it) }
+            }
+            DiagnosticOutput().use { logs ->
+                assertFailsWith<IllegalStateException> {
+                    service.database.transaction { c, now ->
+                        FoundationMaintenance().prune(c, authenticateScope(c, operator, now), now)
+                        error("rollback fixture")
+                    }
+                }
+                assertTrue(logs.events().isEmpty())
+                assertEquals(secret, service.database.transaction(readOnly = true) { c, _ ->
+                    c.rows("SELECT body FROM conversation_event WHERE id=?", eventId) { it.getString(1) }.single()
+                })
+                assertEquals(1L, service.op(operator, "retention.prune", json()).number("eventsPruned"))
+                assertEquals(0L, service.op(operator, "retention.prune", json()).number("eventsPruned"))
+                val summary = logs.events().single { it.text("event") == "foundation_retention" }
+                assertEquals("retention.prune", summary.text("operation"))
+                assertEquals("commit", summary.text("stage"))
+                assertEquals("completed", summary.text("outcome"))
+                assertEquals("retention_deadline_reached", summary.text("reason_code"))
+                assertEquals(1L, summary.number("conversation_events_cleared"))
+                assertEquals(0L, summary.number("trial_events_deleted"))
+                assertTrue(logs.lines().none { secret in it })
+            }
+        }
+    }
+
+    @Test
     fun committedQueueTransitionsAreVisibleAndEmptyPollsAndRollbackAreQuiet() = runTest {
         withStore(MutableClock()) { service ->
             val student = service.identity.resolve("agent_test", newId())

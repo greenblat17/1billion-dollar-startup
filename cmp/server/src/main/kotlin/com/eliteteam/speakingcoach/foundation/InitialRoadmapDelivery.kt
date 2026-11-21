@@ -39,7 +39,8 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
                     AND j.status='succeeded' AND j.target_id IS NOT NULL AND j.data_epoch=s.data_epoch
                     AND (r.legacy_generation_source OR (j.id=r.generation_job_id AND j.fence=r.generation_fence))
                 JOIN lesson l ON l.id=j.target_id AND l.kind='trial' AND l.trial_version='v5.5' AND l.status='completed'
-                WHERE NOT EXISTS (SELECT 1 FROM initial_roadmap_delivery d WHERE d.student_id=r.student_id
+                WHERE EXISTS (SELECT 1 FROM student_identity i WHERE i.student_id=r.student_id AND i.provider='telegram')
+                AND NOT EXISTS (SELECT 1 FROM initial_roadmap_delivery d WHERE d.student_id=r.student_id
                     AND d.roadmap_revision=r.revision)
                 ORDER BY r.created_at LIMIT 1""")
             if (candidate != null) {
@@ -56,6 +57,7 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             val row = c.document("""SELECT to_jsonb(d) FROM initial_roadmap_delivery d JOIN student s ON s.id=d.student_id
                 WHERE (d.status='ready' OR (d.status='pending' AND (d.lease_until IS NULL OR d.lease_until<=?)))
                     AND d.data_epoch=s.data_epoch AND s.deleted_at IS NULL
+                    AND EXISTS (SELECT 1 FROM student_identity i WHERE i.student_id=d.student_id AND i.provider='telegram')
                 ORDER BY d.created_at LIMIT 1""", now) ?: return@transaction null
             c.lockStudent(row.text("student_id"))
             val current = c.document("""SELECT to_jsonb(d) FROM initial_roadmap_delivery d JOIN student s ON s.id=d.student_id

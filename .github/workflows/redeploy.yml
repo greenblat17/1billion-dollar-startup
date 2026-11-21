@@ -99,7 +99,7 @@ on:
         type: string
         default: ''
       diagnose_tutor_at:
-        description: Optional UTC timestamp (YYYY-MM-DDTHH:MM:SSZ) for a 60-second Ktor tutor error scan
+        description: UTC timestamp for tutor errors, or roadmap-submit@ / roadmap-inspect@ followed by the DEV test booking timestamp
         type: string
         default: ''
       diagnose_foundation_job_id:
@@ -124,7 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fail if both hosts off
-        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.agent_voice && !inputs.foundation_check && !inputs.foundation_regular_entitlement && !inputs.verify_only && inputs.catalog_release_config == '' }}
+        if: ${{ inputs.cmp_server != true && inputs.ai_server != true && inputs.mini_app != true && inputs.speech_time_benchmark != true && inputs.agent_message == '' && !inputs.agent_voice && !inputs.foundation_check && !inputs.foundation_regular_entitlement && !inputs.verify_only && inputs.catalog_release_config == '' && !startsWith(inputs.diagnose_tutor_at, 'roadmap-') }}
         run: |
           echo "Enable cmp-server, ai-server or mini-app" >&2
           exit 1
@@ -737,7 +737,7 @@ jobs:
             -o HostKeyAlias=speaky-dev-ai -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
             "$AI_USER@$AI_HOST" "python3 - '$ERROR_ID' '$CALL_SESSION_ID'" < infra/dev/diagnose-tutor.py
       - name: Inspect safe Ktor error codes
-        if: ${{ !cancelled() && inputs.diagnose_tutor_at != '' }}
+        if: ${{ !cancelled() && inputs.diagnose_tutor_at != '' && !startsWith(inputs.diagnose_tutor_at, 'roadmap-') }}
         shell: bash
         env:
           DIAGNOSTIC_AT: ${{ inputs.diagnose_tutor_at }}
@@ -750,3 +750,30 @@ jobs:
           ssh -i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
             "$CMP_USER@$CMP_HOST" "python3 - '$DIAGNOSTIC_AT' '$JOB_ID'" < infra/dev/diagnose-tutor-cmp.py
+
+  roadmap-acceptance:
+    name: Verify one DEV Trial Roadmap delivery
+    needs: [require-target, deploy-server]
+    if: ${{ !cancelled() && startsWith(inputs.diagnose_tutor_at, 'roadmap-') && (!inputs.cmp_server || needs.deploy-server.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: deploy-dev
+    env:
+      CMP_HOST: ${{ secrets.DEV_CMP_SERVER_HOST }}
+      CMP_USER: ${{ secrets.DEV_CMP_SERVER_USER }}
+      CMP_KEY: ${{ secrets.DEV_CMP_SERVER_SSH_KEY }}
+      ROADMAP_PROBE: ${{ inputs.diagnose_tutor_at }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the scoped trial and persisted delivery
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$ROADMAP_PROBE" =~ ^roadmap-(submit|inspect)@([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)$ ]]
+          mode="${BASH_REMATCH[1]}" booking_at="${BASH_REMATCH[2]}"
+          key="$RUNNER_TEMP/roadmap-probe-key"
+          install -m 600 /dev/null "$key"
+          printf '%s\n' "$CMP_KEY" > "$key"
+          ssh -i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
+            "$CMP_USER@$CMP_HOST" "python3 - $mode $booking_at" < infra/dev/roadmap-acceptance.py

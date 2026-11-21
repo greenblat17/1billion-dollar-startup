@@ -54,7 +54,7 @@ internal class TrialAccess(private val service: FoundationService) {
         }
     }
 
-    private fun open(c: Connection, student: String, epoch: Long, args: JsonObject, now: Instant): JsonObject {
+    internal fun open(c: Connection, student: String, epoch: Long, args: JsonObject, now: Instant): JsonObject {
         val lesson = c.lesson(ExecutionScope(student, "voice", epoch), args.text("lessonId"))
         if (lesson.text("kind") !in setOf("trial", "regular") || lesson.text("launch_mode") != "executable" || lesson.text("status") !in setOf("scheduled", "in_progress")) reject("lesson_unavailable")
         val start = Instant.parse(lesson.text("starts_at"))

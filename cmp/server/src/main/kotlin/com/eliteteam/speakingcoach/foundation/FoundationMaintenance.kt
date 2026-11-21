@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
@@ -8,16 +10,31 @@ internal class FoundationMaintenance {
     fun prune(connection: Connection, scope: ExecutionScope, now: Instant): JsonObject {
         requireRole(scope, "operator")
         val student = scope.studentId
-        connection.update("UPDATE trial_audio SET status='purge',metadata='{}' WHERE student_id=? AND expires_at<=? AND status<>'deleted'", student, now)
-        connection.update("DELETE FROM trial_call_event WHERE student_id=? AND expires_at<=?", student, now)
+        val audio = connection.update("""UPDATE trial_audio SET status='purge',metadata='{}'
+            WHERE student_id=? AND expires_at<=? AND status<>'deleted'
+            AND (status<>'purge' OR metadata<>'{}'::jsonb)""", student, now)
+        val callEvents = connection.update("DELETE FROM trial_call_event WHERE student_id=? AND expires_at<=?", student, now)
         val events = connection.update("UPDATE conversation_event SET body=NULL,metadata='{}' WHERE student_id=? AND expires_at<=? AND body IS NOT NULL", student, now)
-        connection.update("UPDATE tutor_inbox SET response=NULL WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE foundation_operation SET result='{}' WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE memory_candidate SET value=NULL,status='expired' WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("DELETE FROM tutor_summary WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE foundation_job SET status='failed',error_code='source_expired' WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')", student, now)
-        connection.update("DELETE FROM execution_scope WHERE student_id=? AND expires_at<=?", student, now)
+        val inbox = connection.update("""UPDATE tutor_inbox SET response=NULL
+            WHERE student_id=? AND expires_at<=? AND response IS NOT NULL""", student, now)
+        val operations = connection.update("""UPDATE foundation_operation SET result='{}'
+            WHERE student_id=? AND expires_at<=? AND result<>'{}'::jsonb""", student, now)
+        val candidates = connection.update("""UPDATE memory_candidate SET value=NULL,status='expired'
+            WHERE student_id=? AND expires_at<=? AND (value IS NOT NULL OR status<>'expired')""", student, now)
+        val summaries = connection.update("DELETE FROM tutor_summary WHERE student_id=? AND expires_at<=?", student, now)
+        val jobs = connection.update("""UPDATE foundation_job SET status='failed',error_code='source_expired'
+            WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')""", student, now)
+        val scopes = connection.update("DELETE FROM execution_scope WHERE student_id=? AND expires_at<=?", student, now)
         LearningScores().reconcileStored(connection, scope, now)
+        val counts = mapOf("audio_marked_for_purge" to audio, "trial_events_deleted" to callEvents,
+            "conversation_events_cleared" to events, "inbox_responses_cleared" to inbox,
+            "operation_results_cleared" to operations, "memory_candidates_expired" to candidates,
+            "tutor_summaries_deleted" to summaries, "jobs_expired" to jobs, "execution_scopes_deleted" to scopes)
+        if (counts.values.any { it > 0 }) {
+            FoundationDatabase.recordAfterCommit(Event("foundation_retention", "retention.prune", "commit",
+                Outcome.COMPLETED, "Foundation pruned expired data.", "retention_deadline_reached"),
+                counts.mapValues { it.value.toString() })
+        }
         return json("eventsPruned" to events)
     }
 
