@@ -24,7 +24,10 @@ def operator(mode, at):
     if result.returncode:
         match = re.search(r"FoundationFailure: (probe_[a-z_]+|lesson_expired|lesson_unavailable|active_episode)", result.stderr)
         raise SystemExit(match[1] if match else "roadmap_acceptance_operator_failed")
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    receipts = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+    if len(receipts) != 1 or not isinstance(receipts[0], dict) or "lesson_id" not in receipts[0]:
+        raise SystemExit("roadmap_acceptance_operator_receipt_missing")
+    return receipts[0]
 
 
 def trace_id(value):
