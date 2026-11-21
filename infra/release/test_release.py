@@ -122,6 +122,31 @@ class ManifestTest(unittest.TestCase):
                 github.download(current, "unexpected.json", maximum=65536)
 
 
+class MiniAppEdgeTest(unittest.TestCase):
+    def test_static_image_and_ai_authentication_use_the_public_edge(self):
+        calls = []
+        asset = b"compiled Mini App JavaScript"
+
+        def request(req, **_options):
+            calls.append(req.full_url)
+            if req.full_url.endswith("/api"):
+                self.assertEqual(req.get_method(), "POST")
+                self.assertEqual(json.loads(req.data), {"action": "list", "initData": ""})
+                raise rollout.urllib.error.HTTPError(
+                    req.full_url, 403, "Forbidden", {}, io.BytesIO(b'{"detail":"invalid_telegram_auth"}'))
+            return io.BytesIO(asset)
+
+        with patch.dict(rollout.os.environ, {"SPEAKY_RELEASE_MINIAPP_URL": "https://example.com/miniapp"}), \
+                patch.object(rollout.urllib.request, "urlopen", side_effect=request):
+            rollout.miniapp_edge(release.hashlib.sha256(asset).hexdigest())
+            with self.assertRaisesRegex(ValueError, "selected asset"):
+                rollout.miniapp_edge(DIGEST)
+        self.assertEqual(calls[:3], [
+            "https://example.com/miniapp", "https://example.com/miniapp/assets/app.js",
+            "https://example.com/miniapp/api",
+        ])
+
+
 class RolloutOrderTest(unittest.TestCase):
     def run_rollout(self, components, *, fail_on=None, already_ready=False):
         operations = []

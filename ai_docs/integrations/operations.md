@@ -763,7 +763,8 @@ AI и Ktor пишут [общий JSON v1](../../contracts/logging/v1/envelope.j
 URL и `MINI_APP_URL` задаёт edge. Caddy направляет HTML и assets в Mini App, а API,
 диагностику и Voice в AI. Изменение edge выполняется отдельно.
 Redeploy сверяет ревизию по `/version.json` внутри контейнера и SHA-256
-`/miniapp/assets/app.js` на публичном edge.
+`/miniapp/assets/app.js` на публичном edge. Запрос без Telegram-подписи должен
+получить отказ авторизации от AI и Ktor через тот же edge.
 
 ### Realtime latency diagnostics
 

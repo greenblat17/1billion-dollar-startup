@@ -28,8 +28,10 @@ jobs:
       - name: Verify release contract and host installer
         env:
           SPEAKY_HOST_DOCKER_TEST_IMAGE: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+          SPEAKY_HOST_DOCKER_POSTGRES_IMAGE: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
         run: |
           docker pull "$SPEAKY_HOST_DOCKER_TEST_IMAGE"
+          docker pull "$SPEAKY_HOST_DOCKER_POSTGRES_IMAGE"
           python3 -m unittest discover -s infra/release -p 'test_*.py'
 
   ci:

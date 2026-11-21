@@ -2,6 +2,7 @@
 
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -103,6 +105,7 @@ class DockerInstallerTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.name = "speaky-release-test-" + secrets.token_hex(6)
+        (self.root / ".dockerignore").write_text("*\n!Dockerfile\n!fixture.conf\n!fixture-version.json\n")
         self.installer = host.Installer("dev", "miniapp", self.root, self.root, {
             "miniapp": host.HostConfig(self.name, self.root, "none"),
         })
@@ -112,7 +115,7 @@ class DockerInstallerTests(unittest.TestCase):
 
     def remove_containers(self):
         for identity in host.docker("ps", "-aq", "--filter", f"name={self.name}").splitlines():
-            host.docker("rm", "-f", identity)
+            host.docker("rm", "-f", "-v", identity)
 
     def remove_images(self):
         self.remove_containers()
@@ -122,7 +125,7 @@ class DockerInstallerTests(unittest.TestCase):
         if self.network:
             host.docker("network", "rm", self.network)
 
-    def build(self, digit, run, component="miniapp"):
+    def build(self, digit, run, component="miniapp", port=8080):
         source_sha = digit * 40
         base = os.environ["SPEAKY_HOST_DOCKER_TEST_IMAGE"]
         tag = f"{self.name}-{component}:{run}"
@@ -133,9 +136,9 @@ class DockerInstallerTests(unittest.TestCase):
             "COPY fixture.conf /etc/nginx/conf.d/default.conf\n"
             "COPY fixture-version.json /usr/share/nginx/html/version.json\n"
         )
-        port = 8090 if component == "ai" else 8080
+        listener = f"127.0.0.1:{port}" if component == "ktor" else str(port)
         (self.root / "fixture.conf").write_text(
-            f'server {{ listen {port}; location /miniapp {{ return 200 "fixture"; }} '
+            f'server {{ listen {listener}; location /miniapp {{ return 200 "fixture"; }} '
             'location /health { return 200 "ok"; } '
             'location = /version.json { root /usr/share/nginx/html; } }\n'
         )
@@ -157,6 +160,7 @@ class DockerInstallerTests(unittest.TestCase):
                           "-e", "FIXTURE_OLD_CONFIG=original", first.image_id)
         self.installer.wait_ready(old, first.sha)
         old_ai, ai, ai_release, ai_archive = self.prepare_ai()
+        ktor = self.prepare_ktor()
         with self.assertRaisesRegex(host.InstallError, "was not staged"):
             self.installer.activate(second)
         self.assertEqual(host.inspect(self.name)["Id"], old)
@@ -170,6 +174,13 @@ class DockerInstallerTests(unittest.TestCase):
         ai.stage(ai_release, ai_archive)
         self.assertEqual(host.inspect(self.name)["Id"], old)
         self.assertEqual(host.inspect(ai.name)["Id"], old_ai)
+        if ktor:
+            old_ktor, backend, backend_release, backend_archive = ktor
+            backend.stage(backend_release, backend_archive)
+            self.assertEqual(host.inspect(backend.name)["Id"], old_ktor)
+            backend.activate(backend_release)
+            backend.verify_current(backend_release, host.inspect(backend.name))
+            self.assertEqual(host.inspect(ai.name)["Id"], old_ai)
         ai.activate(ai_release)
         deployed_ai = host.inspect(ai.name)
         ai.verify_current(ai_release, deployed_ai)
@@ -197,10 +208,30 @@ class DockerInstallerTests(unittest.TestCase):
         self.installer.restore(second)
         self.assertEqual(host.inspect(self.name)["Id"], old)
         self.assertEqual(host.inspect(ai.name)["Image"], ai_release.image_id)
+        with patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.installer.status(second)
+        observed = json.loads(output.getvalue())
+        self.assertEqual(observed["outcome"], "target_mismatch_or_not_ready")
+        self.assertEqual(observed["image_id"], first.image_id)
+        self.assertEqual(observed["expected_image_id"], second.image_id)
+        self.exercise_test_config(ai, ai_release)
+
+    def exercise_test_config(self, ai, release):
+        input_path = self.root / "fixture-input.env"
+        input_path.write_text(f"# SPEAKY_EXPIRES_UTC={int(time.time()) + 600}\nAGENT_TEST_ENABLED=true\n")
+        ai.restart_config(str(input_path))
+        active = host.inspect(ai.name)
+        self.assertEqual(active["Image"], release.image_id)
+        self.assertEqual(host.container_env(active)["AGENT_TEST_ENABLED"], "true")
+        ai.override.unlink()
+        ai.restart_config(None)
+        cleared = host.inspect(ai.name)
+        self.assertEqual(cleared["Image"], release.image_id)
+        self.assertFalse(host.container_env(cleared).get("AGENT_TEST_ENABLED") == "true")
 
     def prepare_ai(self):
-        first, _ = self.build("1", 1, "ai")
-        second, archive = self.build("2", 2, "ai")
+        first, _ = self.build("1", 1, "ai", 8090)
+        second, archive = self.build("2", 2, "ai", 8090)
         self.network = self.name + "-network"
         host.docker("network", "create", self.network)
         directory = self.root / "ai"
@@ -221,6 +252,57 @@ class DockerInstallerTests(unittest.TestCase):
         old = started.stdout.strip()
         ai.wait_ready(old, first.sha)
         return old, ai, second, archive
+
+    def prepare_ktor(self):
+        postgres = os.environ.get("SPEAKY_HOST_DOCKER_POSTGRES_IMAGE")
+        if not postgres:
+            return None
+        with socket.socket() as app_socket, socket.socket() as postgres_socket:
+            app_socket.bind(("127.0.0.1", 0))
+            postgres_socket.bind(("127.0.0.1", 0))
+            port, pg_port = app_socket.getsockname()[1], postgres_socket.getsockname()[1]
+        first, _ = self.build("1", 1, "ktor", port)
+        second, archive = self.build("2", 2, "ktor", port)
+        host.docker("run", "-d", "--name", self.name + "-postgres", "-e", "POSTGRES_PASSWORD=fixture-only",
+                    "-p", f"127.0.0.1:{pg_port}:5432", postgres)
+        dsn = f"postgresql://127.0.0.1:{pg_port}/postgres"
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                host.postgresql_ready(dsn)
+                break
+            except (OSError, host.InstallError):
+                if time.monotonic() > deadline:
+                    raise
+                time.sleep(1)
+        directory = self.root / "ktor"
+        directory.mkdir()
+        for filename in ("logs", "analytics", "audit-audio"):
+            (directory / filename).mkdir()
+        for filename in ("tls.crt", "tls.key"):
+            (directory / filename).touch()
+        backend = host.Installer("dev", "ktor", self.root, self.root, {
+            "ktor": host.HostConfig(self.name + "-ktor", directory),
+        })
+        backend.base_env.write_text(f"SERVER_PORT={port}\nDATABASE_URL={dsn}\nAI_INTERNAL_TOKEN=fixture\n")
+        if sys.platform == "darwin":
+            # Docker Desktop's Linux host loopback differs from macOS loopback.
+            def ready_inside_vm(info, revision=None):
+                if not info or not info["State"]["Running"]:
+                    return False
+                try:
+                    host.docker("exec", info["Id"], "wget", "-T", "5", "-q", "-O", "/dev/null",
+                                f"http://127.0.0.1:{port}/health")
+                    return True
+                except host.InstallError:
+                    return False
+            adapter = patch.object(backend, "ready", side_effect=ready_inside_vm)
+            adapter.start()
+            self.addCleanup(adapter.stop)
+        old = host.docker("run", "-d", "--name", backend.name, "--network", "host",
+                          "--env-file", str(backend.base_env), first.image_id)
+        backend.wait_ready(old, first.sha)
+        return old, backend, second, archive
 
     def test_failed_activation_restores_previous_image(self):
         first, _ = self.build("1", 1)

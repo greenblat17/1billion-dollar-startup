@@ -109,6 +109,19 @@ def miniapp_edge(expected_asset):
             if path and expected_asset:
                 require(stream_sha256(response) == expected_asset,
                         "Mini App edge did not return the selected asset")
+    if expected_asset:
+        request = urllib.request.Request(
+            base + "/api", data=b'{"action":"list","initData":""}',
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=READINESS_TIMEOUT):
+                raise ValueError("Mini App edge accepted a request without Telegram authentication")
+        except urllib.error.HTTPError as error:
+            with error:
+                payload = json.loads(error.read(4096)) if error.code in (400, 403) else None
+                require(isinstance(payload, dict) and payload.get("detail") == "invalid_telegram_auth",
+                        "Mini App edge did not reach the Telegram authentication check")
 
 
 def arguments(release, component):

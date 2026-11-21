@@ -29,6 +29,7 @@ COMPONENT = "io.speaky.component"
 RELEASE_RUN = "io.speaky.release-run"
 BUILD_ATTEMPT = "io.speaky.build-attempt"
 TRANSACTION = "io.speaky.transaction"
+STAGE_PROBE = "io.speaky.stage-probe"
 READY_TIMEOUT = 90
 MOCK_BILLING = {"SPEAKY_BILLING_PROVIDER": "mock", "SPEAKY_BILLING_AMOUNT": "100",
                 "SPEAKY_BILLING_CURRENCY": "TEST", "SPEAKY_BILLING_PERIOD_DAYS": "1"}
@@ -255,8 +256,8 @@ class Installer:
         return values if expires > time.time() else {}
 
     def test_config(self, env):
-        agent_test = env.get("AGENT_TEST_ENABLED", "").strip().lower() == "true"
-        mock = self.component == "ktor" and env.get("SPEAKY_BILLING_PROVIDER", "").strip().lower() == "mock"
+        agent_test = env.get("AGENT_TEST_ENABLED") == "true"
+        mock = self.component == "ktor" and env.get("SPEAKY_BILLING_PROVIDER") == "mock"
         billing = tuple(env.get(key, "") for key in MOCK_BILLING) if mock else ()
         return agent_test, billing
 
@@ -421,7 +422,14 @@ class Installer:
             docker("image", "load", timeout=600, stdin=stream)
         self.image(release)
         if self.component == "miniapp":
-            identity = docker("run", "--detach", "--rm", "--network", "none", release.image_id)
+            name = f"{self.name}-release-probe"
+            orphan = inspect(name)
+            if orphan is not None:
+                require((orphan["Config"]["Labels"] or {}).get(STAGE_PROBE) == self.environment,
+                        "Mini App probe name already in use")
+                docker("rm", "-f", orphan["Id"])
+            identity = docker("run", "--detach", "--rm", "--name", name, "--network", "none",
+                              "--label", f"{STAGE_PROBE}={self.environment}", release.image_id)
             try:
                 self.wait_ready(identity, release.sha)
             finally:
