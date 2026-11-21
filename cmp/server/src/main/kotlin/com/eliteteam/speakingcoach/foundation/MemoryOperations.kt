@@ -22,7 +22,7 @@ internal class MemoryOperations {
             ORDER BY id LIMIT 21 OFFSET ?""", scope.studentId, now, query, query, offset)
         else c.documents("""SELECT to_jsonb(m) || jsonb_build_object('source_content_expired',e.body IS NULL OR e.expires_at<=?,
             'occurred_at',e.occurred_at) FROM memory_fact m LEFT JOIN conversation_event e ON e.id=m.source_event_id
-            WHERE m.student_id=? AND forgotten_at IS NULL AND value IS NOT NULL AND (valid_until IS NULL OR valid_until>?)
+            WHERE m.student_id=? AND m.category='personal' AND forgotten_at IS NULL AND value IS NOT NULL AND (valid_until IS NULL OR valid_until>?)
             AND (?='' OR strpos(lower(fact_key),lower(?))>0 OR strpos(lower(value),lower(?))>0)
             ORDER BY updated_at DESC,category,fact_key LIMIT 21 OFFSET ?""", now, scope.studentId, now, query, query, query, offset)
         val observations = if (candidates) emptyList() else c.documents("""SELECT to_jsonb(o) || jsonb_build_object(

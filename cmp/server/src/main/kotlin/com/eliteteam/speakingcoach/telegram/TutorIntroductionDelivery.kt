@@ -22,7 +22,7 @@ internal suspend fun deliverIntroduction(
             if (typingPart != part.index) {
                 try { typing() }
                 catch (error: CancellationException) { throw error }
-                catch (error: Exception) { RuntimeDiagnostics.record("telegram_typing_failed", "introduction", error) }
+                catch (error: Exception) { recordTelegramTypingFailure("introduction", error) }
                 typingPart = part.index
             }
             pause(minOf(part.waitMillis, 100))
@@ -33,8 +33,9 @@ internal suspend fun deliverIntroduction(
         catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             // Telegram cannot reconcile a timed-out send. Stop the remainder, do not resend or call the model.
+            recordTelegramSendFailure("telegram_introduction_delivery_unknown", "telegram.introduction", "send", error,
+                mapOf("trace_id" to RuntimeDiagnostics.trace("tg-$chat:$request"), "part" to part.index.toString()))
             introduction.uncertain(chat, request)
-            RuntimeDiagnostics.record("telegram_introduction_delivery_unknown", "send", error)
             return
         }
         introduction.sent(chat, request, part.index, message)

@@ -1,0 +1,64 @@
+name: DEV diagnostics
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Readiness or bounded log metadata
+        type: choice
+        required: true
+        options: [readiness, correlation-probe, ai-log, ktor-log]
+      ktor_revision:
+        description: Expected Ktor source SHA for readiness, correlation, or Ktor logs
+        type: string
+      ai_revision:
+        description: Expected AI source SHA for readiness, correlation, or AI logs
+        type: string
+      error_id:
+        description: Optional exact 32-hex-character AI error ID
+        type: string
+      call_session_id:
+        description: Optional AI call session UUID
+        type: string
+      log_at:
+        description: UTC timestamp for Ktor logs (YYYY-MM-DDTHH:MM:SSZ)
+        type: string
+      foundation_job_id:
+        description: Optional Foundation job UUID for Ktor logs
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-deploy-dev
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: deploy-dev
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Run DEV diagnostics
+        env:
+          MODE: ${{ inputs.mode }}
+          KTOR_REVISION: ${{ inputs.ktor_revision }}
+          AI_REVISION: ${{ inputs.ai_revision }}
+          ERROR_ID: ${{ inputs.error_id }}
+          CALL_SESSION_ID: ${{ inputs.call_session_id }}
+          DIAGNOSTIC_AT: ${{ inputs.log_at }}
+          JOB_ID: ${{ inputs.foundation_job_id }}
+          DEV_KNOWN_HOSTS: ${{ secrets.SPEAKY_RELEASE_KNOWN_HOSTS }}
+          KTOR_HOST: ${{ secrets.SPEAKY_RELEASE_KTOR_HOST }}
+          KTOR_USER: ${{ secrets.SPEAKY_RELEASE_KTOR_USER }}
+          KTOR_KEY: ${{ secrets.SPEAKY_RELEASE_KTOR_SSH_KEY }}
+          AI_HOST: ${{ secrets.SPEAKY_RELEASE_AI_HOST }}
+          AI_USER: ${{ secrets.SPEAKY_RELEASE_AI_USER }}
+          AI_KEY: ${{ secrets.SPEAKY_RELEASE_AI_SSH_KEY }}
+        run: bash infra/dev/diagnostics.sh

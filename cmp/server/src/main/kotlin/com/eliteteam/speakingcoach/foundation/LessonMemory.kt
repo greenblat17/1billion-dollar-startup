@@ -15,7 +15,7 @@ internal class LessonMemory {
             val fact = item.jsonObject
             fact.only("key", "value", "sourceId", "evidence", "expectedVersion")
             val key = fact.text("key")
-            if (!keys.add(key) || key in setOf("goal", "goals", "self_assessment", "level", "confidence", "timezone")) reject("invalid_fact")
+            if (!keys.add(key) || key in StudentLearningModel.memoryKeys + setOf("confidence", "timezone")) reject("invalid_fact")
             val source = sourceMessage(c, scope, fact.text("sourceId"), now)
             if (c.document("SELECT to_jsonb(e) FROM lesson_event e WHERE lesson_id=? AND event_id=?", lesson, source.text("id")) == null ||
                 fact.text("evidence").isBlank() || !source.text("body").contains(fact.text("evidence"))) reject("invalid_evidence")

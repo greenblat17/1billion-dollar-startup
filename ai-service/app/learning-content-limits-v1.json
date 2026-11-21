@@ -1,0 +1,26 @@
+{
+  "document": 16000,
+  "text": {"objective": 1000, "spokenInstruction": 400},
+  "answerGuide": {
+    "criteria": {"minItems": 1, "maxItems": 8, "maxUnits": 300},
+    "alternatives": {"minItems": 0, "maxItems": 8, "maxUnits": 300},
+    "unacceptable": {"minItems": 0, "maxItems": 8, "maxUnits": 300}
+  },
+  "payload": {
+    "Explanation": {
+      "text": {"explanation": 1200},
+      "lists": {"examples": {"minItems": 1, "maxItems": 4, "maxUnits": 300}}
+    },
+    "Exercises": {"text": {"stimulus": 300, "targetOperation": 300}},
+    "Exposure": {
+      "lists": {
+        "segments": {"minItems": 1, "maxItems": 8, "maxUnits": 250},
+        "checks": {"minItems": 1, "maxItems": 2, "maxUnits": 40}
+      }
+    },
+    "Conversation": {
+      "text": {"openingPrompt": 400},
+      "lists": {"targetOpportunities": {"minItems": 1, "maxItems": 6, "maxUnits": 250}}
+    }
+  }
+}

@@ -1,11 +1,5 @@
-name: Setup CMP
-description: Zulu JDK 21 and Gradle for the cmp project
-
-inputs:
-  cache-read-only:
-    description: Restore the Gradle cache without writing a new entry
-    required: false
-    default: 'false'
+name: Set up Ktor build
+description: Zulu JDK 21 and Gradle for Ktor and core
 
 runs:
   using: composite
@@ -16,39 +10,19 @@ runs:
         distribution: zulu
         java-version: 21
 
-    - name: Cache Kotlin/Native
-      if: runner.os == 'macOS'
-      uses: actions/cache@v5
-      with:
-        path: ~/.konan
-        key: konan-${{ runner.os }}-${{ hashFiles('cmp/gradle/libs.versions.toml', 'cmp/gradle/wrapper/gradle-wrapper.properties') }}
-        restore-keys: |
-          konan-${{ runner.os }}-
-
     - name: Set up Gradle
       uses: gradle/actions/setup-gradle@v5
       with:
-        # Default action behavior is read-only off main; we write from test/detekt jobs
-        # so later jobs in this run can restore dependencies without downloading again.
-        cache-read-only: ${{ inputs.cache-read-only == 'true' }}
+        cache-read-only: true
 
     - name: Use faster Gradle settings on CI
       shell: bash
       run: |
         gradle_home="${GRADLE_USER_HOME:-$HOME/.gradle}"
         mkdir -p "$gradle_home"
-        if [ "${RUNNER_OS}" = "macOS" ]; then
-          workers=3
-          gradle_xmx=4g
-          kotlin_xmx=2g
-        else
-          workers=4
-          gradle_xmx=6g
-          kotlin_xmx=3g
-        fi
-        cat >> "$gradle_home/gradle.properties" <<EOF
+        cat >> "$gradle_home/gradle.properties" <<'EOF'
         org.gradle.parallel=true
-        org.gradle.workers.max=${workers}
-        org.gradle.jvmargs=-Xmx${gradle_xmx} -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
-        kotlin.daemon.jvmargs=-Xmx${kotlin_xmx}
+        org.gradle.workers.max=4
+        org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+        kotlin.daemon.jvmargs=-Xmx3g
         EOF

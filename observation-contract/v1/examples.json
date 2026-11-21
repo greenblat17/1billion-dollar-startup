@@ -1,0 +1,350 @@
+[
+  {
+    "name": "independent_unknown_topic",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "independent_correct",
+      "support": "independent",
+      "initialOutcome": "correct",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "uncorrected_error",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "uncorrected_error",
+      "support": "independent",
+      "initialOutcome": "error",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "self_corrected",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "self_corrected_error",
+      "support": "independent",
+      "initialOutcome": "error",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "hinted_after_error",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        },
+        {
+          "eventId": "hint-event",
+          "revision": 2,
+          "role": "assistant",
+          "purpose": "hint"
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "hinted_correct",
+      "support": "hinted",
+      "initialOutcome": "error",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "explicit_uncertainty",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "independent_correct",
+      "support": "independent",
+      "initialOutcome": "correct",
+      "quality": {
+        "status": "uncertain",
+        "signals": [
+          {
+            "reason": "uncertain_asr",
+            "component": "fixture-only",
+            "sourceEventId": "user-event"
+          }
+        ],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "mechanical_repeat",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "demonstration",
+      "outcome": "independent_correct",
+      "support": "independent",
+      "initialOutcome": "correct",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": "original-observation",
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  },
+  {
+    "name": "self_report_not_mastery",
+    "observation": {
+      "schemaVersion": 1,
+      "attemptId": "application-1",
+      "evidenceSlot": "grammar-1",
+      "anchorEventId": "user-event",
+      "lessonId": "lesson-1",
+      "occurredAt": "2026-11-16T10:00:00Z",
+      "sources": [
+        {
+          "eventId": "user-event",
+          "revision": 3,
+          "role": "user",
+          "purpose": "answer",
+          "span": {
+            "start": 0,
+            "end": 9
+          }
+        }
+      ],
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": null,
+      "problemId": null,
+      "practice": "trial",
+      "method": "conversation",
+      "kind": "self_report",
+      "outcome": "unresolved",
+      "support": "unknown",
+      "initialOutcome": "unknown",
+      "quality": {
+        "status": "usable",
+        "signals": [],
+        "confidence": null
+      },
+      "provenance": {
+        "component": "contract-fixture",
+        "analyzerVersion": "v1"
+      },
+      "taskId": null,
+      "stageRef": null,
+      "actionId": null,
+      "repeatOf": null,
+      "route": "assessment_only",
+      "rationale": "Synthetic evidence, not a real learner"
+    }
+  }
+]

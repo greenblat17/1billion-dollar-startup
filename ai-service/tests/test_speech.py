@@ -1,6 +1,9 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from fakeredis import FakeAsyncRedis
 
+from app.backend_voice_storage import BackendSpeechSpeedStore
 from app.sessions import GREETING_VOICE_TEXT
 from app.speech import SessionSpeech, SpeechSpeedStore
 from tests.conftest import FakeTts, build_app
@@ -16,6 +19,34 @@ async def test_speed_is_independent_per_chat_and_survives_store_recreation() -> 
     assert await speeds.get("tg-2") is None
     with pytest.raises(ValueError):
         await speeds.set("tg-1", 0.85)
+    await redis.aclose()
+
+
+@pytest.mark.asyncio
+async def test_legacy_speed_adapters_preserve_values_and_reject_invalid_writes() -> None:
+    redis = FakeAsyncRedis(decode_responses=True)
+    await redis.set('speech-speed:tg-old', '0.90')
+    redis_store = SpeechSpeedStore(redis)
+    backend = AsyncMock()
+    backend.voice_preferences.return_value = {'speed': 0.9}
+    pg_store = BackendSpeechSpeedStore(backend)
+
+    for store in (redis_store, pg_store):
+        assert await store.get('tg-old') == 0.9
+        for speed in (True, 0.85, '0.9'):
+            with pytest.raises(ValueError, match='unsupported speech speed'):
+                await store.set('tg-old', speed)
+        assert await store.get('tg-old') == 0.9
+
+    assert [call.args[0] for call in backend.voice_preferences.await_args_list] == ['read', 'read']
+    for _ in range(2):
+        await redis_store.set('tg-old', 0.8)
+        await pg_store.set('tg-old', 0.8)
+    assert await redis.get('speech-speed:tg-old') == '0.8'
+    assert [call.args for call in backend.voice_preferences.await_args_list[-2:]] == [
+        ('set_speed', 'tg-old', {'speed': 0.8}),
+        ('set_speed', 'tg-old', {'speed': 0.8}),
+    ]
     await redis.aclose()
 
 
@@ -39,7 +70,9 @@ def test_speech_speed_api_is_authenticated_and_greeting_cache_is_per_speed() -> 
     with TestClient(app, headers={"X-Internal-Token": "test-internal-token"}) as client:
         assert client.get("/internal/speech-speed/tg-1", headers={"X-Internal-Token": "wrong"}).status_code == 401
         assert client.get("/internal/speech-speed/tg-1").json() == {"speed": 0.9}
-        assert client.post("/internal/speech-speed", json={"sessionId": "tg-1", "speed": 0.85}).status_code == 400
+        invalid = client.post("/internal/speech-speed", json={"sessionId": "tg-1", "speed": 0.85})
+        assert invalid.status_code == 400
+        assert invalid.json() == {"detail": "speed must be 0.8, 0.9, or 1.0"}
         assert client.post("/internal/speech-speed", json={"sessionId": "tg-1", "speed": 0.8}).json() == {"speed": 0.8}
         assert client.get("/internal/speech-speed/tg-1").json() == {"speed": 0.8}
         assert client.get("/internal/speech-speed/tg-2").json() == {"speed": 0.9}

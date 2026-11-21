@@ -9,7 +9,25 @@ from app.foundation_client import FoundationClient, BackendFailure
 from app.context_builder import ContextBuilder
 from app.foundation_tutor import FoundationTutor
 from app.tutor import TutorRequest
-from integration.test_foundation_http import GoalModel, actor, now
+from integration.test_foundation_http import actor
+
+
+class GoalModel:
+    def __init__(self):
+        self.count = 0
+
+    async def complete(self, messages):
+        import json
+        self.count += 1
+        if self.count == 1:
+            return {'role': 'assistant', 'tool_calls': [{'id': 'goal-tool', 'type': 'function', 'function': {
+                'name': 'update_learner_context', 'arguments': json.dumps({
+                    'facts': [{'memory': 'learning', 'key': 'goal', 'value': 'relocation',
+                               'evidence': 'relocation', 'kind': 'user_report'}],
+                    'trialPreference': None, 'preferenceEvidence': None, 'summary': None,
+                }),
+            }}]}
+        return {'role': 'assistant', 'content': '{"reply":"Понял цель.","trialOffered":false}'}
 
 
 @pytest.mark.asyncio

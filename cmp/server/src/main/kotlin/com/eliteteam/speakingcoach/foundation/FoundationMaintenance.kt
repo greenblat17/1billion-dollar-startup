@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
@@ -8,14 +10,31 @@ internal class FoundationMaintenance {
     fun prune(connection: Connection, scope: ExecutionScope, now: Instant): JsonObject {
         requireRole(scope, "operator")
         val student = scope.studentId
-        connection.update("UPDATE trial_audio SET status='purge',metadata='{}' WHERE student_id=? AND expires_at<=? AND status<>'deleted'", student, now)
+        val audio = connection.update("""UPDATE trial_audio SET status='purge',metadata='{}'
+            WHERE student_id=? AND expires_at<=? AND status<>'deleted'
+            AND (status<>'purge' OR metadata<>'{}'::jsonb)""", student, now)
+        val callEvents = connection.update("DELETE FROM trial_call_event WHERE student_id=? AND expires_at<=?", student, now)
         val events = connection.update("UPDATE conversation_event SET body=NULL,metadata='{}' WHERE student_id=? AND expires_at<=? AND body IS NOT NULL", student, now)
-        connection.update("UPDATE tutor_inbox SET response=NULL WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE foundation_operation SET result='{}' WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE memory_candidate SET value=NULL,status='expired' WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("DELETE FROM tutor_summary WHERE student_id=? AND expires_at<=?", student, now)
-        connection.update("UPDATE foundation_job SET status='failed',error_code='source_expired' WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')", student, now)
-        connection.update("DELETE FROM execution_scope WHERE student_id=? AND expires_at<=?", student, now)
+        val inbox = connection.update("""UPDATE tutor_inbox SET response=NULL
+            WHERE student_id=? AND expires_at<=? AND response IS NOT NULL""", student, now)
+        val operations = connection.update("""UPDATE foundation_operation SET result='{}'
+            WHERE student_id=? AND expires_at<=? AND result<>'{}'::jsonb""", student, now)
+        val candidates = connection.update("""UPDATE memory_candidate SET value=NULL,status='expired'
+            WHERE student_id=? AND expires_at<=? AND (value IS NOT NULL OR status<>'expired')""", student, now)
+        val summaries = connection.update("DELETE FROM tutor_summary WHERE student_id=? AND expires_at<=?", student, now)
+        val jobs = connection.update("""UPDATE foundation_job SET status='failed',error_code='source_expired'
+            WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')""", student, now)
+        val scopes = connection.update("DELETE FROM execution_scope WHERE student_id=? AND expires_at<=?", student, now)
+        LearningScores().reconcileStored(connection, scope, now)
+        val counts = mapOf("audio_marked_for_purge" to audio, "trial_events_deleted" to callEvents,
+            "conversation_events_cleared" to events, "inbox_responses_cleared" to inbox,
+            "operation_results_cleared" to operations, "memory_candidates_expired" to candidates,
+            "tutor_summaries_deleted" to summaries, "jobs_expired" to jobs, "execution_scopes_deleted" to scopes)
+        if (counts.values.any { it > 0 }) {
+            FoundationDatabase.recordAfterCommit(Event("foundation_retention", "retention.prune", "commit",
+                Outcome.COMPLETED, "Foundation pruned expired data.", "retention_deadline_reached"),
+                counts.mapValues { it.value.toString() })
+        }
         return json("eventsPruned" to events)
     }
 
@@ -33,16 +52,27 @@ internal class FoundationMaintenance {
         args.only("category", "key", "expectedVersion")
         val category = args.text("category")
         val key = args.text("key")
-        val revision = if (category == "learning" && key == "goal") {
-            connection.goalRevision(scope.studentId).takeIf { it > 0 } ?: reject("not_owned")
-        } else {
-            connection.document("SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category=? AND fact_key=?",
-                scope.studentId, category, key)?.number("revision") ?: reject("not_owned")
-        }
+        if (category != "personal" || key in StudentLearningModel.memoryKeys) reject("learning_state_required")
+        val revision = connection.document("SELECT to_jsonb(f) FROM memory_fact f WHERE student_id=? AND category=? AND fact_key=?",
+            scope.studentId, category, key)?.number("revision") ?: reject("not_owned")
         if (revision != args.number("expectedVersion")) reject("version_conflict")
         connection.update("INSERT INTO foundation_deletion(id,student_id,kind,category,fact_key,deleted_at,resulting_epoch) VALUES (?,?,'forget',?,?,?,?)",
             newId(), scope.studentId, category, key, now, scope.epoch + 1)
         eraseFact(connection, scope.studentId, category, key, now)
+        invalidateCopies(connection, scope.studentId, now)
+        LearningScores().reconcileStored(connection, scope, now)
+        return json("forgotten" to true)
+    }
+
+    fun forgetLearning(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
+        requireRole(scope, "operator")
+        args.only("expectedRevision")
+        if (StudentLearningState().read(connection, scope.studentId, now).number("revision") != args.number("expectedRevision")) {
+            reject("version_conflict")
+        }
+        connection.update("INSERT INTO foundation_deletion(id,student_id,kind,category,fact_key,deleted_at,resulting_epoch) VALUES (?,?,'forget','learning','state',?,?)",
+            newId(), scope.studentId, now, scope.epoch + 1)
+        eraseFact(connection, scope.studentId, "learning", "state", now)
         invalidateCopies(connection, scope.studentId, now)
         return json("forgotten" to true)
     }
@@ -53,6 +83,11 @@ internal class FoundationMaintenance {
         if (recordDeletion) connection.update("INSERT INTO foundation_deletion(id,student_id,kind,deleted_at,resulting_epoch) VALUES (?,?,'delete_student',?,?)",
             newId(), student, now, scope.epoch + 1)
         invalidateCopies(connection, student, now, preserveTelegramFrom)
+        connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
+        connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
+        connection.update("DELETE FROM learning_task WHERE student_id=?", student)
+        connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
+        connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation WHERE student_id=?", student)
@@ -69,8 +104,10 @@ internal class FoundationMaintenance {
         connection.update("DELETE FROM telegram_introduction WHERE student_id=?", student)
         connection.update("DELETE FROM tutor_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_telegram_card WHERE student_id=?", student)
+        connection.update("DELETE FROM trial_call_event WHERE student_id=?", student)
         connection.update("DELETE FROM lesson_event WHERE student_id=?", student)
         connection.update("DELETE FROM trial_notice WHERE student_id=?", student)
+        connection.update("DELETE FROM initial_roadmap_delivery WHERE student_id=?", student)
         connection.update("DELETE FROM trial_demo_receipt WHERE student_id=?", student)
         connection.update("DELETE FROM call_session WHERE student_id=?", student)
         connection.update("DELETE FROM schedule_exception WHERE student_id=?", student)
@@ -99,25 +136,41 @@ internal class FoundationMaintenance {
         if (job.optionalText("error_code") == "delivery_unknown") reject("delivery_reconciliation_required")
         if (job.number("data_epoch") != scope.epoch || Instant.parse(job.text("deadline")) <= now) reject("source_expired")
         val inputs = job.obj("input_refs")
-        if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
+        if (job.text("kind") in setOf("lesson.prepare", "roadmap.prepare", "roadmap.generate") && (inputs.number("goalRevision") != connection.goalRevision(scope.studentId) ||
                 inputs.number("learningRevision") != connection.learningRevision(scope.studentId))) reject("stale_job")
-        if (job.text("kind") == "lesson.evaluate" && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
+        if (job.text("kind") in setOf("lesson.evaluate", "trial.observe", "trial.assess", "roadmap.generate") && connection.lesson(scope, job.text("target_id")).number("transcript_revision") != inputs.number("transcriptRevision")) reject("stale_job")
+        if (job.text("kind") == "roadmap.generate" && PersonalizedRoadmap().knowledgeDigest(connection,
+                scope.studentId, inputs.text("catalogVersion")) != inputs.text("knowledgeDigest")) reject("stale_job")
         connection.update("UPDATE foundation_job SET status='queued',due_at=?,max_attempts=attempts+3,error_code=NULL WHERE id=?", now, job.text("id"))
         return json("queued" to true)
     }
 
     private fun eraseFact(connection: Connection, student: String, category: String, key: String, now: Instant) {
-        if (category == "learning" && key == "goal") {
+        // Review summaries can paraphrase either a personal fact or a learning goal.
+        connection.update("DELETE FROM post_lesson_review_history WHERE student_id=?", student)
+        connection.update("DELETE FROM post_lesson_review WHERE student_id=?", student)
+        if (category == "learning" && key in setOf("goal", "state")) {
             // Keep revision identities referenced by plans; erase their private contents.
             connection.update("UPDATE learning_goal SET content='{}',source_event_id=NULL WHERE student_id=?", student)
             connection.update("INSERT INTO learning_goal(student_id,revision,content,created_at) VALUES (?,?,'{}',?)",
                 student, connection.goalRevision(student) + 1, now)
         } else {
+            // Free-text rationale may paraphrase a personal fact; preserve all structured task work.
+            connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
+            connection.update("UPDATE learning_task_history SET reason='' WHERE student_id=?", student)
+            StudentLearningPrivacy().forgetPersonalFact(connection, student, category, key, now)
             connection.update("UPDATE memory_fact SET value=NULL,forgotten_at=?,revision=revision+1,source_event_id=NULL WHERE student_id=? AND category=? AND fact_key=?",
                 now, student, category, key)
             connection.update("DELETE FROM memory_fact_history WHERE student_id=? AND category=? AND fact_key=?", student, category, key)
         }
         connection.update("UPDATE memory_candidate SET value=NULL,status='rejected',version=version+1 WHERE student_id=? AND fact_key=?", student, key)
+        if (category == "learning" && key in setOf("goal", "state")) {
+            connection.update("DELETE FROM learning_roadmap WHERE student_id=?", student)
+            connection.update("DELETE FROM learning_task WHERE student_id=?", student)
+            connection.update("DELETE FROM learning_observation WHERE student_id=?", student)
+            connection.update("DELETE FROM student_topic_knowledge WHERE student_id=?", student)
+            connection.update("DELETE FROM student_learning_state WHERE student_id=?", student)
+        }
         // Observations and roadmap prose can paraphrase a forgotten fact without a complete source graph.
         connection.update("DELETE FROM progress_review WHERE student_id=?", student)
         connection.update("DELETE FROM memory_observation_review WHERE student_id=?", student)
@@ -128,9 +181,11 @@ internal class FoundationMaintenance {
     }
 
     private fun invalidateCopies(connection: Connection, student: String, now: Instant, preserveTelegramFrom: Long = Long.MAX_VALUE) {
+        connection.update("DELETE FROM trial_call_event WHERE student_id=?", student)
         connection.update("UPDATE trial_audio SET status='purge',metadata='{}',expires_at=? WHERE student_id=? AND status<>'deleted'", now, student)
         connection.update("UPDATE schedule_time_issue SET delivery='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE trial_notice SET status='cancelled',reply=NULL WHERE student_id=?", student)
+        connection.update("UPDATE initial_roadmap_delivery SET status='cancelled',body=NULL WHERE student_id=?", student)
         connection.update("UPDATE telegram_introduction SET status='cancelled' WHERE student_id=?", student)
         connection.update("UPDATE student SET data_epoch=data_epoch+1,telegram_intro_eligible=FALSE WHERE id=?", student)
         connection.update("UPDATE foundation_job SET status='cancelled',input_refs='{}',result=NULL,error_code='data_deleted',lease_until=NULL WHERE student_id=?", student)
@@ -157,6 +212,7 @@ internal class FoundationMaintenance {
                 eraseFact(connection, scope.studentId, record.text("category"), record.text("fact_key"),
                     Instant.parse(record.text("deleted_at")))
                 invalidateCopies(connection, scope.studentId, now)
+                LearningScores().reconcileStored(connection, scope, now)
             }
             connection.update("UPDATE student SET data_epoch=GREATEST(data_epoch,?) WHERE id=?", record.number("resulting_epoch"), scope.studentId)
         }

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Speaky DEV test configuration expiry for %i
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=1s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

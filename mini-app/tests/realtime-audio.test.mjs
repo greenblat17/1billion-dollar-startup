@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {loadModule} from './helpers/load-module.mjs';
 
 test('capture produces 24 kHz PCM; mute clears residual audio',async()=>{
  let Capture;const frames=[];
@@ -24,12 +25,17 @@ test('interrupt reports only bounded playback and stops queued sources before en
  const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}},
  location:{search:'',origin:'https://test'},URLSearchParams,crypto:{randomUUID:()=> 'test'},
  WebSocket:{OPEN:1},clearTimeout(){},setTimeout(){},clearInterval(){}});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
- vm.runInContext(source,context);
- context.record=data=>sent.push(JSON.parse(data));
- vm.runInContext(`ws={readyState:1,send:record};ctx={currentTime:10};playing.set('one',{start:8,duration:.3,segments:[{start:8,duration:.1},{start:10.5,duration:.2}],sources:[{stop(){}}]});stopAudio();`,context);
+ const call=await loadModule(context,'call.js',`
+ export {playing,stopAudio};
+ export function setOutput(socket, audioContext){ws=socket;ctx=audioContext;}
+ `);
+ call.setOutput({readyState:1,send:data=>sent.push(JSON.parse(data))},{currentTime:10});
+ call.playing.set('one',{start:8,duration:.3,
+  segments:[{start:8,duration:.1},{start:10.5,duration:.2}],sources:[{stop(){}}]});
+ call.stopAudio();
  assert.equal(sent[0].playedMs,100);assert.equal(sent[0].complete,false);
- assert.equal(vm.runInContext('playing.size',context),0);
- vm.runInContext(`playing.set('queued',{start:11,duration:1,segments:[{start:11,duration:1}],sources:[]});stopAudio();`,context);
+ assert.equal(call.playing.size,0);
+ call.playing.set('queued',{start:11,duration:1,segments:[{start:11,duration:1}],sources:[]});
+ call.stopAudio();
  assert.equal(sent[1].playedMs,0);
 });

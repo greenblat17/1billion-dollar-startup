@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Speaky runtime event envelope v1",
+  "type": "object",
+  "required": [
+    "schema_version", "timestamp", "level", "service", "component", "environment", "release",
+    "event", "operation", "stage", "outcome", "message", "trace_id", "request_id", "error_id",
+    "duration_ms", "reason_code"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "const": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "level": { "type": "string" },
+    "service": { "type": "string", "enum": ["backend", "ai"] },
+    "component": { "type": "string" },
+    "environment": { "type": "string", "enum": ["dev", "prod", "local", "test", "unknown"] },
+    "release": { "type": "string", "pattern": "^(unknown|[a-f0-9]{7,64})$" },
+    "event": { "type": "string" },
+    "operation": { "type": "string" },
+    "route_name": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$" },
+    "stage": { "type": "string" },
+    "outcome": { "type": "string" },
+    "message": { "type": "string", "minLength": 1, "maxLength": 280 },
+    "trace_id": { "type": "string" },
+    "source_trace_id": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "request_id": { "type": ["string", "null"] },
+    "error_id": { "type": ["string", "null"] },
+    "source_job_id": { "type": "string" },
+    "source_job_fence": { "type": "integer", "minimum": 0 },
+    "catalog_version": { "type": "string" },
+    "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+    "reason_code": { "type": ["string", "null"] }
+  }
+}

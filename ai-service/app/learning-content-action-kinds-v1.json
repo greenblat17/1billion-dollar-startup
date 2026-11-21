@@ -1,0 +1,11 @@
+{
+  "Explanation": ["direct", "comparison", "learner_example"],
+  "Exercises": [
+    "sentence_construction", "sentence_transformation", "sentence_correction",
+    "translation", "word_recall", "meaning_recognition", "meaning_matching",
+    "listening_reconstruction", "listening_comprehension", "rapid_response",
+    "sentence_expansion", "paraphrasing"
+  ],
+  "Exposure": ["listening_reconstruction", "listening_comprehension", "dialogue"],
+  "Conversation": ["personalized", "situational", "topic_driven"]
+}

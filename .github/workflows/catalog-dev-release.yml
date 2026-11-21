@@ -1,0 +1,98 @@
+name: Import or publish reviewed DEV catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      catalog_version:
+        description: Exact manifest version
+        required: true
+        type: string
+      catalog_sha256:
+        description: Exact SHA-256 of learning-catalog/v1/catalog.json
+        required: true
+        type: string
+      publish:
+        description: Publish after explicit human content acceptance (default imports draft only)
+        required: true
+        type: boolean
+        default: false
+      reviewed_by:
+        description: Human who accepted this catalog for DEV; required when publishing
+        type: string
+        default: ''
+      review_reference:
+        description: HTTPS link to the specific acceptance decision; required when publishing
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-deploy-dev
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  catalog-dev:
+    name: Validate, import, optionally publish DEV catalog
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: deploy-dev
+    timeout-minutes: 12
+    env:
+      DEV_KNOWN_HOSTS: ${{ secrets.SPEAKY_RELEASE_KNOWN_HOSTS }}
+      KTOR_HOST: ${{ secrets.SPEAKY_RELEASE_KTOR_HOST }}
+      KTOR_USER: ${{ secrets.SPEAKY_RELEASE_KTOR_USER }}
+      KTOR_KEY: ${{ secrets.SPEAKY_RELEASE_KTOR_SSH_KEY }}
+      CATALOG_VERSION: ${{ inputs.catalog_version }}
+      CATALOG_SHA256: ${{ inputs.catalog_sha256 }}
+      CATALOG_PUBLISH: ${{ inputs.publish }}
+      REVIEWED_BY: ${{ inputs.reviewed_by }}
+      REVIEW_REFERENCE: ${{ inputs.review_reference }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check exact manifest and explicit review input
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${KTOR_HOST:?}" "${KTOR_USER:?}" "${KTOR_KEY:?}"
+          python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          raw = Path('learning-catalog/v1/catalog.json').read_bytes()
+          actual = hashlib.sha256(raw).hexdigest()
+          expected = os.environ['CATALOG_SHA256']
+          version = os.environ['CATALOG_VERSION']
+          assert re.fullmatch(r'[0-9a-f]{64}', expected) and actual == expected, 'catalog_sha256_mismatch'
+          assert re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,79}', version), 'invalid_catalog_version'
+          assert json.loads(raw)['version'] == version, 'catalog_version_mismatch'
+          if os.environ['CATALOG_PUBLISH'] == 'true':
+              assert os.environ['REVIEWED_BY'].strip(), 'reviewer_required'
+              assert os.environ['REVIEW_REFERENCE'].startswith('https://'), 'review_reference_required'
+          print('Exact catalog version and SHA-256 verified; publication input checked')
+          PY
+      - name: Run private DEV operator command
+        shell: bash
+        run: |
+          set -euo pipefail
+          source infra/dev/operator-ssh.sh
+          dev_ssh_config ktor
+          work=$(dev_ssh 'mktemp -d /tmp/speaky-catalog.XXXXXXXX')
+          [[ "$work" =~ ^/tmp/speaky-catalog\.[A-Za-z0-9]+$ ]]
+          trap 'dev_ssh "rm -rf $work" >/dev/null 2>&1 || true' EXIT
+          umask 077
+          python3 - "$RUNNER_TEMP/catalog-input.json" <<'PY'
+          import json, os, sys
+          with open(sys.argv[1], 'w') as output:
+              json.dump({'version': os.environ['CATALOG_VERSION'],
+                         'sha256': os.environ['CATALOG_SHA256'],
+                         'publish': os.environ['CATALOG_PUBLISH'] == 'true',
+                         'reviewer': os.environ['REVIEWED_BY'],
+                         'reviewReference': os.environ['REVIEW_REFERENCE']}, output)
+          PY
+          scp "${ssh_options[@]}" learning-catalog/v1/catalog.json infra/dev/catalog-release-remote.py \
+            "$RUNNER_TEMP/catalog-input.json" "$ssh_target:$work/"
+          dev_ssh "flock /var/lock/speaky-release-dev.lock python3 $work/catalog-release-remote.py $work"

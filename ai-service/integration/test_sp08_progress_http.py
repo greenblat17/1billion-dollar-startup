@@ -110,7 +110,7 @@ async def test_analysis_evidence_progress_public_api_and_dispute_replay_forgetti
         assert await f.apply(job,result,scope,operation)=={'status':'succeeded'}
         completed=await progress(f)
         assert [s['status'] for s in completed['steps']]==['completed','current']
-        subprocess.run(['node',str(Path(__file__).resolve().parents[2]/'mini-app/tests/helpers/render-api-progress.mjs')],
+        subprocess.run(['node', '--experimental-vm-modules', str(Path(__file__).resolve().parents[2]/'mini-app/tests/helpers/render-api-progress.mjs')],
                        input=json.dumps(completed),text=True,capture_output=True,check=True,timeout=10)
         assert (await f.contexts.build(f.operator,'text')).data['progress']==completed
         assert (await progress(f,str(time.time_ns())))['steps']==[]
@@ -124,7 +124,7 @@ async def test_analysis_evidence_progress_public_api_and_dispute_replay_forgetti
         pending_scope,pending_result=await f.compute(pending)
         with pytest.raises(BackendFailure,match='insufficient_progress_evidence'):
             await f.apply(pending,pending_result,pending_scope)
-        await f.command('memory.forget',dict(category='learning',key='goal',expectedVersion=1))
+        await f.command('learning.forget',dict(expectedRevision=1))
         # New identity scope after epoch revocation; public progress uses current identity automatically.
         cleared=await progress(f)
         assert cleared['status']=='no_roadmap' and cleared['steps']==[]

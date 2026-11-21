@@ -17,9 +17,13 @@ class SpeedMessagesTest {
         assertEquals(0.9, parseSpeedCallback("speed:0.9"))
         assertEquals(1.0, parseSpeedCallback("speed:1.0"))
         assertNull(parseSpeedCallback("speed:0.85"))
+        assertNull(parseSpeedCallback("speed:0.90"))
         val buttons = speedKeyboard(0.9).keyboard.map { row -> row.single() as CallbackDataInlineKeyboardButton }
+        assertEquals(
+            listOf("Slower · 0.8×", "✓ Comfortable · 0.9×", "Normal · 1.0×"),
+            buttons.map { it.text },
+        )
         assertEquals(listOf("speed:0.8", "speed:0.9", "speed:1.0"), buttons.map { it.callbackData })
-        assertTrue(buttons[1].text.startsWith("✓ "))
         assertTrue(speedMessage(0.9).contains("0.9×"))
     }
 }

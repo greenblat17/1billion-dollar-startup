@@ -1,0 +1,110 @@
+{
+  "regular": {
+    "analysisStatus": "queued",
+    "browserEvents": [
+      [
+        "websocket.accept",
+        "connected",
+        "audio_start",
+        "pcm",
+        "interrupt",
+        "user_turn_complete"
+      ],
+      [
+        "websocket.accept",
+        "connected",
+        "audio_start",
+        "pcm",
+        "audio_end",
+        "user_turn_complete",
+        "audio_start",
+        "pcm",
+        "audio_end",
+        "finished",
+        "websocket.close"
+      ]
+    ],
+    "disconnectedStatus": "in_progress",
+    "endedEarly": true,
+    "finalStatus": "completed",
+    "history": [
+      [
+        "user",
+        "I like quiet hiking trails."
+      ],
+      [
+        "assistant",
+        "Tell me about your favorite route."
+      ],
+      [
+        "user",
+        "Давай закончим урок."
+      ],
+      [
+        "assistant",
+        "До встречи!"
+      ]
+    ],
+    "outcome": "natural_goodbye",
+    "sequences": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "trial": {
+    "analysisStatus": "queued",
+    "browserEvents": [
+      [
+        "websocket.accept",
+        "connected",
+        "audio_start",
+        "pcm",
+        "interrupt",
+        "user_turn_complete"
+      ],
+      [
+        "websocket.accept",
+        "connected",
+        "audio_start",
+        "pcm",
+        "audio_end",
+        "user_turn_complete",
+        "audio_start",
+        "pcm",
+        "audio_end",
+        "finished",
+        "websocket.close"
+      ]
+    ],
+    "disconnectedStatus": "in_progress",
+    "endedEarly": true,
+    "finalStatus": "completed",
+    "history": [
+      [
+        "user",
+        "I like quiet hiking trails."
+      ],
+      [
+        "assistant",
+        "Tell me about your favorite route."
+      ],
+      [
+        "user",
+        "Давай закончим урок."
+      ],
+      [
+        "assistant",
+        "До встречи!"
+      ]
+    ],
+    "outcome": "learner_requested",
+    "sequences": [
+      1,
+      2,
+      3,
+      4
+    ]
+  }
+}

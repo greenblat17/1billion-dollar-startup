@@ -169,7 +169,7 @@ class HttpSpeakingCoachClientTest {
                 addHandler {
                     when (val status = statuses.removeFirst()) {
                         HttpStatusCode.OK -> respond(
-                            content = """{"sessionId":"app-1","steps":[{"metric":"Grammar","score":78,"lead":"l","bullets":[],"examples":[],"tip":"t"}]}""",
+                            content = """{"sessionId":"app-1","steps":[{"metric":"Grammar","score":78,"lead":"l","tip":"t"}]}""",
                             status = status,
                             headers = jsonHeaders,
                         )
@@ -184,6 +184,8 @@ class HttpSpeakingCoachClientTest {
         val ready = client.pollReview("app-1")
         assertTrue(ready is ReviewPoll.Ready)
         assertEquals("Grammar", ready.steps.single().metric)
+        assertEquals(emptyList(), ready.steps.single().bullets)
+        assertEquals(emptyList(), ready.steps.single().examples)
         assertEquals(ReviewPoll.TooShort, client.pollReview("app-1"))
         http.close()
     }

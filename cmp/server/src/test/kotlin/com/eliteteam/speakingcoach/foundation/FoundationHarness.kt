@@ -11,6 +11,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import java.time.Instant
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonObject
 
 /** Test classpath only. Never packaged in the production JAR. */
@@ -19,6 +22,14 @@ fun main() {
     val token = requireNotNull(System.getenv("SP00_TEST_TOKEN"))
     val port = requireNotNull(System.getenv("SP00_TEST_PORT")).toInt()
     val service = FoundationService(FoundationDatabase(url))
+    System.getenv("SP02_TEST_CATALOG")?.let { path ->
+        val fixture = LearningCatalogModel.parse(Files.readString(Path.of(path))).copy(version = "synthetic-catalog-v1")
+        runBlocking {
+            val catalog = LearningCatalog(service.database)
+            catalog.import(LearningCatalogModel.document(fixture).toString())
+            catalog.publish(fixture.version, "test-harness", "synthetic fixture; not human content acceptance")
+        }
+    }
     val server = embeddedServer(Netty, host = "127.0.0.1", port = port) {
         routing {
             foundationRoutes(service, token)

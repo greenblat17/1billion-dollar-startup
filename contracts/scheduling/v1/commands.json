@@ -1,0 +1,35 @@
+{
+  "description": "Requests produced by the text tutor for individual Trial and Regular lesson changes. This contract pins the producer's fields and the stable projection of Ktor's lesson response.",
+  "version": 1,
+  "path": "/internal/foundation/v1/commands",
+  "method": "POST",
+  "headers": ["X-Internal-Token", "X-Execution-Scope"],
+  "request": {"version": "integer", "operationId": "string", "action": "string", "args": "object"},
+  "requestEvidence": {"sourceId": "string", "evidence": "string"},
+  "success": {"ok": [true], "result": "object"},
+  "failure": {"ok": [false], "error": "string"},
+  "lesson": {
+    "id": "string", "student_id": "string", "status": "string", "kind": ["trial", "regular"],
+    "starts_at": "string", "timezone": "string", "duration_minutes": "integer",
+    "version": "integer", "timing": ["now", "scheduled"], "launch_mode": ["executable"]
+  },
+  "commands": {
+    "lesson.create": {
+      "trial": {"kind": ["trial"], "durationMinutes": "integer", "startsAt": "string", "timezone": "string", "launchMode": ["executable"], "timing": ["now", "scheduled"]},
+      "regular": {"kind": ["regular"], "durationMinutes": "integer", "startsAt": "string|null", "delayMinutes": "integer|null", "timezone": "string", "launchMode": ["executable"], "timing": ["now", "after", "scheduled"]},
+      "missingFieldCheck": {"field": "durationMinutes", "error": "invalid_durationMinutes"}
+    },
+    "lesson.reschedule": {
+      "trial": {"lessonId": "string", "expectedVersion": "integer", "startsAt": "string", "timezone": "string", "launchMode": ["executable"], "timing": ["now", "scheduled"]},
+      "regular": {"lessonId": "string", "expectedVersion": "integer", "startsAt": "string|null", "delayMinutes": "integer|null", "timezone": "string", "launchMode": ["executable"], "timing": ["now", "after", "scheduled"]},
+      "missingFieldCheck": {"field": "expectedVersion", "error": "invalid_expectedVersion"}
+    },
+    "lesson.cancel": {
+      "trial": {"lessonId": "string", "expectedVersion": "integer"},
+      "regular": {"lessonId": "string", "expectedVersion": "integer"},
+      "missingFieldCheck": {"field": "sourceId", "error": "missing_sourceId"}
+    }
+  },
+  "reads": { "lesson.list": { "args": {}, "requiredResult": ["lessons"] } },
+  "errors": {"invalid_durationMinutes": 400, "invalid_expectedVersion": 400, "missing_sourceId": 400, "invalid_evidence": 400, "version_conflict": 409, "operation_conflict": 409}
+}

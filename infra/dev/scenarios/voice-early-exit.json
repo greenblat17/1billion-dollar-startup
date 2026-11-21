@@ -1,0 +1,8 @@
+{
+  "turns": [
+    {"text": "Hi, I work in IT and feel nervous when I speak in meetings. Can we start slowly?"},
+    {"text": "This is difficult. Could you use simpler words? And what is my level from this conversation?"},
+    {"text": "Thank you. I need to leave now. Please end this lesson."}
+  ],
+  "expectFinished": true
+}

@@ -64,13 +64,12 @@ Telegram **cannot** use local HTTP polling; webhook needs public HTTPS + cert.
 
 ### CI
 
-- `.github/workflows/cmp.yml` — detekt, Android/Desktop/iOS packages, `:server:test` + `buildFatJar`. **Деплоя нет.** Client packages bake `SPEAKING_COACH_API_BASE_URL=https://$DEV_CMP_SERVER_HOST` (PRs/feature; `PROD_CMP_SERVER_HOST` on `main`). Tests do not need the URL.
-- `.github/workflows/ai-service.yml` — pytest, upload app. **Деплоя нет.** Redis не трогает.
-- `.github/workflows/redeploy.yml` — **Redeploy DEV** (`workflow_dispatch`, `DEV_*`). Inputs `cmp_server`, `ai_server`, `mini_app` (все default on); `billing_mock` и `tutor_smoke` — opt-in. Выключенная — job skipped, workflow зелёный.
-- `.github/workflows/redeploy-prod.yml` — **Redeploy PROD**, только backend/AI, secrets `PROD_*`. Ветка задаёт код, workflow destination задаёт хост. Deployments: environment `deploy-dev` / `deploy-prod`; актуальные approval rules проверять отдельно. Concurrency на хост (`ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`), `cancel-in-progress: false`.
-- `.github/actions/setup-cmp` — Zulu JDK 21, Gradle cache.
+- [Speaky CI](../../.github/workflows/ci.yml) проверяет PR к `dev` и `main`.
+- [Runtime checks](../../.github/workflows/runtime-checks.yml) проверяет Ktor, Python, Mini App и Foundation на PostgreSQL. Состав проверок зависит от runtime выбранного коммита.
+- [Build Speaky release](../../.github/workflows/build-release.yml) запускает те же проверки и упаковывает готовые образы с манифестом.
+- [TutorStore migration check](../../.github/workflows/tutor-store-migration-check.yml) вручную проверяет импорт на временных PostgreSQL и Redis.
 
-Python 3.12. Dockerfiles install ffmpeg in ai-service image.
+Python 3.12. Сборка Ktor использует JDK 21. Dockerfile AI устанавливает FFmpeg.
 
 ### Legacy STT / TTS implementation notes
 
@@ -89,20 +88,21 @@ Python 3.12. Dockerfiles install ffmpeg in ai-service image.
 
 Каталог ниже включает настройки сохранённого legacy/deploy кода. Для нового startup обязательные параметры перечислены в разделе SP-00; GROQ_API_KEY и Redis ему не нужны. Здесь имена, роль и вид значения. Сами секреты, пароли, токены и строки `GROQ_BASE_URL` / `OPENAI_BASE_URL` с хостов сюда не копируются.
 
-Legacy-шаблон имён: [`.env.example`](../../.env.example); он не перечисляет все новые foundation/Realtime/billing параметры, которые приведены ниже. Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`. Выкат: `.github/workflows/deploy-cmp-server.yml`, `deploy-ai-server.yml`.
+Legacy-шаблон имён: [`.env.example`](../../.env.example); он не перечисляет все новые foundation/Realtime/billing параметры, которые приведены ниже. Чтение в коде: `cmp/server/.../AppConfig.kt` и `ai-service/app/config.py`.
 
 Каталог описывает назначение настроек; наличие и значения в живых окружениях здесь не утверждаются.
 
-### Как это упаковано
+### Runtime-конфигурация на хостах
 
-На VPS два разных файла, не один общий:
+Готовые образы получают конфигурацию от текущих контейнеров и файлов на хосте.
+Следующая таблица описывает источник этих файлов в прежних workflow до перехода:
 
-| Файл на хосте | Откуда берётся при Redeploy |
+| Файл на хосте | Источник в прежней схеме |
 | --- | --- |
 | `/opt/speaking-coach/.env` | целиком из `DEV_CMP_SERVER_ENV` или `PROD_CMP_SERVER_ENV` |
 | `/opt/ai-service/.env` | из `DEV_AI_SERVER_ENV` или `PROD_AI_SERVER_ENV`; Kora H дописывается отдельным секретом списка |
 
-Секреты GitHub — repository Actions secrets, не Environment secrets. Отдельных ячеек `GROQ_API_KEY` или `TELEGRAM_BOT_TOKEN` в Actions нет: эти ключи живут внутри блоба. Исключение — `METRICS_PASSWORD`: это отдельная ячейка, и выкат CMP вырезает такую строку из блоба и дописывает значение из ячейки.
+В прежней схеме эти значения хранились в repository Actions secrets. Отдельных ячеек `GROQ_API_KEY` или `TELEGRAM_BOT_TOKEN` в Actions нет: эти ключи живут внутри блоба. Исключение — `METRICS_PASSWORD`: это отдельная ячейка, и выкат CMP вырезает такую строку из блоба и дописывает значение из ячейки.
 
 `AI_INTERNAL_TOKEN` по контракту выката один и тот же в блобе CMP и в блобе AI.
 
@@ -167,7 +167,7 @@ JWT, metrics, audit и load-test routes не подключены к Speaky root
 
 ### AI: legacy voice env
 
-Следующая таблица описывает сохранённый `app.main`, не shipping `app.speaky_main`. Активные настройки — в разделах SP-00 и SP-02.
+Следующая таблица описывает настройки сохранённого `app.legacy.main`. Активные настройки приведены в разделах SP-00 и SP-02.
 Старт legacy требует `GROQ_API_KEY`, `OPENAI_API_KEY` и `AI_INTERNAL_TOKEN`. `TTS_PROVIDER` бывает только `openrouter` или `deepgram`.
 
 | Ключ | Что задаёт | Что в значении | Если ключа нет |
@@ -237,8 +237,11 @@ JWT, metrics, audit и load-test routes не подключены к Speaky root
 Доступ к текстовому tutor runtime не проверяет voice allowlist. В deploy workflow `KORA_H_ALLOWLIST`
 для старых голосовых возможностей допускает числовой список или `*`; пустой список выключает их флаг.
 `ONBOARDING_REVIEW_MODEL` и fallback не управляют моделью Саши.
-Активный root использует `OpenAiChatModel` с `KORA_MODEL` для FoundationTutor, selector и learning;
-не запускает старый voice pipeline и не требует `GROQ_API_KEY`/Redis. [Текущий контракт](tutor-chat.md).
+Активный root использует `KORA_MODEL` для обычного чата, selector и learning.
+`STAGE1_MODEL` задаёт модель ответов знакомства. Без этой настройки используется `KORA_MODEL`
+с текущим значением Sonnet 4.6 на DEV. Для Luna через Chat Completions задаётся `reasoning.effort=none`.
+Параметр `temperature` для Luna пропускается, чтобы OpenRouter мог выбрать endpoint для запроса.
+Активный root не требует `GROQ_API_KEY` или Redis. [Текущий контракт](tutor-chat.md).
 
 ## Monitoring
 
@@ -345,49 +348,58 @@ TLS и CA trust проверяются без отключения провер�
 AI: `/opt/ai-service/` (runtime, `.env`, `8090.allow`, backend CA при необходимости).
 Не удалять контейнеры хранилищ/volumes при рестарте приложений. Не запускать старый Redis deploy как условие Speaky startup.
 
-### Тесты авто, выкат только Redeploy
+### Активировать выкладку готовых образов
 
-`push` / `pull_request` по path: **CMP** (`cmp/**`, `infra/server/**`) и **AI service** (`ai-service/**`, `infra/ai-service/**`, `infra/redis/**`) — package и тесты. На сервер не едут.
+Код workflow в PR #58 добавлен к `dev`. Для работы кнопок опубликуйте новые workflow и
+доверенные скрипты на default branch `main` в рамках отдельного перехода.
+Подготовьте существующие контейнеры, базы, TLS, edge и конфигурацию хостов до активации.
 
-Выкат — два `workflow_dispatch`, ветка раннер не выбирает:
+1. Ограничьте `deploy-dev` и `deploy-prod` веткой `main`. Настройте ревьюеров для допуска кандидатов DEV и подтверждения PROD. Защитите изменения workflow на `main`.
+2. В каждом environment задайте secrets `SPEAKY_RELEASE_KTOR_HOST`, `SPEAKY_RELEASE_KTOR_USER`,
+   `SPEAKY_RELEASE_KTOR_SSH_KEY` и такие же `SPEAKY_RELEASE_AI_*`. В
+   `SPEAKY_RELEASE_KNOWN_HOSTS` поместите проверенные host keys с aliases
+   `speaky-dev-cmp` / `speaky-dev-ai` или `speaky-prod-cmp` / `speaky-prod-ai`.
+3. Задайте environment var `SPEAKY_RELEASE_RUNTIME_FAMILY` по проверенному runtime.
+   Для DEV Mini App задайте `SPEAKY_RELEASE_MINIAPP_URL` с путём `/miniapp`.
+   Для активации выставьте `SPEAKY_RELEASE_ENABLED=true` в нужном environment.
+4. Переключите CLI и панель BB на `ref: main`, а также inputs `release_run_id`
+   и `components`. Для кандидатов DEV выбирайте SHA в **Build Speaky release**.
+   Переход на готовые образы и переход PROD на Foundation согласуйте отдельно.
+5. После переключения потребителей отзовите прежние SSH-ключи выкладки и
+   удалите старые deploy secrets из repository scope. Проверьте старые refs
+   и ручные workflow, которые ещё могли пользоваться этими ключами.
 
-- [`.github/workflows/redeploy.yml`](../../.github/workflows/redeploy.yml) — **Redeploy DEV**, `destination: dev`, secrets `DEV_*`
-- [`.github/workflows/redeploy-prod.yml`](../../.github/workflows/redeploy-prod.yml) — **Redeploy PROD**, `destination: prod`, secrets `PROD_*`
+Если DEV работает на Foundation, а PROD на legacy, продвижение в PROD блокируется.
+Для legacy нужна согласованная проверка на совместимом DEV или отдельный переход PROD
+на Foundation. Сначала подтвердите фактический runtime обоих окружений.
 
-DEV: `cmp_server`, `ai_server`, `mini_app`; PROD: backend/AI без отдельного Mini App workflow.
-Отключённая компонента даёт skipped; общий success не доказывает её поставку.
-Выбранный git ref задаёт код, workflow destination — окружение. Проверять оба до запуска.
-Секреты — repository Actions secrets; фактические права/approval проверять на GitHub при поставке.
+### Выложить релиз
 
-Concurrency: `ktor-prod` / `ktor-dev` / `ai-prod` / `ai-dev`, `cancel-in-progress: false` (очередь, не cancelled).
+1. Для кандидата DEV запустите **Build Speaky release** на `main` с полным
+   `source_sha`. После push в `main` сборка запускается автоматически.
+2. Возьмите ID успешного Build run. Запустите [Redeploy DEV](../../.github/workflows/redeploy.yml)
+   с этим ID и `components=all` либо списком через запятую, например `ktor,ai`.
+   Для DEV Foundation `all` включает Ktor, AI и Mini App.
+3. Для PROD используйте [Redeploy PROD](../../.github/workflows/redeploy-prod.yml) на
+   `main`. Введите ID сборки после push в `main`. Её DEV receipt должен
+   подтверждать те же артефакты выбранных компонентов. В PROD доступны Ktor и AI.
+4. Откройте summary. Для каждого компонента проверьте статус и ID образа.
+   При ошибке после активации Ktor проверьте текущее состояние и схему до восстановления.
 
-Имена DEV/PROD secrets и состав env приведены в [каталоге конфигурации](#переменные-окружения-speaky).
+Манифест и архивы хранятся 30 дней. Успешный rerun создаёт новую попытку релиза.
+Используйте результат текущей попытки. DEV receipt от предыдущей попытки не подтверждает новую.
 
-Пустой env blob останавливает поставку до SSH. TLS/CA и import marker должны быть готовы до старта.
-CMP Android/iOS/Desktop не поставляются как Mini App. Foundation jobs и receipts долговечны в PostgreSQL;
-provider-сессия и непереданные браузерные буферы при рестарте не сохраняются.
+Очередь действует на всё окружение. Redeploy загружает все выбранные образы перед
+активацией. Flyway остаётся частью запуска Ktor. Для повторной выкладки используйте
+тот же ID. Для восстановления на предыдущую версию сначала проверьте её схему и совместимость.
 
-Если Docker Hub отвечает `429 Too Many Requests` при проверке базового образа, DEV/PROD deploy-скрипты могут собрать новую версию из локального `ai-service:local` или `speaking-coach:local`. Контейнеры заменяются только после успешной сборки. Для AI запасной путь разрешён лишь при точном совпадении `requirements.txt` с установленным образом; он заменяет каталог `app` целиком. Если локального образа нет или зависимости изменились, деплой завершается ошибкой без замены работающего контейнера. Такой путь нужен для кратковременного лимита Docker Hub и не скрывает другие ошибки сборки.
+### Проверить окружение без выкладки
 
-### Ручной деплой
-
-При отдельно разрешённой ручной поставке используйте `infra/server/deploy-remote.sh`,
-`infra/ai-service/deploy-remote.sh` и `infra/miniapp/deploy-remote.sh` с согласованными артефактами.
-Сначала проверить backup, schema, import marker, CA и совместимость всех трёх компонентов.
-Обычный рестарт не должен создавать пустую замену БД или переписывать источник конфигурации.
-
-### Проверка DEV
-
-Redeploy DEV поддерживает `verify_only`: он проверяет без пересборки и рестарта.
-Readiness использует скрипт выбранного ref и expected SHA; отдельно сверять ревизию каждого артефакта.
-SSH использует сохранённые host keys из `infra/dev/known_hosts`.
-Workflow сравнивает digest артефактов, проверяет контейнеры, startup markers, AI/CMP health,
-CMP→AI auth и foundation context. Предыдущие image IDs записываются до замены контейнеров.
-
-Опциональный `tutor_smoke` вызывает платную модель. Он не является обычной health-проверкой;
-в документационной задаче его не запускают. На degraded-ответе smoke останавливается без ретраев.
-Зелёный readiness не означает приёмку диалога или Telegram UX.
-[Последнее зафиксированное состояние DEV](../status.md) хранятся отдельно от инструкции.
+Запустите [DEV diagnostics](../../.github/workflows/dev-diagnostics.yml) на `main`.
+Живые проверки выполняет [DEV acceptance](../../.github/workflows/dev-acceptance.yml).
+Готовность контейнеров и проверка внутреннего API входят в отчёт Redeploy.
+Состояние действующего DEV фиксируется в [status.md](../status.md).
+См. [DEV-операции](dev-operator-workflows.md) и [обслуживание инфраструктуры](infrastructure-maintenance.md).
 
 ## Режимы Ktor и техническая диагностика
 
@@ -455,7 +467,7 @@ Redis и его серверные данные не удалять. Перен�
 - `FOUNDATION_BACKEND_URL` должен быть доступен из AI-контейнера. Loopback мониторинга backend доступен только в его сетевом namespace.
 - Адрес backend — origin без API path; клиент сам добавляет `/internal/foundation/v1`. При самоподписанном TLS сертификат CMP копируется через проверенный SSH в `/opt/ai-service/foundation-backend-ca.pem` на AI. Deploy монтирует его read-only и задаёт `FOUNDATION_BACKEND_CA_FILE`; Python добавляет его к системным CA только для backend HTTP-клиента. Проверка hostname/TLS остаётся включённой. При смене сертификата обновить этот файл до redeploy.
 - `requirements.txt` не содержит Redis. Только offline export и сохранённый legacy используют `requirements-legacy.txt`.
-- Старый `app.main` не запускать одновременно с новым текстовым путём. Автоматического возврата к Redis при ошибке нет.
+- Старый FastAPI runtime доступен через `app.legacy.main:create_app` и прежний `app.main:create_app`. Запускайте его отдельно от нового текстового пути.
 - Старые PG adapters и промежуточные legacy-таблицы не зарегистрированы в новом runtime. Их перенос не является условием запуска.
 
 ### Offline TutorStore cutover
@@ -515,7 +527,7 @@ FoundationDatabase/Flyway и выдаёт operator scope; для строго re
 Lease/fence блокируют старый worker после повторного claim; invalid source/epoch нельзя обойти повтором.
 `delivery_unknown` нельзя повторять автоматически: сначала установить внешний исход доставки.
 Для Telegram reply неизвестная доставка также не означает «не отправлено».
-Shipping LearningEngine выполняет lesson.evaluate, roadmap.prepare и lesson.prepare.
+[Карта задач урока](lesson-results.md) описывает результаты LearningEngine, входные ссылки и переходы Ktor.
 Расписание/напоминания исполняет TrialWorker; старые foundation job kinds `schedule.materialize`
 и `notification.reminder` без зарегистрированного business handler возвращают `handler_unavailable`.
 При отсутствии нужной evaluation/актуального Lesson Plan admission блокируется. Платёжные сроки и grace автоматически не выводятся.
@@ -554,8 +566,11 @@ GRADLE_USER_HOME=$HOME/.gradle scripts/test-foundation.sh
 ```
 
 При необходимости задать `FOUNDATION_TEST_PYTHON` абсолютным путём к Python.
-Runner запускает обязательные PG-тесты и отдельный Ktor test harness, затем HTTP-сценарии Python↔Ktor.
-Основной suite не требует Redis. Отдельная rehearsal-проверка требует изолированный Redis:
+Runner запускает обязательные PG-тесты, отдельный Ktor test harness и HTTP-тесты из
+`ai-service/integration/`. Для нового теста в этом каталоге достаточно имени `test_*.py`.
+Основной набор работает без Redis. `FOUNDATION_TEST_SUITE=legacy` запускает HTTP-проверки
+сохранённых PostgreSQL-адаптеров на тестовых маршрутах.
+Для проверки импорта запустите отдельный тестовый Redis и задайте его адрес.
 
 ```bash
 FOUNDATION_TEST_SUITE=migration \
@@ -657,36 +672,86 @@ HTML/assets → frontend, API/diagnostics/voice → AI. Остальные inter
 Исторический 401 до установки frontend не является успешной проверкой текущего Mini App.
 Тестовый sslip.io hostname не заменяет выбор постоянного домена.
 
-### Разделение Kotlin-проверок SP-02
+<a id="разделение-kotlin-проверок-sp-02"></a>
 
-`:server:test` запускает обычные тесты без PostgreSQL. `FoundationIntegrationTest` и `TrialIntegrationTest`
-запускаются только через `:server:foundationIntegrationTest` с обязательным `TEST_POSTGRES_URL`.
-Их выполняет workflow Foundation integration и `scripts/test-foundation.sh`; отсутствие базы там остаётся ошибкой.
-Это исправляет падение шести trial-тестов при package-server в Redeploy DEV run 43196289189.
+### Kotlin-тесты с PostgreSQL и без него
+
+- `./gradlew :server:test` не требует базы. Часть сохранённых тестов аналитики использует PostgreSQL,
+  если задан `TEST_POSTGRES_URL`.
+- `./gradlew :server:foundationIntegrationTest` проверяет Foundation, уроки и учебное состояние на PostgreSQL.
+  Укажите `TEST_POSTGRES_URL` для отдельной тестовой базы. Без неё задача завершится ошибкой.
+- `./gradlew :app:shared:jvmTest` проверяет общую логику CMP-клиента на JVM.
+
+Обе задачи Ktor используют один шаблон имени в [build.gradle.kts](../../cmp/server/build.gradle.kts).
+Тест Foundation с PostgreSQL должен лежать в пакете `foundation` и иметь `IntegrationTest` в имени класса.
+Workflow Foundation integration запускает [test-foundation.sh](../../scripts/test-foundation.sh),
+который также прогоняет HTTP-проверки Python → Ktor → PostgreSQL. В набор входят
+контракт голоса, контракт расписания, повторы уроков и проверка записей анализа.
+Для теста backup/restore задайте `PG_DUMP` и `PG_RESTORE` с версией, совместимой с тестовым сервером.
+Разделение задач устранило сбой шести trial-тестов в `package-server` на DEV, run 43196289189.
 
 
-## Поиск причины сбоя SP-02
+## Диагностика Speaky
 
-События `runtime_event` содержат trace_id; голосовые — также lesson_id/call_session_id.
-`provider_failed` и неуспешный `provider_stream` содержат безопасные поля provider_error,
-HTTP status, request ID и Retry-After, если провайдер их вернул. `error_id` связывает экран ошибки с серверной записью.
-В Loki ищите сначала error_id или lesson_id, затем trace_id среди обоих сервисов:
+AI и Ktor пишут [общий JSON v1](../../contracts/logging/v1/envelope.json). `message` описывает действие и исход.
+`component`, `environment`, `release` и UTC-время показывают место записи. Поставка передаёт ревизию из checkout.
+Неизвестные необязательные значения имеют `null`. `failure_class` различает ожидаемый отказ, временную ошибку,
+неожиданный сбой и отмену. Он описывает наблюдение, а повторы определяет контракт операции.
+Стек содержит имена кадров и номера строк и остаётся на первом зарегистрированном уровне.
+Успешные записи аудиопакетов, heartbeat и playback не создают отдельные строки.
+Для них используйте интервальные счётчики `trial_audio_state`.
+
+### Ручной поиск
+
+1. Скопируйте «Код ошибки» с экрана Mini App или `X-Error-ID` из HTTP-ответа. Для принятого HTTP-запроса
+   в ответе также есть `X-Diagnostic-Trace` и `X-Request-ID`. Для звонка без ответа сервера возьмите
+   UUID `attemptId` из первого WebSocket-сообщения, не копируя остальные поля. Тот же UUID несёт
+   отдельный клиентский отчёт `miniapp_failed`. Ищите UUID в `client_attempt_id`. При отсутствии сети отчёт может не дойти.
+2. Найдите строку по `error_id`, затем повторите запрос по её `trace_id`. Один сокет сохраняет этот server trace.
+   Для смены WebSocket
+   ищите все эпизоды по `lesson_id`, для одного эпизода — по `call_session_id`.
+3. Фоновая работа имеет отдельный trace — первые 32 знака SHA-256 от ID job или уведомления.
+   Свяжите урок и worker по `lesson_id`, затем смотрите `job_id` и `fence` для конкретной попытки.
+   `failure_persisted` показывает фактический `job_status`: `retry_wait` или `failed`.
+   `persist` с `succeeded` или `superseded` появляется после подтверждения транзакции.
+   `renewals` содержит число штатных продлений аренды в итоге попытки. Потеря аренды имеет этап `renew`.
+   Для Roadmap ищите `initial_roadmap_delivery`. Для Review — `lesson.review` и `post_lesson_review`
+   на передаче сохранённого результата через Foundation snapshot.
 
 ```logql
-{service_name=~"ai-service|speaking-coach"} |= "runtime_event" |= "<trace_id>"
+{service_name=~"ai-service|speaking-coach"} |~ "runtime_event|provider_call|tutor_tool" |= "<error_id or trace_id>"
 ```
 
-На хосте без Loki:
+Без Loki выполните на соответствующем хосте `docker logs --since 15m ai-service 2>&1 | rg -F '<id>'`
+или `docker logs --since 15m speaking-coach 2>&1 | rg -F '<id>'`. Доступ к логам операторский.
+В **DEV diagnostics** передайте ID ошибки, ID звонка или время и ID задачи.
+Чтение показывает только разрешённые поля.
+Внутренние `/diagnostics` и `/jobs` по-прежнему требуют service token и operator scope.
 
-```sh
-docker logs --since 15m ai-service 2>&1 | rg 'runtime_event|provider_call|tutor_tool'
-docker logs --since 15m speaking-coach 2>&1 | rg 'runtime_event'
-```
+### Примеры безопасных цепочек
 
-`miniapp_failed` — клиентский отчёт с проверенной Telegram auth, но его code описывает наблюдение браузера,
-а не доказанную причину сервера. Он доставляется отдельно от WebSocket; при полном отсутствии сети доставка невозможна.
-Не включайте HTTP debug с заголовками/телами для расследования: initData, scopes и API keys не должны попадать в логи.
+| Сценарий | Последовательность |
+| --- | --- |
+| SP-14, 400 с деталями | `provider_failed` / `response`: `http_status=400`, `provider=openrouter`, `provider_error.code=invalid_json_schema`, `provider_error.type=invalid_request_error`, `provider_error.field=response_format.json_schema.schema`. Если доступны, есть `upstream`, `provider_request_id`, имя и SHA-256 схемы. Затем `sp14_assessment_rejected` / `provider` с тем же `error_id`. |
+| SP-14, общий 400 | `provider_error.code="400"`, `provider_details_missing=["type","field","upstream","request_id"]` при отсутствии этих полей. Схема, её имя и хеш описывают отправленную форму. Исторические [прогон 44232148052](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44232148052) и [диагностика 44234169942](https://github.com/greenblat17/1billion-dollar-startup/actions/runs/44234169942) не установили причину. Новый лог должен оставлять её неизвестной и в отдельном таком же probe. При отказе SP-14 даёт подсказку без вердикта и без записи оценки. |
+| Сбой записи Observation | `backend_command_failed` / `persist` → `foundation_failed` / `persist` → `backend_failed` / `response`. При неизвестном результате существующее восстановление проверяет ту же операцию. Если запись по-прежнему не подтверждена, Mini App показывает `learning_observation_pending` и `errorId`. Ранее подтверждённая реплика остаётся в истории. |
+| Незавершённый голосовой ход | `trial_voice_input` / `speech_started` → `trial_disconnected` или `trial_session` / `closed` с `last_input_stage=speech_started`. Отсутствие `commit`, `transcript` и `response` показывает последнее наблюдаемое звено. Этого недостаточно, чтобы назвать причину остановки. |
 
+`runtime_event` остаётся основной меткой. Метки `provider_call` и `tutor_tool` сохраняют старые
+поля потребителей и используют общий JSON-контракт. Новые скрипты читают старые и новые строки. В активном AI runtime `user_id` в старой проекции
+приходит как `null`. Для расследования используйте `trace_id` вместо идентификатора пользователя.
+Фильтры, которые ищут только `runtime_event` для `provider_failed` или `tutor_failed`, расширьте
+на обе совместимые метки. Установите новые скрипты одновременно с сервисами или до них.
+Не включайте отладочный вывод заголовков, тел запросов и кадров. Свободный текст провайдера
+не попадает в диагностику. Неизвестные внешние коды, поля и ID могут быть отброшены.
+
+### Интеграция в CI
+
+Запустите существующий workflow **Foundation integration**. Его шаг `scripts/test-foundation.sh`
+при `TEST_POSTGRES_URL` из workflow запускает `:server:foundationIntegrationTest` и HTTP-harness.
+В `ai-service/integration/test_foundation_http.py::test_foundation_correlation_and_protected_diagnostics`
+проверяются заголовки корреляции и закрытый доступ. Повторно проверьте доставку stdout в Loki
+с обеих служб после выкладки. Локальные unit-тесты работают с подставными HTTP и WebSocket.
 
 ## Самостоятельный Mini App frontend
 
@@ -694,18 +759,12 @@ docker logs --since 15m speaking-coach 2>&1 | rg 'runtime_event'
 `mini-app/dist` не входит в AI image. Отдельный контейнер `mini-app` раздаёт артефакт через nginx:8080
 в Docker network `speaking-coach`; наружу порт не публикуется, secrets в frontend отсутствуют.
 
-Workflow **Deploy Mini App DEV** обновляет только frontend. В **Redeploy DEV** появился `mini_app`;
-при совместной поставке frontend и переключение edge завершаются до обновления AI.
-Первая миграция обязательна до выкладки AI без static routes. Public URL и MINI_APP_URL не меняются.
-Caddy направляет HTML/assets в mini-app, а `/miniapp/api`, `/miniapp/diagnostics`, `/miniapp/voice` — в AI.
-`install-edge.py` проверяет конфигурацию и меняет только собственный DEV vhost, сохраняет backup и
-возвращает конфигурацию при ошибке reload. Остальные сайты и auth не изменяются.
-
-Версия UI: `docker exec mini-app cat /usr/share/nginx/html/version.json`.
-Откат UI — запуск frontend workflow на предыдущем git ref; откат edge — сохранённый Caddyfile.before-mini-app-*.
-Frontend workflow использует существующие DEV_AI_SERVER_HOST/USER/SSH_KEY только для доставки.
-PROD frontend ещё требует отдельной схемы поставки; этот workflow работает только с DEV.
-
+В **Redeploy DEV** выберите `components=miniapp` для отдельной выкладки готового образа.
+URL и `MINI_APP_URL` задаёт edge. Caddy направляет HTML и assets в Mini App, а API,
+диагностику и Voice в AI. Изменение edge выполняется отдельно.
+Redeploy сверяет ревизию по `/version.json` внутри контейнера и SHA-256
+`/miniapp/assets/app.js` на публичном edge. Запрос без Telegram-подписи должен
+получить отказ авторизации от AI и Ktor через тот же edge.
 
 ### Realtime latency diagnostics
 
@@ -750,11 +809,8 @@ Mock worker продлевает due периоды раз в 30 секунд, �
 Не включать mock на PROD как платную подписку. Реальный провайдер, webhook verification,
 refunds и reconciliation требуют следующей реализации и отдельной приёмки.
 
-Для DEV workflow `Redeploy DEV` имеет opt-in `billing_mock=true`: он подставляет
-синтетические `100 TEST / 1 сутки` только в staging `.env`, не меняет GitHub secrets
-и проверяет конфигурацию после рестарта. PROD запрещён этой опцией. Последующий deploy
-без опции снова использует env secret; для продолжения DEV-теста передавайте опцию явно.
-
+Для DEV используйте [DEV test config](../../.github/workflows/dev-test-config.yml)
+для ограниченного по времени включения mock billing и агентского режима.
 
 ## SP-06–SP-08: jobs, память и прогресс
 

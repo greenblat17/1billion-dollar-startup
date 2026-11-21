@@ -1,0 +1,121 @@
+{
+  "description": "Canonical Python requests and Ktor replies for scoped voice commands. Optional arguments depend on the command and lesson. Ktor may accept legacy encodings outside this producer contract.",
+  "method": "POST",
+  "path": "/internal/foundation/v1/commands",
+  "headers": ["X-Internal-Token", "X-Execution-Scope"],
+  "version": 1,
+  "request": {"version": "integer", "operationId": "string", "action": "string", "args": "object"},
+  "sharedArgs": {"lessonId": "string", "callSessionId": "string"},
+  "success": {"ok": [true], "result": "object"},
+  "failure": {"ok": [false], "error": "string"},
+  "sharedErrors": {
+    "unauthorized": 401,
+    "scope_expired": 403,
+    "not_permitted": 403,
+    "not_owned": 403,
+    "operation_conflict": 409,
+    "invalid_payload": 400,
+    "unsupported_contract_version": 400,
+    "invalid_operation_id": 400,
+    "missing_args": 400,
+    "unknown_field": 400,
+    "request_too_large": 400,
+    "missing_action": 400,
+    "missing_operationId": 400,
+    "invalid_version": 400,
+    "missing_lessonId": 400,
+    "missing_callSessionId": 400,
+    "stale_episode": 400,
+    "result_expired": 400,
+    "storage_unavailable": 503,
+    "internal_error": 500
+  },
+  "commands": {
+    "voice.append": {
+      "missingFieldCheck": {"field": "body", "error": "missing_body"},
+      "args": {"sourceId": "string", "role": ["user", "assistant"], "body": "string", "occurredAt": "string"},
+      "description": "occurredAt is an ISO 8601 timestamp. v5.5 trials accept metadata and revision, which defaults to 1. Initial appends and replays include duplicate. A correction with a new revision omits duplicate.",
+      "trialArgs": {"metadata": "object", "revision": "integer"},
+      "trialMetadata": {
+        "providerItemId": "string",
+        "finality": ["final", "partial"],
+        "audioStartMs": "number",
+        "audioEndMs": "number",
+        "playbackComplete": "boolean",
+        "playedMs": "number",
+        "trialClosingOffer": "boolean",
+        "trialDialogueStage": ["greeting", "get_name", "explain_format", "roadmap_info", "regular_offer", "goodbye"],
+        "trialDialogueInterrupted": ["greeting", "get_name", "explain_format", "roadmap_info", "regular_offer", "goodbye"]
+      },
+      "result": {"eventId": "string", "sequence": "integer"},
+      "initialResult": {"duplicate": "boolean"},
+      "trialResult": {"rawEventId": "string", "revision": "integer"},
+      "errors": {
+        "missing_sourceId": 400,
+        "missing_role": 400,
+        "missing_body": 400,
+        "missing_occurredAt": 400,
+        "invalid_role": 400,
+        "invalid_event": 400,
+        "invalid_trial_dialogue_playback": 400,
+        "invalid_finality": 400,
+        "invalid_audio_span": 400,
+        "invalid_provider_item": 400,
+        "invalid_playback": 400,
+        "invalid_revision": 400,
+        "version_conflict": 409,
+        "source_expired": 400
+      }
+    },
+    "voice.end": {
+      "missingFieldCheck": {"field": "reason", "error": "missing_reason"},
+      "args": {"reason": ["natural_goodbye", "end_button", "technical_disconnect", "learner_requested"]},
+      "description": "learner_requested requires SP-24. SP-24 natural_goodbye requires wrapup. completed is true for natural_goodbye or an early exit from a v5.5 trial.",
+      "result": {"ended": [true], "completed": "boolean"},
+      "errors": {"missing_reason": 400, "invalid_reason": 400, "invalid_trial_phase": 400}
+    },
+    "voice.audio": {
+      "missingFieldCheck": {"field": "sequence", "error": "invalid_sequence"},
+      "args": {"direction": ["user", "assistant"], "sequence": "integer"},
+      "optionalArgs": {"metadata": "object"},
+      "description": "The caller supplies a nonnegative sequence and optional archive metadata. Ktor returns the reservation key before the caller writes PCM to object storage.",
+      "result": {"objectKey": "string"},
+      "errors": {"missing_direction": 400, "invalid_sequence": 400, "invalid_audio": 400}
+    },
+    "voice.audio_stored": {
+      "missingFieldCheck": {"field": "objectKey", "error": "missing_objectKey"},
+      "args": {"objectKey": "string"},
+      "result": {"stored": [true]},
+      "errors": {"missing_objectKey": 400, "audio_expired": 400}
+    },
+    "voice.heartbeat": {
+      "missingFieldCheck": {"field": "callSessionId", "error": "missing_callSessionId"},
+      "args": {},
+      "result": {"alive": [true], "trialExecution": "object|null"},
+      "trialExecution": {
+        "connectedSeconds": "integer",
+        "phase": ["warmup", "conversation", "wrapup"],
+        "plannedSeconds": "integer",
+        "reconnectBefore": "string",
+        "terminal": "boolean"
+      },
+      "sp24Execution": {
+        "connectedMs": "integer",
+        "conversationStartMs": "integer|null",
+        "conversationEndMs": "integer|null",
+        "offerSequence": "integer|null",
+        "regularReaction": "string|null"
+      },
+      "errors": {}
+    },
+    "voice.playback": {
+      "missingFieldCheck": {"field": "utteranceId", "error": "missing_utteranceId"},
+      "args": {"utteranceId": "string"},
+      "optionalArgs": {"complete": "boolean", "playedMs": "number"},
+      "producerRequired": ["complete", "playedMs"],
+      "description": "The caller reports playback with complete and playedMs. Ktor defaults them to false and null when omitted.",
+      "result": {"recorded": [true]},
+      "errors": {"missing_utteranceId": 400}
+    }
+  }
+}

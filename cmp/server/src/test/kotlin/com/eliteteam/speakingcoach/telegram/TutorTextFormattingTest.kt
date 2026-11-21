@@ -13,6 +13,27 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TutorTextFormattingTest {
+    @Test fun introductionUsesOnlyMeaningfulBlankLineBreaks() {
+        val answer = "Я ИИ-репетитор по английскому."
+        val question = "А в каких ситуациях тебе нужен английский?"
+        assertEquals(listOf(question), introductionTextParts(question).map { it.text })
+        assertEquals(listOf(answer, question),
+            introductionTextParts("$answer\r\n  \r\n$question").map { it.text })
+        assertEquals(listOf(answer, "Пробный бесплатный.\nОн длится около 30 минут.", question),
+            introductionTextParts("$answer\n\nПробный бесплатный.\nОн длится около 30 минут.\n\n$question").map { it.text })
+        assertEquals(listOf(answer, "Пробный бесплатный.", "Созвонимся.\n\n$question"),
+            introductionTextParts("$answer\n\nПробный бесплатный.\n\nСозвонимся.\n\n$question").map { it.text })
+    }
+
+    @Test fun longIntroductionFitsThreeMessagesWithoutLosingText() {
+        val source = "Привет.\n\n" + "😀".repeat(5900) + "\n\nКогда удобно?"
+        val parts = introductionTextParts(source)
+        assertEquals(3, parts.size)
+        assertEquals(source, parts.joinToString("") { it.text })
+        assertTrue(parts.all { it.text.length <= 4096 })
+        assertTrue(parts.none { it.text.last().isHighSurrogate() || it.text.first().isLowSurrogate() })
+    }
+
     @Test fun roadmapHeadingBecomesTelegramBoldInWirePayload() {
         val part = tutorTextParts("Маршрут готов!\n\n**1. Аудирование — приоритет №1**\nСлушаем A&B <video>.").single()
         assertEquals("Маршрут готов!\n\n1. Аудирование — приоритет №1\nСлушаем A&B <video>.", part.text)

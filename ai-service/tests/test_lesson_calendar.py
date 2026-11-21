@@ -39,7 +39,9 @@ def test_confirmation_uses_actual_date_timezone_and_duration():
     assert 'недоступен' not in text
 
 
-def test_calendar_api_authenticates_through_backend_and_uses_current_saved_time():
+def test_calendar_api_authenticates_through_backend_and_uses_current_saved_time(caplog):
+    import json
+    import logging
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from types import SimpleNamespace
@@ -48,9 +50,15 @@ def test_calendar_api_authenticates_through_backend_and_uses_current_saved_time(
     backend = SimpleNamespace(_request=AsyncMock(return_value={'lesson': lesson()}))
     app = FastAPI()
     install_trial_api(app, backend, None, None, None, None, None)
+    caplog.set_level(logging.INFO)
     response = TestClient(app).post('/miniapp/api', json={'action': 'calendar', 'lessonId': 'lesson-1', 'initData': 'signed'})
     assert response.status_code == 200
     assert response.json()['lesson']['id'] == 'lesson-1'
     assert 'DTSTART:20261114T160000Z' in response.json()['ics']
     backend._request.assert_awaited_once_with('POST', '/trial/access', '', json={
         'action': 'calendar', 'lessonId': 'lesson-1', 'initData': 'signed'})
+    [entry] = [json.loads(record.message.split('runtime_event ', 1)[1]) for record in caplog.records
+               if record.message.startswith('runtime_event ')]
+    assert (entry['event'], entry['operation'], entry['stage'], entry['outcome']) == (
+        'miniapp_calendar_export', 'miniapp.calendar', 'export', 'completed')
+    assert all(value not in caplog.text for value in ('signed', 'lesson-1', 'DTSTART'))

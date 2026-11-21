@@ -1,0 +1,11 @@
+{
+  "steps": [
+    {"name": "state", "request": {"kind": "read", "resource": "state"}},
+    {"name": "roadmap", "request": {"kind": "read", "resource": "roadmap"}},
+    {"name": "priority", "request": {"kind": "read", "resource": "priority"}},
+    {"name": "tasks_0", "request": {"kind": "read", "resource": "tasks", "offset": 0}},
+    {"name": "tasks_50", "request": {"kind": "read", "resource": "tasks", "offset": 50}},
+    {"name": "tasks_100", "request": {"kind": "read", "resource": "tasks", "offset": 100}},
+    {"name": "tasks_150", "request": {"kind": "read", "resource": "tasks", "offset": 150}}
+  ]
+}

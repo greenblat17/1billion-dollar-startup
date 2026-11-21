@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -9,6 +11,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
+
+internal fun telegramTextTrace(chatId: Long?, messageId: Long): String =
+    RuntimeDiagnostics.trace("tg-$chatId:message:$messageId")
 
 /** Stores the authenticated envelope before webhook ACK; routing still belongs to Telegram handlers. */
 internal class TelegramTextIntake(private val database: FoundationDatabase) {
@@ -27,11 +32,25 @@ internal class TelegramTextIntake(private val database: FoundationDatabase) {
             val existing = connection.document("SELECT to_jsonb(i) FROM telegram_text_intake i WHERE chat_id=? AND message_id=?", chat.number("id"), message.number("message_id")) ?: reject("invalid_input")
             if (existing.text("input_digest") != hash) reject("operation_conflict")
             // Delayed pre-reset updates must never enter the fresh relationship.
-            connection.update("""UPDATE telegram_text_intake SET payload=NULL,status='done',lease_until=NULL
+            val discarded = connection.update("""UPDATE telegram_text_intake SET payload=NULL,status='done',lease_until=NULL
                 WHERE chat_id=? AND message_id=? AND message_id<(SELECT message_id FROM telegram_start_reset WHERE chat_id=?)""",
                 chat.number("id"), message.number("message_id"), chat.number("id"))
-            if (inserted == 1) connection.update("""UPDATE telegram_introduction SET status='cancelled'
-                WHERE chat_id=? AND message_id<? AND status='active'""", chat.number("id"), message.number("message_id"))
+            if (inserted == 1) {
+                val cancelled = connection.rows("""UPDATE telegram_introduction SET status='cancelled'
+                    WHERE chat_id=? AND message_id<? AND status='active' RETURNING message_id""",
+                    chat.number("id"), message.number("message_id")) { it.getLong(1) }
+                cancelled.forEach { recordIntroductionSuperseded(chat.number("id"), it, message.number("message_id")) }
+            }
+            val event = when {
+                discarded > 0 -> Event("telegram_text_intake", "telegram.text", "persist", Outcome.SKIPPED,
+                    "Foundation discarded a delayed Telegram message from before the profile reset.", "before_profile_reset")
+                inserted == 0 -> Event("telegram_text_intake", "telegram.text", "persist", Outcome.REPLAYED,
+                    "Foundation recognized a Telegram message that was already stored.", "duplicate_update")
+                else -> Event("telegram_text_intake", "telegram.text", "persist", Outcome.COMPLETED,
+                    "Foundation saved the incoming Telegram text for later processing.")
+            }
+            FoundationDatabase.recordAfterCommit(event,
+                mapOf("trace_id" to telegramTextTrace(chat.number("id"), message.number("message_id"))))
         }
         return true
     }
@@ -53,15 +72,33 @@ internal class TelegramTextIntake(private val database: FoundationDatabase) {
 
     fun launch(scope: CoroutineScope, dispatch: suspend (JsonObject) -> Unit) = scope.launch {
         while (isActive) {
+            var dispatchFields: Map<String, String>? = null
             try {
                 val row = claim()
-                if (row == null) delay(500) else dispatch(row["payload"]!!.jsonObject)
+                if (row == null) delay(500) else {
+                    val fields = dispatchContext(row)
+                    dispatchFields = fields
+                    RuntimeDiagnostics.withContext(fields) { dispatch(row["payload"]!!.jsonObject) }
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                RuntimeDiagnostics.record("telegram_text_intake_dispatch_failed", "dispatch", error)
+                if (dispatchFields == null) {
+                    RuntimeDiagnostics.record(Event("telegram_text_intake_claim_failed", "telegram.text", "claim",
+                        Outcome.FAILED, "The inbox worker could not claim incoming Telegram text.",
+                        "intake_claim_failed"), error = error)
+                } else {
+                    RuntimeDiagnostics.record(Event("telegram_text_intake_dispatch_failed", "telegram.text", "dispatch",
+                        Outcome.FAILED, "The inbox worker failed to dispatch stored Telegram text.",
+                        "intake_dispatch_failed"), dispatchFields, error)
+                }
                 delay(1000)
             }
         }
     }
+
+    private fun dispatchContext(row: JsonObject) = mapOf(
+        "trace_id" to telegramTextTrace(row.number("chat_id"), row.number("message_id")),
+        "attempt" to (row.number("attempts") + 1).toString(),
+    )
 }

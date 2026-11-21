@@ -1,0 +1,9 @@
+[Unit]
+Description=Expire Speaky DEV test configuration for %i
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/speaky-release/host-install.py expire-config dev %i
+TimeoutStartSec=5min

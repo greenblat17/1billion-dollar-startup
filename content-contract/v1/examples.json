@@ -1,0 +1,102 @@
+[
+  {
+    "name": "grammar_explanation",
+    "document": {
+      "schemaVersion": 1,
+      "taskId": "task-1",
+      "stageRef": {"taskId": "task-1", "planId": "plan-1", "planRevision": 1, "stageId": "explain"},
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": "past_tense",
+      "problemId": "grammar_unknown",
+      "method": "Explanation",
+      "actionKind": "comparison",
+      "cefr": "A2",
+      "objective": "Understand when to use a past form for a finished event.",
+      "spokenInstruction": "Let's compare these two ways to talk about yesterday.",
+      "payload": {"explanation": "Use a past form when the action is finished.", "examples": ["I go to work every day.", "I went to work yesterday."]},
+      "answerGuide": {"criteria": ["The learner gives a past example or explains the time difference."], "alternatives": ["An equivalent natural example is acceptable."], "unacceptable": ["Saying only that it is understood does not demonstrate use."]},
+      "validation": {"status": "pending", "component": "synthetic-fixture", "reasons": []}
+    }
+  },
+  {
+    "name": "grammar_exercise_alternatives",
+    "document": {
+      "schemaVersion": 1,
+      "taskId": "task-1",
+      "stageRef": {"taskId": "task-1", "planId": "plan-1", "planRevision": 1, "stageId": "exercise"},
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": "past_tense",
+      "problemId": "grammar_application",
+      "method": "Exercises",
+      "actionKind": "sentence_transformation",
+      "cefr": "A2",
+      "objective": "Use the past tense in a short spoken sentence.",
+      "spokenInstruction": "Say this in the past tense: I go to work.",
+      "payload": {"stimulus": "I go to work.", "targetOperation": "Change the action to the past without changing its meaning."},
+      "answerGuide": {"criteria": ["The answer expresses the same action in the past."], "alternatives": ["I went to work.", "I went to my job."], "unacceptable": ["A present-tense answer."]},
+      "validation": {"status": "pending", "component": "synthetic-fixture", "reasons": []}
+    }
+  },
+  {
+    "name": "listening_exposure_with_reconstruction",
+    "document": {
+      "schemaVersion": 1,
+      "taskId": "task-2",
+      "stageRef": {"taskId": "task-2", "planId": "plan-2", "planRevision": 3, "stageId": "listen"},
+      "catalogVersion": "synthetic-v1",
+      "skillId": "listening",
+      "topicId": "work_dialogue",
+      "problemId": "listening_comprehension",
+      "method": "Exposure",
+      "actionKind": "listening_reconstruction",
+      "cefr": "B1",
+      "objective": "Recognize a short spoken sentence and explain its meaning.",
+      "spokenInstruction": "Listen to this short sentence. Then tell me what you heard.",
+      "payload": {"segments": ["The meeting starts at half past nine."], "checks": ["reconstruction", "meaning"]},
+      "answerGuide": {"criteria": ["Reconstruct the heard short phrase closely; discuss its meaning separately."], "alternatives": ["Natural contraction or minor speech variation is acceptable."], "unacceptable": ["Only a broad paraphrase does not complete reconstruction."]},
+      "validation": {"status": "pending", "component": "synthetic-fixture", "reasons": []}
+    }
+  },
+  {
+    "name": "speaking_conversation",
+    "document": {
+      "schemaVersion": 1,
+      "taskId": "task-3",
+      "stageRef": {"taskId": "task-3", "planId": "plan-3", "planRevision": 1, "stageId": "converse"},
+      "catalogVersion": "synthetic-v1",
+      "skillId": "speaking",
+      "topicId": "work_meetings",
+      "problemId": "speaking_barrier",
+      "method": "Conversation",
+      "actionKind": "situational",
+      "cefr": "B1",
+      "objective": "Speak naturally in a short work meeting exchange.",
+      "spokenInstruction": "Imagine we are discussing tomorrow's meeting. What would you suggest?",
+      "payload": {"openingPrompt": "What time should we meet tomorrow?", "targetOpportunities": ["Suggest a time and explain the reason in natural speech."]},
+      "answerGuide": {"criteria": ["A relevant understandable suggestion with a reason."], "alternatives": ["Different times and natural wording are acceptable."], "unacceptable": []},
+      "validation": {"status": "pending", "component": "synthetic-fixture", "reasons": []}
+    }
+  },
+  {
+    "name": "unusable_condition",
+    "document": {
+      "schemaVersion": 1,
+      "taskId": "task-1",
+      "stageRef": {"taskId": "task-1", "planId": "plan-1", "planRevision": 1, "stageId": "exercise"},
+      "catalogVersion": "synthetic-v1",
+      "skillId": "grammar",
+      "topicId": "past_tense",
+      "problemId": "grammar_application",
+      "method": "Exercises",
+      "actionKind": "sentence_transformation",
+      "cefr": "A2",
+      "objective": "Use a past form in speech.",
+      "spokenInstruction": "Change this sentence to the past and keep it in the present.",
+      "payload": {"stimulus": "I go to work.", "targetOperation": "Conflicting instructions need replacement."},
+      "answerGuide": {"criteria": ["A fair answer cannot be judged from this condition."], "alternatives": [], "unacceptable": []},
+      "validation": {"status": "rejected", "component": "synthetic-fixture", "reasons": ["ambiguous_condition"]}
+    }
+  }
+]

@@ -1,0 +1,27 @@
+# SP-19A — Score Mathematics & State Contract
+
+Scope: PostgreSQL Stage Score and Task Progress. SP-19A introduced fixture calculation; SP-19B projects current SP-17 Observations from issued Teaching Actions. The numbers below are experimental MVP parameters, not CEFR ratings.
+
+## Inputs and mathematics
+
+The input Plan is the current SP-12A definition for one SP-04 Task. A numeric Stage starts at `S=50`; an unstarted Stage contributes zero. Outcomes use SP-17A names. `independent_correct` applies `S+(100-S)*0.12`; `uncorrected_error` applies `S*0.90`; `self_corrected_error` applies `S*0.96`. `hinted_correct`, `unresolved` and `invalid` do not change S. The score remains in `[0,100]`.
+
+`N(S)=clamp((S-50)/35,0,1)` and `TaskProgress=100*sum(weight*N(S))`. SP-12A requires numeric weights to sum exactly to 1. Binary stages have no weight. Every required binary condition must be met for `masteryReady`, along with every numeric Stage reaching 85 and Progress reaching 100. A binary-only Plan gives 0 Progress and no mastery signal; its completion policy is deferred.
+
+At `S>=85`, the Stage is completed. The snapshot retains its score and contribution when later events arrive. `S<=15` is a `review_approach` signal, not an automatic transition. An operator may explicitly reopen a completed numeric Stage with reason `pedagogical_review` or `manual_correction`: it gets a new `stageAttemptId`, `attemptNumber+1`, and `S=50`. The criteria for choosing such a reason and the pedagogical trigger remain open for SP-19B/20.
+
+## Storage and API
+
+V58 adds `learning_score_stage` (current attempt per Task/Plan revision/Stage) and `learning_score_event` (event history). V62 adds Observation ID/revision to the event projection and a stage source marker. Both delete with the Task. Plan revisions remain distinct: scores are never transferred to a changed definition. Plan revision recalculates and persists Task Progress from its new, unstarted score snapshot. The current Task/Plan revision is checked before fixture writes. Foundation's student lock and operation receipt protect concurrent writes; `fixtureEventId` prevents a second application of the same fixture on the same Stage. Different payloads with the same ID conflict.
+
+`learning.score.fixture` is an **operator-only command**, not a model-facing scoring command. Its `outcome` and `binaryMet=true` inputs are synthetic fixtures. An operator can also use `reopen=true` with a reason on a real completed numeric Stage; this creates a new attempt. Arguments: `taskId`, `planId`, `planRevision`, `stageId`, `fixtureEventId`, plus exactly one of `outcome`, `binaryMet=true`, or `reopen=true` with `reason`. It writes the Stage event and SP-04 Task Progress in one transaction. It does not transition the Task to Mastered. Only SP-04/SP-20 may apply lifecycle decisions. Homework status and Task priority are not inputs.
+
+Real scoring runs in the same transaction as `learning.observation.record/revise/invalidate`. It reads the current Observation revision and its source availability. Only `stage_progress` with a verified current Plan/Stage, usable demonstration and no `repeatOf` can enter Score. Numeric Stages use the Observation outcome through the same SP-19A formula. A required binary Stage is met only by `independent_correct`. Hinted success and uncertain/invalid ASR do not create an independent success. A repeated record returns before scoring. Revising or invalidating an Observation replaces or removes its one projected event, replays that Stage in event order and persists the resulting Task Progress. Historical Observation revisions remain in the evidence journal, not as extra score events. A real Observation switches its Stage from synthetic fixture state to Observation state; later synthetic outcome/binary writes to that Stage are rejected. Explicit operator reopen history remains part of replay.
+
+The score snapshot is the reusable progression signal for SP-16/20/11B. It returns numeric Stage completion, binary completion, `progress` and `masteryReady`; it does not change Task lifecycle. Scoring of a historical Plan revision does not carry into the current Plan. Privacy forget and retention prune reconcile deleted or expired source projections in their own transaction. Between source expiry and the next prune, a stored projection can be stale; score GET remains read-only.
+
+Scoped reads: `GET /internal/foundation/v1/learning-tasks/{id}/score` and `/score/history?offset=N`. The snapshot returns `progress`, `masteryReady`, Plan identity and Stage rows with `score`, `completed`, `signal`, `stageAttemptId`, attempt number, and state revision. A Stage without stored events is projected as S=50/zero contribution. History is paginated. Reads require student scope and do not create state.
+
+## Verification boundary
+
+The synthetic Plan fixture has Explanation binary, Exercises weight 0.3, and Conversation weight 0.7. Mathematics tests verify 0%, 17.14%, 30%, 70%, completed-stage retention, binary gating, thresholds and inert hinted outcomes. PostgreSQL tests cover fixture replay and the issued Content → persisted lesson answer → Observation → Score → Task Progress path, including duplicate record, uncertain ASR, revision, invalidation, explicit reopen and Plan reset, when `TEST_POSTGRES_URL` is available. These fixtures do not verify live voice/model quality. Timely reconciliation at the exact source expiry boundary remains open.

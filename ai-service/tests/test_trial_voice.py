@@ -1,4 +1,6 @@
 import asyncio
+import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -63,7 +65,8 @@ async def test_analyzer_rejects_invented_source_id():
 async def test_preparation_does_not_require_roadmap_or_invent_evaluation():
     result = await TrialPlanner().prepare(SimpleNamespace(data={}), {})
     assert set(result) == {'objective', 'topic', 'strategy'}
-    assert 'No roadmap or exam' in result['strategy']
+    assert 'RU warm-up' in result['strategy'] and 'EN conversation' in result['strategy']
+    assert 'no CEFR, scores, timelines or exam' in result['strategy']
 
 
 @pytest.mark.asyncio
@@ -113,7 +116,9 @@ def test_unconfigured_trial_cannot_start_paid_providers():
     install_trial_api(app, backend, None, None, None, SimpleNamespace(), None)
     with TestClient(app) as client:
         with client.websocket_connect('/miniapp/voice') as socket:
-            assert socket.receive_json() == {'type': 'error', 'code': 'trial_not_configured'}
+            error = socket.receive_json()
+            assert error['type'] == 'error' and error['code'] == 'trial_not_configured'
+            assert len(error['errorId']) == 32
     backend._request.assert_not_called()
 
 
@@ -137,6 +142,56 @@ async def test_audio_erasure_deletes_all_exact_key_versions_and_rejects_partial_
     store.client.delete_objects.return_value = {'Errors': [{'Code': 'AccessDenied'}]}
     with pytest.raises(RuntimeError, match='audio_erasure_failed'):
         await store.delete('trial/one')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('case', 'stage', 'confirmed', 'reason'), [
+    ('empty', None, 0, None),
+    ('success', 'receipt', 2, None),
+    ('list', 'list', 0, 'cleanup_list_failed'),
+    ('delete', 'delete', 1, 'cleanup_delete_failed'),
+    ('receipt', 'receipt', 1, 'cleanup_receipt_failed'),
+])
+async def test_audio_retention_records_only_confirmed_deletions(monkeypatch, caplog, case, stage, confirmed, reason):
+    from app import trial_audio
+
+    first, second = 'PRIVATE_AUDIO_FIRST', 'PRIVATE_AUDIO_SECOND'
+
+    async def request(_, path, __, *, json):
+        if path == '/trial/audio_cleanup':
+            if case == 'list':
+                raise RuntimeError('PRIVATE_LIST_FAILURE')
+            return {'objects': [] if case == 'empty' else [{'object_key': first}, {'object_key': second}]}
+        if case == 'receipt' and json['objectKey'] == second:
+            raise RuntimeError('PRIVATE_RECEIPT_FAILURE')
+        return {'deleted': True}
+
+    async def delete(key):
+        if case == 'delete' and key == second:
+            raise RuntimeError('PRIVATE_DELETE_FAILURE')
+
+    async def end_after_one_batch(_):
+        raise asyncio.CancelledError()
+
+    store = object.__new__(trial_audio.TrialAudioStore)
+    store.delete = AsyncMock(side_effect=delete)
+    backend = SimpleNamespace(_request=AsyncMock(side_effect=request))
+    monkeypatch.setattr(trial_audio, 'asyncio', SimpleNamespace(
+        CancelledError=asyncio.CancelledError, sleep=end_after_one_batch))
+    caplog.set_level(logging.INFO)
+    with pytest.raises(asyncio.CancelledError):
+        await store.cleanup(backend)
+    entries = [json.loads(row.message.split('runtime_event ', 1)[1]) for row in caplog.records
+               if row.message.startswith('runtime_event ')]
+    if case == 'empty':
+        assert entries == []
+        store.delete.assert_not_awaited()
+    else:
+        [entry] = entries
+        assert (entry['stage'], entry['reason_code'], entry['count']) == (stage, reason, confirmed)
+        assert entry['event'] == ('trial_audio_cleanup_failed' if reason else 'trial_audio_cleanup')
+        assert entry['outcome'] == ('failed' if reason else 'completed')
+    assert 'PRIVATE_' not in caplog.text
 
 
 @pytest.mark.asyncio

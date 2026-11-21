@@ -117,34 +117,29 @@ class CallViewModel(
             _uiState.update { it.copy(connecting = false) }
             listenCaptions(session)
             startTimer()
-        } catch (error: ApiException) {
-            session.close()
-            call = null
-            val mapped = when (error.status) {
-                HttpStatusCode.Conflict -> CallError.Conflict
-                HttpStatusCode.Unauthorized -> {
-                    logger.w { "rtc HTTP 401" }
-                    CallError.Network
-                }
-                else -> CallError.Network
-            }
-            logger.w { "rtc HTTP ${error.status.value}" }
-            _uiState.update { it.copy(connecting = false, error = mapped) }
-        } catch (error: TimeoutCancellationException) {
-            session.close()
-            call = null
-            logger.e(error) { "rtc ice timeout" }
-            _uiState.update { it.copy(connecting = false, error = CallError.Network) }
-        } catch (error: IceFailedException) {
-            session.close()
-            call = null
-            logger.e(error) { "rtc ${error.message}" }
-            _uiState.update { it.copy(connecting = false, error = CallError.Network) }
         } catch (error: Throwable) {
             session.close()
             call = null
-            logger.e(error) { "rtc ${error::class.simpleName}" }
-            _uiState.update { it.copy(connecting = false, error = CallError.Mic) }
+            val callError = when (error) {
+                is ApiException -> {
+                    if (error.status == HttpStatusCode.Unauthorized) logger.w { "rtc HTTP 401" }
+                    logger.w { "rtc HTTP ${error.status.value}" }
+                    if (error.status == HttpStatusCode.Conflict) CallError.Conflict else CallError.Network
+                }
+                is TimeoutCancellationException -> {
+                    logger.e(error) { "rtc ice timeout" }
+                    CallError.Network
+                }
+                is IceFailedException -> {
+                    logger.e(error) { "rtc ${error.message}" }
+                    CallError.Network
+                }
+                else -> {
+                    logger.e(error) { "rtc ${error::class.simpleName}" }
+                    CallError.Mic
+                }
+            }
+            _uiState.update { it.copy(connecting = false, error = callError) }
         }
     }
 

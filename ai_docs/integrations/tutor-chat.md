@@ -32,7 +32,7 @@ Legacy `RELATIONSHIP_POLICY` с пятью темами не входит в а�
 Существующие отношения без такой последовательности и ученики с созданным Lesson остаются в `dialogue`.
 Повторный start не сбрасывает режим или память. Успешное создание Lesson завершает знакомство;
 последующая отмена не возвращает его. Прямые booking tools остаются доступны без анкеты. В режиме знакомства My Progress скрыт, в обычном диалоге доступен.
-Самооценка `level` входит в core памяти, в том числе при сбое relevance-selector.
+Учебные поля читаются из Student Learning State отдельно от MemorySelector. Запись цели, CEFR, интенсивности и Homework через Memory отключена; новые AI-writers относятся к будущему SP-05. [Контракт SP-03 v5.5](../../architecture.md#student-learning-state-sp-03-v55).
 Shipping root использует `TrialTutorModel(OpenAiChatModel(..., KORA_MODEL))`, без voice allowlist.
 
 ContextBuilder получает актуальный snapshot из backend, выбирает память и ограниченную историю.
@@ -43,16 +43,18 @@ Core и запреты упоминания сохраняются незави�
 ### Первое приветствие
 
 Каждый новый `/start` обрабатывают `TelegramIntroduction` и `TutorIntroductionDelivery`, без model call.
-Текст и продуктовые правила заданы в [SP-01](../plans/2026-11-09-sp01-text-onboarding.md#поведение-модели).
+Четыре коротких сообщения знакомят с Сашей, дают примеры разговорной практики и спрашивают о цели.
 V47 хранит независимую от профиля границу `/start` по chat/message id. В одной транзакции старый профиль удаляется через существующий deletion/epoch механизм, создаётся новый Student и серия приветствий. Память, история, уроки, расписание, прогресс и подписка очищаются; задания отменяются, аудио ставится в очередь purge. Старые capabilities отзываются.
 Повтор той же или более старой команды не сбрасывает снова. Более старые intake-сообщения гасятся; ответы после `/start` сохраняются и могут прервать серию. Сброс не удаляет уже видимые сообщения из Telegram и импортированные календарные события.
-Профиль и память не сбрасываются. Во вступительных репликах нет клавиатуры; ответы режима `dialogue` сохраняют My Progress.
+Во вступительных репликах нет клавиатуры; ответы режима `dialogue` сохраняют My Progress.
 
 `telegram_introduction` хранит request, epoch, позицию и время следующей реплики;
 `telegram_intro_delivery` — отдельный claim/receipt каждой отправки. Intake отменяет остаток серии
 в той же транзакции, которая сохраняет новое сообщение до ACK. Claim и intake используют общий chat lock.
 Паузы проходят вне транзакции, с проверкой отмены каждые 100 мс и перед claim следующей отправки.
-Номинальные паузы после подтверждённых отправок — 750/1250/750 мс; первая реплика без задержки.
+Первая реплика идёт сразу. Длина предыдущего текста определяет паузу до следующей реплики:
+500 мс плюс 42 мс на символ, от 1,1 до 6,5 секунды. Dispatch других чатов продолжает работу.
+Новое сообщение прерывает оставшиеся паузы и обрабатывается после выхода серии.
 Typing — best effort; его ошибка не повторяет и не отменяет доставку текста.
 
 Claim фиксирует `unknown` до Bot API. После подтверждения receipt и видимая реплика сохраняются атомарно
@@ -100,6 +102,12 @@ Storage uncertainty остаётся ошибкой, а не вымышленн�
 | Подписка | `get_subscription`, `request_subscription_payment`, `cancel_subscription_renewal`; [SP-05](../plans/2026-11-12-sp05-subscription.md) |
 | Память | `search_memory`, `discuss_memory`, `record_memory`, `set_memory_policy`, `review_observation`, `confirm_memory`, `reject_memory`, `forget_memory`; [SP-07](../plans/2026-11-12-sp07-memory.md) |
 
+[scheduling_tools.py](../../ai-service/app/scheduling_tools.py) переводит выбранные моделью инструменты
+в команды Ktor и формирует описание пробного урока. Ktor проверяет источник поручения, версии,
+время и допустимость изменений. Он хранит запись и управляет её уведомлениями.
+[Контракт v1](../../contracts/scheduling/v1/commands.json) охватывает создание, перенос, отмену и список уроков.
+Trial читает активную запись из snapshot, а повтор проверяет через receipt. Regular повторяет ту же команду с тем же operation ID.
+
 Схемы строгие; backend повторно проверяет аргументы и источник текущего поручения.
 Ясный запрос выполняется без второго подтверждения или обязательного заполнения профиля.
 Модель понимает относительную дату/город; код проверяет время и DST. Семантическая правильность
@@ -113,21 +121,25 @@ Storage uncertainty остаётся ошибкой, а не вымышленн�
 
 ### Telegram-карточки и форматирование
 
-«Открыть урок» получает `web_app` URL с Lesson ID, когда задан HTTPS `MINI_APP_URL`.
-Без URL остаётся disabled-кнопка; это ошибка/неполнота конфигурации, а не описание возможностей Mini App.
-Новая trial-карточка — `sendWidget` (Bot API 10.4): `TutorBookingDelivery.kt` хранит фиксированный HTML,
-нативные цвета Telegram и изменяемый `chat_data`. Данные попадают только в `textContent`, не в HTML.
-Виджет отправляется без caption: текст под ним не дублирует данные. Текстовой замены для старых клиентов нет.
-Перенос/отмена редактируют данные того же сообщения и очищают прежнюю подпись. V46 сохраняет `is_widget`;
-старые текстовые карточки продолжают использовать `editMessageText`.
-`message is not modified` считается успехом; неизвестный результат не вызывает новую отправку.
-Запись на будущее (`timing=scheduled`) доставляется тремя сообщениями: короткое «договорились», компактный HTML-виджет, завершающая реплика модели. Виджет: статус, число/месяц, диапазон времени с поясом, день недели и Саша, «Бесплатно · Онлайн в Speaky»; без брендинга и больших изображений. Под ним только «Добавить в календарь» (необязательный выбор Google / .ics). «Начать урок» доступно только в приглашении в момент начала; утреннее и часовое напоминания без кнопок. Подтверждение и виджет имеют общую границу unknown: при сбое между ними последовательность не повторяется. При unknown delivery реплика не отправляется, в том числе после рестарта. В ответе с записью скрыта навигация My Progress; обычный последующий диалог её сохраняет.
+После commit будущего Trial Telegram отправляет одно текстовое подтверждение.
+Оно показывает дату, время с поясом и длительность. Кнопка «Начать урок» ведёт к конкретной
+Lesson. До начала Mini App показывает ожидание по серверному времени. Voice admission проверяет
+время и владельца на сервере. «Добавить в календарь» остаётся отдельной кнопкой.
 
-Редактирование данных и очистка подписи/обновление кнопок — два вызова: при сбое между ними часть представления может остаться старой;
-ошибка доставки не откатывает запись и не создаёт второй урок. Автоматическое восстановление unknown не обещается.
-Немедленный старт определяется структурированным `timing=now`, выбранным LLM по смыслу текущего сообщения и контексту, без keyword-routing. Ясное поручение выполняется текущим tool call без второго согласия. После успешного создания/переноса AI не вызывает модель ради завершающей реплики; backend не сохраняет её в историю, Telegram не отправляет подтверждение, виджет или календарь. Единственный отправитель — durable TrialWorker: приглашение «Начать урок», с существующими receipt/fence и запретом повторения unknown. История получает только подтверждённую отправку приглашения. Отмена и будущая запись сохраняют обычное подтверждение. Prompt направляет выбор tool, но локальные mocks не доказывают качество выбора живой моделью.
+Перенос и отмена редактируют существующую карточку. Ранее доставленные HTML-виджеты сохраняют свой
+путь редактирования. Telegram `message is not modified` считается успехом.
+Отправка или редактирование получают durable claim до вызова Bot API. Сбой оставляет исход
+`unknown` и освобождает intake. Replay сохраняет урок и не повторяет внешнюю отправку.
+На новый вопрос о подключении репетитор читает актуальную запись через `get_trial_booking`.
+Кнопка в ответе допускается для открытой исполняемой записи ученика, пока её время действует.
+После отклонённой попытки изменить Trial ответ сверяется с текущей записью.
 
-Контракт виджета: [Telegram Widgets](https://core.telegram.org/bots/widgets).
+При `timing=now` TrialWorker отправляет единственное приглашение с кнопкой. Future и now
+завершают ход сразу после подтверждённой записи, без ещё одного вызова модели.
+Обычные реплики пишутся на «ты» без Telegram-цитаты входящего сообщения. При первом предложении
+Саша приглашает на бесплатный получасовой созвон сейчас или в другое удобное время.
+Явные поля обучения сохраняются в текущем ходе, с исходной репликой как доказательством.
+Из групповой записи сохраняются только поля с точной цитатой из этого сообщения.
 
 «Добавить в календарь» открывает `?view=calendar&lesson=…`, без микрофона и звонка.
 `/miniapp/api` action `calendar` проверяет Telegram initData и владение через `TrialAccess`, затем
@@ -178,16 +190,14 @@ Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`; private-text input
 
 ### Карта кода
 
-Пути Kotlin относительны к `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/`.
-
-| Ответственность | Источник |
+| Ответственность | Исходники |
 | --- | --- |
-| Shipping wiring | `SpeakyApplication.kt`; `ai-service/app/speaky_main.py` |
-| Inbox, runs, dispatch | `foundation/TelegramTextIntake.kt`, `TelegramIntroduction.kt`, `ConversationRuns.kt`, `FoundationChat.kt`; `ai/TutorClient.kt` |
-| Telegram / карточки / entities | `telegram/SpeakyTelegram.kt`, `TutorTelegramChat.kt`, `TutorIntroductionDelivery.kt`, `TutorTextFormatting.kt`, `MockBillingTelegram.kt` |
-| Модель и tools | `ai-service/app/foundation_tutor.py`, `trial_tools.py`, `memory_tools.py`, `subscription_tools.py` |
-| Контекст | `ai-service/app/context_builder.py`, `memory_context.py`, `memory_policy.py` |
-| Backend API и операции | `foundation/FoundationRoutes.kt`, `FoundationService.kt`, `LessonManagement.kt`, `MemoryOperations.kt` |
+| Запуск приложения | [SpeakyApplication.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt), [speaky_main.py](../../ai-service/app/speaky_main.py) |
+| Входящие сообщения, обработка и отправка | [TelegramTextIntake.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/TelegramTextIntake.kt), [TelegramIntroduction.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/TelegramIntroduction.kt), [ConversationRuns.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/ConversationRuns.kt), [FoundationChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationChat.kt), [TutorClient.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/ai/TutorClient.kt) |
+| Telegram, карточки и форматирование | [SpeakyTelegram.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/SpeakyTelegram.kt), [TutorTelegramChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTelegramChat.kt), [TutorIntroductionDelivery.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorIntroductionDelivery.kt), [TutorTextFormatting.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTextFormatting.kt), [MockBillingTelegram.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/MockBillingTelegram.kt) |
+| Модель и инструменты | [foundation_tutor.py](../../ai-service/app/foundation_tutor.py), [trial_tools.py](../../ai-service/app/trial_tools.py), [memory_tools.py](../../ai-service/app/memory_tools.py), [subscription_tools.py](../../ai-service/app/subscription_tools.py) |
+| Контекст | [context_builder.py](../../ai-service/app/context_builder.py), [memory_context.py](../../ai-service/app/memory_context.py), [memory_policy.py](../../ai-service/app/memory_policy.py) |
+| Backend API и операции | [FoundationRoutes.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationRoutes.kt), [FoundationService.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationService.kt), [LessonManagement.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/LessonManagement.kt), [MemoryOperations.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/MemoryOperations.kt) |
 
 ## Совместимость сохранённых систем
 

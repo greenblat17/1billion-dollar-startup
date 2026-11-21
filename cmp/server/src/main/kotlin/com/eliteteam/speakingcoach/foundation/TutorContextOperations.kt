@@ -20,8 +20,8 @@ internal class TutorContextOperations(private val memory: StructuredMemory) {
         facts.forEach { item ->
             val fact = item.jsonObject
             fact.only("memory", "key", "value", "evidence", "kind")
-            val key = if (fact.text("key") == "goals") "goal" else fact.text("key")
-            val version = if (key == "goal") connection.goalRevision(scope.studentId) else connection.rows(
+            val key = fact.text("key")
+            val version = connection.rows(
                 "SELECT revision FROM memory_fact WHERE student_id=? AND category=? AND fact_key=?", scope.studentId, fact.text("memory"), key,
             ) { it.getLong(1) }.singleOrNull() ?: 0
             memory.record(connection, scope, json("sourceId" to source.text("id"), "category" to fact.text("memory"), "key" to key,

@@ -12,7 +12,7 @@ import kotlinx.serialization.json.jsonObject
 internal class RoadmapPreparation {
     fun enqueue(c: Connection, student: String, now: Instant) {
         if (c.goalRevision(student) == 0L || c.document("""SELECT to_jsonb(e) FROM lesson_evaluation e JOIN lesson l ON l.id=e.lesson_id
-            WHERE e.student_id=? AND l.kind='trial' AND l.status='completed' AND e.source_revision=l.transcript_revision LIMIT 1""", student) == null) return
+            WHERE e.student_id=? AND l.kind='trial' AND l.trial_version IS DISTINCT FROM 'v5.5' AND l.status='completed' AND e.source_revision=l.transcript_revision LIMIT 1""", student) == null) return
         val inputs = json("goalRevision" to c.goalRevision(student), "learningRevision" to c.learningRevision(student),
             "roadmapRevision" to c.roadmapRevision(student))
         c.enqueueJob(student, "roadmap.prepare", digest(canonical(inputs)), null, inputs, now)

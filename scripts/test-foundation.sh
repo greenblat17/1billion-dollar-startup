@@ -6,9 +6,12 @@ foundation_python="${FOUNDATION_TEST_PYTHON:-python3}"
 export SP00_TEST_PORT="${SP00_TEST_PORT:-58082}"
 export SP00_TEST_TOKEN="${SP00_TEST_TOKEN:-foundation-local-test-only}"
 export SP00_TEST_URL="http://127.0.0.1:${SP00_TEST_PORT}"
+export SP02_TEST_CATALOG="$foundation_root/learning-catalog/v1/catalog.json"
 foundation_log="$(mktemp -t speaky-foundation.XXXXXX)"
 cd "$foundation_root/cmp"
-./gradlew :server:foundationIntegrationTest --console=plain
+if [[ "${FOUNDATION_TEST_SUITE:-runtime}" == "runtime" ]]; then
+  ./gradlew :server:foundationIntegrationTest --console=plain
+fi
 "$foundation_python" - <<'PY'
 import os
 import socket
@@ -40,9 +43,14 @@ else:
 PY
 cd "$foundation_root/ai-service"
 case "${FOUNDATION_TEST_SUITE:-runtime}" in
-  runtime) "$foundation_python" -m pytest integration/test_foundation_http.py -q ;;
+  runtime)
+    "$foundation_python" -m pytest -q integration --ignore=integration/test_tutor_import_redis.py
+    ;;
+  legacy)
+    "$foundation_python" -m pytest -q integration/legacy_adapter_checks.py
+    ;;
   migration)
     : "${SP00_IMPORT_REDIS_URL:?Migration suite requires an isolated Redis source}"
     "$foundation_python" -m pytest integration/test_tutor_import_redis.py -q ;;
-  *) echo "FOUNDATION_TEST_SUITE must be runtime or migration" >&2; exit 1 ;;
+  *) echo "FOUNDATION_TEST_SUITE must be runtime, legacy or migration" >&2; exit 1 ;;
 esac

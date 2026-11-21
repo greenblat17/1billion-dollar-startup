@@ -6,10 +6,6 @@ from datetime import datetime, timezone
 import httpx
 import pytest
 from app.foundation_client import FoundationClient, BackendFailure
-from app.context_builder import ContextBuilder
-from app.foundation_tutor import FoundationTutor
-from app.tutor import TutorRequest
-from integration.test_foundation_http import GoalModel, actor, now
 
 
 @pytest.mark.asyncio
@@ -53,7 +49,11 @@ async def test_legacy_preferences_survive_adapter_recreation_and_artifacts_keep_
         characters = BackendCharacterStore(backend, telegram_default='kora_h')
         assert await characters.get(session) == 'kora_h'
         await characters.set(session, 'speaky')
-        await BackendSpeechSpeedStore(backend).set(session, 0.8)
+        speeds = BackendSpeechSpeedStore(backend)
+        await speeds.set(session, 0.8)
+        await speeds.set(session, 0.8)
+        with pytest.raises(BackendFailure, match='invalid_speed'):
+            await backend.voice_preferences('set_speed', session, {'speed': 0.85})
         assert await BackendCharacterStore(backend, telegram_default='kora_h').get(session) == 'speaky'
         assert await BackendSpeechSpeedStore(backend).get(session) == 0.8
         rollout = BackendSpeechTimeRollout(backend)

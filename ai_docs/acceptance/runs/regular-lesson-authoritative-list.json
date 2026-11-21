@@ -1,0 +1,34 @@
+{
+  "studentId": "3d3db392-5ea8-45e7-b415-fd63aceb4b08",
+  "mode": "scenario",
+  "steps": [
+    {
+      "name": "owned_lessons",
+      "httpStatus": 200,
+      "result": {
+        "lessons": [
+          {
+            "id": "13eaa830-0c2b-4dd5-8e32-34ff4d299ec4",
+            "kind": "regular",
+            "status": "scheduled",
+            "timing": "now",
+            "starts_at": "2026-11-17T16:56:23.866528+00:00",
+            "duration_minutes": 30,
+            "timezone": "UTC",
+            "launch_mode": "executable",
+            "transcript_revision": 0,
+            "preparation": {
+              "status": "ready",
+              "planRevision": 1,
+              "goalRevision": 0,
+              "learningRevision": 0,
+              "roadmapRevision": 0,
+              "objective": "Speak about yourself and your everyday life using simple English sentences, with the tutor gently supporting vocabulary and fluency as needed.",
+              "topic": "A typical day in your life — what you do, where you go, and what you enjoy."
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

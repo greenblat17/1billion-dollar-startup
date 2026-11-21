@@ -47,7 +47,7 @@ async def test_committed_checkout_recovers_without_model_or_second_creation():
         {'status': 'running', 'input': {'id': 'e', 'body': 'Пришли оплату'},
          'committed': [{'action': 'subscription.checkout', 'result': {'id': 'checkout'}}]},
         {'conversationId': 'c', 'reply': 'Запрос по подписке сохранён.'}]))
-    context = SimpleNamespace(history=[], instructions=lambda purpose: '')
+    context = SimpleNamespace(data={'textMode': 'dialogue'}, history=[], instructions=lambda purpose: '')
     model = SimpleNamespace(complete=AsyncMock())
     tutor = FoundationTutor(backend, model, SimpleNamespace(build=AsyncMock(return_value=context)))
     await tutor.respond(TutorRequest(sessionId='tg-100', requestId='r', text='Пришли оплату', receivedAt=1), 'scope')

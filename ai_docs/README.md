@@ -1,62 +1,71 @@
 # Документация Speaky
 
-Speaky — постоянные отношения с AI-репетитором Сашей с характером Kora H.
-Telegram служит перепиской; приложение в целевой модели обслуживает согласованные уроки и прогресс.
+В Telegram ученик переписывается с Сашей, персональным AI-репетитором с характером Kora H. В целевой модели приложение отвечает за уроки и прогресс.
 
 ## Основной маршрут чтения
 
-| Вопрос | Документ |
+| Вопрос | Где искать |
 | --- | --- |
-| Актуальная продуктовая модель персонального обучения, уроков и Roadmap | [Продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md) |
-| Исходная концепция Саши, интерфейсов и жизненного цикла | [Продукт v0.5 — исторический источник](product/2026-11-08-ai-tutor-experience-v0.5.md) |
-| Общий фундамент и исходная матрица проверок | [SP-00](plans/2026-11-10-sp00-foundation.md) |
-| Целевой пробный урок | [Продукт v5.5, раздел 7](product/2026-11-14-personalized-learning-v5.5.md) |
-| Как был реализован прежний пробный урок | [SP-02](plans/2026-11-11-sp02-trial-lesson.md) |
-| Исходное UX-ТЗ от Start до записи на пробный | [Первое знакомство](product/2026-11-13-first-acquaintance-ux.md) |
-| Как знакомиться, отвечать и управлять trial без анкеты | [Путь и поведение SP-01](plans/2026-11-09-sp01-text-onboarding.md) |
-| Целевая педагогика регулярного урока | [Продукт v5.5, раздел 9](product/2026-11-14-personalized-learning-v5.5.md) |
-| Как был реализован прежний регулярный урок | [SP-03](plans/2026-11-12-sp03-regular-lessons.md) |
-| Как репетитор запоминает, уточняет и использует сведения об ученике | [SP-07](plans/2026-11-12-sp07-memory.md) |
-| Как оцениваются навыки и открывается My Progress | [SP-08](plans/2026-11-12-sp08-progress.md) |
-| Как создаются персональный маршрут и планы уроков | [SP-06](plans/2026-11-12-sp06-roadmap.md) |
-| Как работают подписка, тестовая оплата и доступ | [SP-05](plans/2026-11-12-sp05-subscription.md) |
-| Как согласуются расписание, переносы и напоминания | [SP-04](plans/2026-11-12-sp04-scheduling.md) |
-| Какие компоненты работают и почему устроены так | [Реализованная архитектура и причины решений](../architecture.md) |
-| Что реализовано, что отложено и что проверено | [Статус и доказательства](status.md) |
-| Визуальный стиль Mini App и макет звонка | [Стайлгайд и HTML-макеты](design/README.md) |
-| Как запустить и проверить локально | [Запуск и CI](integrations/operations.md#run-locally-env-ci) |
-| Как обслуживать окружения и сохранять данные | [Эксплуатация и deploy](integrations/operations.md#выкладка-и-восстановление) |
+| Как должен работать продукт? | [Продукт v5.5](product/2026-11-14-personalized-learning-v5.5.md). Для уроков см. [пробный урок](product/2026-11-14-personalized-learning-v5.5.md#пробный-урок-trial-lesson-и-оценка-topics) и [регулярный урок](product/2026-11-14-personalized-learning-v5.5.md#9-lesson-execution--согласованная-модель-поведения-ai-репетитора). |
+| Какие компоненты работают и почему они так устроены? | [Архитектура](../architecture.md) |
+| Что записывают логи и как связать события? | [Запись логов Speaky](architecture/runtime-logging.md) |
+| Что реализовано, проверено и доставлено? | [Состояние проекта](status.md), включая [пробный звонок SP-24](status.md#sp-24--пробный-звонок) |
+| Как выглядит Mini App? | [Стайлгайд и макеты](design/README.md) |
 
-[Продуктовая v5.5](product/2026-11-14-personalized-learning-v5.5.md) — актуальный источник целевого педагогического поведения. Это концепция, а не подтверждение реализации или поставки.
-[Продуктовая v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md) сохранена без изменений для происхождения решений. При расхождении с v5.5 действует v5.5; ранние планы SP-00–SP-08 описывают согласованный тогда объём, а не меняют этот приоритет.
-UX-ТЗ первого знакомства сохранено с согласованной правкой вопроса о цели. Точный текст четырёх приветствий и технические уточнения закреплены в SP-01.
-Поздние уточнения диалога в SP-01 имеют приоритет над ранними сценариями знакомства, если они не противоречат v5.5; готовность функций описывает только status.md.
-[Исходная архитектура v1](architecture/speaky-mvp-high-level-architecture-v1.md) — целевой контракт MVP, не описание текущего runtime.
-Планы SP-00–SP-08 сохраняют согласованные решения и границы каждого этапа.
-Ограничения ранних этапов не отменяют последующие реализации; текущая готовность — только в [статусе](status.md).
+## Контракты персонального обучения v5.5
 
-## Шесть технических справочников
-
-| Документ | Содержание |
+| Этап | Источники |
 | --- | --- |
-| [Чат и Telegram](integrations/tutor-chat.md) | SP-01 tools, trial, routing, delivery и совместимость |
-| [Голос и review (legacy)](integrations/voice-and-reviews.md) | Сохранённые Clip API, calls, коррекции и оценки; активный Realtime — в архитектуре и SP-02/03 |
-| [Практика (legacy)](integrations/practice.md) | Vocabulary Builder, reminders, streak и HTTP-операции |
-| [Аналитика (legacy)](integrations/analytics.md) | События, dashboards, знаменатели, когорты и стоимость |
-| [Эксплуатация](integrations/operations.md) | Запуск, CI, env, мониторинг, provider logs и alerts |
-| [CMP API (legacy)](integrations/mobile-api.md) | Auth, Home, WebRTC, sessions и review существующего приложения |
+| SP-02. Учебные каталоги | [Темы по CEFR и навыку](product/2026-11-15-learning-catalog-review.md), [исходный JSON](../learning-catalog/v1/catalog.json), [готовность](status.md#новый-sp-02-v55-учебные-каталоги) |
+| SP-03. Учебное состояние | [Владение данными](../architecture.md#student-learning-state-sp-03-v55), [утверждённый план](plans/2026-11-15-sp03-student-learning-state.md) |
+| SP-04. Learning Tasks | [Контракт](../architecture.md#learning-tasks-sp-04-v55), [утверждённый план](plans/2026-11-16-sp04-learning-tasks.md) |
+| SP-06. 30-минутный Trial | [Исполнение](integrations/trial-v55.md), [утверждённый план](plans/2026-11-16-sp06-trial-lesson-v55.md) |
+| SP-07. Post-Trial Assessment | [Диагностика после пробного урока](integrations/trial-assessment.md) |
+| SP-08. Первая Roadmap | [Контракт и границы проверки](plans/2026-11-17-sp08-roadmap-handoff.md) |
+| SP-12A. Task Learning Plan и Stage | [Контракт](integrations/learning-plan.md), [утверждённый план](plans/2026-11-16-sp12a-learning-plan-contract.md) |
+| SP-12B. Шаблоны методов и переходы | [Правила](integrations/learning-plan.md#sp-12b-педагогический-выбор-и-переходы), [утверждённый план](plans/2026-11-16-sp12b-pedagogical-logic.md), [готовность](status.md#sp-12b-v55-педагогическая-логика) |
+| SP-13A и SP-13B. Learning Content | [Контракт](integrations/learning-content.md), [план SP-13A](plans/2026-11-16-sp13a-content-contract.md), [примеры](../content-contract/v1/examples.json), [генерация и смысловая проверка](integrations/learning-content-generation.md) |
+| SP-17A и SP-17C. Observations и результаты Teaching Actions | [Контракт Observations](integrations/learning-observations.md), [план SP-17A](plans/2026-11-16-sp17a-observation-contract.md), [готовность SP-17A](status.md#новый-sp-17a-observation-contract--core) |
+| SP-17B. Observations после Trial | [Источники](integrations/learning-observations.md#источники-и-handoff-sp-06), [утверждённый план](plans/2026-11-16-sp17b-trial-observation-integration.md), [готовность](status.md#sp-17b-trial--observations) |
+| SP-19A и SP-19B. Stage Score | [Расчёт по Observations](integrations/learning-score.md) |
+| SP-20. Post-Lesson Review | [Контракт](integrations/post-lesson-review.md), [карта задач после урока](integrations/lesson-results.md), [готовность волны 9](status.md#совместная-интеграция-волны-9) |
 
-Внутри каждого файла есть оглавление. Старые voice-метрики не измеряют конверсию нового чата.
-CMP остаётся отдельным прототипом: [клиент, WebRTC и API](integrations/mobile-api.md).
-Порядок выкладки и восстановления — в [deploy](integrations/operations.md#выкладка-и-восстановление).
+Границы совместной проверки описаны в отчётах по волнам:
 
-## Как читать остальные материалы
+- [Волна 5](status.md#совместная-интеграция-волны-5) охватывает первую Roadmap (SP-08) и Teaching Actions (SP-14/15), включая границу с SP-16/17C.
+- [Волна 6](status.md#совместная-интеграция-волны-6) охватывает приоритеты и сроки Roadmap (SP-09/10) и результаты Teaching Actions (SP-17C).
+- [Волна 7](status.md#совместная-интеграция-волны-7) охватывает доставку Roadmap в Telegram (SP-11A), предложения новых Learning Tasks (SP-18) и Stage Score (SP-19A/B).
 
-`architecture.md` — единственное описание реализованной архитектуры и причин решений.
-`architecture/` содержит исходный целевой контракт MVP. Правила агента находятся только в `AGENTS.md`.
-`integrations/` содержит технические контракты и эксплуатацию; legacy-справочники не описывают активные маршруты SP-00.
-`plans/` содержит объём SP-00–SP-08, контракты и границы проверок.
-`status.md` — единственная краткая сводка реализации и поставки.
-Значимые результаты прежних проверок и ограничения моделей находятся в технических контрактах соответствующих подсистем.
+<a id="шесть-технических-справочников"></a>
 
-Новые решения записываются в соответствующий основной документ. Повторять реализацию и результаты проверок в нескольких планах не нужно.
+## Эксплуатация и приёмка
+
+| Задача | Справочник |
+| --- | --- |
+| Запустить, развернуть или восстановить сервис | [Эксплуатация и мониторинг](integrations/operations.md), [локальный запуск и CI](integrations/operations.md#run-locally-env-ci), [выкладка и восстановление](integrations/operations.md#выкладка-и-восстановление) |
+| Разобрать текстовый диалог | [Чат и Telegram](integrations/tutor-chat.md), [изолированная агентская приёмка](integrations/agent-acceptance.md) |
+| Проверить результаты на DEV для волн 1–9 | [Матрица AC](acceptance/dev-waves-1-9-matrix.md), [текстовые диалоги](acceptance/runs/text-ac-results.md), [регулярный урок](acceptance/runs/regular-lesson-ac-2026-11-17.md), [оставшиеся проверки](acceptance/remaining-ac-execution.md) |
+| Выбрать модель Codex для работы над репозиторием | [Выбор Sol или Astra](integrations/codex-models.md) |
+
+## Сохранённые системы
+
+| Система | Что описывает справочник |
+| --- | --- |
+| [Голос и review](integrations/voice-and-reviews.md) | Clip API, звонки, коррекции и оценки |
+| [Практика](integrations/practice.md) | Vocabulary Builder, напоминания, streak и HTTP-операции |
+| [Аналитика](integrations/analytics.md) | События, знаменатели, когорты и стоимость. Старые голосовые метрики относятся к прежнему сценарию. |
+| [CMP API](integrations/mobile-api.md) | Авторизация, Home, WebRTC, сессии и review отдельного прототипа CMP |
+
+<a id="как-читать-остальные-материалы"></a>
+
+## Ранние решения
+
+[Продукт v0.5](product/2026-11-08-ai-tutor-experience-v0.5.md) и [исходная архитектура MVP](architecture/speaky-mvp-high-level-architecture-v1.md) фиксируют первоначальный замысел. Планы ниже описывают объём, согласованный на каждом этапе. При расхождении целевое продуктовое поведение задаёт v5.5.
+
+- [SP-00. Фундамент и матрица проверок](plans/2026-11-10-sp00-foundation.md).
+- [SP-01. Знакомство в Telegram](plans/2026-11-09-sp01-text-onboarding.md) уточняет [исходное UX-ТЗ](product/2026-11-13-first-acquaintance-ux.md), включая тексты четырёх приветствий. В UX-ТЗ сохранена согласованная правка вопроса о цели. В пределах v5.5 для диалога действуют поздние уточнения SP-01.
+- [SP-02. Пробный урок](plans/2026-11-11-sp02-trial-lesson.md) и [SP-03. Регулярный урок](plans/2026-11-12-sp03-regular-lessons.md).
+- [SP-04. Расписание, переносы и напоминания](plans/2026-11-12-sp04-scheduling.md) и [SP-05. Подписка, тестовая оплата и доступ](plans/2026-11-12-sp05-subscription.md).
+- [SP-06. Roadmap и планы уроков](plans/2026-11-12-sp06-roadmap.md), [SP-07. Память об ученике](plans/2026-11-12-sp07-memory.md) и [SP-08. Оценка навыков и My Progress](plans/2026-11-12-sp08-progress.md).
+
+Правила работы агента находятся в [AGENTS.md](../AGENTS.md). Новые решения записывайте в основной документ подсистемы, результаты проверок и поставки обновляйте в сводке состояния проекта.

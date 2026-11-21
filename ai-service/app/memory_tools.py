@@ -1,10 +1,10 @@
 """Native memory tools shared by Telegram and server-owned Realtime."""
-import hashlib
-import json
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.foundation_client import tool_operation_id
+from app.student_learning_state import personal_key
 
 
 class MemoryArgs(BaseModel):
@@ -17,16 +17,22 @@ class SearchMemory(MemoryArgs):
 
 
 class FactRef(MemoryArgs):
-    category: Literal['personal', 'learning']
+    category: Literal['personal']
     key: str = Field(pattern=r'^[a-z][a-z_]{0,49}$')
     expectedVersion: int = Field(ge=0)
     evidence: str = Field(min_length=1, max_length=12000)
 
 
+    _personal_key = field_validator('key')(personal_key)
+
+
 class ForgetTarget(MemoryArgs):
-    category: Literal['personal', 'learning']
+    category: Literal['personal']
     key: str = Field(pattern=r'^[a-z][a-z_]{0,49}$')
     expectedVersion: int = Field(ge=1)
+
+
+    _personal_key = field_validator('key')(personal_key)
 
 
 class ForgetMemory(MemoryArgs):
@@ -36,7 +42,7 @@ class ForgetMemory(MemoryArgs):
 
 class RecordMemory(FactRef):
     value: str = Field(min_length=1, max_length=1000)
-    kind: Literal['user_report', 'self_assessment']
+    kind: Literal['user_report']
 
 
 class MemoryPolicy(FactRef):
@@ -61,7 +67,7 @@ class Review(MemoryArgs):
 MEMORY_MODELS = {
     'search_memory': (SearchMemory, 'memory.search', 'Read current facts, never candidates. Literal query, or empty to browse; paginate with nextOffset.'),
     'discuss_memory': (SearchMemory, 'memory.discuss', 'Read unconfirmed candidates ONLY for a topic already naturally discussed. Nonempty query required. Not a fact lookup.'),
-    'record_memory': (RecordMemory, 'memory.record', 'Save or correct an explicit user fact using its existing key/version and verbatim evidence. Never save an inference as a fact.'),
+    'record_memory': (RecordMemory, 'memory.record', 'Save or correct an explicit personal fact (never learning state) using its existing key/version and verbatim evidence. Never save an inference as a fact.'),
     'set_memory_policy': (MemoryPolicy, 'memory.policy', 'Set explicit do-not-discuss restriction or stated expiry. context_only permits indirect preparation, not direct mention. validUntil is ISO timestamp or null.'),
     'review_observation': (Review, 'memory.review', 'Record learner disagreement as disputed with explanation; resolve only on explicit clarification. key is the observation_key.'),
     'confirm_memory': (Candidate, 'memory.confirm', 'Confirm a previously discussed candidate from a new explicit learner statement.'),
@@ -80,5 +86,5 @@ async def execute_memory(backend, scope, request_id, source, name, arguments):
         return await backend.command(scope, uuid4().hex, action, args)
     if not source or args['evidence'] not in source['body']:
         raise ValueError('invalid_evidence')
-    identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+    identity = tool_operation_id(request_id, name, arguments)
     return await backend.command(scope, identity, action, {'sourceId': source['id'], **args})

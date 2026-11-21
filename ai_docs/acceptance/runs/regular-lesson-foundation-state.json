@@ -1,0 +1,114 @@
+{
+  "studentId": "3d3db392-5ea8-45e7-b415-fd63aceb4b08",
+  "mode": "scenario",
+  "steps": [
+    {
+      "name": "learning_state",
+      "httpStatus": 200,
+      "result": {
+        "revision": 0,
+        "goal": null,
+        "profile": {
+          "currentLevels": {
+            "selfAssessment": {
+              "overall": {
+                "level": "Unknown",
+                "explanation": null
+              },
+              "skills": {
+                "speaking": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "listening": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "grammar": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "vocabulary": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "reading": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "writing": {
+                  "level": "Unknown",
+                  "explanation": null
+                }
+              }
+            },
+            "speaky": {
+              "overall": {
+                "level": "Unknown",
+                "explanation": null
+              },
+              "skills": {
+                "speaking": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "listening": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "grammar": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "vocabulary": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "reading": {
+                  "level": "Unknown",
+                  "explanation": null
+                },
+                "writing": {
+                  "level": "Unknown",
+                  "explanation": null
+                }
+              }
+            }
+          },
+          "targetLevel": "Unknown",
+          "deadline": null,
+          "intensity": {
+            "lessonsPerWeek": null,
+            "lessonDurationMinutes": null
+          },
+          "homework": {
+            "consent": "unknown",
+            "minutes": null,
+            "period": null
+          }
+        },
+        "items": null
+      }
+    },
+    {
+      "name": "learning_tasks",
+      "httpStatus": 200,
+      "result": {
+        "revision": null,
+        "goal": null,
+        "profile": null,
+        "items": []
+      }
+    },
+    {
+      "name": "learning_observations",
+      "httpStatus": 200,
+      "result": {
+        "revision": null,
+        "goal": null,
+        "profile": null,
+        "items": []
+      }
+    }
+  ]
+}

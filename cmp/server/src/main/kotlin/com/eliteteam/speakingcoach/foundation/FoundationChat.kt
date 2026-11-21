@@ -1,5 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.ai.TutorDelivery
 import com.eliteteam.speakingcoach.ai.TutorRequest
 import com.eliteteam.speakingcoach.ai.TutorResponse
@@ -70,31 +73,46 @@ internal class FoundationChat(private val service: FoundationService) {
                 val booking = input.obj("response").obj("booking")
                 if (booking.text("id") != delivery.bookingId || booking.number("version") != delivery.version?.toLong()) reject("version_conflict")
             }
-            connection.update("""INSERT INTO tutor_delivery(student_id,request_id,kind,outcome,message_id,lesson_id,lesson_version)
+            val changed = connection.update("""INSERT INTO tutor_delivery(student_id,request_id,kind,outcome,message_id,lesson_id,lesson_version)
                 VALUES (?,?,?,'sent',?,?,?) ON CONFLICT(student_id,request_id,kind)
-                DO UPDATE SET outcome='sent',message_id=EXCLUDED.message_id,lesson_id=EXCLUDED.lesson_id,lesson_version=EXCLUDED.lesson_version""",
+                DO UPDATE SET outcome='sent',message_id=EXCLUDED.message_id,lesson_id=EXCLUDED.lesson_id,lesson_version=EXCLUDED.lesson_version
+                WHERE (tutor_delivery.outcome,tutor_delivery.message_id,tutor_delivery.lesson_id,tutor_delivery.lesson_version)
+                    IS DISTINCT FROM (EXCLUDED.outcome,EXCLUDED.message_id,EXCLUDED.lesson_id,EXCLUDED.lesson_version)""",
                 student, delivery.requestId, kind, message, delivery.bookingId, delivery.version)
             if (delivery.bookingId != null) connection.update("""INSERT INTO lesson_telegram_card(student_id,lesson_id,message_id,lesson_version,is_widget)
                 VALUES (?,?,?,?,?) ON CONFLICT(lesson_id) DO UPDATE SET message_id=EXCLUDED.message_id,lesson_version=EXCLUDED.lesson_version,is_widget=EXCLUDED.is_widget
                 WHERE lesson_telegram_card.lesson_version<=EXCLUDED.lesson_version""", student, delivery.bookingId, message, delivery.version, delivery.cardIsWidget)
+            if (changed > 0) {
+                val fields = buildMap {
+                    put("trace_id", RuntimeDiagnostics.trace("${delivery.sessionId}:${delivery.requestId}"))
+                    put("provider", "telegram")
+                    RuntimeDiagnostics.ingressId(delivery.bookingId)?.let { put("lesson_id", it) }
+                }
+                FoundationDatabase.recordAfterCommit(Event("telegram_tutor_delivery", "telegram.$kind", "receipt",
+                    Outcome.COMPLETED, "Foundation saved the Telegram delivery receipt for the $kind."), fields)
+            }
         }
     }
 
     suspend fun withDelivery(request: TutorRequest, response: TutorResponse): TutorResponse {
         val student = student(request.sessionId)
-        return service.database.transaction(readOnly = true) { connection, _ ->
+        return service.database.transaction(readOnly = true) { connection, now ->
             val sent = connection.documents("SELECT to_jsonb(d) FROM tutor_delivery d WHERE student_id=? AND request_id=? AND outcome='sent'", student, request.requestId)
             val previousCard = response.booking?.let { booking -> connection.document("""SELECT to_jsonb(d) FROM lesson_telegram_card d
                 WHERE student_id=? AND lesson_id=? AND lesson_version<=?""", student, booking.id, booking.version) }
-            response.copy(replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
+            val currentInvitation = response.joinLessonId?.let { connection.currentTrialInvitation(student, it, now) }
+            val introduction = response.booking == null && connection.textConversationMode(student) == "introduction"
+            response.copy(joinLessonId = currentInvitation, replyMessageId = sent.find { it.text("kind") == "reply" }?.number("message_id"),
                 cardMessageId = previousCard?.number("message_id"),
                 cardIsWidget = previousCard?.optionalText("is_widget") == "true",
                 cardDelivered = sent.any { it.text("kind") == "card" },
-                showProgressNavigation = response.booking == null && connection.textConversationMode(student) != "introduction")
+                showProgressNavigation = response.booking == null && !introduction,
+                splitIntroductionReply = introduction && response.joinLessonId == null)
         }
     }
 
     private suspend fun student(session: String): String {
+        if (session.startsWith("agent-")) return service.identity.resolve("agent_test", session.removePrefix("agent-"))
         val subject = session.removePrefix("tg-")
         if (!session.startsWith("tg-") || subject.toLongOrNull()?.let { it > 0 } != true) reject("invalid_identity")
         return service.identity.resolve("telegram", subject)

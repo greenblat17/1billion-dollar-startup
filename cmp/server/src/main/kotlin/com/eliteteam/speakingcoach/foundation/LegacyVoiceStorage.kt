@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.legacy.LegacySpeechSpeed
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -36,7 +37,7 @@ internal class LegacyVoiceStorage(private val database: FoundationDatabase) {
             "set_speed" -> {
                 args.only("speed")
                 val speed = args["speed"]?.jsonPrimitive?.doubleOrNull
-                if (speed !in setOf(0.8, 0.9, 1.0)) reject("invalid_speed")
+                if (LegacySpeechSpeed.choices.none { it.value == speed }) reject("invalid_speed")
                 connection.update("INSERT INTO legacy_voice_preferences(session_id,speech_speed) VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET speech_speed=EXCLUDED.speech_speed", session, speed)
                 json("saved" to true)
             }

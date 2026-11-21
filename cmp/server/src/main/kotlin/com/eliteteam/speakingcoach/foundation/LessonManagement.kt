@@ -25,7 +25,7 @@ internal class LessonManagement {
         if (kind == "regular" && duration !in 15..60) reject("invalid_lesson")
         if (kind !in setOf("trial", "regular") || mode !in setOf("placeholder", "executable") || duration !in 1..60) reject("invalid_lesson")
         if (scope.role == "text") {
-            if ((kind == "trial" && duration != 15L) || (kind == "regular" && (duration !in 15..60 || mode != "executable"))) reject("not_permitted")
+            if ((kind == "trial" && duration != TRIAL_SLOT_MINUTES) || (kind == "regular" && (duration !in 15..60 || mode != "executable"))) reject("not_permitted")
             evidence(connection, scope, args, now)
             if (args.optionalText("timing") != "now" && starts <= now) reject("time_in_past")
         }
@@ -55,6 +55,7 @@ internal class LessonManagement {
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", id, scope.studentId, kind, starts, duration, args.text("timezone"), mode, schedule,
             occurrence, if (args.optionalText("timing") == "now") "now" else "scheduled", now, now,
         )
+        if (kind == "trial" && duration in setOf(TRIAL_SLOT_MINUTES, 30L)) connection.update("UPDATE lesson SET trial_version='v5.5' WHERE id=?", id)
         if (previousLesson != null) connection.update("UPDATE lesson SET previous_lesson_id=? WHERE id=?", previousLesson, id)
         if (kind == "regular" && connection.currentRoadmap(scope.studentId) == null &&
             RoadmapPreparation().state(connection, scope.studentId) == null) RoadmapPreparation().enqueue(connection, scope.studentId, now)
@@ -139,6 +140,7 @@ internal class LessonManagement {
         if (inserted == 1) {
             connection.update("UPDATE lesson SET transcript_revision=transcript_revision+1 WHERE id=?", lesson.text("id"))
             if (lesson.text("status") == "completed") connection.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
+            if (lesson.text("status") == "completed") PostLessonReview().enqueue(connection, scope.studentId, lesson.text("id"), now)
             connection.update("UPDATE lesson_plan SET status='stale' WHERE student_id=?", scope.studentId)
         }
         return json("eventId" to event.text("id"), "sequence" to event.number("sequence"), "duplicate" to (inserted == 0))
@@ -166,6 +168,7 @@ internal class LessonManagement {
         if (connection.document("SELECT to_jsonb(c) FROM call_session c WHERE lesson_id=? AND status='connected'", lesson.text("id")) != null) reject("active_episode")
         connection.update("UPDATE lesson SET status='completed',outcome_reason=?,version=version+1,updated_at=? WHERE id=?", args.text("reason"), now, lesson.text("id"))
         connection.enqueueEvaluation(scope.studentId, lesson.text("id"), now)
+        PostLessonReview().enqueue(connection, scope.studentId, lesson.text("id"), now)
         return connection.lesson(scope, lesson.text("id"))
     }
 }
@@ -182,8 +185,13 @@ internal fun evidence(connection: Connection, scope: ExecutionScope, args: JsonO
 
 internal fun Connection.enqueueEvaluation(student: String, lesson: String, now: Instant) {
     val revision = rows("SELECT transcript_revision FROM lesson WHERE id=?", lesson) { it.getLong(1) }.single()
-    enqueueJob(student, "lesson.evaluate", "$lesson:$revision:sp08-v1", lesson,
-        json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to "sp08-v1"), now)
+    val v55 = rows("SELECT trial_version='v5.5' FROM lesson WHERE id=?", lesson) { it.getBoolean(1) }.single()
+    val analyzer = if (v55) "trial-memory-v55" else "sp08-v1"
+    enqueueJob(student, "lesson.evaluate", "$lesson:$revision:$analyzer", lesson,
+        json("transcriptRevision" to revision, "goalRevision" to goalRevision(student), "analyzerVersion" to analyzer,
+            "memoryOnly" to v55), now)
+    if (v55) enqueueJob(student, "trial.observe", "$lesson:$revision:trial-observation-v1", lesson,
+        json("transcriptRevision" to revision, "analyzerVersion" to "trial-observation-v1"), now)
 }
 
 /** Relative intent is resolved once under the student lock; the receipt fixes it across retries. */

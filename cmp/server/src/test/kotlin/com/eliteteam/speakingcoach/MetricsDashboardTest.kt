@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.legacy.module
 import com.eliteteam.speakingcoach.analytics.MemoryOnboardingAnalytics
 import com.eliteteam.speakingcoach.analytics.ReminderOfferSummary
 import com.eliteteam.speakingcoach.analytics.ReminderConversion
