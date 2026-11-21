@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
@@ -56,6 +57,36 @@ class FoundationIntegrationTest {
                     assertTrue(entries.all { it.text("operation") == "foundation_read" })
                     assertTrue(entries.all { it.text("route_name") == "internal.foundation.v1.operations.param_id" })
                     assertTrue(logs.lines().none { receipt in it || "internal-test-token" in it || operator in it })
+                }
+            }
+        }
+    }
+
+    @Test
+    fun storageFailureAtFoundationCommandHasOnePrimaryErrorAndNoCommit() = kotlinx.coroutines.runBlocking {
+        withStore(MutableClock()) { service ->
+            val operator = service.identity.issue(service.identity.resolve("agent_test", newId()), "operator")
+            testApplication {
+                application { routing { foundationRoutes(service, "private-command-token") } }
+                startApplication()
+                service.close()
+                DiagnosticOutput().use { logs ->
+                    val response = client.post("/internal/foundation/v1/commands") {
+                        header("X-Internal-Token", "private-command-token")
+                        header("X-Execution-Scope", operator)
+                        setBody(json("version" to 1, "operationId" to "private-operation", "action" to "lesson.list",
+                            "args" to json()).toString())
+                    }
+                    assertEquals(HttpStatusCode.ServiceUnavailable, response.status)
+                    val entries = logs.events()
+                    assertEquals(listOf("backend_command_failed", "foundation_failed"), entries.map { it.text("event") })
+                    assertEquals(listOf("persist", "response"), entries.map { it.text("stage") })
+                    assertEquals(response.headers["X-Error-ID"], entries.first().text("error_id"))
+                    assertTrue(entries.all { it.text("error_id") == entries.first().text("error_id") })
+                    assertTrue(entries.all { it.text("trace_id") == response.headers["X-Diagnostic-Trace"] })
+                    assertEquals(1, entries.count { "stack" in it })
+                    assertEquals("storage_unavailable", entries.last().text("reason_code"))
+                    assertTrue(logs.lines().none { "private-command-token" in it || "private-operation" in it || operator in it })
                 }
             }
         }
@@ -934,7 +965,11 @@ class FoundationIntegrationTest {
             )
             testApplication {
                 application { speakyModule(config) }
-                assertEquals(200, client.get("/health").status.value)
+                startApplication()
+                DiagnosticOutput().use { logs ->
+                    repeat(30) { assertEquals(200, client.get("/health").status.value) }
+                    assertTrue(logs.events().isEmpty())
+                }
                 assertEquals(404, client.get("/").status.value)
                 assertEquals(404, client.get("/admin/metrics").status.value)
                 for (path in listOf("/internal/foundation/v1/legacy/calls", "/internal/foundation/v1/legacy/feedback", "/internal/calls/open")) {
@@ -1180,6 +1215,44 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun workerRecordsLeaseLossAndLeavesTheNewFenceUntouched() = runTest {
+        withStore(MutableClock()) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            val lesson = service.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to service.database.clock.instant().toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            val worker = FoundationWorker(service, object : LearningComputer {
+                override suspend fun compute(scope: String, job: JsonObject): JsonObject {
+                    service.database.transaction { c, _ ->
+                        c.update("UPDATE foundation_job SET fence=fence+1 WHERE id=?", job.text("id"))
+                    }
+                    kotlinx.coroutines.awaitCancellation()
+                }
+            })
+            DiagnosticOutput().use { logs ->
+                assertTrue(worker.runOnce())
+                val entries = logs.events()
+                val lost = entries.single { it.optionalText("reason_code") == "lease_lost" }
+                assertEquals("foundation_job_failed", lost.text("event"))
+                assertEquals("renew", lost.text("stage"))
+                assertEquals("failed", lost.text("outcome"))
+                assertEquals(1L, lost.number("fence"))
+                assertEquals(1L, lost.number("attempt"))
+                assertEquals(lesson.text("id"), lost.text("lesson_id"))
+                val persistence = entries.single { it.text("stage") == "failure_persist" }
+                assertEquals("rejected", persistence.text("outcome"))
+                assertEquals(lost.text("error_id"), persistence.text("upstream_error_id"))
+                assertTrue(entries.none { it.text("stage") == "failure_persisted" })
+                service.database.transaction(readOnly = true) { c, _ ->
+                    val current = c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", lost.text("job_id"))!!
+                    assertEquals(2L, current.number("fence"))
+                    assertEquals("running", current.text("status"))
+                }
+            }
+        }
+    }
+
+    @Test
     fun agentFixtureSourceReplaysWithoutBlockingRealText() = runTest {
         val clock = MutableClock()
         withStore(clock) { service ->
@@ -1389,11 +1462,31 @@ class FoundationIntegrationTest {
             service.op(first, "run.claim", json())
             val booking = service.op(first, "lesson.create", json("kind" to "trial", "launchMode" to "placeholder", "durationMinutes" to TRIAL_SLOT_MINUTES,
                 "startsAt" to clock.instant().plusSeconds(86400).toString(), "timezone" to "UTC", "sourceId" to input.text("event_id"), "evidence" to "Book tomorrow"))
-            clock.current = clock.current.plusSeconds(91)
             val recovered = service.identity.issue(student, "text", "request")
-            val claim = service.op(recovered, "run.claim", json())
-            assertEquals(booking.text("id"), claim["committed"]!!.jsonArray.single().jsonObject.obj("result").text("id"))
-            assertEquals("stale_run", assertFailsWith<FoundationFailure> { service.op(first, "run.complete", json("reply" to "old", "degraded" to false)) }.code)
+            DiagnosticOutput().use { logs ->
+                assertEquals("conversation_busy", assertFailsWith<FoundationFailure> {
+                    service.op(recovered, "run.claim", json())
+                }.code)
+                val busy = logs.events().single()
+                assertEquals("rejected", busy.text("outcome"))
+                assertEquals("conversation_busy", busy.text("reason_code"))
+            }
+            clock.current = clock.current.plusSeconds(91)
+            DiagnosticOutput().use { logs ->
+                val claim = service.op(recovered, "run.claim", json())
+                assertEquals(booking.text("id"), claim["committed"]!!.jsonArray.single().jsonObject.obj("result").text("id"))
+                assertEquals("stale_run", assertFailsWith<FoundationFailure> {
+                    service.op(first, "run.complete", json("reply" to "PRIVATE_STALE_REPLY", "degraded" to false))
+                }.code)
+                val entries = logs.events()
+                val reclaimed = entries.single { it.text("event") == "conversation_run_claim" }
+                assertEquals("started", reclaimed.text("outcome"))
+                assertEquals("run_lease_expired", reclaimed.text("reason_code"))
+                assertEquals(2L, reclaimed.number("fence"))
+                val stale = entries.single { it.optionalText("reason_code") == "stale_run" }
+                assertEquals("rejected", stale.text("outcome"))
+                assertTrue(logs.lines().none { "PRIVATE_STALE_REPLY" in it || "Book tomorrow" in it })
+            }
             service.op(recovered, "run.complete", json("reply" to "Booked", "bookingId" to booking.text("id"), "degraded" to true))
             assertEquals(booking.text("id"), service.snapshot(recovered, "text").obj("booking").text("id"))
         }

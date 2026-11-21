@@ -262,8 +262,31 @@ def test_miniapp_calendar_and_audio_failures_link_to_one_primary_record(
     [primary, boundary] = [row for row in records(caplog) if row['trace_id'] == response.headers['X-Diagnostic-Trace']]
     assert (primary['event'], primary['outcome'], primary['reason_code']) == (writer, 'failed', reason)
     assert boundary['event'] == 'http_failed'
+    assert boundary['route_name'] == f'miniapp.api.{action}'
     assert primary['error_id'] == boundary['error_id'] == response.headers['X-Error-ID']
     assert 'stack' in primary and 'stack' not in boundary
+    assert 'PRIVATE_' not in caplog.text
+
+
+def test_miniapp_reads_name_the_action_without_logging_payload(monkeypatch, caplog):
+    from fastapi.testclient import TestClient
+    from app import speaky_main
+
+    monkeypatch.setenv('SPEAKY_ENV', 'local')
+    monkeypatch.setenv('AI_INTERNAL_TOKEN', 'test-only')
+    monkeypatch.setenv('OPENAI_API_KEY', 'test-only')
+    monkeypatch.setenv('FOUNDATION_BACKEND_URL', 'http://127.0.0.1:1')
+    monkeypatch.delenv('TRIAL_AUDIO_BUCKET', raising=False)
+    monkeypatch.setattr(speaky_main.FoundationClient, '_request', AsyncMock(return_value={'value': 'PRIVATE_RESULT'}))
+    caplog.set_level(logging.INFO)
+    actions = ('list', 'progress', 'lesson_status')
+    with TestClient(speaky_main.create_app()) as client:
+        for action in actions:
+            response = client.post('/miniapp/api', json={'action': action, 'initData': 'PRIVATE_INIT'})
+            assert response.status_code == 200
+    rows = [row for row in records(caplog) if row['event'] == 'http_request']
+    assert [row['route_name'] for row in rows] == [f'miniapp.api.{action}' for action in actions]
+    assert all(row['stage'] == 'response' and row['outcome'] == 'completed' and row['http_status'] == 200 for row in rows)
     assert 'PRIVATE_' not in caplog.text
 
 

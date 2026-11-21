@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonObject
@@ -29,6 +31,11 @@ internal class ConversationRuns {
             if (operation.text("action") in setOf("lesson.create", "lesson.reschedule", "lesson.cancel")) {
                 json("action" to operation.text("action"), "result" to connection.lesson(scope, operation.obj("result").text("id")))
             } else operation
+        }
+        if (input.text("status") == "running") {
+            FoundationDatabase.recordAfterCommit(Event("conversation_run_claim", "run.claim", "commit",
+                Outcome.STARTED, "Foundation claimed the conversation run after the earlier lease expired.",
+                "run_lease_expired"), mapOf("fence" to claimed.number("fence").toString()))
         }
         return json("status" to "running", "input" to source, "fence" to claimed.number("fence"), "committed" to JsonArray(recovered))
     }

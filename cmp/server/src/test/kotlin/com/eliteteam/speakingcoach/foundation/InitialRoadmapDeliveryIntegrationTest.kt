@@ -123,6 +123,66 @@ class InitialRoadmapDeliveryIntegrationTest {
                     assertEquals("unknown", delivery.text("status"))
                     assertEquals(null, delivery.optionalText("source_job_id"))
                 }
+                val timedOutStudent = eligible("10006")
+                var timedOutCalls = 0
+                DiagnosticOutput().use { logs ->
+                    HttpClient(MockEngine { request ->
+                        if (request.url.host == "ai.test") respond("""{"reply":"Маршрут","roadmapRevision":1}""", HttpStatusCode.OK)
+                        else {
+                            timedOutCalls++
+                            throw java.net.SocketTimeoutException("PRIVATE_TELEGRAM_TIMEOUT")
+                        }
+                    }).use {
+                        val worker = InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test")
+                        repeat(4) { worker.tick() }
+                    }
+                    val entries = logs.events().filter { it.optionalText("operation") == "roadmap.deliver" }
+                    val timeout = entries.single { it.text("outcome") == "unknown" }
+                    assertEquals("telegram_request_timeout", timeout.text("reason_code"))
+                    assertEquals("telegram_request", timeout.text("stage"))
+                    assertEquals(0L, timeout.number("part"))
+                    assertTrue(entries.none { it.text("stage") == "delivery_persist" })
+                    assertTrue(logs.lines().none { "PRIVATE_TELEGRAM_TIMEOUT" in it })
+                }
+                assertEquals(1, timedOutCalls)
+                service.database.transaction(readOnly = true) { c, _ ->
+                    assertEquals("unknown", c.document("SELECT to_jsonb(d) FROM initial_roadmap_delivery d WHERE student_id=?",
+                        timedOutStudent)!!.text("status"))
+                }
+                val partialStudent = eligible("10007")
+                val partialMessage = "PRIVATE_ROADMAP_EVIDENCE ".repeat(240)
+                var partialCalls = 0
+                DiagnosticOutput().use { logs ->
+                    HttpClient(MockEngine { request ->
+                        if (request.url.host == "ai.test") {
+                            respond(json("reply" to partialMessage, "roadmapRevision" to 1).toString(), HttpStatusCode.OK)
+                        } else if (++partialCalls == 1) {
+                            respond("""{"ok":true}""", HttpStatusCode.OK)
+                        } else {
+                            respond("""{"ok":false,"error_code":429}""", HttpStatusCode.TooManyRequests)
+                        }
+                    }).use {
+                        val worker = InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test")
+                        repeat(5) { worker.tick() }
+                    }
+                    val entries = logs.events().filter { it.optionalText("operation") == "roadmap.deliver" }
+                    val accepted = entries.single { it.text("stage") == "delivery_persist" }
+                    val rejected = entries.single { it.text("outcome") == "rejected" }
+                    assertEquals(0L, accepted.number("part"))
+                    assertEquals("ready", accepted.text("job_status"))
+                    assertEquals(1L, rejected.number("part"))
+                    assertEquals(429L, rejected.number("http_status"))
+                    assertEquals(accepted.text("trace_id"), rejected.text("trace_id"))
+                    assertEquals(accepted.text("delivery_id"), rejected.text("delivery_id"))
+                    assertTrue(logs.lines().none { "PRIVATE_ROADMAP_EVIDENCE" in it })
+                }
+                assertEquals(2, partialCalls)
+                service.database.transaction(readOnly = true) { c, _ ->
+                    val delivery = c.document("SELECT to_jsonb(d) FROM initial_roadmap_delivery d WHERE student_id=?",
+                        partialStudent)!!
+                    assertEquals("unknown", delivery.text("status"))
+                    assertEquals(1L, delivery.number("next_part"))
+                }
                 val manualStudent = eligible("10004", legacySource = false)
                 HttpClient(MockEngine { error("A prior generator cannot make a manual Roadmap eligible") }).use {
                     InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test").tick()

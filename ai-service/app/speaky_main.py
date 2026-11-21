@@ -115,7 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 operation = getattr(request.scope.get('route'), 'name', 'http')
                 stage = 'authorize' if status in (401, 403) else 'validate' if status in (400, 413, 422) else 'response'
                 error_id = response.headers.get('X-Error-ID')
-                fields = frozenset({'http_status', 'duration_ms'})
+                fields = frozenset({'http_status', 'duration_ms', 'route_name'})
                 if status >= 400:
                     reason = 'unauthorized' if not authorized and not public else f'http_{status}'
                     if reason == 'unauthorized':
@@ -129,18 +129,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                      f'The AI service returned HTTP {status} for the {operation.replace("_", " ")} request.',
                                      fields=fields)
                 error_id = event(spec, error_id=error_id, http_status=status,
+                                 route_name=getattr(request.state, 'diagnostic_route_name', None),
                                  duration_ms=int((perf_counter() - started) * 1000))
             except asyncio.CancelledError:
                 event(EventSpec('http_request', 'http', 'http', 'handler', 'cancelled',
                                 'The AI HTTP request was cancelled before a response was sent.',
-                                fields=frozenset({'duration_ms'})),
+                                fields=frozenset({'duration_ms', 'route_name'})),
+                      route_name=getattr(request.state, 'diagnostic_route_name', None),
                       duration_ms=int((perf_counter() - started) * 1000))
                 raise
             except Exception as error:
                 error_id = event(EventSpec('http_failed', 'http', 'http', 'handler', 'failed',
                                            'The AI HTTP handler failed unexpectedly.', 'internal_error', logging.ERROR,
-                                           frozenset({'duration_ms'})),
-                                 error=error, duration_ms=int((perf_counter() - started) * 1000))
+                                           frozenset({'duration_ms', 'route_name'})),
+                                 error=error, route_name=getattr(request.state, 'diagnostic_route_name', None),
+                                 duration_ms=int((perf_counter() - started) * 1000))
                 response = JSONResponse({'detail': 'internal_error'}, status_code=500)
             response.headers['X-Diagnostic-Trace'] = correlation['trace_id']
             response.headers['X-Request-ID'] = request_id

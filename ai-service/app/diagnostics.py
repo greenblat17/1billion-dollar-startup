@@ -35,7 +35,7 @@ _LINKS = {'client_attempt_id', 'server_error_id', 'upstream_error_id'}
 _CORRELATION_NUMBERS = {'fence', 'attempt'}
 _LABELS = {
     *_KEYS, 'component', 'operation', 'stage', 'outcome', 'reason', 'reason_code', 'error_code', 'client_code',
-    'method', 'route', 'provider', 'model', 'tool', 'transport', 'direction', 'skill', 'event_kind',
+    'method', 'route', 'route_name', 'provider', 'model', 'tool', 'transport', 'direction', 'skill', 'event_kind',
     'action_kind', 'source_event_id', 'field', 'rule', 'actualType', 'type', 'schema_name', 'schema_hash',
     'last_input_stage', 'status_reason', 'status_error_code', 'metric', 'peer_kind', 'request_key',
     'item_id', 'code', 'error_type', 'purpose', 'result', 'source', 'user_id',

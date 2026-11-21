@@ -192,6 +192,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             raise HTTPException(400) from None
         if not isinstance(payload, dict) or payload.get('action') not in ('list', 'demo_pay', 'audio', 'progress', 'calendar', 'lesson_status'):
             raise HTTPException(400)
+        request.state.diagnostic_route_name = f"miniapp.api.{payload['action']}"
         try:
             result = await backend._request('POST', '/trial/access', '', json=payload)
         except BackendFailure as error:

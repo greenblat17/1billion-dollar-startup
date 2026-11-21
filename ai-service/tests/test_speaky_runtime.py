@@ -44,7 +44,8 @@ async def check():
         app = create_app(settings)
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
-                assert (await client.get('/health')).json()['runtime'] == 'speaky'
+                for _ in range(30):
+                    assert (await client.get('/health')).json()['runtime'] == 'speaky'
                 unauthorized = await client.post('/internal/foundation/compute', json={},
                     headers={'X-Diagnostic-Trace': 'f' * 32, 'X-Diagnostic-Fence': '99', 'X-Diagnostic-Attempt': '99'})
                 assert unauthorized.status_code == 401
@@ -73,6 +74,7 @@ asyncio.run(check())
                if 'runtime_event ' in line]
     lifecycle = [(row['stage'], row['outcome']) for row in records if row['event'] == 'ai_runtime']
     assert lifecycle == [('startup', 'completed'), ('shutdown', 'completed')]
+    assert len([row for row in records if row['event'] == 'http_request']) == 6
     [denied] = [row for row in records if row.get('http_status') == 401]
     assert 'fence' not in denied and 'attempt' not in denied
     [trusted] = [row for row in records if row['trace_id'] == 'e' * 32]
