@@ -49,9 +49,11 @@ def logging_probe(port, container, revision):
         trace = error.headers.get('X-Diagnostic-Trace', '')
         if not re.fullmatch(r'[a-f0-9]{32}', trace):
             raise RuntimeError('logging_probe_trace_missing') from None
+        response_error_id = error.headers.get('X-Error-ID', '')
+        if not re.fullmatch(r'[a-f0-9]{32}', response_error_id):
+            raise RuntimeError('logging_probe_error_id_missing') from None
     else:
         raise RuntimeError('logging_probe_accepted_invalid_telegram_auth')
-        response_error_id = error.headers.get('X-Error-ID', '')
     if logging_record(container, trace, revision, 'backend_failed', 'backend_rejected') != response_error_id:
         raise RuntimeError('logging_probe_error_id_mismatch')
     print('logging_probe_trace=' + trace)
