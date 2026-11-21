@@ -10,7 +10,15 @@ import okhttp3.ConnectionPool
 import java.util.concurrent.TimeUnit
 
 suspend fun main() {
-    startSpeakyServer(AppConfig.fromEnv())
+    val config = try {
+        AppConfig.fromEnv()
+    } catch (error: IllegalArgumentException) {
+        RuntimeDiagnostics.record(RuntimeDiagnostics.Event("backend_startup_failed", "backend.runtime", "configuration",
+            RuntimeDiagnostics.Outcome.FAILED, "Ktor could not load its startup configuration.", "invalid_startup_configuration"),
+            error = error)
+        throw error
+    }
+    startSpeakyServer(config)
 }
 
 internal fun speakingCoachAiHttpClient(): HttpClient = HttpClient(OkHttp) {

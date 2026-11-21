@@ -26,7 +26,7 @@ import org.flywaydb.core.Flyway
 
 internal val foundationJson = Json { encodeDefaults = true }
 
-internal class FoundationFailure(val code: String) : RuntimeException(code)
+internal class FoundationFailure(val code: String, val diagnosticErrorId: String? = null) : RuntimeException(code)
 internal fun reject(code: String): Nothing = throw FoundationFailure(code)
 internal fun newId(): String = UUID.randomUUID().toString()
 internal fun digest(value: String): String = MessageDigest.getInstance("SHA-256")

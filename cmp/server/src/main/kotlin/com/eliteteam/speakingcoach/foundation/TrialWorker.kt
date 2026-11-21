@@ -111,16 +111,37 @@ internal class TrialWorker(private val service: FoundationService, private val h
             foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.text("reply")
         }
         if (reply.isBlank() || reply.length > 3500) {
-            service.database.transaction { c, _ -> c.update("UPDATE trial_notice SET status='cancelled' WHERE id=? AND status='generating' AND fence=?", notice.text("id"), notice.number("fence")) }
+            val changed = service.database.transaction { c, _ ->
+                c.update("UPDATE trial_notice SET status='cancelled' WHERE id=? AND status='generating' AND fence=?",
+                    notice.text("id"), notice.number("fence"))
+            }
+            if (changed > 0) RuntimeDiagnostics.record(Event("trial_notice", "trial.notice", "validate_reply", Outcome.CANCELLED,
+                "Foundation cancelled the Trial notice because its reply did not meet the send requirements.",
+                if (reply.isBlank()) "notice_reply_empty" else "notice_reply_too_long"))
             return
         }
         val subject = service.database.transaction { c, now ->
             c.lockStudent(student)
-            val active = c.document("SELECT to_jsonb(n) FROM trial_notice n JOIN student s ON s.id=n.student_id WHERE n.id=? AND n.status='generating' AND n.fence=? AND n.data_epoch=s.data_epoch AND s.deleted_at IS NULL", notice.text("id"), notice.number("fence")) ?: return@transaction null
+            val active = c.document("SELECT to_jsonb(n) FROM trial_notice n JOIN student s ON s.id=n.student_id WHERE n.id=? AND n.status='generating' AND n.fence=? AND n.data_epoch=s.data_epoch AND s.deleted_at IS NULL", notice.text("id"), notice.number("fence"))
+            if (active == null) {
+                FoundationDatabase.recordAfterCommit(Event("trial_notice", "trial.notice", "pre_send", Outcome.SUPERSEDED,
+                    "Foundation skipped the Trial notice because the preparation attempt no longer owns it.", "notice_state_changed"))
+                return@transaction null
+            }
             val newer = c.document("SELECT to_jsonb(e) FROM conversation_event e JOIN tutor_conversation t ON t.id=e.conversation_id WHERE e.student_id=? AND t.channel='telegram' AND e.role='user' AND e.received_at>? LIMIT 1", student, java.time.Instant.parse(active.text("due_at")))
             val currentLesson = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", notice.text("lesson_id"))
-            if (currentLesson == null || !noticeApplies(c, notice, currentLesson, now) || (newer != null && scheduledTrial == null) || c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", notice.text("lesson_id")) != null) {
-                c.update("UPDATE trial_notice SET status='cancelled' WHERE id=?", notice.text("id")); return@transaction null
+            val cancellation = when {
+                currentLesson == null -> "lesson_unavailable"
+                c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", notice.text("lesson_id")) != null -> "call_active"
+                !noticeApplies(c, notice, currentLesson, now) -> "notice_no_longer_applies"
+                newer != null && scheduledTrial == null -> "learner_replied"
+                else -> null
+            }
+            if (cancellation != null) {
+                c.update("UPDATE trial_notice SET status='cancelled' WHERE id=?", notice.text("id"))
+                FoundationDatabase.recordAfterCommit(Event("trial_notice", "trial.notice", "pre_send", Outcome.CANCELLED,
+                    "Foundation cancelled the prepared Trial notice before calling Telegram.", cancellation))
+                return@transaction null
             }
             c.update("UPDATE trial_notice SET status='unknown',reply=? WHERE id=?", reply, notice.text("id"))
             c.rows("SELECT subject FROM student_identity WHERE student_id=? AND provider='telegram'", student) { it.getString(1) }.singleOrNull()
@@ -165,7 +186,10 @@ internal class TrialWorker(private val service: FoundationService, private val h
             c.appendEvent(student, c.conversation(student, "telegram"), "notice:${notice.text("id")}:${notice.number("fence")}", "assistant", reply, now, now)
             true
         }
-        if (recorded) RuntimeDiagnostics.record("trial_notice", "delivery_persist", extra = mapOf("job_status" to "sent"))
+        if (recorded) RuntimeDiagnostics.record(Event("trial_notice", "trial.notice", "delivery_persist", Outcome.COMPLETED,
+            "Telegram accepted the Trial notice and Foundation recorded delivery."), mapOf("job_status" to "sent"))
+        else RuntimeDiagnostics.record(Event("trial_notice", "trial.notice", "delivery_persist", Outcome.SUPERSEDED,
+            "Telegram accepted the Trial notice after its delivery state changed.", "notice_state_changed"))
     }
 
     private fun noticeApplies(c: java.sql.Connection, notice: JsonObject, lesson: JsonObject, now: java.time.Instant): Boolean {

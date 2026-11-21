@@ -1,5 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -87,7 +90,14 @@ internal class TrialAccess(private val service: FoundationService) {
             id, student, lesson.text("id"), attempt, now, now.plusSeconds(45), digest(token))
         if (entitlement != null) c.update("UPDATE lesson SET admission_entitlement_id=? WHERE id=?", entitlement.text("id"), lesson.text("id"))
         c.update("UPDATE lesson SET status='in_progress',execution_snapshot=COALESCE(execution_snapshot,?::jsonb),version=version+1 WHERE id=?", briefing, lesson.text("id"))
-        c.update("UPDATE trial_notice SET status='cancelled' WHERE lesson_id=? AND status IN ('pending','generating','ready')", lesson.text("id"))
+        val cancelledNotices = c.rows("""UPDATE trial_notice SET status='cancelled'
+            WHERE lesson_id=? AND status IN ('pending','generating','ready') RETURNING id""", lesson.text("id")) { it.getString(1) }
+        cancelledNotices.forEach { noticeId ->
+            FoundationDatabase.recordAfterCommit(Event("trial_notice", "trial.notice", "admission", Outcome.CANCELLED,
+                "Foundation cancelled the notice after the learner opened the call.", "call_active"),
+                mapOf("trace_id" to RuntimeDiagnostics.trace(noticeId), "notice_id" to noticeId,
+                    "lesson_id" to lesson.text("id"), "call_session_id" to id))
+        }
         val regularExecution = if (lesson.text("kind") == "regular") RegularLessonAdmission().prepare(c, student, lesson.text("id"), now) else null
         return json("scope" to token, "callSessionId" to id, "lesson" to c.lesson(ExecutionScope(student, "voice", epoch), lesson.text("id")),
             "regularExecution" to regularExecution,

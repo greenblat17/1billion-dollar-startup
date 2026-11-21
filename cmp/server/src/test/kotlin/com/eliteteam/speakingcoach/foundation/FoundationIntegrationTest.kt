@@ -4,11 +4,13 @@ import com.eliteteam.speakingcoach.ai.TutorClient
 import com.eliteteam.speakingcoach.DiagnosticOutput
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
 import com.eliteteam.speakingcoach.speakyModule
@@ -60,6 +62,47 @@ class FoundationIntegrationTest {
                 assertEquals("failed", service.database.transaction { c, _ ->
                     c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", jobId)!!.text("status")
                 })
+            }
+        }
+    }
+
+    @Test
+    fun workerLinksRetryAndTerminalDecisionsToTheirOwnPrimaryFailure() = kotlinx.coroutines.runBlocking {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            val lesson = service.op(operator, "lesson.create", json("kind" to "trial", "launchMode" to "executable",
+                "startsAt" to clock.instant().toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            service.database.transaction { c, _ ->
+                c.update("UPDATE foundation_job SET max_attempts=2 WHERE student_id=? AND target_id=?",
+                    student, lesson.text("id"))
+            }
+            val sentinel = "control-secret-provider-body"
+            val upstreamId = "f".repeat(32)
+            DiagnosticOutput().use { logs ->
+                var requests = 0
+                HttpClient(MockEngine {
+                    if (++requests == 1) throw java.io.IOException(sentinel)
+                    respond("""{"detail":"$sentinel"}""", HttpStatusCode.ServiceUnavailable, headersOf("X-Error-ID", upstreamId))
+                }).use { http ->
+                    val worker = FoundationWorker(service, HttpLearningComputer(http, "https://ai.test", "internal-token"))
+                    assertTrue(worker.runOnce())
+                    clock.current = clock.current.plusSeconds(5)
+                    assertTrue(worker.runOnce())
+                    assertEquals(false, worker.runOnce())
+                }
+                val events = logs.events()
+                val failures = events.filter { it.text("event") == "foundation_job_failed" }
+                val decisions = events.filter { it.text("stage") == "failure_persisted" }
+                assertEquals(listOf("retry_wait", "failed"), decisions.map { it.text("outcome") })
+                assertEquals(listOf(1L, 2L), failures.map { it.number("fence") })
+                assertEquals(1, failures.map { it.text("job_id") }.distinct().size)
+                assertEquals(failures.map { it.text("error_id") }, decisions.map { it.text("upstream_error_id") })
+                assertEquals(upstreamId, events.single { it.text("event") == "foundation_job_ai_call" }.text("error_id"))
+                assertEquals(upstreamId, failures.last().text("error_id"))
+                assertEquals(1, events.count { "stack" in it })
+                assertTrue(logs.lines().none { sentinel in it })
             }
         }
     }
@@ -626,7 +669,17 @@ class FoundationIntegrationTest {
             val claimed = service.op(operator, "job.claim", json("kind" to "notification.reminder")).obj("job")
             assertEquals(requested.text("jobId"), claimed.text("id"))
             clock.current = clock.current.plusSeconds(61)
-            assertEquals(kotlinx.serialization.json.JsonNull, service.op(operator, "job.claim", json("kind" to "notification.reminder"))["job"])
+            DiagnosticOutput().use { logs ->
+                repeat(2) {
+                    assertEquals(kotlinx.serialization.json.JsonNull,
+                        service.op(operator, "job.claim", json("kind" to "notification.reminder"))["job"])
+                }
+                val event = logs.events().single()
+                assertEquals("foundation_job_claim_decision", event.text("event"))
+                assertEquals("delivery_unknown", event.text("reason_code"))
+                assertEquals("unknown", event.text("outcome"))
+                assertEquals(claimed.text("id"), event.text("job_id"))
+            }
             service.database.transaction(readOnly = true) { c, _ ->
                 assertEquals("delivery_unknown", c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", claimed.text("id"))!!.text("error_code"))
             }

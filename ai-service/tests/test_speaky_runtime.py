@@ -71,6 +71,8 @@ asyncio.run(check())
     assert "private-scope" not in result.stderr and "private-header" not in result.stderr
     records = [json.loads(line.partition('runtime_event ')[2]) for line in result.stderr.splitlines()
                if 'runtime_event ' in line]
+    lifecycle = [(row['stage'], row['outcome']) for row in records if row['event'] == 'ai_runtime']
+    assert lifecycle == [('startup', 'completed'), ('shutdown', 'completed')]
     [denied] = [row for row in records if row.get('http_status') == 401]
     assert 'fence' not in denied and 'attempt' not in denied
     [trusted] = [row for row in records if row['trace_id'] == 'e' * 32]

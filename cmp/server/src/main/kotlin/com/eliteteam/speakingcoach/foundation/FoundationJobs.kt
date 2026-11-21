@@ -12,20 +12,23 @@ import kotlinx.serialization.json.jsonObject
 
 internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "lesson.review", "trial.observe", "trial.assess", "lesson.prepare", "lesson.content.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
+internal data class JobAttemptRef(val id: String, val fence: Long)
+
 internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant,
     sourceJobId: String? = null): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
     val id = newId()
     val inserted = update(
-        """INSERT INTO foundation_job(id,student_id,data_epoch,kind,dedup_key,target_id,input_refs,due_at,deadline)
-           SELECT ?,id,data_epoch,?,?,?,?::jsonb,?,? FROM student WHERE id=? AND deleted_at IS NULL
-           ON CONFLICT(student_id,kind,dedup_key) DO NOTHING""", id, kind, key, target, inputs, now, now.plusSeconds(HISTORY_SECONDS), student,
+        """INSERT INTO foundation_job(id,student_id,data_epoch,kind,dedup_key,target_id,input_refs,due_at,deadline,source_job_id)
+           SELECT ?,id,data_epoch,?,?,?,?::jsonb,?,?,? FROM student WHERE id=? AND deleted_at IS NULL
+           ON CONFLICT(student_id,kind,dedup_key) DO NOTHING""", id, kind, key, target, inputs, now, now.plusSeconds(HISTORY_SECONDS), sourceJobId, student,
     )
-    val jobId = rows("SELECT id FROM foundation_job WHERE student_id=? AND kind=? AND dedup_key=?", student, kind, key) { it.getString(1) }.single()
+    val (jobId, persistedSource) = rows("SELECT id,source_job_id FROM foundation_job WHERE student_id=? AND kind=? AND dedup_key=?",
+        student, kind, key) { it.getString(1) to it.getString(2) }.single()
     val facts = buildMap {
         put("job_id", jobId)
         put("job_kind", kind)
-        sourceJobId?.let { put("source_job_id", it) }
+        persistedSource?.let { put("source_job_id", it) }
         if (target != null && kind in setOf("trial.observe", "trial.assess", "roadmap.generate", "lesson.review", "lesson.evaluate")) {
             put("lesson_id", target)
         }
@@ -165,7 +168,8 @@ internal class FoundationJobs {
             "lesson.review" -> PostLessonReview().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
             "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now, job.text("id"))
-            "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now,
+                JobAttemptRef(job.text("id"), job.number("fence")))
             "roadmap.prioritize" -> {
                 val current = PersonalizedRoadmap().read(connection, scope.studentId)
                 if (current.number("revision") != inputs.number("roadmapRevision") ||
@@ -276,7 +280,7 @@ internal class FoundationJobs {
             ?: reject("catalog_not_published")
         c.enqueueJob(scope.studentId, "trial.assess", "$lessonId:${inputs.number("transcriptRevision")}:post-trial-assessment-v1", lessonId,
             json("transcriptRevision" to inputs.number("transcriptRevision"), "observationJobId" to scope.jobId,
-                "catalogVersion" to catalogVersion), now)
+                "catalogVersion" to catalogVersion), now, sourceJobId = scope.jobId)
         return true
     }
 

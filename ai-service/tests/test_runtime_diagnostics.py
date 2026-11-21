@@ -164,9 +164,13 @@ def test_client_diagnostics_authenticates_and_rejects_free_text(caplog):
         assert records(caplog)[-1]['client_code'] == 'unknown'
         assert records(caplog)[-1]['client_attempt_id'] == 'b036917a-1c72-45a4-a483-e085bc075da3'
         assert records(caplog)[-1]['trace_id'] != records(caplog)[-1]['client_attempt_id']
+        report_count = len(records(caplog))
+        assert client.post('/miniapp/diagnostics', content='PRIVATE_OVERSIZED' * 2000).status_code == 413
+        assert backend._request.await_count == 1
+        assert len(records(caplog)) == report_count
         backend._request.side_effect = BackendFailure('invalid_telegram_auth', 403)
         assert client.post('/miniapp/diagnostics', json={'initData': 'bad'}).status_code == 403
-    assert 'PRIVATE_WORDS' not in caplog.text and 'SECRET_INIT' not in caplog.text
+    assert 'PRIVATE_' not in caplog.text and 'SECRET_INIT' not in caplog.text
 
 
 @pytest.mark.parametrize(('action', 'stage', 'code', 'outcome'), [
@@ -205,23 +209,29 @@ def test_voice_socket_uses_one_server_trace_through_rejection(caplog):
     from app.foundation_client import BackendFailure
 
     caplog.set_level(logging.INFO)
-    backend = SimpleNamespace(_request=AsyncMock(side_effect=BackendFailure('not_owned', 403)))
+    backend = SimpleNamespace(_request=AsyncMock(side_effect=[BackendFailure('not_owned', 403) for _ in range(2)]))
     store = SimpleNamespace(check_credentials=AsyncMock())
     app = FastAPI()
     install_trial_api(app, backend, None, None, None,
                       SimpleNamespace(openai_realtime_api_key='configured'), store)
     attempt_id = 'a' * 32
-    with TestClient(app) as client, client.websocket_connect('/miniapp/voice') as socket:
-        socket.send_json({'protocol': 'realtime-pcm-v1', 'attemptId': attempt_id,
-                          'lessonId': 'lesson', 'initData': 'PRIVATE_INIT'})
-        response = socket.receive_json()
-    [start, finish] = records(caplog)
-    assert start['trace_id'] == finish['trace_id'] != attempt_id
-    assert start['request_id'] == finish['request_id']
-    assert finish['client_attempt_id'] == attempt_id and 'client_attempt_id' not in start
-    assert finish['outcome'] == 'rejected' and finish['reason_code'] == 'backend_rejected'
-    assert finish['error_id'] == response['errorId']
-    assert 'PRIVATE_INIT' not in caplog.text
+    with TestClient(app) as client:
+        traces = set()
+        for _ in range(2):
+            caplog.clear()
+            with client.websocket_connect('/miniapp/voice') as socket:
+                socket.send_json({'protocol': 'realtime-pcm-v1', 'attemptId': attempt_id,
+                                  'lessonId': 'lesson', 'initData': 'PRIVATE_INIT'})
+                response = socket.receive_json()
+            [start, finish] = records(caplog)
+            assert start['trace_id'] == finish['trace_id'] != attempt_id
+            traces.add(start['trace_id'])
+            assert start['request_id'] == finish['request_id']
+            assert finish['client_attempt_id'] == attempt_id and 'client_attempt_id' not in start
+            assert finish['outcome'] == 'rejected' and finish['reason_code'] == 'backend_rejected'
+            assert finish['error_id'] == response['errorId']
+            assert 'PRIVATE_INIT' not in caplog.text
+        assert len(traces) == 2
 
 
 @pytest.mark.asyncio

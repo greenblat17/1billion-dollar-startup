@@ -36,10 +36,10 @@ class RuntimeDiagnosticsTest {
             }
             contract.getValue("required").jsonArray.forEach { assertTrue(it.jsonPrimitive.content in actual, it.toString()) }
             for ((key, property) in contract.getValue("properties").jsonObject) {
+                val value = actual[key]?.jsonPrimitive ?: continue
                 val type = property.jsonObject.getValue("type")
                 val types = if (type is kotlinx.serialization.json.JsonArray) type.map { it.jsonPrimitive.content }
                     else listOf(type.jsonPrimitive.content)
-                val value = actual.getValue(key).jsonPrimitive
                 val actualType = when {
                     value == JsonNull -> "null"
                     value.isString -> "string"

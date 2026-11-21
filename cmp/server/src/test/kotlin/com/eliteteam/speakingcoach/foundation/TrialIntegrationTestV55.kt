@@ -1,7 +1,10 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.DiagnosticOutput
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
 import java.net.URLEncoder
 import java.sql.DriverManager
 import java.time.Clock
@@ -76,7 +79,10 @@ class TrialIntegrationTestV55 {
             val l = lesson(s, "100", clock.value)
             val a = open(s, "100", l.text("id"), clock.value)
             assertEquals(0L, ready(s, l, a).number("connectedSeconds"))
-            advance(s, clock, l, a, 900)
+            DiagnosticOutput().use { logs ->
+                advance(s, clock, l, a, 900)
+                assertTrue(logs.events().isEmpty())
+            }
             s.op(a.text("scope"), "trial.phase", JsonObject(voice(l, a) + json("phase" to "conversation")))
             s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "technical_disconnect")))
             clock.value = clock.value.plusSeconds(600)
@@ -390,7 +396,13 @@ class TrialIntegrationTestV55 {
             assertEquals("Known", s.topicKnowledge(operator, catalog.version, grammarTopic, 0, false)
                 ["items"]!!.jsonArray.single().jsonObject.text("status"))
             assertEquals("succeeded", events(s, l, operator).text("assessmentStatus"))
+            val firstGeneration = s.op(operator, "job.claim", json("kind" to "roadmap.generate")).obj("job")
+            assertEquals("retry_wait", s.op(operator, "job.fail", json("jobId" to firstGeneration.text("id"),
+                "fence" to firstGeneration.number("fence"), "code" to "provider_timeout")).text("status"))
+            clock.value = clock.value.plusSeconds(5)
             val roadmapJob = s.op(operator, "job.claim", json("kind" to "roadmap.generate")).obj("job")
+            assertEquals(firstGeneration.text("id"), roadmapJob.text("id"))
+            assertEquals(firstGeneration.number("fence") + 1, roadmapJob.number("fence"))
             assertEquals(state.number("revision"), roadmapJob.obj("input_refs").number("learningRevision"))
             val speakingTopic = catalog.topics.first { it.skillId == "speaking" }
             val candidate = json("topicId" to speakingTopic.id, "skillId" to "speaking", "cefr" to speakingTopic.cefr,
@@ -405,7 +417,10 @@ class TrialIntegrationTestV55 {
             DiagnosticOutput().use { logs ->
                 assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
                 assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
-                assertEquals(1L, logs.events().single { it.text("event") == "trial_roadmap_saved" }.number("roadmap_revision"))
+                val saved = logs.events().single { it.text("event") == "trial_roadmap_saved" }
+                assertEquals(1L, saved.number("roadmap_revision"))
+                assertEquals(roadmapJob.text("id"), saved.text("job_id"))
+                assertEquals(roadmapJob.number("fence"), saved.number("fence"))
                 assertEquals(listOf("completed", "replayed"), logs.events().filter { it.text("event") == "backend_command" }
                     .map { it.text("outcome") })
             }
@@ -413,6 +428,62 @@ class TrialIntegrationTestV55 {
             val taskId = storedRoadmap["sequence"]!!.jsonArray.single().jsonObject.text("taskId")
             assertEquals(0.0, LearningTaskModel.progress(s.learningTask(operator, taskId).obj("task")["progress"]))
             assertEquals(1, s.learningTasks(operator, null, null, null, 0)["items"]!!.jsonArray.size)
+            val empty = JsonArray(emptyList())
+            val priority = s.op(operator, "job.claim", json("kind" to "roadmap.prioritize")).obj("job")
+            val decision = json("schemaVersion" to 1, "roadmapRevision" to 1, "trigger" to "initial",
+                "orderedTasks" to JsonArray(listOf(json("taskId" to taskId, "priority" to 1, "reason" to "Initial work",
+                    "evidence" to "hypothesis", "prerequisiteTaskIds" to empty))),
+                "nextTaskId" to taskId, "focusTaskIds" to JsonArray(listOf(JsonPrimitive(taskId))),
+                "deferredTaskIds" to empty, "declinedProblems" to empty, "needsRoadmapReview" to false,
+                "explanation" to "Initial ordering", "scope" to "operational_priority")
+            assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to priority.text("id"),
+                "fence" to priority.number("fence"), "result" to json("expectedRevision" to 0, "decision" to decision))).text("status"))
+            var preparations = 0
+            var sends = 0
+            DiagnosticOutput().use { logs ->
+                HttpClient(MockEngine { request ->
+                    if (request.url.host == "ai.test") {
+                        preparations++
+                        if (preparations == 1) respond("", HttpStatusCode.BadGateway)
+                        else respond("""{"reply":"Маршрут","roadmapRevision":1}""", HttpStatusCode.OK)
+                    } else {
+                        sends++
+                        respond("", HttpStatusCode.BadGateway)
+                    }
+                }).use { http ->
+                    val worker = InitialRoadmapDelivery(s, http, "https://ai.test", "internal", bot, "https://mini.test")
+                    worker.tick()
+                    clock.value = clock.value.plusSeconds(30)
+                    repeat(3) { worker.tick() }
+                }
+                val deliveryEvents = logs.events().filter { it.optionalText("operation") == "roadmap.deliver" }
+                val failure = deliveryEvents.single { it.text("event") == "initial_roadmap_prepare_failed" }
+                val retry = deliveryEvents.single { it.text("stage") == "prepare_retry" }
+                assertEquals("retry_wait", retry.text("outcome"))
+                assertEquals(failure.text("error_id"), retry.text("upstream_error_id"))
+                assertEquals(listOf(1L, 2L), deliveryEvents.filter { it.text("stage") == "claim" }.map { it.number("attempt") })
+                val unknownDelivery = deliveryEvents.single { it.text("event") == "initial_roadmap_delivery_unknown" }
+                assertEquals("unknown", unknownDelivery.text("outcome"))
+                assertEquals("telegram_response_unconfirmed", unknownDelivery.text("reason_code"))
+                assertEquals(roadmapJob.text("id"), unknownDelivery.text("source_job_id"))
+                assertEquals(roadmapJob.number("fence"), unknownDelivery.number("source_job_fence"))
+            }
+            assertEquals(2, preparations)
+            assertEquals(1, sends)
+            s.database.transaction(readOnly = true) { c, _ ->
+                val lineage = c.rows("""SELECT d.status,d.lesson_id,generation.id,d.source_job_fence,
+                    assessment.id,observation.id,attempt.outcome
+                    FROM initial_roadmap_delivery d
+                    JOIN foundation_job generation ON generation.id=d.source_job_id
+                    JOIN foundation_job_attempt attempt ON attempt.job_id=generation.id AND attempt.fence=d.source_job_fence
+                    JOIN foundation_job assessment ON assessment.id=generation.source_job_id
+                    JOIN foundation_job observation ON observation.id=assessment.source_job_id
+                    WHERE d.student_id=?""", l.text("student_id")) { row ->
+                    (1..7).map(row::getString)
+                }.single()
+                assertEquals(listOf("unknown", l.text("id"), roadmapJob.text("id"), roadmapJob.number("fence").toString(),
+                    assess.text("id"), observe.text("id"), "succeeded"), lineage)
+            }
             items.forEach { item ->
                 val row = item.jsonObject
                 s.op(operator, "learning.observation.invalidate", json("observationId" to row.text("id"),
@@ -445,7 +516,70 @@ class TrialIntegrationTestV55 {
                 "fence" to regenerated.number("fence"), "result" to revised)).text("status"))
             assertEquals(2, s.learningRoadmap(operator).obj("roadmap").number("revision"))
             assertEquals(1, s.learningRoadmapHistory(operator, 0)["items"]!!.jsonArray.size)
+            s.database.transaction(readOnly = true) { c, _ ->
+                val previous = c.document("SELECT to_jsonb(h) FROM learning_roadmap_history h WHERE student_id=? AND revision=1",
+                    l.text("student_id"))!!
+                assertEquals(roadmapJob.text("id"), previous.text("generation_job_id"))
+                assertEquals(roadmapJob.number("fence"), previous.number("generation_fence"))
+            }
             assertEquals(1, s.learningTasks(operator, null, null, null, 0)["items"]!!.jsonArray.size)
+        }
+    }
+
+    @Test fun assessmentLogsWhyRoadmapWasSkippedWithoutEnqueueing() = runTest {
+        store { s, clock ->
+            val catalog = catalogFixture()
+            LearningCatalog(s.database).import(LearningCatalogModel.document(catalog).toString())
+            LearningCatalog(s.database).publish(catalog.version, "synthetic", "test fixture only")
+            val empty = JsonArray(emptyList())
+            val unknown = json("level" to "Unknown", "explanation" to "Insufficient evidence", "observationRefs" to empty)
+            val cases = listOf(
+                Triple("102", json("targetLevel" to "B2"), "missing_goal"),
+                Triple("103", json(), "missing_target_level"),
+                Triple("104", json(), "missing_goal_and_target_level"),
+            )
+            for ((subject, profile, expectedReason) in cases) {
+                val l = lesson(s, subject, clock.value)
+                val a = open(s, subject, l.text("id"), clock.value)
+                ready(s, l, a)
+                val source = s.op(a.text("scope"), "voice.append", JsonObject(voice(l, a) + json("sourceId" to "u1",
+                    "role" to "user", "body" to "I work here", "occurredAt" to clock.value.toString(),
+                    "metadata" to json("finality" to "final"))))
+                s.op(a.text("scope"), "voice.end", JsonObject(voice(l, a) + json("reason" to "end_button")))
+                val operator = s.identity.issue(l.text("student_id"), "operator")
+                if (expectedReason != "missing_goal_and_target_level") {
+                    val args = json("expectedRevision" to 0, "patch" to profile, "component" to "onboarding",
+                        "sources" to JsonArray(listOf(json("type" to "event", "id" to source.text("eventId"),
+                            "revision" to source.number("sequence")))))
+                    val update = if (expectedReason == "missing_target_level") JsonObject(args + json("goal" to "Speak at work"))
+                    else args
+                    s.op(operator, "learning.update", update)
+                }
+                val observe = s.op(operator, "job.claim", json("kind" to "trial.observe")).obj("job")
+                assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to observe.text("id"),
+                    "fence" to observe.number("fence"), "result" to json("schemaVersion" to 1, "observations" to empty)))
+                    .text("status"))
+                val assessment = s.op(operator, "job.claim", json("kind" to "trial.assess")).obj("job")
+                val result = json("schemaVersion" to 1, "catalogVersion" to catalog.version,
+                    "baseLearningRevision" to s.learningState(operator).number("revision"), "observationRefs" to empty,
+                    "levels" to json("overall" to unknown, "speaking" to unknown, "listening" to unknown,
+                        "grammar" to unknown, "vocabulary" to unknown), "topics" to empty,
+                    "coverage" to json("active" to 0, "usableWithoutTopic" to 0, "uncertain" to 0, "nonIndependent" to 0))
+                val apply = json("jobId" to assessment.text("id"), "fence" to assessment.number("fence"), "result" to result)
+                DiagnosticOutput().use { logs ->
+                    repeat(2) {
+                        assertEquals("succeeded", s.op(operator, "job.apply", apply, "assessment-once").text("status"))
+                    }
+                    val skip = logs.events().single { it.text("event") == "trial_roadmap_decision" }
+                    assertEquals("skipped", skip.text("outcome"))
+                    assertEquals(expectedReason, skip.text("reason_code"))
+                    assertEquals(l.text("id"), skip.text("lesson_id"))
+                    assertEquals(assessment.text("id"), skip.text("source_job_id"))
+                    assertTrue(logs.events().none { it.optionalText("job_kind") == "roadmap.generate" })
+                }
+                assertEquals(kotlinx.serialization.json.JsonNull,
+                    s.op(operator, "job.claim", json("kind" to "roadmap.generate"))["job"])
+            }
         }
     }
 

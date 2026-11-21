@@ -23,6 +23,9 @@
     "trace_id": { "type": "string" },
     "request_id": { "type": ["string", "null"] },
     "error_id": { "type": ["string", "null"] },
+    "source_job_id": { "type": "string" },
+    "source_job_fence": { "type": "integer", "minimum": 0 },
+    "catalog_version": { "type": "string" },
     "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
     "reason_code": { "type": ["string", "null"] }
   }

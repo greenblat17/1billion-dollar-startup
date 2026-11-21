@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.DiagnosticOutput
 import io.ktor.client.engine.mock.respond
 import java.net.URLEncoder
 import java.sql.DriverManager
@@ -296,7 +297,19 @@ class TrialIntegrationTest {
                     respond("{\"ok\":true}", io.ktor.http.HttpStatusCode.OK)
                 }
             })
-            http.use { TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick() }
+            DiagnosticOutput().use { logs ->
+                http.use { TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp").tick() }
+                val cancelled = logs.events().single { it.text("event") == "trial_notice" && it.text("stage") == "admission" }
+                assertEquals("cancelled", cancelled.text("outcome"))
+                assertEquals("call_active", cancelled.text("reason_code"))
+                assertEquals(l.text("id"), cancelled.text("lesson_id"))
+                val suppressed = logs.events().single { it.text("event") == "trial_notice" && it.text("stage") == "pre_send" }
+                assertEquals("superseded", suppressed.text("outcome"))
+                assertEquals("notice_state_changed", suppressed.text("reason_code"))
+                assertEquals(cancelled.text("notice_id"), suppressed.text("notice_id"))
+                assertEquals(cancelled.text("trace_id"), suppressed.text("trace_id"))
+                assertTrue(logs.events().none { it.text("stage") == "telegram_request" })
+            }
             assertEquals(0, telegramCalls)
         }
     }
@@ -312,9 +325,18 @@ class TrialIntegrationTest {
                 if (request.url.host == "ai.test") respond("{\"reply\":\"Обсудим удобный формат?\"}", io.ktor.http.HttpStatusCode.OK)
                 else { telegramCalls++; respond("upstream disconnected", io.ktor.http.HttpStatusCode.BadGateway) }
             })
-            http.use {
-                val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
-                worker.tick(); worker.tick()
+            DiagnosticOutput().use { logs ->
+                http.use {
+                    val worker = TrialWorker(s, it, "https://ai.test", "internal", bot, "https://mini.test/miniapp")
+                    worker.tick()
+                    worker.tick()
+                }
+                val unknown = logs.events().single { it.text("event") == "trial_delivery_failed" }
+                assertEquals("unknown", unknown.text("outcome"))
+                assertEquals("telegram_response_unconfirmed", unknown.text("reason_code"))
+                assertEquals(l.text("id"), unknown.text("lesson_id"))
+                assertTrue(logs.events().none { it.text("stage") == "delivery_persist" })
+                assertTrue(logs.lines().none { "upstream disconnected" in it })
             }
             assertEquals(1, telegramCalls)
             s.database.transaction { c, _ ->

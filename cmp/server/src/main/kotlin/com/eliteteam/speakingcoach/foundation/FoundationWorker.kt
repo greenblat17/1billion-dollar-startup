@@ -44,26 +44,31 @@ internal class HttpLearningComputer(private val http: HttpClient, private val ro
             contentType(ContentType.Application.Json)
             setBody(job.toString())
         }
-        RuntimeDiagnostics.record("foundation_job_ai_call", "response", extra = mapOf(
+        val status = response.status.value
+        val upstreamId = RuntimeDiagnostics.ingressId(response.headers["X-Error-ID"])
+        val linked = if (upstreamId == null) emptyMap()
+            else mapOf("upstream_error_id" to upstreamId, "error_id" to upstreamId)
+        val errorId = RuntimeDiagnostics.record("foundation_job_ai_call", "response", extra = mapOf(
             "operation" to job.text("kind"), "provider" to "ai",
-            "http_status" to response.status.value.toString(), "duration_ms" to RuntimeDiagnostics.elapsed(started),
-            "outcome" to if (response.status.value in 200..299) "completed" else "failed"
-        ) + (RuntimeDiagnostics.ingressId(response.headers["X-Error-ID"])
-            ?.let { mapOf("upstream_error_id" to it) } ?: emptyMap()))
-        if (response.status.value == 402) reject("budget_exhausted")
-        if (response.status.value == 410) reject("source_expired")
-        if (response.status.value == 400) reject("invalid_result")
-        if (response.status.value == 422) {
-            val detail = runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
-            if (detail == "missing_action_template") reject("missing_action_template")
-            reject("invalid_result")
+            "http_status" to status.toString(), "duration_ms" to RuntimeDiagnostics.elapsed(started),
+            "outcome" to if (status in 200..299) "completed" else "failed"
+        ) + linked)
+        if (status in 200..299) return foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject
+        val detail = if (status == 422 || status == 503) {
+            runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
+        } else null
+        val code = when (status) {
+            400 -> "invalid_result"
+            402 -> "budget_exhausted"
+            410 -> "source_expired"
+            422 -> if (detail == "missing_action_template") detail else "invalid_result"
+            503 -> when (detail) {
+                "handler_unavailable", "provider_timeout" -> detail
+                else -> "provider_error"
+            }
+            else -> "provider_error"
         }
-        if (response.status.value == 503) {
-            val detail = runCatching { foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject.optionalText("detail") }.getOrNull()
-            reject(if (detail in setOf("handler_unavailable", "provider_timeout")) detail!! else "provider_error")
-        }
-        if (response.status.value !in 200..299) reject("provider_error")
-        return foundationJson.parseToJsonElement(response.bodyAsText()).jsonObject
+        throw FoundationFailure(code, upstreamId ?: errorId)
     }
 }
 
@@ -113,6 +118,7 @@ internal class FoundationWorker(
             val context = mutableMapOf("trace_id" to RuntimeDiagnostics.trace(jobId),
                 "job_id" to (RuntimeDiagnostics.ingressId(jobId) ?: RuntimeDiagnostics.trace(jobId)),
                 "attempt" to job.number("attempts").toString(), "fence" to job.number("fence").toString())
+            RuntimeDiagnostics.ingressId(job.optionalText("source_job_id"))?.let { context["source_job_id"] = it }
             if (job.text("kind").startsWith("lesson.") || job.text("kind").startsWith("trial.") ||
                 job.text("kind") == "roadmap.generate") {
                 RuntimeDiagnostics.ingressId(job.optionalText("target_id"))?.let { context["lesson_id"] = it }
@@ -147,9 +153,9 @@ internal class FoundationWorker(
             RuntimeDiagnostics.record(event, attemptFields() + ("job_status" to status))
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            RuntimeDiagnostics.record(Event("foundation_job_failed", kind, stage, Outcome.FAILED,
+            val errorId = RuntimeDiagnostics.record(Event("foundation_job_failed", kind, stage, Outcome.FAILED,
                 "$kind compute exceeded the worker timeout.", "provider_timeout"), attemptFields())
-            fail(execution, job, "provider_timeout", fields)
+            fail(execution, job, "provider_timeout", fields, errorId)
         } catch (error: CancellationException) {
             RuntimeDiagnostics.record(Event("foundation_job", kind, stage, Outcome.CANCELLED,
                 "Worker cancelled the $kind attempt. Its lease remains available for recovery.", "worker_cancelled"), attemptFields())
@@ -163,7 +169,7 @@ internal class FoundationWorker(
                 else -> "provider_error"
             }
             val failedStage = if (error is LeaseRenewalFailure) "renew" else stage
-            RuntimeDiagnostics.record("foundation_job_failed", failedStage, error, attemptFields() + mapOf(
+            val errorId = RuntimeDiagnostics.record("foundation_job_failed", failedStage, error, attemptFields() + mapOf(
                 "outcome" to "failed", "reason_code" to when {
                     error is LeaseRenewalFailure && failure == "stale_job" -> "lease_lost"
                     error is LeaseRenewalFailure -> "lease_renewal_failed"
@@ -171,7 +177,7 @@ internal class FoundationWorker(
                     stage == "persist" && error !is FoundationFailure -> "internal_error"
                     else -> code
                 }))
-            fail(execution, job, code, fields)
+            fail(execution, job, code, fields, errorId)
         }
     }
 
@@ -199,7 +205,8 @@ internal class FoundationWorker(
         }
     }
 
-    private suspend fun fail(scope: String, job: JsonObject, code: String, fields: Map<String, String>) {
+    private suspend fun fail(scope: String, job: JsonObject, code: String, fields: Map<String, String>, errorId: String?) {
+        val linkedFields = if (errorId == null) fields else fields + ("upstream_error_id" to errorId)
         try {
             val receipt = service.command(scope, json("version" to 1, "operationId" to newId(), "action" to "job.fail",
                 "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"), "code" to code)))
@@ -207,10 +214,12 @@ internal class FoundationWorker(
             val retry = status == "retry_wait"
             val message = if (retry) "Foundation saved the failure and scheduled another attempt."
                 else "Foundation saved the terminal job failure."
+            val decision = linkedFields + ("job_status" to status)
             RuntimeDiagnostics.record(Event("foundation_job", job.text("kind"), "failure_persisted",
-                if (retry) Outcome.RETRY_WAIT else Outcome.FAILED, message, code), fields + ("job_status" to status))
+                if (retry) Outcome.RETRY_WAIT else Outcome.FAILED, message, code),
+                if (errorId == null || retry) decision else decision + ("error_id" to errorId))
         } catch (error: FoundationFailure) {
-            RuntimeDiagnostics.record("foundation_job", "failure_persist", error, fields + ("outcome" to "rejected"))
+            RuntimeDiagnostics.record("foundation_job", "failure_persist", error, linkedFields + ("outcome" to "rejected"))
         }
     }
 }

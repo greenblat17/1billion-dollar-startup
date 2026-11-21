@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,6 +40,11 @@ internal class LearningCatalog(private val database: FoundationDatabase) {
                 }
 
             }
+            val event = if (previous == null) Event("catalog_import", "catalog.import", "persist", Outcome.COMPLETED,
+                "Foundation saved a draft catalog release.")
+            else Event("catalog_import", "catalog.import", "persist", Outcome.REPLAYED,
+                "Foundation kept the previously imported catalog release.", "catalog_already_imported")
+            FoundationDatabase.recordAfterCommit(event, mapOf("catalog_version" to manifest.version))
             manifest.version
         }
     }
@@ -50,11 +57,19 @@ internal class LearningCatalog(private val database: FoundationDatabase) {
             val release = c.document("SELECT to_jsonb(r) FROM learning_catalog_release r WHERE version=?", version)
                 ?: reject("catalog_not_found")
             LearningCatalogModel.parse(release.obj("manifest").toString())
-            if (release.optionalText("published_at") == null) {
+            val firstPublication = release.optionalText("published_at") == null
+            if (firstPublication) {
                 c.update("UPDATE learning_catalog_release SET published_at=?,reviewed_by=?,review_reference=? WHERE version=?",
                     now, reviewedBy, reviewReference, version)
             }
-            c.update("INSERT INTO learning_catalog_current(singleton,version) VALUES (TRUE,?) ON CONFLICT(singleton) DO UPDATE SET version=EXCLUDED.version", version)
+            val changed = c.update("""INSERT INTO learning_catalog_current(singleton,version) VALUES (TRUE,?)
+                ON CONFLICT(singleton) DO UPDATE SET version=EXCLUDED.version
+                WHERE learning_catalog_current.version<>EXCLUDED.version""", version)
+            val event = if (firstPublication || changed > 0) Event("catalog_publish", "catalog.publish", "persist", Outcome.COMPLETED,
+                "Foundation activated the reviewed catalog release.")
+            else Event("catalog_publish", "catalog.publish", "persist", Outcome.REPLAYED,
+                "Foundation kept the current catalog release.", "catalog_already_current")
+            FoundationDatabase.recordAfterCommit(event, mapOf("catalog_version" to version))
         }
     }
 

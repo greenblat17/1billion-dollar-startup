@@ -43,10 +43,11 @@ internal object RuntimeDiagnostics {
     private val validId = Regex("[A-Za-z0-9_.:-]{1,128}")
     private val opaqueId = Regex("[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
     private val contextKeys = setOf("trace_id", "request_id", "operation_id", "lesson_id", "call_session_id", "notice_id", "job_id", "delivery_id",
-        "source_job_id", "attempt", "fence", "roadmap_revision")
+        "source_job_id", "source_job_fence", "attempt", "fence", "roadmap_revision")
     private val labelKeys = contextKeys + setOf("event_kind", "operation", "reason_code", "outcome", "provider",
-        "provider_code", "upstream_error_id", "job_kind", "job_status")
-    private val numericKeys = setOf("attempt", "duration_ms", "http_status", "fence", "part", "count", "renewals", "roadmap_revision", "suppressed_count")
+        "provider_code", "upstream_error_id", "job_kind", "job_status", "catalog_version")
+    private val numericKeys = setOf("attempt", "duration_ms", "http_status", "fence", "source_job_fence", "part",
+        "count", "renewals", "roadmap_revision", "suppressed_count")
     private val environment = System.getenv("SPEAKY_ENV")?.takeIf { it in setOf("dev", "prod", "local", "test") } ?: "unknown"
     private val release = System.getenv("SPEAKY_RELEASE")?.takeIf { Regex("[a-f0-9]{7,64}").matches(it) } ?: "unknown"
     private val lost = AtomicLong()
@@ -119,7 +120,8 @@ internal object RuntimeDiagnostics {
             else -> "unexpected_error"
         }
         val failed = outcome in setOf("failed", "rejected", "unknown")
-        val previous = error?.let { synchronized(errorIds) { errorIds[it] ?: errorIds[it.cause] } }
+        val previous = (error as? FoundationFailure)?.diagnosticErrorId
+            ?: error?.let { synchronized(errorIds) { errorIds[it] ?: errorIds[it.cause] } }
         val errorId = previous ?: ingressId(extra["error_id"]) ?: if (failed || error != null) newId() else null
         if (error != null && errorId != null) synchronized(errorIds) { errorIds[error] = errorId }
         val status = extra["http_status"]?.toIntOrNull()?.takeIf { it in 100..599 }

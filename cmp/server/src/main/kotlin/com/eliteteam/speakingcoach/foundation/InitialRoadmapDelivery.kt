@@ -25,23 +25,33 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
     private val miniUrl: String) {
     suspend fun tick() {
         val delivery = service.database.transaction { c, now ->
-            c.update("UPDATE initial_roadmap_delivery SET status='pending' WHERE status='generating' AND lease_until<=?", now)
+            val expired = c.update("UPDATE initial_roadmap_delivery SET status='pending' WHERE status='generating' AND lease_until<=?", now)
+            if (expired > 0) FoundationDatabase.recordAfterCommit(Event("initial_roadmap_delivery", "roadmap.deliver",
+                "recover_preparation", Outcome.RETRY_WAIT, "Foundation returned expired Roadmap preparations to the queue.",
+                "preparation_lease_expired"), mapOf("count" to expired.toString()))
             val candidate = c.document("""SELECT jsonb_build_object('student',r.student_id,'lesson',j.target_id,
-                'revision',r.revision,'epoch',s.data_epoch) FROM learning_roadmap r
+                'revision',r.revision,'epoch',s.data_epoch,'sourceJobId',r.generation_job_id,
+                'sourceFence',r.generation_fence) FROM learning_roadmap r
                 JOIN learning_roadmap_priority p ON p.student_id=r.student_id AND p.roadmap_revision=r.revision
                     AND p.stale_at IS NULL AND p.document->>'trigger'='initial'
                 JOIN student s ON s.id=r.student_id AND s.deleted_at IS NULL
                 JOIN foundation_job j ON j.student_id=r.student_id AND j.kind='roadmap.generate'
                     AND j.status='succeeded' AND j.target_id IS NOT NULL AND j.data_epoch=s.data_epoch
+                    AND (r.legacy_generation_source OR (j.id=r.generation_job_id AND j.fence=r.generation_fence))
                 JOIN lesson l ON l.id=j.target_id AND l.kind='trial' AND l.trial_version='v5.5' AND l.status='completed'
                 WHERE NOT EXISTS (SELECT 1 FROM initial_roadmap_delivery d WHERE d.student_id=r.student_id
                     AND d.roadmap_revision=r.revision)
                 ORDER BY r.created_at LIMIT 1""")
             if (candidate != null) {
                 c.lockStudent(candidate.text("student"))
-                c.update("""INSERT INTO initial_roadmap_delivery(id,student_id,lesson_id,roadmap_revision,data_epoch,status,created_at)
-                    VALUES (?,?,?,?,?,'pending',?) ON CONFLICT DO NOTHING""", newId(), candidate.text("student"),
-                    candidate.text("lesson"), candidate.number("revision"), candidate.number("epoch"), now)
+                c.update("""INSERT INTO initial_roadmap_delivery(id,student_id,lesson_id,roadmap_revision,data_epoch,status,
+                    created_at,source_job_id,source_job_fence)
+                    SELECT ?,s.id,?,r.revision,s.data_epoch,'pending',?,?,? FROM student s
+                    JOIN learning_roadmap r ON r.student_id=s.id
+                    WHERE s.id=? AND s.data_epoch=? AND s.deleted_at IS NULL AND r.revision=?
+                    ON CONFLICT DO NOTHING""", newId(), candidate.text("lesson"), now,
+                    candidate.optionalText("sourceJobId"), candidate.optionalText("sourceFence")?.toLong(),
+                    candidate.text("student"), candidate.number("epoch"), candidate.number("revision"))
             }
             val row = c.document("""SELECT to_jsonb(d) FROM initial_roadmap_delivery d JOIN student s ON s.id=d.student_id
                 WHERE (d.status='ready' OR (d.status='pending' AND (d.lease_until IS NULL OR d.lease_until<=?)))
@@ -56,11 +66,19 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             }
             current
         } ?: return
-        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(delivery.text("id")),
-            "delivery_id" to delivery.text("id"), "lesson_id" to delivery.text("lesson_id"),
-            "roadmap_revision" to delivery.number("roadmap_revision").toString())) {
+        val preparing = delivery.text("status") == "pending"
+        val context = buildMap {
+            put("trace_id", RuntimeDiagnostics.trace(delivery.text("id")))
+            put("delivery_id", delivery.text("id"))
+            put("lesson_id", delivery.text("lesson_id"))
+            put("roadmap_revision", delivery.number("roadmap_revision").toString())
+            put("attempt", (delivery.number("attempts") + if (preparing) 1 else 0).toString())
+            delivery.optionalText("source_job_id")?.let { put("source_job_id", it) }
+            delivery.optionalText("source_job_fence")?.let { put("source_job_fence", it) }
+        }
+        RuntimeDiagnostics.withContext(context) {
             try {
-                if (delivery.text("status") == "pending") {
+                if (preparing) {
                     RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "claim", Outcome.STARTED,
                         "Worker claimed preparation of the initial Roadmap message."))
                     prepare(delivery)
@@ -76,6 +94,7 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
 
     private suspend fun prepare(delivery: JsonObject) {
         val student = delivery.text("student_id")
+        val attempt = delivery.number("attempts") + 1
         val execution = service.identity.issue(student, "voice", lesson = delivery.text("lesson_id"))
         val response = try {
             http.post("${aiRoot.trimEnd('/')}/internal/trial/initial-roadmap") {
@@ -89,8 +108,9 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            RuntimeDiagnostics.record("initial_roadmap_prepare_failed", "ai_request", error)
-            retryPreparation(delivery)
+            val errorId = RuntimeDiagnostics.record(Event("initial_roadmap_prepare_failed", "roadmap.deliver", "ai_request",
+                Outcome.FAILED, "Worker could not request preparation of the Roadmap message.", "ai_transport_error"), error = error)
+            retryPreparation(delivery, attempt, errorId)
             return
         }
         val body = try {
@@ -105,8 +125,8 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
         if (response.status.value == 409) {
             val changed = service.database.transaction { c, _ ->
                 c.lockStudent(student)
-                c.update("UPDATE initial_roadmap_delivery SET status='cancelled',body=NULL,lease_until=NULL WHERE id=? AND status='generating'",
-                    delivery.text("id"))
+                c.update("""UPDATE initial_roadmap_delivery SET status='cancelled',body=NULL,lease_until=NULL
+                    WHERE id=? AND status='generating' AND attempts=?""", delivery.text("id"), attempt)
             }
             if (changed > 0) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_cancel",
                 Outcome.CANCELLED, "Foundation cancelled preparation of the initial Roadmap message after an AI conflict response.",
@@ -118,30 +138,37 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             if (result.number("roadmapRevision") != delivery.number("roadmap_revision")) null else result.text("reply")
         }.getOrNull() else null
         if (reply.isNullOrBlank()) {
-            RuntimeDiagnostics.record("initial_roadmap_prepare_failed", "ai_response", extra = mapOf(
-                "delivery_id" to delivery.text("id"), "http_status" to response.status.value.toString()) +
+            val reason = if (response.status.value in 200..299) "invalid_ai_reply" else "ai_http_error"
+            val errorId = RuntimeDiagnostics.record(Event("initial_roadmap_prepare_failed", "roadmap.deliver", "ai_response",
+                Outcome.FAILED, "The AI response did not produce a message for this Roadmap revision.", reason),
                 RuntimeDiagnostics.httpFields(response.status.value, body, response.headers["X-Error-ID"]))
-            retryPreparation(delivery)
+            retryPreparation(delivery, attempt, errorId)
             return
         }
         val changed = service.database.transaction { c, _ ->
             c.lockStudent(student)
             c.update("""UPDATE initial_roadmap_delivery SET status='ready',body=?,lease_until=NULL
-                WHERE id=? AND status='generating' AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)""",
-                reply, delivery.text("id"), student)
+                WHERE id=? AND status='generating' AND attempts=?
+                AND data_epoch=(SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL)""",
+                reply, delivery.text("id"), attempt, student)
         }
-        if (changed > 0) RuntimeDiagnostics.record("initial_roadmap_delivery", "prepare_persist", extra = mapOf("job_status" to "ready"))
+        if (changed > 0) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_persist",
+            Outcome.COMPLETED, "Foundation saved the prepared Roadmap message."), mapOf("job_status" to "ready"))
+        else RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_persist",
+            Outcome.SUPERSEDED, "Foundation discarded the prepared Roadmap message because the delivery state changed.",
+            "delivery_state_changed"))
     }
 
-    private suspend fun retryPreparation(delivery: JsonObject) {
+    private suspend fun retryPreparation(delivery: JsonObject, attempt: Long, errorId: String?) {
         val changed = service.database.transaction { c, now ->
             val delay = 30L * (1L shl minOf(6, delivery.number("attempts").toInt()))
-            c.update("UPDATE initial_roadmap_delivery SET status='pending',lease_until=? WHERE id=? AND status='generating'",
-                now.plusSeconds(delay), delivery.text("id"))
+            c.update("""UPDATE initial_roadmap_delivery SET status='pending',lease_until=?
+                WHERE id=? AND status='generating' AND attempts=?""",
+                now.plusSeconds(delay), delivery.text("id"), attempt)
         }
         if (changed > 0) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_retry",
             Outcome.RETRY_WAIT, "Foundation scheduled another attempt to prepare the Roadmap message.", "roadmap_preparation_failed"),
-            mapOf("job_status" to "pending"))
+            mapOf("job_status" to "pending") + (errorId?.let { mapOf("upstream_error_id" to it) }.orEmpty()))
     }
 
     private suspend fun sendNext(delivery: JsonObject) {

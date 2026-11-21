@@ -7,6 +7,9 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import java.sql.DriverManager
 import java.time.Instant
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -23,7 +26,7 @@ class InitialRoadmapDeliveryIntegrationTest {
                 val manifest = catalogFixture()
                 LearningCatalog(service.database).import(LearningCatalogModel.document(manifest).toString())
                 LearningCatalog(service.database).publish(manifest.version, "synthetic-test", "fixture only")
-                suspend fun eligible(subject: String): String {
+                suspend fun eligible(subject: String, legacySource: Boolean = true): String {
                     val student = service.identity.resolve("telegram", subject)
                     val lesson = newId()
                     service.database.transaction { c, now ->
@@ -33,8 +36,9 @@ class InitialRoadmapDeliveryIntegrationTest {
                             launch_mode,trial_version) VALUES (?,?,'trial','completed',?,30,'UTC','executable','v5.5')""",
                             lesson, student, now.minusSeconds(3600))
                         c.update("""INSERT INTO learning_roadmap(student_id,revision,goal_revision,learning_revision,
-                            knowledge_digest,catalog_version,document,created_at) VALUES (?,1,1,1,'fixture',?,?::jsonb,?)""",
-                            student, manifest.version, json("goal" to "Speak at work", "targetLevel" to "B2"), now)
+                            knowledge_digest,catalog_version,document,created_at,legacy_generation_source)
+                            VALUES (?,1,1,1,'fixture',?,?::jsonb,?,?)""",
+                            student, manifest.version, json("goal" to "Speak at work", "targetLevel" to "B2"), now, legacySource)
                         c.update("""INSERT INTO learning_roadmap_priority(student_id,revision,roadmap_revision,
                             document,updated_at) VALUES (?,1,1,?::jsonb,?)""", student, json("trigger" to "initial"), now)
                         c.update("""INSERT INTO foundation_job(id,student_id,data_epoch,kind,dedup_key,target_id,
@@ -85,6 +89,75 @@ class InitialRoadmapDeliveryIntegrationTest {
                 service.database.transaction(readOnly = true) { c, _ ->
                     assertEquals("unknown", c.document("SELECT to_jsonb(d) FROM initial_roadmap_delivery d WHERE student_id=?",
                         unknownStudent)!!.text("status"))
+                }
+                val rejectedStudent = eligible("10003")
+                var rejectedCalls = 0
+                DiagnosticOutput().use { logs ->
+                    HttpClient(MockEngine { request ->
+                        if (request.url.host == "ai.test") respond("""{"reply":"Маршрут","roadmapRevision":1}""", HttpStatusCode.OK)
+                        else {
+                            rejectedCalls++
+                            respond("""{"ok":false,"error_code":400,"description":"control-secret"}""", HttpStatusCode.BadRequest)
+                        }
+                    }).use {
+                        val worker = InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test")
+                        repeat(3) { worker.tick() }
+                    }
+                    val events = logs.events().filter { it.optionalText("operation") == "roadmap.deliver" }
+                    val rejected = events.single { it.text("outcome") == "rejected" }
+                    assertEquals("telegram_request_rejected", rejected.text("reason_code"))
+                    assertEquals(400L, rejected.number("http_status"))
+                    assertTrue(events.none { it.text("stage") == "delivery_persist" })
+                    assertTrue(logs.lines().none { "control-secret" in it })
+                }
+                assertEquals(1, rejectedCalls)
+                service.database.transaction(readOnly = true) { c, _ ->
+                    val delivery = c.document("SELECT to_jsonb(d) FROM initial_roadmap_delivery d WHERE student_id=?", rejectedStudent)!!
+                    assertEquals("unknown", delivery.text("status"))
+                    assertEquals(null, delivery.optionalText("source_job_id"))
+                }
+                val manualStudent = eligible("10004", legacySource = false)
+                HttpClient(MockEngine { error("A prior generator cannot make a manual Roadmap eligible") }).use {
+                    InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test").tick()
+                }
+                service.database.transaction(readOnly = true) { c, _ ->
+                    val deliveries = c.rows("SELECT count(*) FROM initial_roadmap_delivery WHERE student_id=?", manualStudent) { it.getLong(1) }
+                    assertEquals(0L, deliveries.single())
+                }
+                val racedStudent = eligible("10005")
+                val entered = List(2) { CompletableDeferred<Unit>() }
+                val reply = List(2) { CompletableDeferred<Unit>() }
+                val request = java.util.concurrent.atomic.AtomicInteger()
+                DiagnosticOutput().use { logs ->
+                    HttpClient(MockEngine {
+                        val index = request.getAndIncrement()
+                        entered[index].complete(Unit)
+                        reply[index].await()
+                        respond("""{"reply":"Attempt ${index + 1}","roadmapRevision":1}""", HttpStatusCode.OK)
+                    }).use { client ->
+                        val worker = InitialRoadmapDelivery(service, client, "https://ai.test", "internal", "123:test", "https://mini.test")
+                        coroutineScope {
+                            val replaced = async { worker.tick() }
+                            entered[0].await()
+                            service.database.transaction { c, now ->
+                                c.update("UPDATE initial_roadmap_delivery SET lease_until=? WHERE student_id=?", now.minusSeconds(1), racedStudent)
+                            }
+                            val current = async { worker.tick() }
+                            entered[1].await()
+                            reply[0].complete(Unit)
+                            replaced.await()
+                            reply[1].complete(Unit)
+                            current.await()
+                        }
+                    }
+                    val persisted = logs.events().filter { it.text("stage") == "prepare_persist" }
+                    assertEquals(listOf("superseded", "completed"), persisted.map { it.text("outcome") })
+                    assertEquals(listOf(1L, 2L), persisted.map { it.number("attempt") })
+                }
+                service.database.transaction(readOnly = true) { c, _ ->
+                    val delivery = c.document("SELECT to_jsonb(d) FROM initial_roadmap_delivery d WHERE student_id=?", racedStudent)!!
+                    assertEquals("ready", delivery.text("status"))
+                    assertEquals("Attempt 2", delivery.text("body"))
                 }
             }
         } finally {

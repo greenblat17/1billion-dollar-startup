@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.tls.TLS_KEY_ALIAS
 import com.eliteteam.speakingcoach.tls.loadPemKeyStore
 import io.ktor.server.engine.connector
@@ -18,6 +20,7 @@ import dev.inmo.tgbotapi.extensions.api.bot.setMyCommands
 import dev.inmo.tgbotapi.types.BotCommand
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
+import io.ktor.server.application.ServerReady
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
 import io.ktor.server.netty.Netty
@@ -33,7 +36,13 @@ import java.io.File
 /** Shipping entry point: no construction of legacy calls, dashboards, reminders or mobile prototype. */
 internal suspend fun startSpeakyServer(config: AppConfig) {
     val password = "ktor".toCharArray()
-    val keyStore = if (config.usesWebhook) loadPemKeyStore(File(config.tlsCertPath), File(config.tlsKeyPath), password) else null
+    val keyStore = if (config.usesWebhook) try {
+        loadPemKeyStore(File(config.tlsCertPath), File(config.tlsKeyPath), password)
+    } catch (error: Exception) {
+        RuntimeDiagnostics.record(Event("backend_startup_failed", "backend.runtime", "tls",
+            Outcome.FAILED, "Ktor could not load its TLS certificate and key.", "tls_initialization_failed"), error = error)
+        throw error
+    } else null
     embeddedServer(Netty, configure = {
         if (keyStore != null) {
             sslConnector(keyStore, TLS_KEY_ALIAS, { password }, { password }) {
@@ -55,13 +64,29 @@ internal suspend fun startSpeakyServer(config: AppConfig) {
 
 @OptIn(ExperimentalKtorApi::class)
 internal fun Application.speakyModule(config: AppConfig) {
-    val foundation = requireNotNull(installFoundation(config.databaseUrl, config.aiInternalToken)) { "DATABASE_URL required" }
+    val foundation = try {
+        requireNotNull(installFoundation(config.databaseUrl, config.aiInternalToken)) { "DATABASE_URL required" }
+    } catch (error: Exception) {
+        RuntimeDiagnostics.record(Event("backend_startup_failed", "backend.runtime", "foundation",
+            Outcome.FAILED, "Ktor could not initialize Foundation.", "foundation_initialization_failed"), error = error)
+        throw error
+    }
     val http = speakingCoachAiHttpClient()
     val scope = newTelegramWebhookScope()
     val tutor = TutorClient(config.aiServiceBaseUrl, http, config.aiInternalToken).apply { this.foundation = FoundationChat(foundation) }
     com.eliteteam.speakingcoach.foundation.MockPaymentAdapter(foundation).launch(scope)
     FoundationWorker(foundation, HttpLearningComputer(http, config.aiServiceBaseUrl, config.aiInternalToken)).launch(scope)
-    monitor.subscribe(ApplicationStopped) { scope.cancel(); http.close() }
+    monitor.subscribe(ServerReady) {
+        val mode = if (config.usesWebhook) "with the HTTPS Telegram webhook" else "in HTTP mode"
+        RuntimeDiagnostics.record(Event("backend_runtime", "backend.runtime", "startup",
+            Outcome.COMPLETED, "Ktor is ready to serve requests $mode."))
+    }
+    monitor.subscribe(ApplicationStopped) {
+        scope.cancel()
+        http.close()
+        RuntimeDiagnostics.record(Event("backend_runtime", "backend.runtime", "shutdown",
+            Outcome.COMPLETED, "Ktor stopped, requested worker cancellation, and closed its AI HTTP client."))
+    }
     routing {
         get("/health") { call.respondText("ok") }
         trialRoutes(foundation, config.aiInternalToken, config.telegramBotToken ?: "")
@@ -73,6 +98,8 @@ internal fun Application.speakyModule(config: AppConfig) {
     if (miniUrl.startsWith("https://") && !config.telegramBotToken.isNullOrBlank()) {
         com.eliteteam.speakingcoach.foundation.TrialWorker(foundation, http, config.aiServiceBaseUrl,
             config.aiInternalToken, config.telegramBotToken, miniUrl).launch(scope)
+        RuntimeDiagnostics.record(Event("trial_worker_configuration", "trial.worker", "startup",
+            Outcome.STARTED, "Ktor started the Trial delivery worker."))
     } else {
         val missingToken = config.telegramBotToken.isNullOrBlank()
         val reason = if (missingToken) "telegram_bot_unconfigured" else "mini_app_url_unconfigured"

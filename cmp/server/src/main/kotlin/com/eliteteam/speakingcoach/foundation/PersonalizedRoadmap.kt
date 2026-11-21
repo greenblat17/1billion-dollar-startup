@@ -11,6 +11,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 /** Persists one initial proposal. SP-09 owns subsequent priority changes. */
 internal class PersonalizedRoadmap {
+    private data class RoadmapWrite(val row: JsonObject, val created: Boolean, val changed: Boolean)
+
     fun knowledgeDigest(c: Connection, student: String, version: String): String = digest(canonical(JsonArray(
         c.documents("""SELECT jsonb_build_object('topicId',topic_id,'revision',revision,'status',status)
             FROM (SELECT DISTINCT ON(topic_id) topic_id,revision,status FROM student_topic_knowledge
@@ -18,19 +20,26 @@ internal class PersonalizedRoadmap {
             student, version))))
 
     fun read(c: Connection, student: String): JsonObject =
-        c.document("SELECT to_jsonb(r) FROM learning_roadmap r WHERE student_id=?", student)
+        c.document("""SELECT to_jsonb(r) - 'generation_job_id' - 'generation_fence' - 'legacy_generation_source'
+            FROM learning_roadmap r WHERE student_id=?""", student)
             ?: reject("roadmap_not_found")
 
     fun history(c: Connection, student: String, offset: Int): JsonObject {
         if (offset !in 0..100000) reject("invalid_offset")
         read(c, student)
-        val rows = c.documents("""SELECT to_jsonb(h) FROM learning_roadmap_history h WHERE student_id=?
+        val rows = c.documents("""SELECT to_jsonb(h) - 'generation_job_id' - 'generation_fence' FROM learning_roadmap_history h WHERE student_id=?
             ORDER BY revision DESC LIMIT 51 OFFSET ?""", student, offset)
         return json("schemaVersion" to 1, "items" to JsonArray(rows.take(50)),
             "nextOffset" to if (rows.size > 50) offset + 50 else null)
     }
 
     fun save(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
+        val write = persist(c, scope, args, now, null)
+        return json("schemaVersion" to 1, "created" to write.created, "roadmap" to write.row)
+    }
+
+    private fun persist(c: Connection, scope: ExecutionScope, args: JsonObject, now: Instant,
+                        generation: JobAttemptRef?): RoadmapWrite {
         requireRole(scope, "operator")
         args.only("learningRevision", "roadmap")
         val expected = args.number("learningRevision")
@@ -84,25 +93,31 @@ internal class PersonalizedRoadmap {
         }
         val previous = c.document("SELECT to_jsonb(r) FROM learning_roadmap r WHERE student_id=?", scope.studentId)
         if (previous != null) {
-            if (previous.obj("document") == roadmap) return json("schemaVersion" to 1, "created" to false, "roadmap" to previous)
+            if (previous.obj("document") == roadmap) return RoadmapWrite(read(c, scope.studentId), created = false, changed = false)
             if (previous.number("learning_revision") > expected || previous.number("learning_revision") == expected &&
                 previous.text("knowledge_digest") == knowledgeDigest) reject("roadmap_already_exists")
             c.update("""INSERT INTO learning_roadmap_history(student_id,revision,goal_revision,learning_revision,
-                knowledge_digest,catalog_version,document,recorded_at) VALUES (?,?,?,?,?,?,?::jsonb,?)""", scope.studentId,
+                knowledge_digest,catalog_version,document,recorded_at,generation_job_id,generation_fence)
+                VALUES (?,?,?,?,?,?,?::jsonb,?,?,?)""", scope.studentId,
                 previous.number("revision"), previous.number("goal_revision"), previous.number("learning_revision"),
-                previous.text("knowledge_digest"), previous.text("catalog_version"), previous.obj("document"), now)
+                previous.text("knowledge_digest"), previous.text("catalog_version"), previous.obj("document"), now,
+                previous.optionalText("generation_job_id"), previous.optionalText("generation_fence")?.toLong())
             c.update("""UPDATE learning_roadmap SET revision=revision+1,goal_revision=?,learning_revision=?,
-                knowledge_digest=?,catalog_version=?,document=?::jsonb,created_at=? WHERE student_id=?""",
-                roadmap.number("goalRevision"), expected, knowledgeDigest, version, roadmap, now, scope.studentId)
+                knowledge_digest=?,catalog_version=?,document=?::jsonb,created_at=?,generation_job_id=?,generation_fence=?,
+                legacy_generation_source=FALSE
+                WHERE student_id=?""", roadmap.number("goalRevision"), expected, knowledgeDigest, version, roadmap, now,
+                generation?.id, generation?.fence, scope.studentId)
         } else {
-            c.update("""INSERT INTO learning_roadmap(student_id,revision,goal_revision,learning_revision,knowledge_digest,catalog_version,document,created_at)
-                VALUES (?,1,?,?,?,?,?::jsonb,?)""", scope.studentId, roadmap.number("goalRevision"), expected,
-                knowledgeDigest, version, roadmap, now)
+            c.update("""INSERT INTO learning_roadmap(student_id,revision,goal_revision,learning_revision,knowledge_digest,
+                catalog_version,document,created_at,generation_job_id,generation_fence)
+                VALUES (?,1,?,?,?,?,?::jsonb,?,?,?)""", scope.studentId, roadmap.number("goalRevision"), expected,
+                knowledgeDigest, version, roadmap, now, generation?.id, generation?.fence)
         }
-        return json("schemaVersion" to 1, "created" to (previous == null), "roadmap" to read(c, scope.studentId))
+        return RoadmapWrite(read(c, scope.studentId), created = previous == null, changed = true)
     }
 
-    fun apply(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, proposal: JsonObject, now: Instant): Boolean {
+    fun apply(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject, proposal: JsonObject, now: Instant,
+              generation: JobAttemptRef): Boolean {
         val lesson = c.lesson(scope, lessonId)
         if (lesson.text("status") != "completed" || lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
         val state = StudentLearningState().read(c, scope.studentId, now)
@@ -131,13 +146,18 @@ internal class PersonalizedRoadmap {
             JsonObject(candidate + ("taskId" to kotlinx.serialization.json.JsonPrimitive(current.text("id"))))
         }
         val roadmap = JsonObject(proposal + ("sequence" to JsonArray(completed)))
-        save(c, operator, json("learningRevision" to inputs.number("learningRevision"), "roadmap" to roadmap), now)
-        val revision = read(c, scope.studentId).number("revision")
-        FoundationDatabase.recordAfterCommit(Event("trial_roadmap_saved", "roadmap.generate", "persist", Outcome.COMPLETED,
-            "Foundation saved the generated Roadmap revision."),
-            mapOf("lesson_id" to lessonId, "roadmap_revision" to revision.toString()))
+        val write = persist(c, operator, json("learningRevision" to inputs.number("learningRevision"), "roadmap" to roadmap),
+            now, generation)
+        val revision = write.row.number("revision")
+        val event = if (write.changed) Event("trial_roadmap_saved", "roadmap.generate", "persist", Outcome.COMPLETED,
+            "Foundation saved the generated Roadmap revision.")
+        else Event("trial_roadmap_saved", "roadmap.generate", "persist", Outcome.REPLAYED,
+            "Foundation kept the existing Roadmap revision because the generated plan matched it.", "roadmap_unchanged")
+        FoundationDatabase.recordAfterCommit(event,
+            mapOf("lesson_id" to lessonId, "roadmap_revision" to revision.toString(), "job_id" to generation.id,
+                "fence" to generation.fence.toString()))
         c.enqueueJob(scope.studentId, "roadmap.prioritize", "initial:$revision", null,
-            json("roadmapRevision" to revision), now)
+            json("roadmapRevision" to revision), now, sourceJobId = generation.id)
         return true
     }
 }
