@@ -45,6 +45,8 @@ Foundation, Text Tutor, Context Builder и Learning Engine — модули back
 - Ktor требует PostgreSQL и завершённый import marker. Без marker новый backend не стартует.
   Это защищает существующий чат от случайного запуска с пустым профилем.
 
+Формат диагностических событий, владельцы записей и связь между попытками описаны в [архитектуре логирования](ai_docs/architecture/runtime-logging.md).
+
 ## Ход текстового диалога
 
 1. Webhook проверяет секрет Telegram. Private-text update сохраняется до HTTP ACK.
