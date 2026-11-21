@@ -8,34 +8,24 @@ from __future__ import annotations
 from app.foundation_client import BackendFailure
 from app.learning_content_generation import ContentRequest, LearningContentGenerator
 from app.pedagogical_plan import propose_plan
+from app.student_learning_state import assessed_content_level
 
 
-ACTION_FOR_STAGE = {
-    ('Explanation', 'grammar_unknown'): 'direct',
-    ('Exercises', 'grammar_unknown'): 'sentence_construction',
-    ('Exercises', 'grammar_application'): 'sentence_transformation',
-    ('Exercises', 'vocabulary_passive'): 'meaning_recognition',
-    ('Exercises', 'vocabulary_active'): 'word_recall',
-    ('Exposure', 'listening_comprehension'): 'listening_reconstruction',
-    ('Conversation', 'grammar_unknown'): 'topic_driven',
-    ('Conversation', 'grammar_application'): 'topic_driven',
-    ('Conversation', 'vocabulary_active'): 'topic_driven',
-    ('Conversation', 'speaking_barrier'): 'topic_driven',
+# An alternate Action stays in the same Stage and uses a reviewed SP-13 kind.
+_STAGE_ACTIONS = {
+    ('Explanation', 'grammar_unknown'): ('direct', 'comparison'),
+    ('Exercises', 'grammar_unknown'): ('sentence_construction', 'sentence_transformation'),
+    ('Exercises', 'grammar_application'): ('sentence_transformation', 'sentence_construction'),
+    ('Exercises', 'vocabulary_passive'): ('meaning_recognition', 'meaning_matching'),
+    ('Exercises', 'vocabulary_active'): ('word_recall', 'rapid_response'),
+    ('Exposure', 'listening_comprehension'): ('listening_reconstruction', 'listening_comprehension'),
+    ('Conversation', 'grammar_unknown'): ('topic_driven', 'situational'),
+    ('Conversation', 'grammar_application'): ('topic_driven', 'situational'),
+    ('Conversation', 'vocabulary_active'): ('topic_driven', 'situational'),
+    ('Conversation', 'speaking_barrier'): ('topic_driven', 'situational'),
 }
-
-# A different Action stays in the same Stage and uses a reviewed SP-13 kind.
-ALTERNATE_ACTION_FOR_STAGE = {
-    ('Explanation', 'grammar_unknown'): 'comparison',
-    ('Exercises', 'grammar_unknown'): 'sentence_transformation',
-    ('Exercises', 'grammar_application'): 'sentence_construction',
-    ('Exercises', 'vocabulary_passive'): 'meaning_matching',
-    ('Exercises', 'vocabulary_active'): 'rapid_response',
-    ('Exposure', 'listening_comprehension'): 'listening_comprehension',
-    ('Conversation', 'grammar_unknown'): 'situational',
-    ('Conversation', 'grammar_application'): 'situational',
-    ('Conversation', 'vocabulary_active'): 'situational',
-    ('Conversation', 'speaking_barrier'): 'situational',
-}
+ACTION_FOR_STAGE = {stage: primary for stage, (primary, _) in _STAGE_ACTIONS.items()}
+ALTERNATE_ACTION_FOR_STAGE = {stage: alternate for stage, (_, alternate) in _STAGE_ACTIONS.items()}
 
 
 class RegularTeachingPreparation:
@@ -81,9 +71,7 @@ class RegularTeachingPreparation:
         if action is None:
             raise ValueError('missing_action_template')
         state = await self.backend.learning_state(scope)
-        levels = state['profile']['currentLevels']['speaky']
-        skill_level = levels['skills'][task['skill_id']]['level']
-        cefr = skill_level if skill_level != 'Unknown' else levels['overall']['level']
+        cefr = assessed_content_level(state, task['skill_id'])
         prepared = await self.content.prepare(scope, ContentRequest(
             task_id=inputs['taskId'], plan_id=inputs['planId'],
             plan_revision=inputs['planRevision'], stage_id=inputs['stageId'],

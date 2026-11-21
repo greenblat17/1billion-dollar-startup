@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {loadModule} from './helpers/load-module.mjs';
 
 test('real agreed regular meetings remain joinable without treating demo as subscription',async()=>{
  const elements=new Map();
@@ -17,9 +17,8 @@ test('real agreed regular meetings remain joinable without treating demo as subs
    {...lesson,id:'cancelled',launch_mode:'executable',status:'cancelled'},
    {...lesson,id:'unknown',launch_mode:'executable',status:'unknown'}],schedules:[{...schedule,id:'agreed',agreement:{...schedule.agreement,executable:true}},
    {...schedule,id:'preliminary'}],demoReceipts:[]})})});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
- vm.runInContext(source,context);
- await vm.runInContext('list()',context);
+ await loadModule(context);
+ await new Promise(resolve=>setImmediate(resolve));
  const [real,placeholder,done,cancelled,unknown]=get('meetings').children;
  const action=card=>card.children.find(child=>child.className==='lesson-action');
  assert.equal(real.children[0].textContent,'Урок английского');

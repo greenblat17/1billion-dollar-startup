@@ -115,7 +115,8 @@ class Backend:
         return {'priority': None, 'problemDecisions': []}
 
     async def learning_tasks(self, scope, *, offset):
-        return {'items': [self.a, self.b], 'nextOffset': None}
+        return ({'items': [self.a], 'nextOffset': 1} if offset == 0
+                else {'items': [self.b], 'nextOffset': None})
 
     async def topic_knowledge(self, scope, version, *, offset):
         return {'items': [], 'nextOffset': None}
@@ -133,6 +134,20 @@ async def test_review_handoff_uses_current_roadmap_and_optimistic_revision():
     assert result['expectedRevision'] == 0
     assert result['decision']['roadmapRevision'] == 3
     assert result['decision']['nextTaskId'] == 'a'
+    assert {entry['taskId'] for entry in result['decision']['orderedTasks']} == {'a', 'b'}
+
+
+@pytest.mark.asyncio
+async def test_review_rejects_over_limit_task_page_with_more_results():
+    backend = Backend()
+
+    async def too_many_tasks(scope, *, offset):
+        return {'items': [backend.a] * 1001, 'nextOffset': 1001}
+
+    backend.learning_tasks = too_many_tasks
+    with pytest.raises(ValueError, match='learning_task_limit'):
+        await RoadmapPriorityService(backend).review('scope', 'op-1', trigger='initial')
+    assert backend.calls == []
 
 
 @pytest.mark.asyncio

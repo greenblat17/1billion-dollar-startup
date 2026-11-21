@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {loadModule} from './helpers/load-module.mjs';
 
 for(const duration of [15,20,30])test(`calendar shows the saved ${duration}-minute slot without opening voice`,async()=>{
  const elements=new Map(),requests=[],links=[];
@@ -13,8 +13,7 @@ for(const duration of [15,20,30])test(`calendar shows the saved ${duration}-minu
   fetch:async(url,options)=>{requests.push(JSON.parse(options.body));return {ok:true,json:async()=>({
    lesson:{id:'owned',starts_at:'2026-11-14T16:00:00Z',timezone:'UTC+03:00',status:'scheduled',duration_minutes:duration},
    googleUrl:'https://calendar.google.com/calendar/render?action=TEMPLATE',ics:'BEGIN:VCALENDAR',filename:'speaky.ics'})};}});
- const source=await readFile(new URL('../src/app.js',import.meta.url),'utf8');
- vm.runInContext(source,context);
+ await loadModule(context);
  await new Promise(resolve=>setImmediate(resolve));
  assert.deepEqual(requests,[{action:'calendar',initData:'signed',lessonId:'owned'}]);
  const card=get('meetings').children[0];

@@ -13,8 +13,8 @@ internal fun Route.learningScoreRoutes(service: FoundationService, token: String
     get("/learning-tasks/{id}/score/history") {
         foundationResponse(token) { scope ->
             val query = call.request.queryParameters
-            if (query.names().any { it != "offset" || query.getAll(it)?.size != 1 }) reject("invalid_score_query")
-            val offset = query["offset"]?.toIntOrNull() ?: if (query["offset"] == null) 0 else reject("invalid_offset")
+            query.requireSingleQueryValues("invalid_score_query", "offset")
+            val offset = query.queryOffset()
             service.learningScore(scope, call.parameters["id"] ?: reject("task_required"), history = true, offset = offset)
         }
     }

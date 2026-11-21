@@ -613,11 +613,16 @@ class FoundationIntegrationTest {
             val schema = service.database.transaction(readOnly = true) { c, _ -> c.rows("SELECT current_schema()") { it.getString(1) }.single() }
             val raw = requireNotNull(System.getenv("TEST_POSTGRES_URL"))
             val url = raw + (if ('?' in raw) "&" else "?") + "currentSchema=$schema"
-            val config = AppConfig(null, null, null, "http://127.0.0.1:1", "local-test", 0, "", "", null, url)
+            val config = AppConfig(
+                null, null, null, "http://127.0.0.1:1", "local-test", 0, "", "", null, url,
+                metricsPassword = "local-test",
+            )
             testApplication {
                 application { speakyModule(config) }
                 assertEquals(200, client.get("/health").status.value)
-                for (path in listOf("/internal/foundation/v1/legacy/calls", "/internal/foundation/v1/legacy/feedback", "/admin/metrics", "/internal/calls/open")) {
+                assertEquals(404, client.get("/").status.value)
+                assertEquals(404, client.get("/admin/metrics").status.value)
+                for (path in listOf("/internal/foundation/v1/legacy/calls", "/internal/foundation/v1/legacy/feedback", "/internal/calls/open")) {
                     assertEquals(404, client.post(path).status.value)
                 }
                 assertEquals(401, client.post("/internal/foundation/v1/commands").status.value)

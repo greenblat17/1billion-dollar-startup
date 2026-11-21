@@ -35,10 +35,15 @@ Python wire types: `ai-service/app/learning_content.py`. Kotlin structural valid
 | `answerGuide` | `criteria` (1–8), `alternatives` (0–8), `unacceptable` (0–8). Ориентир для AI; не string-match evaluator. |
 | `validation` | `{status:pending|passed|rejected, component, reasons[]}`. `rejected` требует причину. |
 
-`LearningContentModel` проверяет форму, размер (до 16 000 символов JSON), поля, типы и
+`LearningContentModel` проверяет форму, размер, поля, типы и
 допустимые Action kinds. Он **не доказывает** языковую корректность, соответствие CEFR или
 качество примеров. Только trusted operator может записать `passed`; реальный semantic validator
 появится в SP-13B. На `pending`/`rejected` материал нельзя выдать.
+
+Python и Ktor читают [общие лимиты](../../ai-service/app/learning-content-limits-v1.json).
+Оба считают длину текста и компактного JSON в единицах UTF-16. Лимит всего документа
+составляет 16 000 единиц. Для текста вне основной плоскости Unicode один символ занимает
+две единицы. Старые версии читаются по сохранённому документу.
 
 | Method | `actionKind` | Payload |
 | --- | --- | --- |

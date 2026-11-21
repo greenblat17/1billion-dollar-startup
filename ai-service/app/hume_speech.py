@@ -10,6 +10,7 @@ import websockets
 
 from app.provider_call_log import logged_provider_call
 from app.kora_delivery import delivery_prompt
+from app.speech_speed import validate_speech_speed
 from app.tts import TtsAudio
 
 
@@ -21,8 +22,7 @@ class HumeSpeech:
 
     async def synthesize(self, text: str, *, history=(), user="Let's talk.", speed: float = 1.0,
                          guided: bool = True, warm: bool = False) -> TtsAudio:
-        if isinstance(speed, bool) or speed not in (0.8, 0.9, 1.0):
-            raise ValueError("unsupported speech speed")
+        validate_speech_speed(speed)
         return await logged_provider_call(
             lambda: self._synthesize(text, history, user, speed, guided, warm), kind="tts", provider="hume", model="evi-3",
         )

@@ -102,6 +102,12 @@ Storage uncertainty остаётся ошибкой, а не вымышленн�
 | Подписка | `get_subscription`, `request_subscription_payment`, `cancel_subscription_renewal`; [SP-05](../plans/2026-11-12-sp05-subscription.md) |
 | Память | `search_memory`, `discuss_memory`, `record_memory`, `set_memory_policy`, `review_observation`, `confirm_memory`, `reject_memory`, `forget_memory`; [SP-07](../plans/2026-11-12-sp07-memory.md) |
 
+[scheduling_tools.py](../../ai-service/app/scheduling_tools.py) переводит выбранные моделью инструменты
+в команды Ktor и формирует описание пробного урока. Ktor проверяет источник поручения, версии,
+время и допустимость изменений. Он хранит запись и управляет её уведомлениями.
+[Контракт v1](../../contracts/scheduling/v1/commands.json) охватывает создание, перенос, отмену и список уроков.
+Trial читает активную запись из snapshot, а повтор проверяет через receipt. Regular повторяет ту же команду с тем же operation ID.
+
 Схемы строгие; backend повторно проверяет аргументы и источник текущего поручения.
 Ясный запрос выполняется без второго подтверждения или обязательного заполнения профиля.
 Модель понимает относительную дату/город; код проверяет время и DST. Семантическая правильность
@@ -184,16 +190,14 @@ Webhook проверяет `X-Telegram-Bot-Api-Secret-Token`; private-text input
 
 ### Карта кода
 
-Пути Kotlin относительны к `cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/`.
-
-| Ответственность | Источник |
+| Ответственность | Исходники |
 | --- | --- |
-| Shipping wiring | `SpeakyApplication.kt`; `ai-service/app/speaky_main.py` |
-| Inbox, runs, dispatch | `foundation/TelegramTextIntake.kt`, `TelegramIntroduction.kt`, `ConversationRuns.kt`, `FoundationChat.kt`; `ai/TutorClient.kt` |
-| Telegram / карточки / entities | `telegram/SpeakyTelegram.kt`, `TutorTelegramChat.kt`, `TutorIntroductionDelivery.kt`, `TutorTextFormatting.kt`, `MockBillingTelegram.kt` |
-| Модель и tools | `ai-service/app/foundation_tutor.py`, `trial_tools.py`, `memory_tools.py`, `subscription_tools.py` |
-| Контекст | `ai-service/app/context_builder.py`, `memory_context.py`, `memory_policy.py` |
-| Backend API и операции | `foundation/FoundationRoutes.kt`, `FoundationService.kt`, `LessonManagement.kt`, `MemoryOperations.kt` |
+| Запуск приложения | [SpeakyApplication.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/SpeakyApplication.kt), [speaky_main.py](../../ai-service/app/speaky_main.py) |
+| Входящие сообщения, обработка и отправка | [TelegramTextIntake.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/TelegramTextIntake.kt), [TelegramIntroduction.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/TelegramIntroduction.kt), [ConversationRuns.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/ConversationRuns.kt), [FoundationChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationChat.kt), [TutorClient.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/ai/TutorClient.kt) |
+| Telegram, карточки и форматирование | [SpeakyTelegram.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/SpeakyTelegram.kt), [TutorTelegramChat.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTelegramChat.kt), [TutorIntroductionDelivery.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorIntroductionDelivery.kt), [TutorTextFormatting.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/TutorTextFormatting.kt), [MockBillingTelegram.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/telegram/MockBillingTelegram.kt) |
+| Модель и инструменты | [foundation_tutor.py](../../ai-service/app/foundation_tutor.py), [trial_tools.py](../../ai-service/app/trial_tools.py), [memory_tools.py](../../ai-service/app/memory_tools.py), [subscription_tools.py](../../ai-service/app/subscription_tools.py) |
+| Контекст | [context_builder.py](../../ai-service/app/context_builder.py), [memory_context.py](../../ai-service/app/memory_context.py), [memory_policy.py](../../ai-service/app/memory_policy.py) |
+| Backend API и операции | [FoundationRoutes.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationRoutes.kt), [FoundationService.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/FoundationService.kt), [LessonManagement.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/LessonManagement.kt), [MemoryOperations.kt](../../cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/foundation/MemoryOperations.kt) |
 
 ## Совместимость сохранённых систем
 

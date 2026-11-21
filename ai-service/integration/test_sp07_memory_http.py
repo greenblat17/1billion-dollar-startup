@@ -123,7 +123,9 @@ async def test_text_forgetting_finishes_durably_and_new_report_does_not_revive_o
         answer = await tutor.respond(payload, deletion['scope'])
         model.complete.assert_awaited_once()
         retry = await actor(http, f.root, f.token, subject, 'text', requestId=request, text='Forget my work', occurredAt=deleted_at)
-        assert await tutor.respond(payload, retry['scope']) == answer
+        replayed = await tutor.respond(payload, retry['scope'])
+        assert replayed == {**answer, 'joinLessonId': None}
+        model.complete.assert_awaited_once()
         operator = (await actor(http, f.root, f.token, subject))['scope']
         state = await f.backend.snapshot(operator, 'text')
         assert not state['facts'] and not state['events']

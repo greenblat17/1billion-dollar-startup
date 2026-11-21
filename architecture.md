@@ -124,9 +124,12 @@ Scope выдаёт backend, а не модель. Service token сам по се
 
 ## Изоляция legacy и CMP
 
-`app.main`, прежний Kotlin wiring, calls, clips, Vocabulary Builder, reminders, dashboards и app API
-сохранены в исходниках, но не подключены к новым shipping roots. Старые HTTP adapters используются в test harness,
-который не входит в fat JAR. Промежуточные legacy PG adapters также не являются активным владельцем данных.
+Старый FastAPI runtime находится в [`app.legacy.main`](ai-service/app/legacy/main.py).
+Путь `app.main:create_app` сохранён для совместимости. Старый Ktor wiring находится в
+[`legacy/LegacyApplication.kt`](cmp/server/src/main/kotlin/com/eliteteam/speakingcoach/legacy/LegacyApplication.kt).
+Текущие точки запуска не монтируют calls, clips, Vocabulary Builder, reminders, dashboards и app API.
+Старые HTTP adapters использует test harness за пределами fat JAR.
+Старые PG adapters остаются вне текущего runtime.
 
 Переносится только текущий TutorStore. Legacy Redis namespaces не мигрируют в рамках SP-00.
 Серверные Redis/PG данные и применённые Flyway-миграции сохраняются.
@@ -134,6 +137,8 @@ Scope выдаёт backend, а не модель. Service token сам по се
 
 CMP Android/iOS/Desktop остаётся отдельным прототипом. Его app API не монтируется новым runtime.
 Устройство клиента, WebRTC и прежний HTTP-контракт собраны в [справочнике CMP](ai_docs/integrations/mobile-api.md).
+Шаг и пример Review для Ktor и CMP определены в [core](cmp/core/src/commonMain/kotlin/com/eliteteam/speakingcoach/data/ReviewStepDto.kt).
+Оболочки Review сохраняют настройки чтения и записи клиента и сервера.
 Справочники voice/practice/analytics описывают сохранённый код и не являются перечнем активных маршрутов SP-00.
 
 ## Карта исходников
@@ -143,15 +148,16 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 | Задача | Файлы |
 | --- | --- |
 | Запуск, маршруты и доступ | `SpeakyApplication.kt`, `foundation/FoundationRoutes.kt`, `FoundationIdentity.kt`; `ai-service/app/speaky_main.py`, `foundation_api.py` |
+| Сохранённый legacy runtime | `legacy/LegacyApplication.kt`; `ai-service/app/legacy/` (старый FastAPI, Clip pipeline и голосовой STT/TTS) |
 | Бизнес-операции и данные | `foundation/FoundationService.kt`, `FoundationDatabase.kt`, `LessonManagement.kt`, `LearningState.kt` |
 | Сохранение входа и восстановление хода | `foundation/TelegramTextIntake.kt`, `ConversationRuns.kt`, `FoundationChat.kt`; `ai/TutorClient.kt` |
 | Диалог и native tools | `ai-service/app/foundation_tutor.py`, `tutor.py`, `foundation_client.py` |
 | Общая память и контекст | `foundation/StructuredMemory.kt`, `ConversationHistory.kt`, `TutorContextOperations.kt`; `ai-service/app/context_builder.py` |
 | Фоновые вычисления | `foundation/FoundationJobs.kt`, `FoundationWorker.kt`, `BackgroundContracts.kt`; `ai-service/app/learning_engine.py`, `lesson_voice.py` |
 | Импорт, очистка и восстановление | `foundation/TutorStateImport.kt`, `FoundationImportCli.kt`, `FoundationMaintenance.kt`, `FoundationMaintenanceCli.kt`; `ai-service/scripts/export_tutor_state.py` |
-| Голос и frontend | `foundation/TrialAccess.kt`, `TrialCommands.kt`; `ai-service/app/trial_api.py`, `trial_realtime.py`, `trial_audio.py`; `mini-app/src/` |
+| Голос и frontend | `foundation/TrialAccess.kt`, `TrialCommands.kt`; `ai-service/app/trial_api.py`, `realtime_voice/`, `trial_audio.py`; `mini-app/src/` |
 | Roadmap, память и прогресс | `foundation/RoadmapPreparation.kt`, `MemoryOperations.kt`, `LessonMemory.kt`, `LearningProgress.kt`; `ai-service/app/roadmap.py`, `memory_context.py`, `memory_tools.py` |
-| Подписка и расписание | `foundation/SubscriptionBilling.kt`, `TrialSchedule.kt`, `TrialWorker.kt`; `ai-service/app/subscription_tools.py`, `trial_tools.py` |
+| Подписка и расписание | `foundation/SubscriptionBilling.kt`, `TrialSchedule.kt`, `TrialWorker.kt`; `ai-service/app/subscription_tools.py`, `trial_tools.py`, `scheduling_tools.py` |
 | Прототип и поставка | `cmp/app/`, `infra/`, `.github/workflows/` |
 
 [Исходная архитектура MVP v1](ai_docs/architecture/speaky-mvp-high-level-architecture-v1.md) задаёт целевые обязанности будущего MVP.
@@ -161,15 +167,25 @@ CMP Android/iOS/Desktop остаётся отдельным прототипом
 
 ## SP-02: пробный голосовой урок
 
-Самостоятельный `mini-app/src` собирается в nginx frontend; AI не раздаёт UI. `trial_api.py`
+Самостоятельный `mini-app/src` собирается в nginx frontend; AI не раздаёт UI.
+`app.js` выбирает экран. `call.js` владеет микрофоном, PCM и WebSocket.
+`schedule.js` показывает встречи и экспортирует календарь. `progress.js` показывает учебный маршрут.
+Выбор встречи передаёт ID в точку сборки, где начинается звонок.
+`trial_api.py`
 проверяет подписанное Telegram initData через Ktor `TrialAccess`. Backend владеет Lesson,
 Call Session, scope и admission. Browser не получает provider key или право выполнить tool.
 
-`RealtimeTrialSession` в `trial_realtime.py` соединяет Web Audio с OpenAI Realtime
+`RealtimeTrialSession` в `ai-service/app/realtime_voice/session.py` соединяет Web Audio с OpenAI Realtime
 (`gpt-realtime-2.1`, Marin) через серверный WebSocket relay. Relay архивирует оба PCM-потока
 в private S3 и подтверждает metadata в PostgreSQL **до** пересылки. Direct browser→provider
 не выбран: серверный архив через sideband не подтверждён, а browser upload может потеряться
 при закрытии WebView. Дополнительные S3/DB операции и RTT требуют живого замера.
+
+Сессия хранит состояние звонка и исполняет решения по порядку. `connection.py` обслуживает WebSocket
+и проверяет, можно ли отвечать. `responses.py` выбирает ответ и возвращает сессии необходимые изменения
+состояния. `lesson_flow.py` определяет переходы урока, время и завершение без доступа к сокетам.
+`tools.py` исполняет native tools через сессию и Foundation. `audio.py` буферизует PCM,
+архивирует звук и ограничивает отчёты воспроизведения.
 
 `semantic_vad` использует `eagerness=medium`. Speech-start останавливает playback; сервер
 согласует `conversation.item.truncate` с ограниченным playback report. Отчёт клиента не
@@ -178,6 +194,9 @@ Call Session, scope и admission. Browser не получает provider key и�
 
 `TrialCommands` сохраняет события, завершает урок и ставит evaluation/notice. `TrialPlanner`
 даёт briefing, `TrialAnalyzer` анализирует разговор, `TrialWorker` обслуживает follow-up.
+Формат голосовых команд задан в [контракте v1](contracts/voice/v1/commands.json).
+[Карта задач после урока](ai_docs/integrations/lesson-results.md) показывает расчёт Python и применение в Ktor.
+Foundation CI проверяет запросы Python и ответы Ktor на PostgreSQL.
 V39 добавляет voice lease/scope, audio metadata и demo receipt. Аудио удаляется через 30 дней;
 backup и S3 lifecycle остаются отдельными гарантиями. Reconnect открывает новый provider session
 в том же Lesson. Ограничение одного транспорта — 50 минут; оно не означает завершение Lesson.
@@ -426,6 +445,9 @@ Conversation: Task/Topic/Problem, исторический StageRef, метод,
 голосовое условие и описание допустимых ответов. Это описание задания, не автоматическая
 оценка ответа ученика. Реальную генерацию/семантическую проверку выполняет будущий SP-13B;
 AI во время SP-14/15 решает по фактическому ответу, SP-17C пишет Observation, SP-19 считает Score.
+
+[Допустимые actionKind](ai-service/app/learning-content-action-kinds-v1.json) используют генератор,
+голосовой обработчик и валидатор Ktor. Gradle кладёт тот же файл в артефакт Ktor.
 
 V55 хранит `learning_content` и неизменяемые документы `learning_content_revision`.
 `contentId + revision` показывает ровно то условие, которое было выдано ученику; исправление

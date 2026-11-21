@@ -2,6 +2,7 @@
 import json
 import os
 import time
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -9,7 +10,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from app.foundation_client import FoundationClient
+from app.context_builder import ContextBuilder
+from app.foundation_client import BackendFailure, FoundationClient
+from app.learning_engine import LearningEngine
 from app.trial_assessment import TrialAssessment
 from app.trial_observations import TrialObservationExtractor
 from test_foundation_http import actor, now
@@ -57,11 +60,19 @@ async def test_unsupported_skill_is_unknown_and_supported_skill_reaches_state():
         } for source, (skill, body) in zip(sources, utterances)]
         extractor_model = SimpleNamespace(complete_json=AsyncMock(return_value=json.dumps(
             {'observations': candidates})))
-        extracted = await TrialObservationExtractor(backend, extractor_model).extract(
-            observe_scope, lesson['id'], observed['input_refs'])
-        assert (await backend.command(observe_scope, uuid4().hex, 'job.apply', {
-            'jobId': observed['id'], 'fence': observed['fence'], 'result': extracted}))['status'] == 'succeeded'
+        engine = LearningEngine(backend, ContextBuilder(backend),
+                                trial_observations=TrialObservationExtractor(backend, extractor_model))
+        extracted = await engine.compute(observe_scope, observed)
+        invalid = deepcopy(extracted)
+        invalid['observations'][-1]['sources'][0]['revision'] += 1
+        with pytest.raises(BackendFailure, match='stale_observation_source'):
+            await engine.apply(observe_scope, observed, invalid)
+        assert (await backend.learning_observations(owner['scope'], lesson_id=lesson['id']))['items'] == []
+        assert await engine.apply(observe_scope, observed, extracted) == {'status': 'succeeded'}
         observations = (await backend.learning_observations(owner['scope'], lesson_id=lesson['id']))['items']
+        assert len(observations) == len(utterances)
+        assert await engine.apply(observe_scope, observed, extracted) == {'status': 'succeeded'}
+        assert (await backend.learning_observations(owner['scope'], lesson_id=lesson['id']))['items'] == observations
         grammar = next(row['id'] for row in observations if row['document']['skillId'] == 'grammar')
         speaking = [row['id'] for row in observations if row['document']['skillId'] == 'speaking']
         assert len(speaking) == 2
@@ -79,14 +90,19 @@ async def test_unsupported_skill_is_unknown_and_supported_skill_reaches_state():
             level('speaking', 'A2', speaking), level('grammar', 'B1', [grammar]),
             level('vocabulary', 'Unknown', []),
         ]})))
-        result = await TrialAssessment(backend, assessment_model).assess(
-            assessment_scope, lesson['id'], assessment_job['input_refs'])
+        engine = LearningEngine(backend, ContextBuilder(backend), trial_assessment=TrialAssessment(backend, assessment_model))
+        result = await engine.compute(assessment_scope, assessment_job)
         assert result['levels']['speaking']['level'] == 'A2'
         assert result['levels']['grammar']['level'] == 'Unknown'
         assert result['levels']['overall']['level'] == 'Unknown'
-        assert (await backend.command(assessment_scope, uuid4().hex, 'job.apply', {
-            'jobId': assessment_job['id'], 'fence': assessment_job['fence'], 'result': result}))['status'] == 'succeeded'
-        levels = (await backend.learning_state(owner['scope']))['profile']['currentLevels']['speaky']
+        missing_refs = {key: value for key, value in result.items() if key != 'observationRefs'}
+        with pytest.raises(BackendFailure, match='invalid_assessment_source'):
+            await engine.apply(assessment_scope, assessment_job, missing_refs)
+        assert await engine.apply(assessment_scope, assessment_job, result) == {'status': 'succeeded'}
+        saved_state = await backend.learning_state(owner['scope'])
+        assert await engine.apply(assessment_scope, assessment_job, result) == {'status': 'succeeded'}
+        assert await backend.learning_state(owner['scope']) == saved_state
+        levels = saved_state['profile']['currentLevels']['speaky']
         assert levels['skills']['speaking']['level'] == 'A2'
         assert levels['skills']['grammar']['level'] == 'Unknown'
         assert levels['skills']['listening']['level'] == 'Unknown'

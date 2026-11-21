@@ -1,7 +1,9 @@
 package com.eliteteam.speakingcoach.app
 
 import com.eliteteam.speakingcoach.AppConfig
-import com.eliteteam.speakingcoach.module
+import com.eliteteam.speakingcoach.data.ReviewExampleDto
+import com.eliteteam.speakingcoach.data.ReviewStepDto
+import com.eliteteam.speakingcoach.legacy.module
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.bearerAuth
@@ -93,6 +95,25 @@ class AppApiTest {
         assertEquals(HttpStatusCode.OK, reviewStatus)
         assertEquals(sessionId, review?.sessionId)
         assertEquals(listOf("Grammar", "Vocabulary"), review?.steps?.map { it.metric })
+        assertEquals(
+            Json.parseToJsonElement(
+                """{"sessionId":"$sessionId","steps":[
+                    {"metric":"Grammar","score":78,"lead":"Tenses","bullets":["Past Simple"],
+                    "examples":[{"original":"I work here since 2023.","improved":"I have worked here since 2023."}],
+                    "tip":"Watch verb tense."},
+                    {"metric":"Vocabulary","score":84,"lead":"Word choice","bullets":["Stronger verbs"],
+                    "examples":[],"tip":"Swap filler words."}
+                ]}""",
+            ),
+            Json.parseToJsonElement(client.get("/v1/sessions/$sessionId/review") {
+                bearerAuth(auth.token)
+            }.bodyAsText()),
+        )
+        assertEquals(HttpStatusCode.Conflict, client.post("/v1/sessions/$sessionId/complete") {
+            bearerAuth(auth.token)
+            contentType(ContentType.Application.Json)
+            setBody("{}")
+        }.status)
     }
 
     @Test

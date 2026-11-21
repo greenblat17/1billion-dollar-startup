@@ -1,6 +1,7 @@
 // Feed a real HTTP response into the production view. No browser or visual acceptance is implied.
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+import {loadModule} from './load-module.mjs';
 import assert from 'node:assert/strict';
 const data=JSON.parse(readFileSync(0,'utf8'));
 const elements=new Map();
@@ -9,7 +10,7 @@ const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.g
 const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:get,createElement:element},
  location:{search:'?view=progress'},URLSearchParams,crypto:{randomUUID:()=> 'render-check'},
  fetch:async()=>({ok:true,json:async()=>data})});
-vm.runInContext(readFileSync(new URL('../../src/app.js',import.meta.url),'utf8'),context);
+await loadModule(context);
 await new Promise(resolve=>setImmediate(resolve));
 assert.equal(get('progress').hidden,false);
 assert.equal(get('progress-goal').textContent,data.goal.value);

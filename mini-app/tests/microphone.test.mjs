@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
+import {loadModule} from './helpers/load-module.mjs';
 
 test('joining and reconnecting enable microphone; toggle shows state and action',async()=>{
  const elements=new Map();
@@ -16,9 +16,9 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  URLSearchParams,crypto:{randomUUID:()=> 'test'},performance:{now:()=>0},
  navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}},
  AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout});
- const source=(await readFile(new URL('../src/app.js',import.meta.url),'utf8')).replace(/calendarMode\?calendar\(\):progressMode\?progress\(\):lessonId\?connect\(\):list\(\);\s*$/, '');
- vm.runInContext(source,context);
- await vm.runInContext('connect()',context);
+ const call=await loadModule(context,'call.js','\nexport {started,closing};');
+ call.bindCallControls();
+ await call.startCall('test');
  assert.equal(track.enabled,true);
  assert.equal(element('mute').disabled,true);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
@@ -30,7 +30,7 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(element('mute')['aria-pressed'],'true');
  assert.equal(element('mic-action').textContent,'Включить');
  assert.equal(element('mic-status').textContent,'Микрофон выключен — Саша вас не слышит');
- const originalStarted=vm.runInContext('started',context);
+ const originalStarted=call.started;
  const previous=sockets.at(-1);
  await previous.onmessage({data:JSON.stringify({type:'reconnect'})});
  assert.equal(track.stopped,true);
@@ -38,16 +38,16 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.notEqual(sockets.at(-1),previous);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
  assert.equal(track.enabled,true);
- assert.equal(vm.runInContext('started',context),originalStarted);
+ assert.equal(call.started,originalStarted);
  assert.equal(element('mute')['aria-pressed'],'false');
  assert.equal(element('mic-action').textContent,'Выключить');
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'trial_clock',trialExecution:{connectedSeconds:900}})});
- const backendStarted=vm.runInContext('started',context);
+ const backendStarted=call.started;
  assert.ok(Math.abs(Date.now()-backendStarted-900000)<100);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'ended',reason:'memory_forgotten'})});
  assert.equal(track.stopped,true);
  assert.equal(sockets.length,2);
  assert.equal(element('error-title').textContent,'Память обновлена');
  assert.equal(element('retry').hidden,true);
- assert.equal(vm.runInContext('closing',context),true);
+ assert.equal(call.closing,true);
 });

@@ -46,44 +46,24 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
-// PostgreSQL suites run only in foundationIntegrationTest. Missing DB configuration there is a failure, not a skip.
+tasks.processResources {
+    from(rootProject.layout.projectDirectory.file("../ai-service/app/learning-content-action-kinds-v1.json"))
+    from(rootProject.layout.projectDirectory.file("../ai-service/app/learning-content-limits-v1.json"))
+    from(rootProject.layout.projectDirectory.file("../ai-service/app/legacy-speech-speeds-v1.json"))
+}
+
+// Foundation suites require PostgreSQL and run only in foundationIntegrationTest.
+val foundationIntegrationPattern = "**/foundation/*IntegrationTest*.class"
+
 tasks.test {
-    exclude("**/LearningObservationsIntegrationTest*")
-    exclude("**/LearningTasksIntegrationTest*")
-    exclude("**/LearningPlansIntegrationTest*")
-    exclude("**/LearningContentIntegrationTest*")
-    exclude("**/LearningScoresIntegrationTest*")
-    exclude("**/LearningObservationScoreIntegrationTest*")
-    exclude("**/PersonalizedRoadmapIntegrationTest*")
-    exclude("**/RoadmapPriorityIntegrationTest*")
-    exclude("**/ProblemDetectionIntegrationTest*")
-    exclude("**/InitialRoadmapDeliveryIntegrationTest*")
-    exclude("**/StudentLearningIntegrationTest*")
-    exclude("**/LearningCatalogIntegrationTest*")
-    exclude("**/FoundationIntegrationTest*")
-    exclude("**/TrialIntegrationTest*")
-    exclude("**/PostLessonReviewIntegrationTest*")
+    exclude(foundationIntegrationPattern)
 }
 val foundationIntegrationTest by tasks.registering(Test::class) {
     description = "Run foundation and trial integration contracts against real PostgreSQL"
     group = "verification"
     testClassesDirs = sourceSets.test.get().output.classesDirs
     classpath = sourceSets.test.get().runtimeClasspath
-    include("**/FoundationIntegrationTest*")
-    include("**/TrialIntegrationTest*")
-    include("**/PostLessonReviewIntegrationTest*")
-    include("**/LearningTasksIntegrationTest*")
-    include("**/LearningObservationsIntegrationTest*")
-    include("**/LearningPlansIntegrationTest*")
-    include("**/LearningContentIntegrationTest*")
-    include("**/LearningScoresIntegrationTest*")
-    include("**/LearningObservationScoreIntegrationTest*")
-    include("**/PersonalizedRoadmapIntegrationTest*")
-    include("**/RoadmapPriorityIntegrationTest*")
-    include("**/ProblemDetectionIntegrationTest*")
-    include("**/InitialRoadmapDeliveryIntegrationTest*")
-    include("**/StudentLearningIntegrationTest*")
-    include("**/LearningCatalogIntegrationTest*")
+    include(foundationIntegrationPattern)
     outputs.upToDateWhen { false }
 }
 

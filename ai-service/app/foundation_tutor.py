@@ -1,61 +1,26 @@
 """Persistent tutor using backend commands, not an AI-owned mutable student aggregate."""
 from __future__ import annotations
 
-import hashlib
 import json
-from datetime import datetime, timezone
 from uuid import uuid4
 
 import anyio
 
 from app.context_builder import ContextBuilder
 from app.preferred_address import PreferredAddress
-from app.trial_sp24 import SLOT_MINUTES
 from app.memory_tools import MEMORY_MODELS, execute_memory
-from app.foundation_client import BackendFailure, FoundationClient
+from app.foundation_client import BackendFailure, FoundationClient, tool_operation_id
 from app.tutor import TutorRequest
 from app.text_tutor_policy import INTRODUCTION_WRITING_STYLE, TEXT_RELATIONSHIP_POLICY
-from app.tutor_tools import MODELS as LEGACY_MODELS, resolve_time, zone
 from app.student_learning_state import UpdatePersonalContext, UpdateOnboarding
 
-MODELS = {**LEGACY_MODELS, "update_learner_context": UpdatePersonalContext}
 from app.trial_policy import TEXT_CAPABILITIES
-from app.trial_tools import PreliminarySchedule, CancelPreliminarySchedule, SCHEDULE_MODELS
+from app.scheduling_tools import (
+    LESSON_MUTATIONS, REGULAR_SCHEDULE_MUTATIONS, SCHEDULING_TOOLS, TRIAL_BOOKING_MUTATIONS,
+    booking_label, booking_projection, execute_schedule, scheduled_reply,
+)
 from app.tutor_diagnostics import record_tool
 from app.subscription_tools import SUBSCRIPTION_MODELS
-
-
-MONTHS = ('января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-          'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря')
-
-
-def booking_label(booking):
-    if booking['status'] == 'cancelled':
-        return 'Пробное занятие отменено.\nЕсли добавлял его в календарь, удали событие там.'
-    local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
-    weekdays = ('понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота', 'воскресенье')
-    return (f"Пробное занятие · бесплатно\n"
-            f"{local.day} {MONTHS[local.month - 1]} {local.year}, {weekdays[local.weekday()]}\n"
-            f"{local:%H:%M} · {booking['timezone']} · {booking['durationMinutes']} минут\n"
-            + ('Звонок в Speaky' if booking.get('launchMode') == 'executable' else 'Подключение пока недоступно'))
-
-
-def scheduled_reply(booking, rescheduled=False):
-    local = datetime.fromisoformat(booking['startsAtUtc']).astimezone(zone(booking['timezone']))
-    day = f'{local.day} {MONTHS[local.month - 1]}'
-    display_zone = 'МСК' if booking['timezone'] == 'Europe/Moscow' else booking['timezone']
-    confirmation = 'Перенёс пробный' if rescheduled else 'Записал тебя на бесплатный пробный'
-    calendar = ' Если добавлял урок в календарь, обнови время.' if rescheduled else ''
-    return (f'{confirmation} на {day} в {local:%H:%M} ({display_zone}). '
-            f'Урок на {booking["durationMinutes"]} минут. Подключайся по кнопке в этом сообщении.{calendar}')
-
-
-def booking_projection(lesson: dict | None) -> dict | None:
-    if not lesson:
-        return None
-    return dict(id=lesson['id'], learnerId=lesson['student_id'], status=lesson['status'],
-                startsAtUtc=lesson['starts_at'], timezone=lesson['timezone'], version=lesson['version'],
-                durationMinutes=lesson['duration_minutes'], timing=lesson.get('timing', 'scheduled'), launchMode=lesson.get('launch_mode', 'placeholder'))
 
 
 class FoundationTutor:
@@ -123,8 +88,13 @@ class FoundationTutor:
         try:
             committed = claim.get('committed', [])
             if committed:
-                bookings = [operation['result'] for operation in committed if operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'trial']
-                schedule_committed = any(operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel') or (operation['action'] in ('lesson.create', 'lesson.reschedule', 'lesson.cancel') and operation['result'].get('kind') == 'regular') for operation in committed)
+                bookings = [operation['result'] for operation in committed
+                            if operation['action'] in LESSON_MUTATIONS and operation['result'].get('kind') == 'trial']
+                schedule_committed = any(
+                    operation['action'] in ('schedule.agree', 'schedule.resolve_time', 'trial.schedule_cancel')
+                    or (operation['action'] in LESSON_MUTATIONS and operation['result'].get('kind') == 'regular')
+                    for operation in committed
+                )
                 memory_committed = any(operation["action"].startswith("memory.") or operation["action"] in ("tutor.update_context", "onboarding.update", "student.preferred_address") for operation in committed)
                 payment_committed = any(operation["action"].startswith("subscription.") for operation in committed)
                 changed = booking_projection(bookings[-1]) if bookings else None
@@ -153,7 +123,7 @@ class FoundationTutor:
                                         booking=None, bookingText=None, degraded=False)
                         if result.get('ok') is False or (result.get('skipped') and not result.get('saved')):
                             rejected_tools += 1
-                            if function['name'] in ('create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking'):
+                            if function['name'] in TRIAL_BOOKING_MUTATIONS:
                                 rejected_trial_change = function['name']
                         if function['name'] in ('update_learner_context', 'update_onboarding') and result.get('saved'):
                             memory_committed = True
@@ -163,13 +133,13 @@ class FoundationTutor:
                             memory_committed = True
                         if function['name'] in SUBSCRIPTION_MODELS and result.get('ok'):
                             payment_committed = True
-                        if function['name'] in SCHEDULE_MODELS and result.get('ok'):
+                        if function['name'] in REGULAR_SCHEDULE_MUTATIONS and result.get('ok'):
                             schedule_committed = True
                         if result.get('ok') and result.get('booking'):
                             if function['name'] == 'get_trial_booking':
                                 if result['booking'].get('launchMode') == 'executable':
                                     join_lesson = result['booking']['id']
-                            elif function['name'] in ('create_trial_booking', 'reschedule_trial_booking', 'cancel_trial_booking'):
+                            elif function['name'] in TRIAL_BOOKING_MUTATIONS:
                                 changed = result['booking']
                                 rescheduled = function['name'] == 'reschedule_trial_booking'
                         messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': json.dumps(result, ensure_ascii=False)})
@@ -251,11 +221,13 @@ class FoundationTutor:
         return result
 
     async def _execute(self, scope: str, request_id: str, source: dict, name: str, arguments: dict) -> dict:
+        if name in SCHEDULING_TOOLS:
+            return await execute_schedule(self.backend, scope, request_id, source, name, arguments)
         stage = 'validate_arguments'
         try:
             if name == 'set_preferred_address':
                 args = PreferredAddress.model_validate(arguments)
-                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                identity = tool_operation_id(request_id, name, arguments)
                 address = await self.backend.command(scope, identity, 'student.preferred_address',
                     {'sourceId': source['id'], **args.model_dump()})
                 return {'ok': True, 'preferredAddress': address}
@@ -269,7 +241,7 @@ class FoundationTutor:
                             'If this message only reports a difficulty, use update_learner_context for it. '
                             'When there is no supported profile field to update, continue replying without retrying.'}
                 payload = args.model_copy(update={'changes': supported}).model_dump()
-                identity = hashlib.sha256(json.dumps([request_id, name, payload], sort_keys=True).encode()).hexdigest()
+                identity = tool_operation_id(request_id, name, payload)
                 result = await self.backend.command(scope, identity, 'onboarding.update',
                     {'sourceId': source['id'], **payload})
                 response = {'ok': True, 'saved': True, 'learningState': result}
@@ -287,113 +259,39 @@ class FoundationTutor:
                 args = model.model_validate(arguments)
                 if args.evidence not in source['body']:
                     raise ValueError('invalid_evidence')
-                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+                identity = tool_operation_id(request_id, name, arguments)
                 result = await self.backend.command(scope, identity, action, {'sourceId': source['id'], **args.model_dump()})
                 return {'ok': True, 'result': result}
-            if name in ('get_schedules', 'get_lessons'):
-                if arguments:
-                    raise ValueError('unexpected_arguments')
-                return await self.backend.command(scope, uuid4().hex,
-                    'trial.schedules' if name == 'get_schedules' else 'lesson.list', {})
-            if name in SCHEDULE_MODELS:
-                model, action = SCHEDULE_MODELS[name]
-                args = model.model_validate(arguments)
-                if args.evidence not in source['body']:
-                    raise ValueError('invalid_evidence')
-                command = {'sourceId': source['id'], **args.model_dump()}
-                if name == 'create_extra_lesson':
-                    command.update(kind='regular', launchMode='executable')
-                elif name == 'reschedule_lesson':
-                    command['launchMode'] = 'executable'
-                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
-                result = await self.backend.command(scope, identity, action, command)
-                return {'ok': True, 'result': result}
-            if name in ('save_preliminary_schedule', 'get_preliminary_schedules', 'cancel_preliminary_schedule'):
-                if name == 'get_preliminary_schedules':
-                    return await self.backend.command(scope, uuid4().hex, 'trial.schedules', {})
-                stage = 'validate_arguments'
-                schedule = (CancelPreliminarySchedule if name == 'cancel_preliminary_schedule' else PreliminarySchedule).model_validate(arguments)
-                identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
-                stage = 'schedule_command'
-                return await self.backend.command(scope, identity, 'trial.schedule_cancel' if name == 'cancel_preliminary_schedule' else 'trial.schedule', {'sourceId': source['id'], **schedule.model_dump()})
-            if name not in MODELS:
+            if name != 'update_learner_context':
                 raise ValueError('unknown_tool')
-            args = MODELS[name].model_validate(arguments)
-            identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+            args = UpdatePersonalContext.model_validate(arguments)
+            identity = tool_operation_id(request_id, name, arguments)
             stage = 'receipt'
             previous = await self.backend.receipt(scope, identity)
             if previous is not None:
-                if name == 'update_learner_context':
-                    return {'ok': True}
-                booking = booking_projection(previous)
-                return {'ok': True, 'booking': booking, 'confirmation': booking_label(booking)}
+                return {'ok': True}
             stage = 'snapshot'
             snapshot = await self.backend.snapshot(scope, 'text')
             stage = 'booking_projection'
-            current = booking_projection(snapshot.get('booking'))
-            if name == 'get_trial_booking':
-                return {'ok': True, 'booking': current}
-            if name == 'update_learner_context':
-                stage = 'update_context'
-                payload, skipped = supported_context_update(args, source['body'])
-                saved = bool(payload['facts'] or payload['trialPreference'] is not None or payload['summary'] is not None)
-                if saved:
-                    await self.backend.command(scope, identity, 'tutor.update_context', {
-                        'sourceId': source['id'], **payload,
-                    })
-                return {'ok': True, 'saved': saved, 'skipped': skipped, 'guidance':
-                    'Only supported fields were saved. Do not retry skipped optional memory in this turn. '
-                    'Continue responding to the learner; do not ask them to repeat information. '
-                    'Use null for trialPreference when the current message says nothing about trial readiness.'}
-            stage = 'validate_evidence'
-            if getattr(args, 'evidence', '') not in source['body']:
-                raise ValueError('invalid_evidence')
-            command = {'sourceId': source['id'], 'evidence': args.evidence}
-            stage = 'validate_booking'
-            if name != 'create_trial_booking':
-                if not current or current['id'] != args.bookingId:
-                    raise ValueError('booking_not_owned_or_not_active')
-                command.update(lessonId=args.bookingId, expectedVersion=args.expectedVersion)
-            if name == 'cancel_trial_booking':
-                action = 'lesson.cancel'
-            else:
-                stage = 'resolve_time'
-                received = datetime.fromisoformat(source['occurred_at']).timestamp()
-                starts, zone, timing = resolve_time(args.schedule, received, current, datetime.now(timezone.utc))
-                command.update(startsAt=starts, timezone=zone, timing=timing)
-                if name == 'create_trial_booking':
-                    action = 'lesson.create'
-                    command.update(kind='trial', launchMode='executable', durationMinutes=SLOT_MINUTES, timing=timing)
-                else:
-                    action = 'lesson.reschedule'
-                    command['launchMode'] = 'executable'
-            stage = 'booking_command'
-            lesson = await self.backend.command(scope, identity, action, command)
-            stage = 'result_projection'
-            booking = booking_projection(lesson)
-            return {'ok': True, 'booking': booking, 'confirmation': booking_label(booking)}
+            booking_projection(snapshot.get('booking'))
+            stage = 'update_context'
+            payload, skipped = supported_context_update(args, source['body'])
+            saved = bool(payload['facts'] or payload['trialPreference'] is not None or payload['summary'] is not None)
+            if saved:
+                await self.backend.command(scope, identity, 'tutor.update_context', {
+                    'sourceId': source['id'], **payload,
+                })
+            return {'ok': True, 'saved': saved, 'skipped': skipped, 'guidance':
+                'Only supported fields were saved. Do not retry skipped optional memory in this turn. '
+                'Continue responding to the learner; do not ask them to repeat information. '
+                'Use null for trialPreference when the current message says nothing about trial readiness.'}
         except BackendFailure as error:
             record_tool(request_id, name, stage, 'rejected', error=error)
             if error.status >= 500:
                 raise
-            if error.code.startswith('schedule_time_needs_clarification:'):
-                return {'ok': False, 'error': error.code, 'guidance':
-                    'No change committed. Explain that this local time is missing or occurs twice because clocks change. Ask for another local time for that date; do not guess UTC or claim a server outage.'}
             return {'ok': False, 'error': error.code}
         except (ValueError, TypeError, KeyError) as error:
             record_tool(request_id, name, stage, 'rejected', error=error)
-            if stage == 'validate_evidence' and str(error) == 'invalid_evidence':
-                return {'ok': False, 'error': 'invalid_evidence', 'guidance': (
-                    'No action was performed: evidence is not a verbatim quote from the current '
-                    'user message. This is invalid tool input, not a server outage. Reconsider '
-                    'whether the current message requests this action. If it does, retry with '
-                    'an exact supporting quote; otherwise continue the conversation without '
-                    'booking. Do not ask the learner to repeat an already clear request.')}
-            if stage == 'resolve_time' and str(error) in ('conflicting_schedule_fields', 'current_booking_and_shift_required'):
-                return {'ok': False, 'error': str(error), 'guidance':
-                    'Invalid tool arguments, not a timezone problem. For N minutes from this message use '
-                    'after_minutes with delayMinutes. shift_minutes requires an existing booking. '
-                    'Use only fields belonging to the chosen mode; no change was committed.'}
             return {'ok': False, 'error': str(error)[:300]}
 
 

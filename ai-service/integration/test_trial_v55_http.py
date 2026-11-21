@@ -59,7 +59,7 @@ async def test_trial_workload_raw_sources_and_terminal_handoff_over_http():
         assert ended['completed'] is True
         raw = await backend.trial_events(owner['scope'], lesson['id'])
         assert raw['lesson']['ended_early'] is True
-        assert raw['assessmentStatus'] == 'not_implemented'
+        assert raw['assessmentStatus'] == 'not_started'
         headers = {'X-Internal-Token': token, 'X-Execution-Scope': owner['scope']}
         response = await http.get(root + '/internal/foundation/v1/trial/events', headers=headers,
                                   params={'lessonId': lesson['id'], 'offset': 'invalid'})

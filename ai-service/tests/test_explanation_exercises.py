@@ -283,3 +283,20 @@ def test_unissued_or_other_method_cannot_start():
                         'issuedLessonId': None, 'document': {}})
     with pytest.raises(TeachingActionError, match='unsupported_action'):
         TeachingActionSession(handoff('Explanation', 'direct') | {'method': 'Exposure'}, Model())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(('text', 'verdict', 'target', 'next_action', 'transition'), [
+    ('Продолжим упражнение.', 'acknowledgment', None, 'continue', None),
+    ('Давай поговорим свободно.', 'switch', 'free_conversation', 'switch_conversation', 'switch_conversation'),
+])
+async def test_saved_learner_intent_selects_the_next_lesson_action(text, verdict, target, next_action, transition):
+    from app.realtime_voice.lesson_flow import teaching_transition
+
+    model = Model(verdict, switch_target=target)
+    action = TeachingActionSession(handoff(), model)
+    result = await action.respond(answer(text=text), [])
+    assert text in json.dumps(model.calls[0][1], ensure_ascii=False)
+    assert result['event'] is None
+    assert result['next'] == next_action
+    assert teaching_transition(result['next'], action_done=False) == transition

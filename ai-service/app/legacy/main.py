@@ -1,0 +1,1323 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import time
+import httpx
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, Response
+from openai import AsyncOpenAI
+from redis.asyncio import Redis
+
+from app.call_review import CallReviews
+from app.audit_artifacts import AuditArtifacts, bind_writer, reset_writer, bind_receipt_time, reset_receipt_time
+from app.call_start import CallStarter
+from app.characters import Characters, CharacterStore, KoraHModel
+from app.gemini_speech import GeminiKoraSpeech
+from app.calls import CallStore, moscow_day
+from app.first_call_feedback import FirstCallFeedback, ModeFeedback, offer_eligibility
+from app.conversation import ConversationMode, ConversationRouting
+from app.speech_time import SpeechTimeMeter, SpeechTimeRollout
+from app.config import Settings
+from app.dialogue import DialogueStore, build_dialogue_store
+from app.jobs import ClipJob, JobStore
+from app.legacy_onboarding_campaign import campaign_status
+from app.load_test import bind_load_test, load_test_active, load_test_requested, reset_load_test
+from app.memory_jobs import MemoryJobRunner, MemoryJobStore
+from app.llm import OpenAiChatModel
+from app.logging_setup import configure_process_logging
+from app.provider_call_log import configure_user_id_hash_key
+from app.habit_analytics import HabitAnalytics
+from app.metrics import MetricsStore, build_metrics_store
+from app.metrics_v2 import bind_metrics, build_metrics_v2, reset_metrics
+from app.operational_metrics import (
+    LLM_GENERATION_METRICS, PROVIDER_CALL_METRICS, REVIEW_VERIFICATION_METRICS, VOCABULARY_ENRICHMENT_METRICS,
+    STAGE_METRICS, VOICE_MODEL_METRICS,
+    VoiceModelUsage, bind_voice_usage, reset_voice_usage,
+)
+from app.learner_store import LearnerStore, public_assessment
+from app.personalization import Personalization
+from app.tutor import TutorRuntime, TutorModel, TutorRequest
+from app.tutor_store import TutorStore
+from app.foundation_client import FoundationClient
+from app.foundation_api import install_foundation_api
+from app.foundation_tutor import FoundationTutor
+from app.context_builder import ContextBuilder
+from app.learning_engine import LearningEngine, PersonalCandidateExtractor
+from app.learner_model import LearnerModel
+from app.legacy.pipeline import ClipPipeline, PipelineResult, bind_job_timings, reset_job_timings
+from app.retry import bind_provider_metrics, reset_provider_metrics
+from app.realtime import OpenAiRealtimeGateway, RealtimeGateway, TOPICS, VOICES
+from app.reminders import build_reminder_ledger, parse_report
+from app.reminder_copy import personal_reminder
+from app.review import OpenAiSessionReviewer, SessionReviewer
+from app.sessions import GREETING_TEXT, GREETING_VOICE_TEXT
+from app.speech import SessionSpeech, SpeechSpeedStore
+from app.speech_speed import SPEED_CHOICES, validate_speech_speed
+from app.stt import GroqSpeechToText
+from app.tts import DeepgramTextToSpeech, OpenAiTextToSpeech, TextToSpeech, TtsAudio
+from app.voice_cost import VoiceCostLedger, bind_voice_cost, reset_voice_cost
+from app.vocabulary_builder import VocabularyBuilder
+
+logger = logging.getLogger("app.main")
+
+INTERNAL_TOKEN_HEADER = "X-Internal-Token"
+
+
+def _provided_internal_token(request: Request) -> str | None:
+    direct = request.headers.get(INTERNAL_TOKEN_HEADER)
+    if direct is not None:
+        return direct
+    authorization = request.headers.get("authorization") or ""
+    scheme, separator, credential = authorization.partition(" ")
+    if separator and scheme.lower() == "bearer" and credential and " " not in credential:
+        return credential
+    return None
+
+
+def create_app(
+    settings: Settings | None = None,
+    pipeline: ClipPipeline | None = None,
+    realtime: RealtimeGateway | None = None,
+    reviewer: SessionReviewer | None = None,
+    learner_model: Any = None,
+    learner_store: LearnerStore | None = None,
+    call_store: CallStore | None = None,
+) -> FastAPI:
+    settings = settings or Settings.from_env()
+    if not settings.ai_internal_token:
+        raise RuntimeError("AI_INTERNAL_TOKEN is required")
+    configure_process_logging(settings.log_level, settings.log_file)
+    configure_user_id_hash_key(settings.ai_internal_token)
+    jobs = JobStore(ttl_seconds=settings.job_ttl_seconds)
+    clip_pipeline = pipeline or _build_pipeline(settings)
+    rollout = SpeechTimeRollout(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+    ) if clip_pipeline.speech_meter is not None and call_store is None else None
+    learner_store = learner_store or LearnerStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    learner_model = learner_model or LearnerModel(
+        clip_pipeline.llm, settings.onboarding_review_model or settings.llm_model,
+        settings.onboarding_review_fallback_model, settings.correction_verification_model,
+        settings.person_memory_model, settings.vocabulary_verification_model,
+    )
+    personalization = Personalization(learner_store, learner_model, clip_pipeline.streaks)
+    clip_pipeline.personalization = personalization
+    tutor = TutorRuntime(TutorStore(learner_store._redis), TutorModel(clip_pipeline.characters.model_h or clip_pipeline.llm))
+    foundation_http = httpx.AsyncClient() if settings.foundation_backend_url else None
+    foundation_model_client = None
+    foundation_tutor = None
+    learning_engine = None
+    if foundation_http is not None:
+        if not settings.openai_api_key:
+            raise RuntimeError("OPENAI_API_KEY is required for the foundation tutor")
+        backend = FoundationClient(settings.foundation_backend_url, settings.ai_internal_token, foundation_http)
+        contexts = ContextBuilder(backend)
+        foundation_model_client = AsyncOpenAI(api_key=settings.openai_api_key,
+                                             base_url=settings.openai_base_url, max_retries=0)
+        foundation_tutor = FoundationTutor(backend, TutorModel(OpenAiChatModel(
+            foundation_model_client, settings.kora_model, metrics=clip_pipeline.metrics)), contexts)
+        memory_model = LearnerModel(OpenAiChatModel(foundation_model_client, settings.llm_model),
+                                    person_memory_model=settings.person_memory_model)
+        learning_engine = LearningEngine(backend, contexts, extractor=PersonalCandidateExtractor(memory_model))
+    memory_jobs = MemoryJobRunner(MemoryJobStore(learner_store._redis), personalization)
+    owns_calls = call_store is None
+    calls = call_store or CallStore(
+        redis=Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        goal_of=learner_store.get_goal,
+        rollout=rollout,
+    )
+    first_call_feedback = FirstCallFeedback(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    mode_feedback = ModeFeedback(first_call_feedback)
+    clip_pipeline.calls = calls
+    reviews = CallReviews(calls, learner_store, learner_model, clip_pipeline.streaks)
+    kora_model = clip_pipeline.characters.model_h
+    kora_speech = clip_pipeline.characters.speech_h
+    kora_lesson_ready = callable(getattr(kora_model, "complete_json", None)) and callable(
+        getattr(kora_speech, "synthesize", None))
+    vocabulary = VocabularyBuilder(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        kora_model if kora_lesson_ready else clip_pipeline.llm,
+        clip_pipeline.stt, clip_pipeline.speech,
+        kora_speech=kora_speech if kora_lesson_ready else None,
+        context_window_tokens=(settings.vocabulary_context_window_tokens or
+                               (1_000_000 if kora_lesson_ready and settings.kora_model == "anthropic/claude-sonnet-4.6"
+                                else 8192)),
+        personalization=personalization,
+    )
+    sessions = clip_pipeline.dialogue
+    call_starter = CallStarter(calls, learner_model, personalization, sessions,
+                              clip_pipeline.speech, clip_pipeline.characters, clip_pipeline.history)
+    streaks = clip_pipeline.streaks
+    habits = HabitAnalytics(clip_pipeline.metrics)
+    reminder_ledger = build_reminder_ledger(clip_pipeline.metrics, streaks)
+    realtime_gateway = realtime if realtime is not None else _build_realtime(settings)
+    session_reviewer = reviewer if reviewer is not None else _build_reviewer(settings, clip_pipeline.metrics)
+    greeting_audio: dict[float, TtsAudio] = {}
+    greeting_lock = asyncio.Lock()
+    campaign_redis = Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None
+    audit_artifacts = AuditArtifacts(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None)
+    voice_cost = VoiceCostLedger(Redis.from_url(settings.redis_url, decode_responses=True),
+                                 settings.openai_base_url, settings.openai_api_key) if settings.redis_url else None
+    tasks: set[asyncio.Task[None]] = set()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if rollout is not None:
+            await rollout.activation_day()
+        await streaks.backfill()
+        memory_task = asyncio.create_task(memory_jobs.run())
+        habit_task = asyncio.create_task(habits.run())
+        async def prune_raw_content() -> None:
+            while True:
+                try:
+                    for store in (sessions, learner_store, calls, tutor.store):
+                        prune = getattr(store, "prune_all", None)
+                        if prune is not None:
+                            await prune()
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("raw conversation retention sweep failed")
+                await asyncio.sleep(60 * 60)
+        retention_task = asyncio.create_task(prune_raw_content())
+        cost_task = asyncio.create_task(voice_cost.run()) if voice_cost is not None else None
+        try:
+            yield
+        finally:
+            memory_task.cancel()
+            await asyncio.gather(memory_task, return_exceptions=True)
+            await memory_jobs.stop()
+            retention_task.cancel()
+            habit_task.cancel()
+            await asyncio.gather(habit_task, return_exceptions=True)
+            if cost_task is not None:
+                cost_task.cancel()
+            await asyncio.gather(retention_task, *( [cost_task] if cost_task else [] ),
+                                 return_exceptions=True)
+        await learner_store.aclose()
+        if foundation_http is not None:
+            await foundation_http.aclose()
+        if foundation_model_client is not None:
+            await foundation_model_client.close()
+        if rollout is not None:
+            await rollout.aclose()
+        if clip_pipeline.speech_meter is not None:
+            clip_pipeline.speech_meter.close()
+        if owns_calls:
+            await calls.aclose()
+        await sessions.aclose()
+        await clip_pipeline.speech.speeds.aclose()
+        await clip_pipeline.characters.store.aclose()
+        await clip_pipeline.metrics.aclose()
+        if campaign_redis is not None:
+            await campaign_redis.aclose()
+        await audit_artifacts.aclose()
+        if voice_cost is not None:
+            await voice_cost.aclose()
+        await first_call_feedback.aclose()
+        await vocabulary.close()
+        close_tts = getattr(clip_pipeline.tts, "aclose", None)
+        if close_tts is not None:
+            await close_tts()
+
+    app = FastAPI(
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
+    app.state.settings = settings
+    app.state.jobs = jobs
+    app.state.pipeline = clip_pipeline
+    app.state.learner_store = learner_store
+    app.state.tutor = tutor
+    app.state.vocabulary = vocabulary
+    app.state.memory_jobs = memory_jobs
+    if foundation_tutor is not None:
+        install_foundation_api(app, foundation_tutor, learning_engine)
+
+    @app.middleware("http")
+    async def require_internal_token(request: Request, call_next):
+        if request.url.path in {"/health", "/"}:
+            return await call_next(request)
+        expected = settings.ai_internal_token
+        provided = _provided_internal_token(request)
+        if not expected or provided != expected:
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/internal/metrics")
+    async def metrics_snapshot() -> dict:
+        payload = await clip_pipeline.metrics.snapshot()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is not None:
+            v2_snapshot = await v2.snapshot()
+            v2_snapshot["day"] = payload.get("day")
+            payload["v2"] = v2_snapshot
+        reminders = await reminder_ledger.snapshot()
+        activity = await clip_pipeline.metrics.reminder_activity([row["day"] for row in reminders["analyticsDays"]])
+        reminders["analyticsDays"] = [
+            {**row, **activity.get(row["day"], {})} for row in reminders["analyticsDays"]
+        ]
+        days = [row["day"] for row in reminders["analyticsDays"]]
+        reminders["settingUsers"] = {
+            "7": await clip_pipeline.metrics.reminder_activity_unique(days[:7]),
+            "30": await clip_pipeline.metrics.reminder_activity_unique(days[:30]),
+        }
+        reminders["trackingSince"] = await clip_pipeline.metrics.reminder_tracking_since()
+        payload["reminders"] = {**reminders, **await clip_pipeline.metrics.reminder_overview()}
+        await habits.refresh()
+        habit_end = datetime.now(ZoneInfo("Europe/Moscow")).date() - timedelta(days=1)
+        payload["streaks"] = {
+            "habits": habits.report(habit_end - timedelta(days=6), habit_end),
+            **await streaks.snapshot(),
+            "reminderBuckets": await reminder_ledger.week_streak_buckets(),
+        }
+        marks = await reminder_ledger.chat_marks([chat["sessionId"] for chat in payload["chats"]])
+        for chat in payload["chats"]:
+            mark = marks.get(chat["sessionId"], {})
+            chat["lastReminderAt"] = mark.get("lastReminderAt")
+            chat["reminderIgnored"] = mark.get("ignored", 0)
+        return payload
+
+    @app.get("/internal/metrics/prometheus")
+    async def metrics_prometheus() -> Response:
+        payload = await clip_pipeline.metrics.snapshot()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        body = ""
+        if v2 is not None:
+            v2_snapshot = await v2.snapshot()
+            v2_snapshot["day"] = payload.get("day", "")
+            body = v2.prometheus(v2_snapshot)
+        try:
+            memory_pending, memory_oldest = await memory_jobs.store.pending()
+        except Exception:
+            memory_pending, memory_oldest = -1, -1.0
+        return Response(
+            content=body + habits.prometheus() + STAGE_METRICS.prometheus() + PROVIDER_CALL_METRICS.prometheus()
+            + REVIEW_VERIFICATION_METRICS.prometheus() + VOCABULARY_ENRICHMENT_METRICS.prometheus() + VOICE_MODEL_METRICS.prometheus()
+            + LLM_GENERATION_METRICS.prometheus()
+            + memory_jobs.metrics.prometheus(memory_pending, memory_oldest),
+            media_type="text/plain; version=0.0.4",
+        )
+
+    @app.get("/internal/voice-cost/events")
+    async def voice_cost_events(limit: int = Query(100, ge=1, le=100)) -> dict[str, Any]:
+        return {"events": await voice_cost.batch(limit) if voice_cost is not None else []}
+
+    @app.post("/internal/voice-cost/ack")
+    async def voice_cost_ack(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        receipts = payload.get("receipts")
+        if not isinstance(receipts, list) or len(receipts) > 100:
+            raise HTTPException(status_code=400, detail="invalid receipts")
+        if voice_cost is not None:
+            await voice_cost.acknowledge(receipts)
+        return {"ok": True}
+
+    @app.post("/internal/metrics/action")
+    async def metrics_action(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        action = str(payload.get("action") or "").strip()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if not session_id or not action or v2 is None:
+            raise HTTPException(status_code=400, detail="sessionId and action required")
+        platform = payload.get("platform")
+        if isinstance(platform, str) and platform.strip():
+            await v2.remember_platform(session_id, platform)
+        event_id = payload.get("eventId")
+        if isinstance(event_id, str):
+            await v2.record_telegram_message(session_id, action, event_id)
+        await v2.record_action(session_id, action, platform=platform if isinstance(platform, str) else None)
+        return {"ok": True}
+
+    @app.get("/internal/metrics/llm")
+    async def llm_metrics_range(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 366:
+            raise HTTPException(status_code=400, detail="LLM period must be 1-366 days ending no later than today")
+        return await clip_pipeline.metrics.llm_range(from_day, to_day)
+
+    @app.get("/internal/metrics/overview")
+    async def metrics_overview(
+        from_day: date = Query(alias="from"), to_day: date = Query(alias="to"),
+    ) -> dict:
+        today = datetime.now(ZoneInfo("Europe/Moscow")).date()
+        if to_day < from_day or to_day > today or (to_day - from_day).days >= 30:
+            raise HTTPException(status_code=400, detail="Overview period must be 1-30 days ending no later than today")
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is None:
+            raise HTTPException(status_code=503, detail="Metrics unavailable")
+        await habits.refresh()
+        return {**await v2.overview(from_day.isoformat(), to_day.isoformat()),
+                "habits": habits.report(from_day, to_day, today)}
+
+    @app.post("/internal/funnel/start")
+    async def funnel_start(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        source = payload.get("source")
+        await clip_pipeline.metrics.record_start(session_id, None if source is None else str(source))
+        await _record_profile(clip_pipeline.metrics, session_id, payload)
+        return {"ok": True}
+
+    @app.post("/internal/funnel/voice")
+    async def funnel_voice(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        await clip_pipeline.metrics.record_voice(session_id)
+        await reminder_ledger.record_reply(session_id)
+        await _record_profile(clip_pipeline.metrics, session_id, payload)
+        return {"ok": True}
+
+    @app.post("/internal/reminders/report")
+    async def reminders_report(request: Request) -> dict[str, bool]:
+        await reminder_ledger.record_report(parse_report(await _json_object(request)))
+        return {"ok": True}
+
+    @app.get("/internal/profile/{session_id}")
+    async def progress_profile(session_id: str) -> dict:
+        return {"assessment": public_assessment(await learner_store.get_assessment(session_id)),
+                "dailyMinutes": await learner_store.get_goal(session_id),
+                "currentStreak": await clip_pipeline.streaks.shown(session_id)}
+
+    async def character_status(session_id: str, blocked: str | None = None) -> dict:
+        allowed = clip_pipeline.characters.allowed(session_id)
+        selected = await clip_pipeline.characters.store.get(session_id)
+        return {"character": selected,
+                "koraAvailable": False,  # Older Telegram servers still require this field.
+                "koraHAvailable": allowed,
+                "blocked": blocked or ("unavailable" if selected == "kora_h" and not allowed else None)}
+
+    @app.get("/internal/character/{session_id}")
+    async def character(session_id: str) -> dict:
+        return await character_status(session_id)
+
+    @app.post("/internal/character")
+    async def set_character(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        selected = payload.get("character")
+        if selected not in ("speaky", "kora_h") or not session_id.startswith("tg-"):
+            raise HTTPException(status_code=400, detail="invalid Telegram character selection")
+        async with call_starter.lock(session_id):
+            if selected == "kora_h" and not clip_pipeline.characters.allowed(session_id):
+                return await character_status(session_id, "unavailable")
+            if await clip_pipeline.characters.store.get(session_id) == selected:
+                return await character_status(session_id)
+            active = await calls.open_call_today(session_id)
+            if (jobs.pending(session_id) or
+                    (active and (active["turns"] or active.get("openingDelivered")))):
+                return await character_status(session_id, "active_conversation")
+            # A failed opening must not trap the user in an unavailable character.
+            if active:
+                await calls.seal(session_id, reason="character_changed_before_opening")
+            await clip_pipeline.characters.store.set(session_id, selected)
+            return await character_status(session_id)
+
+    @app.get("/internal/speech-speed/{session_id}")
+    async def speech_speed(session_id: str) -> dict[str, float]:
+        return {"speed": await clip_pipeline.speech.speed(session_id)}
+
+    @app.post("/internal/speech-speed")
+    async def set_speech_speed(request: Request) -> dict[str, float]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        speed = payload.get("speed")
+        try:
+            if not isinstance(speed, (int, float)):
+                raise ValueError("unsupported speech speed")
+            validate_speech_speed(speed)
+        except ValueError:
+            options = ', '.join(map(str, SPEED_CHOICES[:-1]))
+            raise HTTPException(status_code=400, detail=f"speed must be {options}, or {SPEED_CHOICES[-1]}") from None
+        await clip_pipeline.speech.speeds.set(session_id, float(speed))
+        return {"speed": float(speed)}
+
+    @app.get("/internal/streak/{session_id}")
+    async def streak_profile(session_id: str) -> dict[str, Any]:
+        return await streaks.profile(session_id)
+
+    @app.get("/internal/reminders/summary")
+    async def reminders_summary() -> dict:
+        return await clip_pipeline.metrics.reminder_summary()
+
+    @app.get("/internal/reminders/{session_id}")
+    async def reminder_time(session_id: str) -> dict[str, str | None]:
+        return {"time": await clip_pipeline.metrics.reminder_time(session_id)}
+
+    @app.post("/internal/reminders/personal-copy")
+    async def reminder_personal_copy(request: Request) -> dict[str, str | None]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        pair = await personal_reminder(session_id, personalization, sessions, learner_model)
+        return pair or {"text": None, "openingQuestion": None}
+
+    @app.post("/internal/reminders/schedule")
+    async def reminders_schedule(request: Request) -> dict[str, str]:
+        payload = await _json_object(request)
+        session_id = str(payload.get("sessionId") or "").strip()
+        if not session_id:
+            raise HTTPException(status_code=400, detail="sessionId required")
+        text = payload.get("text")
+        try:
+            return await clip_pipeline.metrics.schedule_reminder(
+                session_id,
+                str(payload.get("action") or ""),
+                text=None if text is None else str(text),
+                run_id=str(payload.get("runId") or ""),
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+    @app.post("/internal/reminders/claim")
+    async def reminders_claim(request: Request) -> dict[str, list[dict[str, str | int | None]]]:
+        mode = "auto"
+        if await request.body():
+            payload = await _json_object(request)
+            mode = str(payload.get("mode") or "auto")
+        if mode not in {"auto", "manual"}:
+            raise HTTPException(status_code=400, detail="invalid reminder mode")
+        targets = await clip_pipeline.metrics.claim_reminders(mode=mode)
+        claimed = []
+        for target in targets:
+            claimed.append(
+                {
+                    "sessionId": target.session_id,
+                    "name": target.name or None,
+                    "streak": await streaks.shown(target.session_id),
+                    "hour": target.hour,
+                },
+            )
+        return {"targets": claimed}
+
+    @app.get("/internal/campaign/legacy-onboarding")
+    async def legacy_campaign_status() -> dict:
+        if campaign_redis is None:
+            raise HTTPException(status_code=503, detail="campaign requires Redis")
+        return await campaign_status(campaign_redis)
+
+    @app.post("/internal/tutor/start")
+    async def tutor_start(payload: TutorRequest) -> dict:
+        try:
+            return await tutor.respond(payload, start=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/internal/tutor/turn")
+    async def tutor_turn(payload: TutorRequest) -> dict:
+        if not payload.text.strip():
+            raise HTTPException(status_code=400, detail="text required")
+        try:
+            return await tutor.respond(payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    @app.post("/internal/tutor/delivery")
+    async def tutor_delivery(request: Request) -> dict:
+        payload = await _json_object(request)
+        from app.tutor import TutorDelivery
+        from pydantic import ValidationError
+        try:
+            delivery = TutorDelivery.model_validate(payload)
+            await tutor.store.record_delivery(delivery.sessionId, delivery.requestId, delivery.replyMessageId,
+                                              delivery.bookingId, delivery.cardMessageId, delivery.version)
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="invalid delivery") from None
+        return {"ok": True}
+
+    @app.get("/internal/tutor/analytics")
+    async def tutor_analytics(since: float, until: float) -> dict:
+        if not (0 <= since < until <= time.time() + 86400):
+            raise HTTPException(status_code=400, detail="invalid cohort interval")
+        return await tutor.store.analytics(since, until)
+
+    @app.get("/internal/learners/{session_id}/context")
+    async def learner_context(session_id: str) -> dict:
+        return await tutor.store.context(session_id)
+
+    @app.post("/internal/calls/open")
+    async def calls_open(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        route = await ConversationRouting(clip_pipeline.characters).resolve(session_id, ConversationMode.FREE)
+        summary = await calls.open(session_id)
+        if not summary["alreadyActive"]:
+            await calls.set_character(summary["callId"], route.personality.value)
+            summary["character"] = route.personality.value
+        return summary
+
+    @app.post("/internal/calls/status")
+    async def calls_status(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        summary = await calls.summary(session_id)
+        current = await calls.get(summary["callId"]) if summary else None
+        if current is not None and current.get("day") != moscow_day():
+            summary = None
+        return {"active": await calls.is_open_today(session_id),
+                "callId": summary.get("callId") if summary else None,
+                "character": summary.get("character") if summary else None,
+                "startedUnix": summary.get("startedUnix") if summary else None,
+                "goalSeconds": summary.get("goalSeconds") if summary else None}
+
+    @app.post("/internal/calls/start")
+    async def calls_start(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        kind = payload.get("scenarioKind")
+        description = payload.get("scenarioDescription")
+        reminder_question = payload.get("reminderOpeningQuestion")
+        if kind is None and description is None:
+            scenario = None
+        elif kind in {"job", "manager"} and description is None:
+            scenario = {"kind": kind, "description": ""}
+        elif kind == "custom" and isinstance(description, str) and 1 <= len(description.strip()) <= 500:
+            scenario = {"kind": kind, "description": description.strip()}
+        else:
+            raise HTTPException(status_code=400, detail="invalid scenario")
+        if reminder_question is not None and (scenario is not None or not isinstance(reminder_question, str)
+                                              or not 1 <= len(reminder_question.strip()) <= 220
+                                              or reminder_question.count("?") != 1 or "\n" in reminder_question):
+            raise HTTPException(status_code=400, detail="invalid reminder opening")
+        return await call_starter.start(_call_session_id(payload), payload.get("firstName"), scenario,
+                                        reminder_question.strip() if reminder_question else None)
+
+    @app.post("/internal/calls/starter-delivered")
+    async def calls_starter_delivered(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        call_id = str(payload.get("callId") or "").strip()
+        if not call_id:
+            raise HTTPException(status_code=400, detail="callId required")
+        try:
+            await call_starter.delivered(call_id)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown call") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"ok": True}
+
+    @app.post("/internal/calls/end")
+    async def calls_end(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        reason = str(payload.get("reason") or "end_button")
+        if reason not in {"end_button", "onboarding_reset"}:
+            raise HTTPException(status_code=400, detail="invalid call close reason")
+        call_id = await calls.seal(_call_session_id(payload), reason)
+        call = await calls.get(call_id) if call_id else None
+        return {"callId": call_id, "lastVoiceMessageId": call.get("lastTelegramVoiceId") if call else None,
+                "endedUnix": call.get("endedUnix") if call else None, "reason": reason}
+
+    @app.post("/internal/calls/telegram-voice")
+    async def calls_telegram_voice(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        call_id = str(payload.get("callId") or "").strip()
+        message_id = payload.get("messageId")
+        if not call_id or type(message_id) is not int or message_id <= 0:
+            raise HTTPException(status_code=400, detail="valid callId and messageId required")
+        try:
+            first_reply = await calls.note_telegram_voice(session_id, call_id, message_id)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return {"firstReplyToStarter": first_reply}
+
+    @app.post("/internal/calls/review")
+    async def calls_review(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        call_id = str(payload.get("callId") or "").strip()
+        if not call_id:
+            raise HTTPException(status_code=400, detail="callId required")
+        try:
+            review = await reviews.review(call_id)
+            if not review.get("retry"):
+                call = await calls.get(call_id)
+                if call is not None:
+                    try:
+                        await vocabulary.import_review(str(call["sessionId"]), call_id, review)
+                    except Exception:
+                        logger.exception("vocabulary import failed for call=%s", call_id)
+                        return {"callId": call_id, "retry": True}
+            return review
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="unknown call") from error
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail="numeric baseline required") from error
+
+    @app.post("/internal/vocabulary")
+    async def vocabulary_action(request: Request) -> dict[str, Any]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = payload.get("action")
+        try:
+            if action == "list":
+                return await vocabulary.list(session_id)
+            if action == "propose":
+                return {"card": await vocabulary.propose(session_id, str(payload.get("text") or ""))}
+            if action == "confirm":
+                return {"card": await vocabulary.confirm(session_id)}
+            if action == "cancel":
+                await vocabulary.cancel_draft(session_id)
+                return {"ok": True}
+            if action == "subtitle-save":
+                await vocabulary.save_subtitle(session_id, int(payload.get("messageId") or 0),
+                                               str(payload.get("text") or ""))
+                return {"ok": True}
+            if action == "subtitle":
+                return {"text": await vocabulary.subtitle(session_id, int(payload.get("messageId") or 0)) or ""}
+            if action == "review":
+                lesson_id = str(payload.get("lessonId") or "")
+                if not lesson_id:
+                    raise ValueError("lessonId required")
+                review = await vocabulary.review(session_id, lesson_id)
+                if review is None:
+                    raise ValueError("lesson review unavailable")
+                return review
+            if action == "delivery":
+                return await vocabulary.delivery(session_id, str(payload.get("lessonId") or ""),
+                                                 str(payload.get("turnId") or ""),
+                                                 int(payload.get("messageId") or 0))
+            if action == "select":
+                if type(payload.get("selected")) is not bool:
+                    raise HTTPException(status_code=400, detail="selected must be boolean")
+                return await vocabulary.select(session_id, str(payload.get("itemId") or ""), payload["selected"])
+            if action == "delete":
+                return await vocabulary.delete(session_id, str(payload.get("itemId") or ""))
+            if action == "start":
+                return await vocabulary.start(session_id)
+            if action == "resume":
+                return await vocabulary.resume(session_id, str(payload.get("lessonId") or ""))
+            if action == "play":
+                return await vocabulary.play(session_id, str(payload.get("lessonId") or ""))
+            if action == "skip":
+                return await vocabulary.skip(session_id, str(payload.get("lessonId") or ""))
+            if action == "hint":
+                return await vocabulary.hint(session_id, str(payload.get("lessonId") or ""))
+            if action == "answer":
+                message_id = int(payload.get("messageId") or 0)
+                answer = str(payload.get("text") or "")
+                if message_id <= 0 or not answer.strip() or len(answer) > 4000:
+                    raise HTTPException(status_code=400, detail="invalid vocabulary answer")
+                lesson_id = str(payload.get("lessonId") or "")
+                await vocabulary.save_retry_input(session_id, lesson_id, message_id, text=answer)
+                result = await vocabulary.text(session_id, lesson_id, message_id, answer)
+                await vocabulary.clear_retry_input(session_id, lesson_id, message_id)
+                return result
+            if action == "retry":
+                return await vocabulary.retry(session_id, str(payload.get("lessonId") or ""),
+                                              int(payload.get("messageId") or 0))
+            if action == "end":
+                return await vocabulary.end(session_id, str(payload.get("lessonId") or ""))
+        except ValueError as error:
+            logger.warning("vocabulary action conflict action=%s lesson_id=%s message_id=%s reason=%s",
+                           action, payload.get("lessonId"), payload.get("messageId"), error)
+            await vocabulary.record_analytics_error(session_id, str(payload.get("lessonId") or ""),
+                                                    int(payload["messageId"]) if str(payload.get("messageId") or "").isdigit() else 0,
+                                                    str(action), error)
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            await vocabulary.record_analytics_error(session_id, str(payload.get("lessonId") or ""),
+                                                    int(payload["messageId"]) if str(payload.get("messageId") or "").isdigit() else 0,
+                                                    str(action), error)
+            raise
+        raise HTTPException(status_code=400, detail="invalid vocabulary action")
+
+    @app.post("/internal/vocabulary/voice")
+    async def vocabulary_voice(sessionId: str = Form(...), lessonId: str = Form(...),
+                               messageId: int = Form(...), file: UploadFile = File(...)) -> dict[str, Any]:
+        if not sessionId.startswith("tg-") or messageId <= 0:
+            raise HTTPException(status_code=400, detail="invalid vocabulary voice")
+        audio = await file.read()
+        if not audio or len(audio) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="invalid audio size")
+        try:
+            await vocabulary.save_retry_input(sessionId, lessonId, messageId, audio=audio)
+            result = await vocabulary.voice(sessionId, lessonId, messageId, audio)
+            await vocabulary.clear_retry_input(sessionId, lessonId, messageId)
+            return result
+        except ValueError as error:
+            logger.warning(
+                "vocabulary voice rejected lesson_id=%s message_id=%s error_type=%s reason=%s",
+                lessonId, messageId, type(error).__name__, str(error),
+            )
+            await vocabulary.record_analytics_error(sessionId, lessonId, messageId, "voice", error)
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except Exception as error:
+            await vocabulary.record_analytics_error(sessionId, lessonId, messageId, "voice", error)
+            raise
+
+    @app.post("/internal/vocabulary/due")
+    async def vocabulary_due() -> dict[str, Any]:
+        return {"targets": await vocabulary.due()}
+
+    @app.get("/internal/vocabulary/analytics")
+    async def vocabulary_analytics(cursor: str = "0-0") -> dict[str, Any]:
+        if not re.fullmatch(r"\d+-\d+", cursor):
+            raise HTTPException(status_code=400, detail="invalid analytics cursor")
+        return await vocabulary.analytics_after(cursor, 100)
+
+    @app.post("/internal/vocabulary/analytics/ack")
+    async def vocabulary_analytics_ack(request: Request) -> dict[str, bool]:
+        payload = await _json_object(request)
+        cursor = str(payload.get("cursor") or "")
+        if not re.fullmatch(r"\d+-\d+", cursor):
+            raise HTTPException(status_code=400, detail="invalid analytics cursor")
+        await vocabulary.analytics_ack(cursor)
+        return {"ok": True}
+
+    @app.post("/internal/calls/feedback")
+    async def calls_feedback(request: Request) -> dict[str, str]:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        action = str(payload.get("action") or "")
+        call_id = str(payload.get("callId") or "")
+        if action == "offer":
+            call = await calls.get(call_id)
+            onboarding_state = await learner_store.get(session_id)
+            if call is not None:
+                ineligible = offer_eligibility(call, onboarding_state, session_id)
+                mode = "situation" if call.get("scenario") else "free"
+                character = call.get("character", "speaky")
+            elif (onboarding_state and onboarding_state.get("runId") == call_id
+                  and onboarding_state.get("status") == "completed" and onboarding_state.get("review")):
+                ineligible = None
+                mode = "onboarding"
+                character = onboarding_state.get("character", "speaky")
+            else:
+                ineligible = "unknown_completed_instance"
+            if ineligible is not None:
+                return {"status": "ignored", "reason": ineligible}
+            await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids)
+            return await mode_feedback.offer(session_id, call_id, mode,
+                                             str(payload.get("username") or ""), character)
+        if action == "rate":
+            try:
+                result = await mode_feedback.rate(session_id, call_id, str(payload.get("choice") or ""))
+                if result.pop("_legacy", False) and result["status"] == "rated":
+                    await mode_feedback.migrate_legacy(session_id, calls.get, calls.recent_ids, force=True)
+                return result
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error)) from error
+        if action == "confirm":
+            return await mode_feedback.confirm(session_id, call_id)
+        if action == "release":
+            return await mode_feedback.release(session_id, call_id)
+        if action == "answer":
+            value = payload.get("text")
+            if not isinstance(value, str):
+                raise HTTPException(status_code=400, detail="text required")
+            return await mode_feedback.answer(session_id, text=value)
+        if action == "skip":
+            return await mode_feedback.answer(session_id, instance_id=call_id)
+        raise HTTPException(status_code=400, detail="invalid feedback action")
+
+    @app.get("/internal/calls/feedback")
+    async def calls_feedback_list(offset: int = Query(0, ge=0, le=10_000),
+                                  limit: int = Query(25, ge=1, le=50)) -> dict[str, Any]:
+        return await mode_feedback.list_rated(offset, limit)
+
+    @app.post("/internal/practice/goal")
+    async def practice_goal(request: Request) -> dict:
+        payload = await _json_object(request)
+        session_id = _call_session_id(payload)
+        minutes = payload.get("minutes")
+        if type(minutes) is not int or minutes not in {0, 5, 10, 15}:
+            raise HTTPException(status_code=400, detail="invalid practice goal")
+        await learner_store.set_goal(session_id, minutes)
+        return {"minutes": minutes}
+
+    @app.post("/v1/sessions", status_code=201)
+    async def create_session(request: Request) -> dict:
+        session_id = await sessions.create(await _requested_session_id(request))
+        return {"sessionId": session_id, "greeting": {"text": GREETING_TEXT}}
+
+    @app.get("/v1/sessions/{session_id}/greeting/audio")
+    async def greeting_audio_route(session_id: str) -> Response:
+        if not await sessions.exists(session_id):
+            raise HTTPException(status_code=404, detail="unknown session")
+        speed = await clip_pipeline.speech.speed(session_id)
+        async with greeting_lock:
+            if speed not in greeting_audio:
+                greeting_audio[speed] = await clip_pipeline.speech.synthesize(
+                    session_id, GREETING_VOICE_TEXT, speed=speed,
+                )
+            audio = greeting_audio[speed]
+            return Response(content=audio.data, media_type=audio.content_type)
+
+    @app.post("/v1/clips", status_code=202)
+    async def create_clip(
+        sessionId: str = Form(),
+        audio: UploadFile = File(),
+        requestId: str | None = Form(default=None),
+        attemptId: str | None = Form(default=None),
+        receivedAtEpoch: float | None = Form(default=None),
+        durationSeconds: float = Form(default=0),
+        x_speaky_load_test: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        if not await sessions.exists(sessionId):
+            raise HTTPException(status_code=404, detail="unknown session")
+        payload = await audio.read()
+        if not payload:
+            raise HTTPException(status_code=400, detail="empty audio")
+        if attemptId is not None:
+            from uuid import UUID
+            try:
+                attemptId = str(UUID(attemptId))
+            except ValueError:
+                raise HTTPException(status_code=400, detail="invalid attemptId") from None
+        if receivedAtEpoch is not None and not (0 < receivedAtEpoch <= time.time() + 60):
+            raise HTTPException(status_code=400, detail="invalid receivedAtEpoch")
+        job = jobs.create(sessionId, attemptId)
+        content_type = audio.content_type or "audio/ogg"
+        filename = audio.filename or "voice.ogg"
+        task = asyncio.create_task(
+            _run_job(job, payload, content_type, filename, clip_pipeline, settings.pipeline_timeout_seconds,
+                     requestId, durationSeconds, audit_artifacts, receivedAtEpoch,
+                     load_test_requested(x_speaky_load_test), voice_cost, memory_jobs),
+        )
+        tasks.add(task)
+        task.add_done_callback(tasks.discard)
+        return {"jobId": job.job_id}
+
+    @app.get("/v1/clips/{job_id}")
+    async def get_clip(job_id: str) -> JSONResponse:
+        job = jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="unknown job")
+        return JSONResponse(job.to_status())
+
+    @app.get("/internal/audit/attempt/{attempt_id}")
+    async def audit_attempt(attempt_id: str) -> dict[str, str]:
+        from uuid import UUID
+        try:
+            normalized = str(UUID(attempt_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid attempt ID") from None
+        return await audit_artifacts.get(normalized)
+
+    @app.get("/v1/clips/{job_id}/audio")
+    async def get_audio(job_id: str) -> Response:
+        job = jobs.get(job_id)
+        if job is None or job.status != "ok" or job.reply_audio is None:
+            return Response(status_code=404)
+        return Response(content=job.reply_audio, media_type=job.reply_content_type)
+
+    @app.post("/internal/realtime/call")
+    async def realtime_call(request: Request) -> dict:
+        if realtime_gateway is None:
+            raise HTTPException(status_code=503, detail="realtime unavailable")
+        payload: Any = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="invalid body")
+        sdp = str(payload.get("sdp") or "")
+        topic = str(payload.get("topic") or "").strip()
+        voice = str(payload.get("tutorVoice") or "").strip()
+        if not sdp.strip() or topic not in TOPICS or voice not in VOICES:
+            raise HTTPException(status_code=400, detail="invalid realtime request")
+        answer, call_id = await realtime_gateway.start_call(sdp, topic, voice)
+        session_id = str(payload.get("sessionId") or "").strip()
+        platform = str(payload.get("platform") or "").strip()
+        v2 = getattr(clip_pipeline, "_v2", None)
+        if v2 is not None and session_id and platform:
+            await v2.remember_platform(session_id, platform)
+        if call_id and session_id and settings.openai_realtime_api_key:
+            base = getattr(realtime_gateway, "_base_url", "https://api.openai.com/v1")
+            asyncio.create_task(_watch_realtime(base, settings.openai_realtime_api_key, call_id, session_id, v2))
+        return {"sdp": answer, "openaiCallId": call_id}
+
+    @app.post("/internal/review")
+    async def review_call(request: Request) -> dict:
+        if session_reviewer is None:
+            raise HTTPException(status_code=503, detail="review unavailable")
+        payload: Any = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="invalid body")
+        turns_raw = payload.get("turns") or []
+        if not isinstance(turns_raw, list):
+            raise HTTPException(status_code=400, detail="invalid turns")
+        turns = [
+            {"role": str(item.get("role") or ""), "text": str(item.get("text") or "")}
+            for item in turns_raw
+            if isinstance(item, dict)
+        ]
+        bound = bind_metrics(str(payload.get("sessionId") or ""), str(payload.get("platform") or ""))
+        try:
+            return await session_reviewer.review(turns)
+        finally:
+            reset_metrics(bound)
+
+    return app
+
+
+def _build_pipeline(settings: Settings, dialogue: DialogueStore | None = None) -> ClipPipeline:
+    if not settings.groq_api_key:
+        raise RuntimeError("GROQ_API_KEY is required")
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is required")
+    if settings.tts_provider not in {"openrouter", "deepgram"}:
+        raise RuntimeError("TTS_PROVIDER must be openrouter or deepgram")
+    if settings.tts_provider == "deepgram" and not settings.deepgram_api_key:
+        raise RuntimeError("DEEPGRAM_API_KEY is required when TTS_PROVIDER=deepgram")
+    if settings.tts_output_format not in {"ogg", "mp3"}:
+        raise RuntimeError("TTS_OUTPUT_FORMAT must be ogg or mp3")
+    if settings.tts_provider == "deepgram" and (
+        not 0.7 <= settings.tts_speed <= 1.5
+        or abs(settings.tts_speed * 20 - round(settings.tts_speed * 20)) > 1e-9
+    ):
+        raise RuntimeError("TTS_SPEED must be between 0.7 and 1.5 in 0.05 increments for Deepgram")
+    groq = AsyncOpenAI(api_key=settings.groq_api_key, base_url=settings.groq_base_url, max_retries=0)
+    openai_headers = {}
+    if "openrouter.ai" in settings.openai_base_url:
+        openai_headers = {
+            "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
+            "X-Title": "Speaky",
+        }
+    openai_client = AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        default_headers=openai_headers or None,
+        max_retries=0,
+    )
+    tts: TextToSpeech
+    if settings.tts_provider == "deepgram":
+        tts = DeepgramTextToSpeech(
+            settings.deepgram_api_key,
+            output_format=settings.tts_output_format,
+            speed=settings.tts_speed,
+            ffmpeg_bin=settings.ffmpeg_bin,
+        )
+    else:
+        tts = OpenAiTextToSpeech(
+            openai_client,
+            settings.tts_model,
+            settings.tts_voice,
+            settings.tts_response_format,
+            settings.ffmpeg_bin,
+        )
+    metrics = build_metrics_store(settings)
+    v2 = build_metrics_v2(settings)
+    if hasattr(tts, "_v2"):
+        tts._v2 = v2
+    model = OpenAiChatModel(openai_client, settings.llm_model, metrics=metrics, notes_model=settings.notes_model)
+    model._v2 = v2
+    characters = Characters(CharacterStore(
+        Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None,
+        telegram_default="kora_h",
+    ), enabled=settings.kora_h_enabled, allowlist=settings.kora_h_allowlist)
+    if "openrouter.ai" in settings.openai_base_url:
+        characters.speech_h = GeminiKoraSpeech(
+            openai_client, settings.ffmpeg_bin, settings.kora_tts_model, settings.kora_tts_voice,
+        )
+        characters.model_h = KoraHModel(openai_client, settings.kora_model, metrics=metrics)
+        characters.model_h._v2 = v2
+    speech = SessionSpeech(
+        tts,
+        SpeechSpeedStore(Redis.from_url(settings.redis_url, decode_responses=True) if settings.redis_url else None),
+        default_speed=settings.tts_speed,
+    )
+    return ClipPipeline(
+        stt=GroqSpeechToText(
+            groq, settings.stt_model, settings.ffmpeg_bin,
+            requires_wav=settings.stt_model.startswith("assemblyai/"),
+        ),
+        llm=model,
+        tts=tts,
+        speech=speech,
+        dialogue=dialogue or build_dialogue_store(settings),
+        metrics=metrics,
+        v2=v2,
+        speech_meter=SpeechTimeMeter(settings.ffmpeg_bin) if settings.speech_time_enabled else None,
+        characters=characters,
+    )
+
+
+def _build_realtime(settings: Settings) -> RealtimeGateway | None:
+    if not settings.openai_realtime_api_key:
+        return None
+    return OpenAiRealtimeGateway(settings.openai_realtime_api_key)
+
+
+def _build_reviewer(settings: Settings, metrics: MetricsStore) -> SessionReviewer | None:
+    if not settings.openai_api_key:
+        return None
+    openai_headers = {}
+    if "openrouter.ai" in settings.openai_base_url:
+        openai_headers = {
+            "HTTP-Referer": "https://github.com/greenblat17/sber500xdisrupt-speaking-coach-application",
+            "X-Title": "Speaky",
+        }
+    client = AsyncOpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+        default_headers=openai_headers or None,
+        max_retries=0,
+    )
+    return OpenAiSessionReviewer(client, settings.llm_model, metrics=metrics)
+
+
+async def _json_object(request: Request) -> dict[str, Any]:
+    try:
+        payload: Any = await request.json()
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="invalid body") from error
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="invalid body")
+    return payload
+
+
+async def _record_profile(metrics: MetricsStore, session_id: str, payload: dict[str, Any]) -> None:
+    if "username" not in payload and "name" not in payload:
+        return
+    username = payload.get("username")
+    name = payload.get("name")
+    await metrics.record_profile(
+        session_id,
+        None if username is None else str(username),
+        None if name is None else str(name),
+    )
+
+
+async def _requested_session_id(request: Request) -> str | None:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" not in content_type:
+        return None
+    try:
+        payload: Any = await request.json()
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = payload.get("sessionId")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+async def _run_job(
+    job: ClipJob,
+    audio: bytes,
+    content_type: str,
+    filename: str,
+    pipeline: ClipPipeline,
+    timeout_seconds: float,
+    request_id: str | None = None,
+    duration: float = 0.0,
+    audit_artifacts: AuditArtifacts | None = None,
+    received_at_epoch: float | None = None,
+    load_test: bool = False,
+    voice_cost: VoiceCostLedger | None = None,
+    memory_jobs: MemoryJobRunner | None = None,
+) -> None:
+    started = time.perf_counter()
+    load_test_token = bind_load_test(load_test)
+    voice_usage = VoiceModelUsage() if job.session_id.startswith("tg-") and not load_test else None
+    voice_usage_token = bind_voice_usage(voice_usage)
+    voice_cost_token = bind_voice_cost(voice_cost, job.attempt_id if voice_usage is not None else None)
+    provider_metrics_token = bind_provider_metrics(pipeline.metrics)
+    job_timings: dict[str, int] = {}
+    timings_token = bind_job_timings(job_timings)
+    async def audit_stage(field: str, value: str) -> None:
+        if field == "transcript":
+            job.transcript = value
+        elif field == "reply":
+            job.reply_text = value
+        if load_test_active() or not job.attempt_id or audit_artifacts is None:
+            return
+        await audit_artifacts.record(job.attempt_id, received_at_epoch or time.time(), field, value)
+    audit_token = bind_writer(None if load_test else audit_stage if job.attempt_id else None)
+    receipt_token = bind_receipt_time(received_at_epoch)
+    stage = "stt"
+
+    def set_stage(value: str) -> None:
+        nonlocal stage
+        stage = value
+
+    try:
+        result = await asyncio.wait_for(
+            pipeline.run(job.session_id, audio, content_type, filename,
+                                                                    on_stage=set_stage,
+                                                                    attempt_id=job.attempt_id,
+                                                                    turn_id=job.attempt_id or job.job_id),
+            timeout=timeout_seconds,
+        )
+        if result.transcript and job.transcript is None:
+            await audit_stage("transcript", result.transcript)
+        if result.reply_text:
+            await audit_stage("reply", result.reply_text)
+        if voice_usage is not None:
+            job.voice_call_counts = voice_usage.attempts.copy()
+        if result.memory_eligible and not load_test and memory_jobs is not None:
+            try:
+                await asyncio.wait_for(pipeline.personalization.record_contact(job.session_id), 0.25)
+            except Exception:
+                memory_jobs.metrics.record("contact_failed", "save_failed")
+                logger.warning("personal contact timestamp failed job_id=%s", job.job_id)
+            await memory_jobs.enqueue(job.attempt_id or job.job_id, job.session_id, result.transcript)
+        _complete_job(job, result)
+        await _record_clip_result(pipeline.metrics, None, job_id=job.job_id, attempt_id=job.attempt_id)
+        logger.info(
+            "clip job complete job_id=%s attempt_id=%s session=%s job_ms=%d timings_ms=%s",
+            job.job_id, job.attempt_id, job.session_id, int((time.perf_counter() - started) * 1000), result.timings_ms,
+        )
+    except Exception as error:
+        logger.exception("clip job failed job_id=%s attempt_id=%s session=%s", job.job_id, job.attempt_id, job.session_id)
+        job.status = "error"
+        job.timings_ms = job_timings.copy()
+        code = _error_code(error)
+        reason = _error_reason(error)
+        job.error = {"code": code, "message": _public_error(error)}
+        failed_stage = getattr(error, "_speaky_stage", stage)
+        job.error.update(stage=failed_stage, reason=reason)
+        await _record_clip_result(pipeline.metrics, code, failed_stage, error, job.session_id,
+                                  job_id=job.job_id, attempt_id=job.attempt_id, reason=reason)
+    finally:
+        if voice_usage is not None:
+            VOICE_MODEL_METRICS.record(voice_usage)
+            v2 = getattr(pipeline, "_v2", None)
+            if v2 is not None:
+                try:
+                    await v2.record_voice_llm_usage(
+                        job.session_id, voice_usage.attempts["llm"], voice_usage.priced["llm"],
+                        voice_usage.cost_micro["llm"], now=received_at_epoch,
+                    )
+                except Exception:
+                    logger.exception("failed to record voice LLM cost")
+        reset_voice_usage(voice_usage_token)
+        reset_voice_cost(voice_cost_token)
+        reset_writer(audit_token)
+        reset_receipt_time(receipt_token)
+        reset_job_timings(timings_token)
+        reset_provider_metrics(provider_metrics_token)
+        reset_load_test(load_test_token)
+
+
+async def _record_clip_result(
+    metrics: MetricsStore,
+    code: str | None,
+    stage: str | None = None,
+    error: Exception | None = None,
+    session_id: str | None = None,
+    job_id: str | None = None,
+    attempt_id: str | None = None,
+    reason: str | None = None,
+) -> None:
+    try:
+        message = None if error is None else f"{type(error).__name__}: {error}"
+        await metrics.record_clip_result(code, session_id=session_id, stage=stage, message=message,
+                                         job_id=job_id, attempt_id=attempt_id, reason=reason)
+    except Exception:
+        logger.exception("clip result metric failed")
+
+
+async def _watch_realtime(base_url: str, api_key: str, call_id: str, session_id: str, v2) -> None:
+    if v2 is None:
+        return
+    try:
+        import websockets
+    except ImportError:
+        logger.warning("websockets is not installed; realtime token usage is not recorded")
+        return
+    url = base_url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/")
+    url = f"{url}/realtime?call_id={call_id}"
+    try:
+        async with websockets.connect(url, additional_headers={"Authorization": f"Bearer {api_key}"}) as socket:
+            async for raw in socket:
+                event = json.loads(raw)
+                kind = event.get("type")
+                if kind == "response.done":
+                    usage = (event.get("response") or {}).get("usage") or {}
+                    details_in = usage.get("input_token_details") or {}
+                    details_out = usage.get("output_token_details") or {}
+                    cached = details_in.get("cached_tokens_details") or {}
+                    model = (event.get("response") or {}).get("model") or "gpt-realtime"
+                    await v2.record_realtime(session_id, str(model), {
+                        "in_text": details_in.get("text_tokens") or 0,
+                        "in_audio": details_in.get("audio_tokens") or 0,
+                        "out_text": details_out.get("text_tokens") or 0,
+                        "out_audio": details_out.get("audio_tokens") or 0,
+                        "cached_text": cached.get("text_tokens") or 0,
+                        "cached_audio": cached.get("audio_tokens") or 0,
+                    })
+                elif kind == "conversation.item.input_audio_transcription.completed":
+                    usage = event.get("usage") or {}
+                    if usage:
+                        amount = usage.get("seconds") or usage.get("total_tokens") or 0
+                        await v2.record_transcript(session_id, str(usage.get("model") or "transcript"), int(amount or 0))
+    except websockets.ConnectionClosedOK:
+        return
+    except Exception:
+        logger.warning("realtime usage socket closed call_id=%s", call_id)
+        await v2.record_error(session_id, "realtime", "socket")
+
+
+def _error_code(error: BaseException) -> str:
+    if isinstance(error, TimeoutError) or isinstance(error, asyncio.TimeoutError):
+        return "timeout"
+    return "pipeline_failed"
+
+
+def _error_reason(error: BaseException) -> str:
+    if isinstance(error, (TimeoutError, asyncio.TimeoutError)) or "timeout" in type(error).__name__.lower():
+        return "timeout"
+    status = getattr(error, "status_code", None)
+    if status is None:
+        status = getattr(getattr(error, "response", None), "status_code", None)
+    if status == 429:
+        return "rate_limit"
+    if isinstance(status, int) and 500 <= status < 600:
+        return "provider_5xx"
+    if isinstance(status, int) and 400 <= status < 500:
+        return "provider_4xx"
+    name = type(error).__name__.lower()
+    if any(word in name for word in ("connect", "network", "socket")):
+        return "network"
+    if isinstance(error, (ValueError, TypeError)):
+        return "invalid_input"
+    return "internal"
+
+
+def _public_error(error: BaseException) -> str:
+    text = str(error).strip() or error.__class__.__name__
+    if len(text) > 240:
+        return text[:240]
+    return text
+
+
+def _call_session_id(payload: dict[str, Any]) -> str:
+    session_id = str(payload.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="sessionId required")
+    return session_id
+
+
+def _complete_job(job: ClipJob, result: PipelineResult) -> None:
+    job.transcript = result.transcript
+    job.reply_text = result.reply_text
+    job.notes = list(result.notes)
+    job.corrections = [item.to_json() for item in result.corrections]
+    job.timings_ms = result.timings_ms
+    job.streak = result.streak.to_json() if result.streak is not None else None
+    job.reply_audio = result.audio.data if result.audio is not None else None
+    job.reply_content_type = result.audio.content_type if result.audio is not None else "audio/ogg"
+    job.status = "ok"
+    job.call = result.call

@@ -1,11 +1,13 @@
 # ai-service
 
-Новый shipping entrypoint: `app.speaky_main:create_app` из `ai-service/Dockerfile`.
+Docker запускает `app.speaky_main:create_app`.
 FoundationTutor, Realtime relay, ContextBuilder и LearningEngine обращаются к PostgreSQL foundation через Ktor backend;
 Python не владеет второй актуальной копией профиля. Новый runtime не требует Redis и не запускает legacy workers/routes.
 
-`app.main` и прежние clip/call/vocabulary реализации сохранены отдельно.
-Их API описаны как legacy-контракты; они не монтируются новым composition root.
+Действующий голосовой код находится в [`app.realtime_voice`](app/realtime_voice/).
+Старый FastAPI runtime, Clip pipeline и голосовой STT/TTS находятся в [`app.legacy`](app/legacy/).
+Путь `app.main:create_app` сохранён для совместимости.
+Старый runtime использует `requirements-legacy.txt`.
 
 - [Карта документации](../ai_docs/README.md)
 - [Статус реализации и приёмки](../ai_docs/status.md)

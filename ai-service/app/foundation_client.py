@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from time import perf_counter
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -24,6 +27,11 @@ class BackendFailure(Exception):
 
     def __str__(self) -> str:
         return self.code
+
+
+def tool_operation_id(request_id: str, name: str, arguments: dict) -> str:
+    """Keep the ID stable across a retry, including receipt lookup."""
+    return hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
 
 
 class FoundationClient:
@@ -85,6 +93,13 @@ class FoundationClient:
             record('response', http_status=response.status_code)
         return result
 
+    async def _versioned_get(self, path: str, scope: str, *, schema_error: str,
+                             version: int = 1, **kwargs) -> dict:
+        result = await self._request('GET', path, scope, **kwargs)
+        if result.get('schemaVersion') != version:
+            raise BackendFailure(schema_error, 502)
+        return result
+
     async def snapshot(self, scope: str, purpose: str, lesson_id: str | None = None) -> dict:
         params = {'purpose': purpose}
         if lesson_id is not None:
@@ -100,10 +115,8 @@ class FoundationClient:
         params = {key: value for key, value in {
             'version': version, 'skill': skill, 'cefr': cefr, 'topicId': topic_id,
         }.items() if value is not None}
-        result = await self._request('GET', '/catalog', '', params=params)
-        if result.get('schemaVersion') != 2:
-            raise BackendFailure('unsupported_catalog_schema', 502)
-        return result
+        return await self._versioned_get('/catalog', '', schema_error='unsupported_catalog_schema',
+                                         version=2, params=params)
 
     async def learning_observations(self, scope: str, *, lesson_id: str | None = None,
                                     task_id: str | None = None, skill_id: str | None = None,
@@ -111,19 +124,15 @@ class FoundationClient:
                                     offset: int = 0) -> dict:
         params = {k: v for k, v in {'lessonId': lesson_id, 'taskId': task_id, 'skillId': skill_id,
                   'topicId': topic_id, 'problemId': problem_id, 'offset': str(offset)}.items() if v is not None}
-        return await self._observation_request('/learning-observations', scope, params=params)
+        return await self._versioned_get('/learning-observations', scope,
+                                         schema_error='unsupported_observation_schema', params=params)
 
     async def learning_observation(self, scope: str, observation_id: str, *, history: bool = False,
                                    offset: int = 0) -> dict:
-        from urllib.parse import quote
         path = '/learning-observations/' + quote(observation_id, safe='') + ('/history' if history else '')
-        return await self._observation_request(path, scope, params={'offset': str(offset)} if history else {})
-
-    async def _observation_request(self, path: str, scope: str, **kwargs) -> dict:
-        result = await self._request('GET', path, scope, **kwargs)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_observation_schema', 502)
-        return result
+        return await self._versioned_get(path, scope,
+                                         schema_error='unsupported_observation_schema',
+                                         params={'offset': str(offset)} if history else {})
 
     async def record_learning_observation(self, scope: str, operation_id: str, observation: 'LearningObservation') -> dict:
         # Trusted integrations only. No native tool or implicit grading.
@@ -146,13 +155,11 @@ class FoundationClient:
         params = {key: value for key, value in {
             'topicId': topic_id, 'problemId': problem_id, 'lifecycle': lifecycle, 'offset': str(offset),
         }.items() if value is not None}
-        return await self._task_request('/learning-tasks', scope, params=params)
+        return await self._versioned_get('/learning-tasks', scope,
+                                         schema_error='unsupported_task_schema', params=params)
 
     async def learning_roadmap(self, scope: str) -> dict:
-        result = await self._request('GET', '/learning-roadmap', scope)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_roadmap_schema', 502)
-        return result
+        return await self._versioned_get('/learning-roadmap', scope, schema_error='unsupported_roadmap_schema')
 
     async def roadmap_timeline(self, scope: str, *, as_of=None, observed_pace: dict | None = None) -> dict:
         """Read-only SP-10 projection for SP-11; no Roadmap or priority write."""
@@ -160,32 +167,27 @@ class FoundationClient:
         return await RoadmapTimeline(self).read(scope, as_of=as_of, observed_pace=observed_pace)
 
     async def learning_roadmap_history(self, scope: str, *, offset: int = 0) -> dict:
-        result = await self._request('GET', '/learning-roadmap/history', scope, params={'offset': str(offset)})
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_roadmap_schema', 502)
-        return result
+        return await self._versioned_get('/learning-roadmap/history', scope,
+                                         schema_error='unsupported_roadmap_schema', params={'offset': str(offset)})
 
     async def learning_roadmap_priority(self, scope: str) -> dict:
-        result = await self._request('GET', '/learning-roadmap/priority', scope)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_priority_schema', 502)
-        return result
+        return await self._versioned_get('/learning-roadmap/priority', scope,
+                                         schema_error='unsupported_priority_schema')
 
     async def learning_task(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:
-        from urllib.parse import quote
         path = '/learning-tasks/' + quote(task_id, safe='') + ('/history' if history else '')
-        return await self._task_request(path, scope, params={'offset': str(offset)} if history else {})
+        return await self._versioned_get(path, scope,
+                                         schema_error='unsupported_task_schema',
+                                         params={'offset': str(offset)} if history else {})
 
     async def learning_score(self, scope: str, task_id: str, *, history: bool = False, offset: int = 0) -> dict:
         """Read SP-19A Stage state; real Observation writes are owned by SP-19B."""
-        from urllib.parse import quote
         path = '/learning-tasks/' + quote(task_id, safe='') + '/score'
         if history:
             path += '/history'
-        result = await self._request('GET', path, scope, params={'offset': str(offset)} if history else {})
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_score_schema', 502)
-        return result
+        return await self._versioned_get(path, scope,
+                                         schema_error='unsupported_score_schema',
+                                         params={'offset': str(offset)} if history else {})
 
     async def learning_problems(self, scope: str, *, topic_id: str | None = None,
                                 problem_id: str | None = None, offset: int = 0) -> dict:
@@ -193,16 +195,8 @@ class FoundationClient:
         params = {key: value for key, value in {
             'topicId': topic_id, 'problemId': problem_id, 'offset': str(offset),
         }.items() if value is not None}
-        result = await self._request('GET', '/learning-problems', scope, params=params)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_problem_schema', 502)
-        return result
-
-    async def _task_request(self, path: str, scope: str, **kwargs) -> dict:
-        result = await self._request('GET', path, scope, **kwargs)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_task_schema', 502)
-        return result
+        return await self._versioned_get('/learning-problems', scope,
+                                         schema_error='unsupported_problem_schema', params=params)
 
     async def create_learning_task(self, scope: str, operation_id: str, *, goal_revision: int,
                                    catalog_version: str, skill_id: str, topic_id: str, problem_id: str,
@@ -227,24 +221,19 @@ class FoundationClient:
 
     async def trial_audio(self, scope: str, lesson_id: str, *, cursor: str = '') -> dict:
         return await self._request('GET', '/trial/audio', scope, params={'lessonId': lesson_id, 'cursor': cursor})
+
     async def learning_plan(self, scope: str, plan_id: str, *, revision: int | None = None,
                             history: bool = False, offset: int = 0) -> dict:
-        from urllib.parse import quote
         path = '/learning-plans/' + quote(plan_id, safe='') + ('/history' if history else '')
         params = {'offset': str(offset)} if history else ({'revision': str(revision)} if revision is not None else {})
-        return await self._plan_request(path, scope, params=params)
+        return await self._versioned_get(path, scope,
+                                         schema_error='unsupported_plan_schema', params=params)
 
     async def learning_stage(self, scope: str, *, task_id: str, plan_id: str,
                              plan_revision: int, stage_id: str) -> dict:
-        from urllib.parse import quote
         path = '/learning-plans/' + quote(plan_id, safe='') + '/stages/' + quote(stage_id, safe='')
-        return await self._plan_request(path, scope, params={'taskId': task_id, 'revision': str(plan_revision)})
-
-    async def _plan_request(self, path: str, scope: str, **kwargs) -> dict:
-        result = await self._request('GET', path, scope, **kwargs)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_plan_schema', 502)
-        return result
+        return await self._versioned_get(path, scope, schema_error='unsupported_plan_schema',
+                                         params={'taskId': task_id, 'revision': str(plan_revision)})
 
     async def create_learning_plan(self, scope: str, operation_id: str, *, task_id: str,
                                    expected_task_revision: int, definition: dict, component: str,
@@ -279,13 +268,9 @@ class FoundationClient:
 
     async def learning_content(self, scope: str, content_id: str, *, revision: int | None = None,
                                history: bool = False, offset: int = 0) -> dict:
-        from urllib.parse import quote
         path = '/learning-content/' + quote(content_id, safe='') + ('/history' if history else '')
         params = {'offset': str(offset)} if history else ({'revision': str(revision)} if revision is not None else {})
-        result = await self._request('GET', path, scope, params=params)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_content_schema', 502)
-        return result
+        return await self._versioned_get(path, scope, schema_error='unsupported_content_schema', params=params)
 
     async def create_learning_content(self, scope: str, operation_id: str, *,
                                       document: LearningContentDocument, component: str) -> dict:
@@ -314,20 +299,15 @@ class FoundationClient:
         })
 
     async def learning_state(self, scope: str) -> dict:
-        result = await self._request('GET', '/learning-state', scope)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_learning_schema', 502)
-        return result
+        return await self._versioned_get('/learning-state', scope, schema_error='unsupported_learning_schema')
 
     async def topic_knowledge(self, scope: str, catalog_version: str, *, topic_id: str | None = None,
                               offset: int = 0, history: bool = False) -> dict:
         params = {'catalogVersion': catalog_version, 'offset': str(offset), 'history': str(history).lower()}
         if topic_id is not None:
             params['topicId'] = topic_id
-        result = await self._request('GET', '/learning-state/topics', scope, params=params)
-        if result.get('schemaVersion') != 1:
-            raise BackendFailure('unsupported_learning_schema', 502)
-        return result
+        return await self._versioned_get('/learning-state/topics', scope,
+                                         schema_error='unsupported_learning_schema', params=params)
 
     async def update_learning_state(self, scope: str, operation_id: str, *, expected_revision: int,
                                     patch: dict, component: str, sources: list[dict], **changes) -> dict:

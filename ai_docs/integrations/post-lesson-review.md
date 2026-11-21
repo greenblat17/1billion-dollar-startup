@@ -1,5 +1,7 @@
 # SP-20 Post-Lesson Review
 
+The [lesson job map](lesson-results.md) lists input references, result shapes, and Ktor validation.
+
 Local implementation, 2026-11-17. This is not DEV or live acceptance.
 
 `lesson.complete` queues `lesson.review` for a regular lesson. A later saved

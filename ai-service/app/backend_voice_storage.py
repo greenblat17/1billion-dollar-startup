@@ -1,6 +1,6 @@
 """Explicit legacy preference, rollout and artifact operations owned by PostgreSQL backend."""
 from app.foundation_client import FoundationClient
-from app.speech import SPEED_CHOICES
+from app.speech_speed import SPEED_CHOICES, validate_speech_speed
 
 
 class BackendSpeechSpeedStore:
@@ -12,8 +12,7 @@ class BackendSpeechSpeedStore:
         return value if value in SPEED_CHOICES else None
 
     async def set(self, session_id, speed):
-        if isinstance(speed, bool) or speed not in SPEED_CHOICES:
-            raise ValueError('unsupported speech speed')
+        validate_speech_speed(speed)
         await self.backend.voice_preferences('set_speed', session_id, {'speed': speed})
 
     async def aclose(self):

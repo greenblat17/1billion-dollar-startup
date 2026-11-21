@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.app
 
+import com.eliteteam.speakingcoach.data.ReviewStepDto
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -66,22 +67,6 @@ internal data class CompleteTurnDto(
 internal data class ReviewResponse(
     val sessionId: String,
     val steps: List<ReviewStepDto>,
-)
-
-@Serializable
-internal data class ReviewStepDto(
-    val metric: String,
-    val score: Int,
-    val lead: String,
-    val bullets: List<String> = emptyList(),
-    val examples: List<ReviewExampleDto> = emptyList(),
-    val tip: String,
-)
-
-@Serializable
-internal data class ReviewExampleDto(
-    val original: String,
-    val improved: String,
 )
 
 @Serializable

@@ -124,10 +124,20 @@ async def test_audio_archive_precedes_forward_and_metadata_is_24khz():
     assert order == ['archive', 'browser']
     metadata = s.backend.command.call_args_list[0].args[3]['metadata']
     assert metadata['sampleRate'] == 24000 and metadata['utteranceId'] == 'reply'
-    s.input_buffer.extend(b'\0\0' * 2400)
+    s.audio.input_buffer.extend(b'\0\0' * 2400)
     await s.flush_input()
     assert sent(s)[-1]['type'] == 'input_audio_buffer.append'
-    assert not s.input_buffer
+    assert not s.audio.input_buffer
+
+
+@pytest.mark.asyncio
+async def test_direct_realtime_archive_keeps_input_offsets_and_sample_rate():
+    s = session()
+    s.v55 = True
+    await s.record('user', bytes(480))
+    metadata = s.backend.command.await_args_list[0].args[3]['metadata']
+    assert (metadata['sampleRate'], metadata['transport']) == (24000, 'openai_realtime')
+    assert (metadata['audioStartMs'], metadata['audioEndMs']) == (0, 10)
 
 
 @pytest.mark.asyncio
@@ -137,7 +147,7 @@ async def test_archive_failure_stops_forwarding_and_no_provider_retry():
     with pytest.raises(RuntimeError):
         await output(s)
     s.socket.send_bytes.assert_not_awaited()
-    s.input_buffer.extend(b'\0\0')
+    s.audio.input_buffer.extend(b'\0\0')
     with pytest.raises(RuntimeError):
         await s.flush_input()
     assert not sent(s)
@@ -448,7 +458,7 @@ async def test_forged_duration_is_bounded_and_no_ack_uses_zero_truncation():
 @pytest.mark.asyncio
 async def test_input_flood_rejected_before_forwarding():
     s = session()
-    s.received_bytes = 200000
+    s.audio.received_bytes = 200000
     s.socket.receive = AsyncMock(return_value={'type': 'websocket.receive', 'bytes': b'\0\0' * 480})
     with pytest.raises(ValueError, match='audio_rate_exceeded'):
         await s.receive()
@@ -467,7 +477,7 @@ async def test_handshake_402_is_not_retried_and_logs_safe_provider_reason(monkey
         async def __aenter__(self): raise InvalidStatus(response)
         async def __aexit__(self, *args): pass
     connector = Mock(return_value=Denied())
-    monkeypatch.setattr('app.trial_realtime.connect', connector)
+    monkeypatch.setattr('app.realtime_voice.connection.connect', connector)
     with pytest.raises(RealtimeProviderError) as caught:
         async with open_realtime(SETTINGS):
             pytest.fail('must not connect')
@@ -855,12 +865,12 @@ async def test_forgetting_revokes_voice_context_and_discards_unpersisted_audio()
     s = session()
     s.provider.close = AsyncMock()
     s.memory_sources['source'] = {'id': 'source', 'body': 'Forget work'}
-    s.input_buffer.extend(b'private audio')
+    s.audio.input_buffer.extend(b'private audio')
     s.backend.command.return_value = {'contextRevoked': True, 'reply': 'Deleted'}
     await s.tool({'name': 'forget_memory', 'call_id': 'forget', 'arguments': json.dumps(dict(
         sourceId='source', targets=[dict(category='personal', key='work', expectedVersion=1)], evidence='Forget work'))})
     assert s.ended and not s.want_response
-    assert not s.input_buffer and not s.memory_sources
+    assert not s.audio.input_buffer and not s.memory_sources
     s.provider.close.assert_awaited_once()
     assert s.socket.send_json.call_args.args[0]['reason'] == 'memory_forgotten'
 
@@ -870,7 +880,7 @@ async def test_regular_mute_flushes_speech_tail_before_one_manual_commit():
     s = session()
     s.lesson = {**s.lesson, 'kind': 'regular'}
     tail = b'\x01\x00' * 900
-    s.input_buffer.extend(tail)
+    s.audio.input_buffer.extend(tail)
     await s.provider_event({'type': 'input_audio_buffer.speech_started', 'item_id': 'spoken-turn'})
     s.socket.receive = AsyncMock(side_effect=[
         {'type': 'websocket.receive', 'text': json.dumps({'type': 'mute', 'value': True})},

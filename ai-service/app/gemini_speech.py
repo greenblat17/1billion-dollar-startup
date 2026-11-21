@@ -9,6 +9,7 @@ from openai import AsyncOpenAI
 from app.provider_call_log import logged_provider_call
 from app.retry import once_on_retryable
 from app.speech_delivery import DELIVERY_TAGS
+from app.speech_speed import validate_speech_speed
 from app.tts import TtsAudio
 
 
@@ -24,8 +25,7 @@ class GeminiKoraSpeech:
 
     async def synthesize(self, text: str, *, speed: float = 1.0,
                          delivery: str | None = None) -> TtsAudio:
-        if isinstance(speed, bool) or speed not in (0.8, 0.9, 1.0):
-            raise ValueError("unsupported speech speed")
+        validate_speech_speed(speed)
         if not text.strip():
             raise ValueError("empty speech text")
         if delivery is not None and delivery not in DELIVERY_TAGS:

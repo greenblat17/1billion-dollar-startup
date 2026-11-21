@@ -1,0 +1,5 @@
+[
+  {"value": 0.8, "label": "Slower"},
+  {"value": 0.9, "label": "Comfortable"},
+  {"value": 1.0, "label": "Normal"}
+]

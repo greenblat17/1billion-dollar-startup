@@ -116,11 +116,11 @@ async def test_live_proposal_requires_saved_learner_answer_before_sp09_decision(
             'decision': 'accepted', 'source': 'learner_response',
             'sourceId': 'missing-event', 'learnerWords': 'Yes, put it in my plan.',
             'reason': 'The learner agreed.'}
-    await s.regular_tool(call, dict(args))
+    await s.tool({**call, 'arguments': json.dumps(args)})
     s.backend.command.assert_not_awaited()
     assert json.loads(s.provider.send.call_args.args[0])['item']['output'] == (
         '{"ok": false, "error": "invalid_learning_decision"}')
-    await s.regular_tool(call, {**args, 'sourceId': 'event-1'})
+    await s.tool({**call, 'call_id': 'saved-source', 'arguments': json.dumps({**args, 'sourceId': 'event-1'})})
     assert s.backend.command.call_args.args[2] == 'learning.roadmap.problem.decide'
     assert s.backend.command.call_args.args[3]['decisionId'] == 'event-1'
     assert ('past', 'application') in s.active_problem_pairs
@@ -131,10 +131,10 @@ async def test_refusal_is_recorded_without_task_assignment_by_voice_layer():
     s = regular_session()
     s.proposal = {'topicId': 'past', 'problemId': 'application'}
     s.memory_sources['event-1'] = {'id': 'event-1', 'body': 'No thanks.'}
-    await s.regular_tool({'call_id': 'decision-2', 'name': 'decide_learning_problem'}, {
+    await s.tool({'call_id': 'decision-2', 'name': 'decide_learning_problem', 'arguments': json.dumps({
         'topicId': 'past', 'problemId': 'application', 'skillId': 'grammar',
         'decision': 'declined', 'source': 'learner_response',
         'sourceId': 'event-1', 'learnerWords': 'No thanks.',
-        'reason': 'The learner declined.'})
+        'reason': 'The learner declined.'})})
     assert s.backend.command.call_args.args[3]['decision'] == 'declined'
     assert s.active_problem_pairs == set()

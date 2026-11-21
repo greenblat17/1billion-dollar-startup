@@ -13,34 +13,29 @@ from typing import Any, Literal
 from openai import APIStatusError
 
 from app.diagnostics import event
-from app.learning_content import LearningContentDocument
+from app.learning_content import ACTION_KINDS, CONTENT_LIMITS, LearningContentDocument
+from app.student_learning_state import assessed_content_level
 
 
 COMPONENT = 'sp13b.content_generation'
-ACTION_KINDS = {
-    'Explanation': {'direct', 'comparison', 'learner_example'},
-    'Exercises': {'sentence_construction', 'sentence_transformation', 'sentence_correction',
-                  'translation', 'word_recall', 'meaning_recognition', 'meaning_matching',
-                  'listening_reconstruction', 'listening_comprehension', 'rapid_response',
-                  'sentence_expansion', 'paraphrasing'},
-    'Exposure': {'listening_reconstruction', 'listening_comprehension', 'dialogue'},
-    'Conversation': {'personalized', 'situational', 'topic_driven'},
-}
 CEFR = {'A1', 'A2', 'B1', 'B2', 'C1', 'Unknown'}
 REASONS = {'invalid_shape', 'wrong_topic', 'wrong_problem', 'wrong_level', 'wrong_action',
            'ambiguous_condition', 'invalid_alternative', 'language_error', 'screen_required',
            'unsafe_or_unverified_source', 'insufficient_rubric'}
-_DRAFT_TEXT_LIMITS = {'objective': 1000, 'spokenInstruction': 400}
-# List limits are (minimum items, maximum items, maximum characters per item).
-_DRAFT_GUIDE_LIMITS = {'criteria': (1, 8, 300), 'alternatives': (0, 8, 300), 'unacceptable': (0, 8, 300)}
+
+
+def _list_limits(fields: dict) -> dict[str, tuple[int, int, int]]:
+    return {key: (rule['minItems'], rule['maxItems'], rule['maxUnits']) for key, rule in fields.items()}
+
+
+_DRAFT_TEXT_LIMITS = CONTENT_LIMITS['text']
+_DRAFT_GUIDE_LIMITS = _list_limits(CONTENT_LIMITS['answerGuide'])
 _DRAFT_PAYLOAD_LIMITS = {
-    'Explanation': {'explanation': 1200, 'examples': (1, 4, 300)},
-    'Exercises': {'stimulus': 300, 'targetOperation': 300},
-    'Exposure': {'segments': (1, 8, 250), 'checks': (1, 2, 40)},
-    'Conversation': {'openingPrompt': 400, 'targetOpportunities': (1, 6, 250)},
+    method: {**fields.get('text', {}), **_list_limits(fields.get('lists', {}))}
+    for method, fields in CONTENT_LIMITS['payload'].items()
 }
 _DRAFT_FIELDS = {*_DRAFT_TEXT_LIMITS, 'payload', 'answerGuide'}
-_DOCUMENT_LIMIT = 16_000
+_DOCUMENT_LIMIT = CONTENT_LIMITS['document']
 _SPOKEN_URL = re.compile(r'https?://|www\.', re.IGNORECASE)
 
 
@@ -51,14 +46,15 @@ def _draft_limits_prompt(method: str) -> str:
     rules = []
     for field, limit in fields.items():
         if isinstance(limit, int):
-            rules.append(f'{field}: nonblank string, at most {limit} characters')
+            rules.append(f'{field}: nonblank string, at most {limit} UTF-16 units')
         else:
             minimum, maximum, item_limit = limit
-            rules.append(f'{field}: {minimum}–{maximum} unique nonblank strings, at most {item_limit} characters each')
+            rules.append(f'{field}: {minimum}–{maximum} unique nonblank strings, at most {item_limit} UTF-16 units each')
     return (
-        'Use exactly the required fields from the schema. Hard field limits (count spaces and punctuation): '
+        'Use exactly the required fields from the schema. Count spaces and punctuation. '
+        'Characters outside the Unicode Basic Multilingual Plane take two UTF-16 units. Hard field limits: '
         + '; '.join(rules) + '. '
-        f'The assembled JSON document including metadata must fit {_DOCUMENT_LIMIT} characters. '
+        f'The compact JSON document including metadata must fit {_DOCUMENT_LIMIT} UTF-16 units. '
         'Aim for one short sentence for objective and one or two short spoken sentences for spokenInstruction. '
         'Keep teaching material in payload and grading criteria in answerGuide. '
     )
@@ -138,26 +134,39 @@ def _shape_issue(field: str, value: Any, expected: set[str]) -> dict | None:
     return None
 
 
-def _text_issue(field: str, value: Any, limit: int) -> dict | None:
+def _utf16_length(value: str) -> int:
+    return len(value.encode('utf-16-le', errors='surrogatepass')) // 2
+
+
+def _document_size_issue(document: dict) -> dict | None:
+    encoded = json.dumps(document, ensure_ascii=False, separators=(',', ':'))
+    length = _utf16_length(encoded)
+    if length > _DOCUMENT_LIMIT:
+        return _validation_issue('document', 'too_long', encoded, maxLength=_DOCUMENT_LIMIT, length=length)
+    return None
+
+
+def _text_issue(field: str, value: Any, limit: int, *, measure=len) -> dict | None:
     if not isinstance(value, str):
         return _validation_issue(field, 'expected_string', value)
     if not value.strip():
         return _validation_issue(field, 'blank', value)
-    if len(value) > limit:
-        return _validation_issue(field, 'too_long', value, maxLength=limit)
+    length = measure(value)
+    if length > limit:
+        return _validation_issue(field, 'too_long', value, maxLength=limit, length=length)
     return None
 
 
-def _field_issue(field: str, value: Any, limit: int | tuple[int, int, int]) -> dict | None:
+def _field_issue(field: str, value: Any, limit: int | tuple[int, int, int], *, measure=len) -> dict | None:
     if isinstance(limit, int):
-        return _text_issue(field, value, limit)
+        return _text_issue(field, value, limit, measure=measure)
     if not isinstance(value, list):
         return _validation_issue(field, 'expected_array', value)
     minimum, maximum, item_limit = limit
     if not minimum <= len(value) <= maximum:
         return _validation_issue(field, 'item_count', value, minCount=minimum, maxCount=maximum)
     for index, item in enumerate(value):
-        if issue := _text_issue(f'{field}[{index}]', item, item_limit):
+        if issue := _text_issue(f'{field}[{index}]', item, item_limit, measure=measure):
             return issue
     if len(set(value)) != len(value):
         return _validation_issue(field, 'duplicate_items', value, duplicate=True)
@@ -168,7 +177,7 @@ def _draft_validation_issue(draft: Any, method: str) -> dict | None:
     if issue := _shape_issue('draft', draft, _DRAFT_FIELDS):
         return issue
     for field, limit in _DRAFT_TEXT_LIMITS.items():
-        if issue := _text_issue(field, draft[field], limit):
+        if issue := _text_issue(field, draft[field], limit, measure=_utf16_length):
             return issue
     payload_limits = _DRAFT_PAYLOAD_LIMITS.get(method, _DRAFT_PAYLOAD_LIMITS['Conversation'])
     for section, limits in (('answerGuide', _DRAFT_GUIDE_LIMITS), ('payload', payload_limits)):
@@ -176,7 +185,7 @@ def _draft_validation_issue(draft: Any, method: str) -> dict | None:
         if issue := _shape_issue(section, value, set(limits)):
             return issue
         for field, limit in limits.items():
-            if issue := _field_issue(f'{section}.{field}', value[field], limit):
+            if issue := _field_issue(f'{section}.{field}', value[field], limit, measure=_utf16_length):
                 return issue
     if method == 'Exposure' and not set(draft['payload']['checks']) <= {'reconstruction', 'meaning'}:
         return _validation_issue('payload.checks', 'invalid_check', draft['payload']['checks'])
@@ -244,9 +253,7 @@ class LearningContentGenerator:
                 topics[0]['skillId'] != task['skill_id'] or problems[0]['skillId'] != task['skill_id']):
             raise ContentGenerationError('invalid_task_catalog_links')
         state = await self.backend.learning_state(scope)
-        levels = state['profile']['currentLevels']['speaky']
-        skill_level = levels['skills'][task['skill_id']]['level']
-        assessed_level = skill_level if skill_level != 'Unknown' else levels['overall']['level']
+        assessed_level = assessed_content_level(state, task['skill_id'])
         if request.cefr != assessed_level:
             raise ContentGenerationError('cefr_state_mismatch')
         context = {'method': method, 'actionKind': request.action_kind, 'cefr': request.cefr,
@@ -331,9 +338,7 @@ class LearningContentGenerator:
         method = document_fields['method']
         issue = _draft_validation_issue(draft, method)
         if issue is None:
-            encoded = json.dumps({**document_fields, **draft}, ensure_ascii=False)
-            if len(encoded) > _DOCUMENT_LIMIT:
-                issue = _validation_issue('document', 'too_long', encoded, maxLength=_DOCUMENT_LIMIT)
+            issue = _document_size_issue({**document_fields, **draft})
         if issue is not None:
             event('learning_content_draft_rejected', stage='compute_validation',
                   operation=operation, method=method, attempt=attempt, **issue)
@@ -438,5 +443,6 @@ def _require_ready(prepared: PreparedContent) -> None:
             not _review_is_valid(prepared.review) or not prepared.review['passed'] or
             not prepared.review['checkedAlternatives'] or
             not _draft_is_valid({key: document.get(key) for key in
-                                 ('objective', 'spokenInstruction', 'payload', 'answerGuide')}, document.get('method'))):
+                                 ('objective', 'spokenInstruction', 'payload', 'answerGuide')}, document.get('method')) or
+            _document_size_issue(document) is not None):
         raise ContentGenerationError('unvalidated_material')

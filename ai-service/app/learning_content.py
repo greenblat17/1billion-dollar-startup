@@ -3,7 +3,16 @@
 The backend checks shape and Task/Stage ownership. SP-13B will generate and validate
 real material; the live tutor in SP-14/15 decides whether a learner's answer fits.
 """
+import json
+from pathlib import Path
 from typing import Literal, TypedDict
+
+
+ACTION_KINDS = {
+    method: frozenset(kinds)
+    for method, kinds in json.loads(Path(__file__).with_name('learning-content-action-kinds-v1.json').read_text()).items()
+}
+CONTENT_LIMITS = json.loads(Path(__file__).with_name('learning-content-limits-v1.json').read_text())
 
 
 Method = Literal['Explanation', 'Exercises', 'Exposure', 'Conversation']

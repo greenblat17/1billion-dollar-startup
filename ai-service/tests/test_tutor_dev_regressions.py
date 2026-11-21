@@ -175,7 +175,7 @@ async def test_extracted_personal_keys_are_stable_and_match_backend_contract():
 @pytest.mark.asyncio
 @pytest.mark.parametrize('delay,expected_start', [(5, '11:53'), (30, '12:18')])
 async def test_after_minutes_reaches_real_booking_adapter(monkeypatch, delay, expected_start):
-    import app.foundation_tutor as module
+    import app.scheduling_tools as module
     class Clock(datetime):
         @classmethod
         def now(cls, tz=None):

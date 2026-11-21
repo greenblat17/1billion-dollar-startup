@@ -11,7 +11,7 @@ from secrets import compare_digest
 from fastapi import Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 
 from app.foundation_client import BackendFailure
-from app.trial_realtime import RealtimeTrialSession
+from app.realtime_voice.session import RealtimeTrialSession
 from app.lesson_calendar import calendar_export
 
 

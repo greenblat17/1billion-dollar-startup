@@ -2,6 +2,8 @@
 import subprocess
 import sys
 
+from uvicorn.importer import import_from_string
+
 from app.config import Settings
 
 
@@ -18,16 +20,20 @@ def test_stage1_uses_kora_model_unless_overridden(monkeypatch):
     assert Settings.from_env().stage1_model == 'example/intro-model'
 
 
+def test_legacy_uvicorn_target_resolves_to_the_same_factory():
+    assert import_from_string('app.main:create_app') is import_from_string('app.legacy.main:create_app')
+
+
 def test_runtime_starts_without_redis_and_exposes_only_foundation_routes():
     program = '''
 import asyncio
 import importlib.abc
 import sys
-class NoRedis(importlib.abc.MetaPathFinder):
+class NoLegacyRuntime(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == "redis" or fullname.startswith("redis."):
-            raise AssertionError("shipping runtime imported Redis")
-sys.meta_path.insert(0, NoRedis())
+        if fullname in ("app.main", "app.legacy", "redis") or fullname.startswith(("app.legacy.", "redis.")):
+            raise AssertionError(f"shipping runtime imported {fullname}")
+sys.meta_path.insert(0, NoLegacyRuntime())
 import httpx
 from app.speaky_main import create_app
 from app.config import Settings

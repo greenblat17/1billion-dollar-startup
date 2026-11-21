@@ -22,7 +22,8 @@ class OnboardingModel:
         self.turn += 1
         if self.turn == 1:
             name, args = 'update_onboarding', {'expectedRevision': 0, 'changes': [
-                {'field': 'goal', 'value': 'English for work', 'explanation': None, 'evidence': 'for work'},
+                {'field': 'goal', 'value': {'goals': ['G03'], 'mode': 'replace'},
+                 'explanation': None, 'evidence': 'B2 for work'},
                 {'field': 'targetLevel', 'value': 'B2', 'explanation': None, 'evidence': 'B2'},
                 {'field': 'selfAssessment', 'value': 'Unknown', 'explanation': 'Cannot choose current level',
                  'evidence': 'not sure of my level'}]}
@@ -57,4 +58,4 @@ async def test_profile_survives_booking_replay_and_reaches_voice_context():
         assert state['profile']['targetLevel'] == 'B2'
         assert state['profile']['currentLevels']['selfAssessment']['overall']['level'] == 'Unknown'
         assert state['profile']['currentLevels']['speaky']['overall']['level'] == 'Unknown'
-        assert context.data['goal']['content']['value'] == 'English for work'
+        assert context.data['goal']['content']['value'] == 'B2 for work'

@@ -25,6 +25,9 @@ on:
       - master
     paths:
       - 'cmp/**'
+      - 'ai-service/app/learning-content-action-kinds-v1.json'
+      - 'ai-service/app/learning-content-limits-v1.json'
+      - 'ai-service/app/legacy-speech-speeds-v1.json'
       - 'infra/server/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'
@@ -33,6 +36,9 @@ on:
   pull_request:
     paths:
       - 'cmp/**'
+      - 'ai-service/app/learning-content-action-kinds-v1.json'
+      - 'ai-service/app/learning-content-limits-v1.json'
+      - 'ai-service/app/legacy-speech-speeds-v1.json'
       - 'infra/server/**'
       - 'infra/postgres/**'
       - '.github/workflows/cmp.yml'

@@ -15,6 +15,7 @@ internal data class TutorTextEntity(val type: String, val offset: Int, val lengt
 internal data class TutorTextPart(val text: String, val entities: List<TutorTextEntity>)
 
 private val introductionParagraph = Regex("\\r?\\n(?:[ \\t]*\\r?\\n)+")
+private val tutorMarkdown = Regex("```([\\s\\S]*?)```|`([^`\\n]+)`|(?<![\\\\*])\\*\\*([^*\\n]+)\\*\\*(?!\\*)")
 private const val TELEGRAM_TEXT_LIMIT = 4096
 
 /** Interpret up to two blank-line breaks chosen by the model for an introduction reply. */
@@ -31,9 +32,8 @@ internal fun tutorTextParts(source: String, limit: Int = 3500): List<TutorTextPa
     require(limit >= 2)
     val text = StringBuilder()
     val entities = mutableListOf<TutorTextEntity>()
-    val tokens = Regex("```([\\s\\S]*?)```|`([^`\\n]+)`|(?<![\\\\*])\\*\\*([^*\\n]+)\\*\\*(?!\\*)")
     var cursor = 0
-    for (match in tokens.findAll(source)) {
+    for (match in tutorMarkdown.findAll(source)) {
         text.append(source.substring(cursor, match.range.first))
         val group = (1..3).first { match.groups[it] != null }
         val content = match.groupValues[group]

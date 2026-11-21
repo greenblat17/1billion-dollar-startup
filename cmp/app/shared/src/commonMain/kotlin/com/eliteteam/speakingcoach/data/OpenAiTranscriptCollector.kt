@@ -18,7 +18,7 @@ class OpenAiTranscriptCollector {
             "conversation.item.input_audio_transcription.completed" -> {
                 val text = event.transcript?.trim().orEmpty()
                 if (text.isNotEmpty()) {
-                    flushAssistant()
+                    finishAssistant()
                     items += TranscriptTurn(role = "user", text = text)
                 }
                 text.ifEmpty { null }
@@ -34,30 +34,24 @@ class OpenAiTranscriptCollector {
             }
             "response.output_audio_transcript.done",
             "response.audio_transcript.done",
-            -> {
-                val text = event.transcript?.trim()?.ifEmpty { null }
-                    ?: assistantBuffer.toString().trim().ifEmpty { null }
-                assistantBuffer.clear()
-                if (!text.isNullOrEmpty()) {
-                    items += TranscriptTurn(role = "assistant", text = text)
-                }
-                text
-            }
+            -> finishAssistant(event.transcript)
             else -> null
         }
     }
 
     fun snapshot(): List<TranscriptTurn> {
-        flushAssistant()
+        finishAssistant()
         return turns
     }
 
-    private fun flushAssistant() {
-        val text = assistantBuffer.toString().trim()
+    private fun finishAssistant(transcript: String? = null): String? {
+        val text = transcript?.trim()?.takeIf { it.isNotEmpty() }
+            ?: assistantBuffer.toString().trim().takeIf { it.isNotEmpty() }
         assistantBuffer.clear()
-        if (text.isNotEmpty()) {
+        if (text != null) {
             items += TranscriptTurn(role = "assistant", text = text)
         }
+        return text
     }
 }
 

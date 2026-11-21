@@ -1,4 +1,4 @@
-"""Speaky composition root. Legacy app.main is retained but never constructed here."""
+"""Composition root for the shipping Speaky AI service."""
 from contextlib import asynccontextmanager, suppress
 import asyncio
 from secrets import compare_digest

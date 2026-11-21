@@ -164,6 +164,19 @@ def build_roadmap(state: dict, catalog: dict, knowledge: list[dict], tasks: list
             'scope': 'initial_roadmap', 'timeline': None}
 
 
+async def read_roadmap_tasks(backend, scope: str) -> list[dict]:
+    tasks = []
+    offset = 0
+    while True:
+        page = await backend.learning_tasks(scope, offset=offset)
+        tasks.extend(page['items'])
+        offset = page.get('nextOffset')
+        if offset is None:
+            return tasks
+        if len(tasks) > 1000:
+            raise ValueError('learning_task_limit')
+
+
 class PersonalizedRoadmap:
     """Read-only job planner; Foundation applies Tasks and roadmap atomically."""
     def __init__(self, backend):
@@ -183,13 +196,5 @@ class PersonalizedRoadmap:
                 break
             if len(knowledge) > 500:
                 raise ValueError('topic_state_limit')
-        tasks, offset = [], 0
-        while True:
-            page = await self.backend.learning_tasks(scope, offset=offset)
-            tasks.extend(page['items'])
-            offset = page.get('nextOffset')
-            if offset is None:
-                break
-            if len(tasks) > 1000:
-                raise ValueError('learning_task_limit')
+        tasks = await read_roadmap_tasks(self.backend, scope)
         return build_roadmap(state, catalog, knowledge, tasks)

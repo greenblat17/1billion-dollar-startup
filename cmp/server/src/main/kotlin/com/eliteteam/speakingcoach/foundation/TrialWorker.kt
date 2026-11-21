@@ -160,15 +160,14 @@ internal class TrialWorker(private val service: FoundationService, private val h
         for (studentId in students) service.database.transaction { c, now ->
             c.lockStudent(studentId)
             c.update("UPDATE trial_notice SET status='pending' WHERE student_id=? AND status='generating' AND lease_until<=?", studentId, now)
-            if (c.document("SELECT to_jsonb(s) FROM student s WHERE id=? AND deleted_at IS NULL", studentId) == null) return@transaction
+            val epoch = c.rows("SELECT data_epoch FROM student WHERE id=? AND deleted_at IS NULL", studentId) { it.getLong(1) }
+                .singleOrNull() ?: return@transaction
             c.documents("SELECT to_jsonb(s) FROM schedule s WHERE student_id=? AND agreement->>'executable'='true' AND agreement->>'cancelled' IS DISTINCT FROM 'true'", studentId).forEach { TrialSchedule().materialize(c, it, now) }
             val lessons = c.documents("SELECT to_jsonb(l) FROM lesson l WHERE student_id=? AND launch_mode='executable' AND status IN ('scheduled','in_progress')", studentId)
             for (lesson in lessons) {
-                val student = lesson.text("student_id")
                 val id = lesson.text("id")
-                val epoch = c.rows("SELECT data_epoch FROM student WHERE id=?", student) { it.getLong(1) }.single()
                 val expired = TrialExecution().expire(c, lesson, now)
-                if (expired > 0 && lesson.text("kind") == "trial") c.trialNotice(student, id, epoch, "technical_disconnect", now.plusSeconds(30))
+                if (expired > 0 && lesson.text("kind") == "trial") c.trialNotice(studentId, id, epoch, "technical_disconnect", now.plusSeconds(30))
                 val start = java.time.Instant.parse(lesson.text("starts_at"))
                 val end = start.plusSeconds(lesson.number("duration_minutes") * 60)
                 if (lesson.text("kind") == "trial" && lesson.text("status") == "scheduled") {
@@ -183,15 +182,15 @@ internal class TrialWorker(private val service: FoundationService, private val h
                 if (lesson.text("status") == "scheduled" && now >= start.plusSeconds(600) && now < end) schedulingNotice(c, lesson, epoch, "no_show", now)
                 if (lesson.text("status") == "scheduled" && now >= end) c.update("UPDATE lesson SET status='missed',version=version+1 WHERE id=? AND status='scheduled'", id)
                 if (trialV55(lesson) && lesson.text("status") == "in_progress" &&
-                    now >= trialReconnectEnd(c.lesson(ExecutionScope(student, "operator", epoch), id)) &&
+                    now >= trialReconnectEnd(c.lesson(ExecutionScope(studentId, "operator", epoch), id)) &&
                     c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", id) == null) {
                     TrialExecution().complete(c, lesson, "technical_disconnect", now)
-                    c.trialNotice(student, id, epoch, "technical_disconnect", now)
+                    c.trialNotice(studentId, id, epoch, "technical_disconnect", now)
                 }
                 val last = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? ORDER BY started_at DESC LIMIT 1", id)
                 if (lesson.text("status") == "in_progress" && now >= end && last?.optionalText("end_reason") == "end_button") {
                     c.update("UPDATE lesson SET status='completed',ended_early=TRUE,outcome_reason='end_button',version=version+1 WHERE id=?", id)
-                    c.enqueueEvaluation(student, id, now)
+                    c.enqueueEvaluation(studentId, id, now)
                 }
             }
         }

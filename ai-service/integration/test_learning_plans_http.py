@@ -114,6 +114,12 @@ async def test_plan_routes_require_auth_and_strict_historical_reference():
         assert (await http.get(path, headers={'X-Internal-Token': token})).status_code == 403
         owner = await actor(http, root, token, str(time.time_ns()))
         headers = {'X-Internal-Token': token, 'X-Execution-Scope': owner['scope']}
-        for query in ('?studentId=other', '?revision=0', '?revision=1&revision=2', '?revision=x'):
-            assert (await http.get(path + query, headers=headers)).status_code == 400
-        assert (await http.get(path + '/stages/exercise?taskId=task', headers=headers)).status_code == 400
+        for query, code in [('?studentId=other', 'invalid_plan_query'), ('?revision=0', 'invalid_plan_revision'),
+                            ('?revision=1&revision=2', 'invalid_plan_query'), ('?revision=x', 'invalid_plan_revision')]:
+            response = await http.get(path + query, headers=headers)
+            assert (response.status_code, response.json()) == (400, {'ok': False, 'error': code})
+        stage_path = path + '/stages/exercise?taskId=task'
+        for query, code in [('', 'invalid_plan_revision'), ('&revision=0', 'invalid_plan_revision'),
+                            ('&revision=x', 'invalid_plan_revision'), ('&revision=1&revision=2', 'invalid_plan_query')]:
+            response = await http.get(stage_path + query, headers=headers)
+            assert (response.status_code, response.json()) == (400, {'ok': False, 'error': code})

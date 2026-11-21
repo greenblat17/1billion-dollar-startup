@@ -13,7 +13,7 @@ internal fun Route.personalizedRoadmapRoutes(service: FoundationService, token: 
     get("/learning-roadmap/history") {
         foundationResponse(token) { scope ->
             val query = call.request.queryParameters
-            if (query.names().any { it != "offset" || query.getAll(it)?.size != 1 }) reject("invalid_roadmap_query")
+            query.requireSingleQueryValues("invalid_roadmap_query", "offset")
             val offset = query["offset"]?.toIntOrNull() ?: 0
             service.learningRoadmapHistory(scope, offset)
         }

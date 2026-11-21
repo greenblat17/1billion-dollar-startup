@@ -14,7 +14,7 @@ from typing import Any
 from openai import APIConnectionError, APIStatusError
 
 from app.diagnostics import event as log_event
-from app.learning_content_generation import ACTION_KINDS
+from app.learning_content import ACTION_KINDS
 
 
 COMPONENT = 'sp14.explanation_exercises'

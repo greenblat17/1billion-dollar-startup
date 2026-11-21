@@ -4,6 +4,7 @@ import com.eliteteam.speakingcoach.RuntimeDiagnostics
 
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Parameters
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.request.header
@@ -46,8 +47,7 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
             // Global published curriculum, no learner data; the service token is sufficient for this read.
             foundationResponse(internalToken, requireScope = false) {
                 val query = call.request.queryParameters
-                if (query.names().any { it !in setOf("version", "skill", "cefr", "topicId") }) reject("invalid_catalog_query")
-                if (query.names().any { query.getAll(it)?.size != 1 }) reject("invalid_catalog_query")
+                query.requireSingleQueryValues("invalid_catalog_query", "version", "skill", "cefr", "topicId")
                 LearningCatalog(service.database).read(query["version"], query["skill"], query["cefr"], query["topicId"])
             }
         }
@@ -75,10 +75,8 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
         get("/learning-state/topics") {
             foundationResponse(internalToken) { scope ->
                 val query = call.request.queryParameters
-                if (query.names().any { it !in setOf("catalogVersion", "topicId", "offset", "history") || query.getAll(it)?.size != 1 }) {
-                    reject("invalid_learning_query")
-                }
-                val offset = query["offset"]?.let { it.toIntOrNull() ?: reject("invalid_offset") } ?: 0
+                query.requireSingleQueryValues("invalid_learning_query", "catalogVersion", "topicId", "offset", "history")
+                val offset = query.queryOffset()
                 val history = query["history"]?.let { it.toBooleanStrictOrNull() ?: reject("invalid_history") } ?: false
                 service.topicKnowledge(scope, query["catalogVersion"] ?: reject("catalog_version_required"), query["topicId"], offset, history)
             }
@@ -99,6 +97,16 @@ internal fun Route.foundationRoutes(service: FoundationService, internalToken: S
         get("/diagnostics") { foundationResponse(internalToken) { scope -> service.diagnostics(scope) } }
     }
 }
+
+internal fun Parameters.requireSingleQueryValues(error: String, vararg allowed: String) {
+    if (names().any { it !in allowed || getAll(it)?.size != 1 }) reject(error)
+}
+
+internal fun Parameters.queryOffset(): Int =
+    this["offset"]?.let { it.toIntOrNull() ?: reject("invalid_offset") } ?: 0
+
+internal fun Parameters.queryRevision(error: String): Long? =
+    this["revision"]?.let { it.toLongOrNull()?.takeIf { revision -> revision > 0 } ?: reject(error) }
 
 internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
     serviceToken: String,

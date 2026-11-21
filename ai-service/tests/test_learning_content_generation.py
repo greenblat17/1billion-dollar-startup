@@ -106,24 +106,24 @@ async def test_four_methods_produce_scoped_voice_handoff(method, action):
     assert model.calls[0][1]['learnerContext'] == 'Likes commuting by bike.'
     prompt = model.calls[0][0]
     for limit in (
-        'objective: nonblank string, at most 1000 characters',
-        'spokenInstruction: nonblank string, at most 400 characters',
-        'answerGuide.criteria: 1–8 unique nonblank strings, at most 300 characters each',
-        'answerGuide.alternatives: 0–8 unique nonblank strings, at most 300 characters each',
-        'answerGuide.unacceptable: 0–8 unique nonblank strings, at most 300 characters each',
-        'including metadata must fit 16000 characters',
+        'objective: nonblank string, at most 1000 UTF-16 units',
+        'spokenInstruction: nonblank string, at most 400 UTF-16 units',
+        'answerGuide.criteria: 1–8 unique nonblank strings, at most 300 UTF-16 units each',
+        'answerGuide.alternatives: 0–8 unique nonblank strings, at most 300 UTF-16 units each',
+        'answerGuide.unacceptable: 0–8 unique nonblank strings, at most 300 UTF-16 units each',
+        'including metadata must fit 16000 UTF-16 units',
         'one short sentence for objective',
     ):
         assert limit in prompt
     payload_limits = {
-        'Explanation': ('explanation: nonblank string, at most 1200 characters',
-                        'examples: 1–4 unique nonblank strings, at most 300 characters each'),
-        'Exercises': ('stimulus: nonblank string, at most 300 characters',
-                      'targetOperation: nonblank string, at most 300 characters'),
-        'Exposure': ('segments: 1–8 unique nonblank strings, at most 250 characters each',
-                     'checks: 1–2 unique nonblank strings, at most 40 characters each'),
-        'Conversation': ('openingPrompt: nonblank string, at most 400 characters',
-                         'targetOpportunities: 1–6 unique nonblank strings, at most 250 characters each'),
+        'Explanation': ('explanation: nonblank string, at most 1200 UTF-16 units',
+                        'examples: 1–4 unique nonblank strings, at most 300 UTF-16 units each'),
+        'Exercises': ('stimulus: nonblank string, at most 300 UTF-16 units',
+                      'targetOperation: nonblank string, at most 300 UTF-16 units'),
+        'Exposure': ('segments: 1–8 unique nonblank strings, at most 250 UTF-16 units each',
+                     'checks: 1–2 unique nonblank strings, at most 40 UTF-16 units each'),
+        'Conversation': ('openingPrompt: nonblank string, at most 400 UTF-16 units',
+                         'targetOpportunities: 1–6 unique nonblank strings, at most 250 UTF-16 units each'),
     }[method]
     assert all(f'payload.{limit}' in prompt for limit in payload_limits)
     assert ('Aim for exactly two short examples.' in prompt) == (method == 'Explanation')
@@ -304,7 +304,7 @@ async def test_overlong_instruction_uses_shared_repair_before_audit(audit_passed
                                            'length': 786, 'count': None, 'maxLength': 400}
     assert feedback['draft'] == draft
     assert generate.kwargs['response_format'] == repair.kwargs['response_format']
-    assert 'spokenInstruction: nonblank string, at most 400 characters' in repair.args[0]
+    assert 'spokenInstruction: nonblank string, at most 400 UTF-16 units' in repair.args[0]
     assert json.loads(audit.args[1]) == {'context': feedback['context'], 'draft': repaired}
     assert backend.writes == []
     assert draft['spokenInstruction'] not in caplog.text

@@ -6,7 +6,7 @@
   "engines": {"node": ">=22"},
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "node --check src/app.js && node --check src/capture.js",
-    "test": "npm run check && node --test tests/*.test.mjs"
+    "check": "for file in src/*.js; do node --check \"$file\" || exit; done",
+    "test": "npm run check && node --experimental-vm-modules --test tests/*.test.mjs"
   }
 }

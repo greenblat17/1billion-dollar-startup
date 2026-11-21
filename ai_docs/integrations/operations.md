@@ -167,7 +167,7 @@ JWT, metrics, audit и load-test routes не подключены к Speaky root
 
 ### AI: legacy voice env
 
-Следующая таблица описывает сохранённый `app.main`, не shipping `app.speaky_main`. Активные настройки — в разделах SP-00 и SP-02.
+Следующая таблица описывает настройки сохранённого `app.legacy.main`. Активные настройки приведены в разделах SP-00 и SP-02.
 Старт legacy требует `GROQ_API_KEY`, `OPENAI_API_KEY` и `AI_INTERNAL_TOKEN`. `TTS_PROVIDER` бывает только `openrouter` или `deepgram`.
 
 | Ключ | Что задаёт | Что в значении | Если ключа нет |
@@ -458,7 +458,7 @@ Redis и его серверные данные не удалять. Перен�
 - `FOUNDATION_BACKEND_URL` должен быть доступен из AI-контейнера. Loopback мониторинга backend доступен только в его сетевом namespace.
 - Адрес backend — origin без API path; клиент сам добавляет `/internal/foundation/v1`. При самоподписанном TLS сертификат CMP копируется через проверенный SSH в `/opt/ai-service/foundation-backend-ca.pem` на AI. Deploy монтирует его read-only и задаёт `FOUNDATION_BACKEND_CA_FILE`; Python добавляет его к системным CA только для backend HTTP-клиента. Проверка hostname/TLS остаётся включённой. При смене сертификата обновить этот файл до redeploy.
 - `requirements.txt` не содержит Redis. Только offline export и сохранённый legacy используют `requirements-legacy.txt`.
-- Старый `app.main` не запускать одновременно с новым текстовым путём. Автоматического возврата к Redis при ошибке нет.
+- Старый FastAPI runtime доступен через `app.legacy.main:create_app` и прежний `app.main:create_app`. Запускайте его отдельно от нового текстового пути.
 - Старые PG adapters и промежуточные legacy-таблицы не зарегистрированы в новом runtime. Их перенос не является условием запуска.
 
 ### Offline TutorStore cutover
@@ -518,7 +518,7 @@ FoundationDatabase/Flyway и выдаёт operator scope; для строго re
 Lease/fence блокируют старый worker после повторного claim; invalid source/epoch нельзя обойти повтором.
 `delivery_unknown` нельзя повторять автоматически: сначала установить внешний исход доставки.
 Для Telegram reply неизвестная доставка также не означает «не отправлено».
-Shipping LearningEngine выполняет lesson.evaluate, roadmap.prepare и lesson.prepare.
+[Карта задач урока](lesson-results.md) описывает результаты LearningEngine, входные ссылки и переходы Ktor.
 Расписание/напоминания исполняет TrialWorker; старые foundation job kinds `schedule.materialize`
 и `notification.reminder` без зарегистрированного business handler возвращают `handler_unavailable`.
 При отсутствии нужной evaluation/актуального Lesson Plan admission блокируется. Платёжные сроки и grace автоматически не выводятся.
@@ -557,8 +557,11 @@ GRADLE_USER_HOME=$HOME/.gradle scripts/test-foundation.sh
 ```
 
 При необходимости задать `FOUNDATION_TEST_PYTHON` абсолютным путём к Python.
-Runner запускает обязательные PG-тесты и отдельный Ktor test harness, затем HTTP-сценарии Python↔Ktor.
-Основной suite не требует Redis. Отдельная rehearsal-проверка требует изолированный Redis:
+Runner запускает обязательные PG-тесты, отдельный Ktor test harness и HTTP-тесты из
+`ai-service/integration/`. Для нового теста в этом каталоге достаточно имени `test_*.py`.
+Основной набор работает без Redis. `FOUNDATION_TEST_SUITE=legacy` запускает HTTP-проверки
+сохранённых PostgreSQL-адаптеров на тестовых маршрутах.
+Для проверки импорта запустите отдельный тестовый Redis и задайте его адрес.
 
 ```bash
 FOUNDATION_TEST_SUITE=migration \
@@ -660,12 +663,23 @@ HTML/assets → frontend, API/diagnostics/voice → AI. Остальные inter
 Исторический 401 до установки frontend не является успешной проверкой текущего Mini App.
 Тестовый sslip.io hostname не заменяет выбор постоянного домена.
 
-### Разделение Kotlin-проверок SP-02
+<a id="разделение-kotlin-проверок-sp-02"></a>
 
-`:server:test` запускает обычные тесты без PostgreSQL. `FoundationIntegrationTest` и `TrialIntegrationTest`
-запускаются только через `:server:foundationIntegrationTest` с обязательным `TEST_POSTGRES_URL`.
-Их выполняет workflow Foundation integration и `scripts/test-foundation.sh`; отсутствие базы там остаётся ошибкой.
-Это исправляет падение шести trial-тестов при package-server в Redeploy DEV run 43196289189.
+### Kotlin-тесты с PostgreSQL и без него
+
+- `./gradlew :server:test` не требует базы. Часть сохранённых тестов аналитики использует PostgreSQL,
+  если задан `TEST_POSTGRES_URL`.
+- `./gradlew :server:foundationIntegrationTest` проверяет Foundation, уроки и учебное состояние на PostgreSQL.
+  Укажите `TEST_POSTGRES_URL` для отдельной тестовой базы. Без неё задача завершится ошибкой.
+- `./gradlew :app:shared:jvmTest` проверяет общую логику CMP-клиента на JVM.
+
+Обе задачи Ktor используют один шаблон имени в [build.gradle.kts](../../cmp/server/build.gradle.kts).
+Тест Foundation с PostgreSQL должен лежать в пакете `foundation` и иметь `IntegrationTest` в имени класса.
+Workflow Foundation integration запускает [test-foundation.sh](../../scripts/test-foundation.sh),
+который также прогоняет HTTP-проверки Python → Ktor → PostgreSQL. В набор входят
+контракт голоса, контракт расписания, повторы уроков и проверка записей анализа.
+Для теста backup/restore задайте `PG_DUMP` и `PG_RESTORE` с версией, совместимой с тестовым сервером.
+Разделение задач устранило сбой шести trial-тестов в `package-server` на DEV, run 43196289189.
 
 
 ## Диагностика Speaky

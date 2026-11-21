@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -7,14 +8,30 @@ import kotlinx.serialization.json.JsonPrimitive
 
 /** SP-13A wire shape. This checks structure, never language quality or a learner's answer. */
 internal object LearningContentModel {
-    private val actions = mapOf(
-        "Explanation" to setOf("direct", "comparison", "learner_example"),
-        "Exercises" to setOf("sentence_construction", "sentence_transformation", "sentence_correction",
-            "translation", "word_recall", "meaning_recognition", "meaning_matching", "listening_reconstruction",
-            "listening_comprehension", "rapid_response", "sentence_expansion", "paraphrasing"),
-        "Exposure" to setOf("listening_reconstruction", "listening_comprehension", "dialogue"),
-        "Conversation" to setOf("personalized", "situational", "topic_driven"),
+    private val actions: Map<String, Set<String>> = checkNotNull(
+        LearningContentModel::class.java.getResourceAsStream("/learning-content-action-kinds-v1.json"),
+    ).bufferedReader().use { foundationJson.decodeFromString(it.readText()) }
+
+    @Serializable
+    private data class ListLimit(val minItems: Int, val maxItems: Int, val maxUnits: Int)
+
+    @Serializable
+    private data class PayloadLimits(
+        val text: Map<String, Int> = emptyMap(),
+        val lists: Map<String, ListLimit> = emptyMap(),
     )
+
+    @Serializable
+    private data class ContentLimits(
+        val document: Int,
+        val text: Map<String, Int>,
+        val answerGuide: Map<String, ListLimit>,
+        val payload: Map<String, PayloadLimits>,
+    )
+
+    private val limits: ContentLimits = checkNotNull(
+        LearningContentModel::class.java.getResourceAsStream("/learning-content-limits-v1.json"),
+    ).bufferedReader().use { foundationJson.decodeFromString(it.readText()) }
 
     fun id(value: JsonElement?): String {
         val p = value as? JsonPrimitive ?: reject("invalid_content_id")
@@ -22,7 +39,7 @@ internal object LearningContentModel {
         return p.content
     }
 
-    private fun text(value: JsonElement?, max: Int = 1000): String {
+    private fun text(value: JsonElement?, max: Int): String {
         val p = value as? JsonPrimitive ?: reject("invalid_content_text")
         if (!p.isString || p.content.isBlank() || p.content.length > max) reject("invalid_content_text")
         return p.content
@@ -39,7 +56,7 @@ internal object LearningContentModel {
     }
 
     fun validate(d: JsonObject): JsonObject {
-        if (d.toString().length > 16_000) reject("content_too_large")
+        if (d.toString().length > limits.document) reject("content_too_large")
         d.only("schemaVersion", "taskId", "stageRef", "catalogVersion", "skillId", "topicId", "problemId",
             "method", "actionKind", "cefr", "objective", "spokenInstruction", "payload", "answerGuide", "validation")
         if (LearningTaskModel.positive(d["schemaVersion"]) != 1L) reject("unsupported_content_schema")
@@ -57,14 +74,13 @@ internal object LearningContentModel {
         val method = choice(d["method"], actions.keys)
         choice(d["actionKind"], actions.getValue(method))
         choice(d["cefr"], StudentLearningModel.levels)
-        text(d["objective"], 1000)
-        text(d["spokenInstruction"], 400)
+        for ((field, max) in limits.text) text(d[field], max)
         payload(method, d.obj("payload"))
         val guide = d.obj("answerGuide")
-        guide.only("criteria", "alternatives", "unacceptable")
-        strings(guide["criteria"], 1, 8, 300)
-        strings(guide["alternatives"], 0, 8, 300)
-        strings(guide["unacceptable"], 0, 8, 300)
+        guide.only(*limits.answerGuide.keys.toTypedArray())
+        for ((field, limit) in limits.answerGuide) {
+            strings(guide[field], limit.minItems, limit.maxItems, limit.maxUnits)
+        }
         val validation = d.obj("validation")
         validation.only("status", "component", "reasons")
         val status = choice(validation["status"], setOf("pending", "passed", "rejected"))
@@ -76,27 +92,13 @@ internal object LearningContentModel {
     }
 
     private fun payload(method: String, p: JsonObject) {
-        when (method) {
-            "Explanation" -> {
-                p.only("explanation", "examples")
-                text(p["explanation"], 1200)
-                strings(p["examples"], 1, 4, 300)
-            }
-            "Exercises" -> {
-                p.only("stimulus", "targetOperation")
-                text(p["stimulus"], 300)
-                text(p["targetOperation"], 300)
-            }
-            "Exposure" -> {
-                p.only("segments", "checks")
-                strings(p["segments"], 1, 8, 250)
-                val checks = strings(p["checks"], 1, 2, 40)
-                if (checks.any { it !in setOf("reconstruction", "meaning") }) reject("invalid_content_check")
-            }
-            "Conversation" -> {
-                p.only("openingPrompt", "targetOpportunities")
-                text(p["openingPrompt"], 400)
-                strings(p["targetOpportunities"], 1, 6, 250)
+        val fields = limits.payload.getValue(method)
+        p.only(*(fields.text.keys + fields.lists.keys).toTypedArray())
+        for ((field, max) in fields.text) text(p[field], max)
+        for ((field, limit) in fields.lists) {
+            val items = strings(p[field], limit.minItems, limit.maxItems, limit.maxUnits)
+            if (method == "Exposure" && field == "checks" && items.any { it != "reconstruction" && it != "meaning" }) {
+                reject("invalid_content_check")
             }
         }
     }

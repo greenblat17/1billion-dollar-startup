@@ -1,0 +1,420 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from contextvars import ContextVar, Token
+from dataclasses import dataclass
+
+from typing import Any, Callable
+
+from app.characters import Characters, CharacterStore
+from app.conversation import (ConversationHistory, ConversationMode, ConversationRoute, ConversationRouting,
+                              Personality, PersonalityRuntime, SpokenTurn)
+from app.dialogue import DialogueStore
+from app.audit_artifacts import record_artifact
+from app.llm import ChatModel, Correction, CorrectionRun
+from app.load_test import load_test_active
+from app.metrics import DEFAULT_RATES, MemoryMetricsStore, MetricsStore
+from app.metrics_v2 import MetricsV2, bind_metrics, reset_metrics
+from app.roleplay import ROLEPLAY_CONTEXT_PREFIX
+from app.speech import SessionSpeech
+from app.streaks import StreakStore, StreakUpdate, build_streak_store
+from app.stt import SpeechToText, SttResult
+from app.speech_time import SpeechTime, SpeechTimeMeter, recording_time
+from app.tts import TextToSpeech, TtsAudio
+
+logger = logging.getLogger('app.pipeline')
+_job_timings: ContextVar[dict[str, int] | None] = ContextVar("job_timings", default=None)
+
+
+def bind_job_timings(timings: dict[str, int]) -> Token:
+    return _job_timings.set(timings)
+
+
+def reset_job_timings(token: Token) -> None:
+    _job_timings.reset(token)
+
+
+def current_job_timings() -> dict[str, int] | None:
+    return _job_timings.get()
+
+CLARIFY_TEXT = "I didn't catch that. Could you say it again?"
+NOTES_TIMEOUT_SECONDS = 10.0
+CORRECTION_METRICS_TIMEOUT_SECONDS = 0.2
+PARTIAL_METRICS_TIMEOUT_SECONDS = 0.02
+
+
+@dataclass
+class PipelineResult:
+    audio: TtsAudio | None
+    transcript: str
+    reply_text: str
+    timings_ms: dict[str, int]
+    corrections: list[Correction]
+    streak: StreakUpdate | None = None
+    call: dict | None = None
+    memory_eligible: bool = False
+
+    @property
+    def notes(self) -> list[str]:
+        return [item.note for item in self.corrections]
+
+
+class ClipPipeline:
+    def __init__(
+        self,
+        stt: SpeechToText,
+        llm: ChatModel,
+        tts: TextToSpeech,
+        dialogue: DialogueStore,
+        metrics: MetricsStore | None = None,
+        streaks: StreakStore | None = None,
+        calls: Any | None = None,
+        speech: SessionSpeech | None = None,
+        notes_timeout_seconds: float = NOTES_TIMEOUT_SECONDS,
+        v2: MetricsV2 | None = None,
+        speech_meter: SpeechTimeMeter | None = None,
+        characters: Characters | None = None,
+    ) -> None:
+        if notes_timeout_seconds <= 0:
+            raise ValueError("notes timeout must be positive")
+        self.personalization = None
+        self._stt = stt
+        self._llm = llm
+        self._tts = tts
+        self.speech = speech or SessionSpeech(tts)
+        self._dialogue = dialogue
+        self._metrics = metrics if metrics is not None else MemoryMetricsStore(DEFAULT_RATES)
+        self._v2 = v2
+        self._streaks = streaks if streaks is not None else build_streak_store(self._metrics)
+        self.calls = calls
+        self.characters = characters or Characters(CharacterStore())
+        self.routing = ConversationRouting(self.characters)
+        self.history = ConversationHistory(dialogue)
+        self.personality = PersonalityRuntime(llm, self.speech, self.characters)
+        self._notes_timeout_seconds = notes_timeout_seconds
+        self.speech_meter = speech_meter
+
+    @property
+    def stt(self) -> SpeechToText:
+        return self._stt
+
+    @property
+    def llm(self) -> ChatModel:
+        return self._llm
+
+    @property
+    def tts(self) -> TextToSpeech:
+        return self._tts
+
+    @property
+    def dialogue(self) -> DialogueStore:
+        return self._dialogue
+
+    @property
+    def metrics(self) -> MetricsStore:
+        return self._metrics
+
+    async def complete_live_notes(self, transcript: str) -> list[Correction]:
+        started = time.perf_counter()
+        deadline_at = time.monotonic() + self._notes_timeout_seconds
+        attempts = 0
+
+        def attempt_started() -> None:
+            nonlocal attempts
+            attempts += 1
+
+        try:
+            run = await asyncio.wait_for(
+                self._llm.complete_notes_result(
+                    transcript, deadline_at=deadline_at, attempt_started=attempt_started,
+                ),
+                self._notes_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            run = CorrectionRun([], "deadline", attempts)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live correction failed; outcome=other_error error=%s", type(exc).__name__)
+            run = CorrectionRun([], "other_error", attempts)
+
+        attempts = run.attempts
+        elapsed_ms = _elapsed_ms(started)
+        current = _job_timings.get()
+        if current is not None:
+            current["notes"] = elapsed_ms
+        logger.info("live correction outcome=%s attempts=%s elapsed_ms=%s", run.outcome, attempts, elapsed_ms)
+        try:
+            await asyncio.wait_for(
+                self._metrics.record_correction(run.outcome, elapsed_ms, attempts),
+                CORRECTION_METRICS_TIMEOUT_SECONDS,
+            )
+            if self._v2 is not None and run.outcome not in {"shown", "filtered", "empty"}:
+                await self._v2.record_error("", "corrections", run.outcome)
+        except Exception:
+            logger.exception("failed to record correction outcome")
+        return run.corrections
+
+    @property
+    def streaks(self) -> StreakStore:
+        return self._streaks
+
+    async def run(
+        self,
+        session_id: str,
+        audio: bytes,
+        content_type: str,
+        filename: str,
+        profile_note: str | None = None,
+        on_stage: Callable[[str], None] | None = None,
+        turn_id: str | None = None,
+        attempt_id: str | None = None,
+    ) -> PipelineResult:
+        started = time.perf_counter()
+        platform = None
+        if session_id.startswith("app-") and self._v2 is not None:
+            try:
+                platform = await self._v2.platform_of(session_id)
+            except Exception:
+                logger.warning("could not resolve client platform for provider logs")
+        bound = bind_metrics(session_id, platform)
+        try:
+            return await self._run_bound(session_id, audio, content_type, filename, profile_note, started,
+                                         on_stage, turn_id or attempt_id, attempt_id)
+        finally:
+            reset_metrics(bound)
+
+    async def _run_bound(self, session_id, audio, content_type, filename, profile_note, started,
+                         on_stage, turn_id, attempt_id):
+        timings = _job_timings.get()
+        if timings is None:
+            timings = {}
+        def stage(name: str) -> None:
+            if on_stage is not None:
+                on_stage(name)
+
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        method = active_call.get("durationMethod", "recording") if active_call else "recording"
+        stt_started = time.perf_counter()
+        stage("stt")
+        try:
+            if self.speech_meter is not None:
+                stt_result, speech_time = await self.speech_meter.transcribe(
+                    self._stt, audio, content_type, filename, method=method,
+                )
+            else:
+                stt_result = await self._stt.transcribe(audio, content_type, filename)
+                speech_time = (SpeechTime(stt_result.duration_seconds, stt_result.duration_seconds,
+                                          "recording_fallback", "disabled") if method == "vad"
+                               else recording_time(stt_result.duration_seconds))
+        except Exception:
+            if self._v2 is not None:
+                await self._v2.record_error(session_id, "stt", "failed")
+            raise
+        finally:
+            timings["stt"] = _elapsed_ms(stt_started)
+        stt_ms = timings["stt"]
+        timings["vad"] = speech_time.vad_ms
+        await record_artifact("transcript", stt_result.text)
+        if self._v2 is not None:
+            await self._v2.record_stt(session_id, getattr(self._stt, "_model", "stt"), stt_result.duration_seconds)
+
+        active_call = await self.calls.open_call_today(session_id) if self.calls is not None else None
+        scenario = active_call.get("scenario") if active_call else None
+        mode = ConversationMode.SITUATION if scenario is not None else ConversationMode.FREE
+        route = (ConversationRoute(mode, Personality(active_call["character"]))
+                 if active_call and active_call.get("character") in {"speaky", "kora_h"}
+                 else await self.routing.resolve(session_id, mode))
+        kora = route.personality == Personality.KORA_H
+        if _should_clarify(stt_result):
+            tts_started = time.perf_counter()
+            stage("tts")
+            reply_audio = await self.personality.synthesize(session_id, route, SpokenTurn(CLARIFY_TEXT), guided=False)
+            timings.update({"stt": stt_ms, "llm": 0, "tts": _elapsed_ms(tts_started)})
+            finalize_started = time.perf_counter()
+            stage("metrics")
+            await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(CLARIFY_TEXT))
+            if self._v2 is not None:
+                await self._v2.record_turn(session_id)
+            await self._metrics.record_exchange(session_id)
+            streak = None if load_test_active() else await self._record_streak(session_id)
+            call = None if load_test_active() else await self._call_summary(session_id)
+            timings["finalize"] = _elapsed_ms(finalize_started)
+            timings["total"] = _elapsed_ms(started)
+            logger.info("clip pipeline clarify session=%s timings_ms=%s", session_id, timings)
+            return PipelineResult(
+                audio=reply_audio,
+                transcript=stt_result.text,
+                reply_text=CLARIFY_TEXT,
+                timings_ms=timings,
+                corrections=[],
+                streak=streak,
+                call=call,
+            )
+
+        context_started = time.perf_counter()
+        stage("state")
+        history_started = time.perf_counter()
+        history_context = (self.history.target(session_id, route) if mode == ConversationMode.SITUATION
+                           else await self.history.load(session_id, route))
+        timings["contextHistory"] = _elapsed_ms(history_started)
+        call_started = time.perf_counter()
+        scenario_call = None
+        if self.calls is not None and await self.calls.is_open_today(session_id):
+            call_summary = await self.calls.summary(session_id)
+            if call_summary is not None:
+                candidate = await self.calls.get(call_summary["callId"])
+                if candidate is not None and candidate.get("scenario"):
+                    scenario_call = candidate
+        timings["contextCall"] = _elapsed_ms(call_started)
+        if scenario_call is not None:
+            history_context = self.history.situation(history_context, scenario_call)
+        personalization_started = time.perf_counter()
+        if self.personalization is not None:
+            profile_note = await self.personalization.prepare(session_id)
+        timings["contextPersonalization"] = _elapsed_ms(personalization_started)
+        if scenario_call is not None:
+            scenario = scenario_call["scenario"]
+            verified_context = (profile_note or "").partition("Context data:\n")[2]
+            profile_note = (ROLEPLAY_CONTEXT_PREFIX +
+                "Adapt language to the learner's verified proficiency. Scenario data: " +
+                json.dumps(scenario, ensure_ascii=False) + "\nVerified context data: " + verified_context)
+        timings.update({"stt": stt_ms, "context": _elapsed_ms(context_started)})
+
+        async def measured(name: str, operation):
+            step_started = time.perf_counter()
+            try:
+                return await operation
+            except Exception as error:
+                operation_stage = "tts" if name == "tts" else "llm" if name in {"reply", "notes"} else "state"
+                error._speaky_stage = operation_stage
+                raise
+            finally:
+                timings[name] = _elapsed_ms(step_started)
+
+        tasks = [asyncio.create_task(measured("notes", self.complete_live_notes(stt_result.text)))]
+        try:
+            stage("llm")
+            reply = await measured("reply", self.personality.reply(route, history_context, stt_result.text,
+                                                                    profile_note))
+            reply_text = reply.text
+            if kora:
+                await record_artifact("reply_draft", reply_text)
+                await record_artifact("reply", reply_text)
+            else:
+                await record_artifact("reply", reply_text)
+            tts_task = asyncio.create_task(measured("tts", self.personality.synthesize(
+                session_id, route, reply, history=history_context, user=stt_result.text)))
+            tasks.append(tts_task)
+            dialogue_started = time.perf_counter()
+            stage("state")
+            if scenario_call is None and not load_test_active() and not kora and not self.history.is_shared(history_context):
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
+            timings["dialogue"] = _elapsed_ms(dialogue_started)
+            stage("tts")
+            corrections, reply_audio = await asyncio.gather(tasks[0], tts_task)
+            if kora:
+                reply_text = reply_audio.spoken_text or reply_text
+                await record_artifact("reply", reply_text)
+            if (kora or self.history.is_shared(history_context)) and not load_test_active():
+                await self.history.record(history_context, stt_result.text, reply_text, turn_id=turn_id)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        timings["llm"] = max(timings["reply"], timings["notes"])
+        finalize_started = time.perf_counter()
+        stage("metrics")
+        await self._metrics.record_turn(session_id, stt_result.duration_seconds, len(reply_text))
+        if self._v2 is not None:
+            await self._v2.record_turn(session_id)
+        await self._metrics.record_exchange(session_id)
+        streak = None if load_test_active() else await self._record_streak(session_id)
+        call = None if load_test_active() else await self._record_call(
+            session_id, stt_result, speech_time, reply_text, corrections, attempt_id,
+        )
+        timings["finalize"] = _elapsed_ms(finalize_started)
+        timings["total"] = _elapsed_ms(started)
+        logger.info("clip pipeline ok session=%s timings_ms=%s", session_id, timings)
+        return PipelineResult(
+            audio=reply_audio,
+            transcript=stt_result.text,
+            reply_text=reply_text,
+            timings_ms=timings,
+            corrections=list(corrections),
+            streak=streak,
+            call=call,
+            memory_eligible=scenario_call is None and not load_test_active(),
+        )
+
+    async def _record_call(self, session_id: str, stt_result: SttResult, speech_time: SpeechTime,
+                           reply_text: str, corrections: list[Correction], attempt_id: str | None) -> dict | None:
+        if self.calls is None:
+            return None
+        await self.record_partial("call_turn", "attempted")
+        try:
+            result = await self.calls.append_turn(
+                session_id,
+                stt_result.text,
+                reply_text,
+                [item.to_json() for item in corrections],
+                speech_time.speech_seconds,
+                stt_result.words,
+                recording_seconds=speech_time.recording_seconds,
+                duration_source=speech_time.source,
+                duration_fallback_reason=speech_time.fallback_reason,
+                attempt_id=attempt_id,
+            )
+            await self.record_partial("call_turn", "succeeded")
+            return {**result, "recognizedSeconds": speech_time.speech_seconds,
+                    "recordingSeconds": speech_time.recording_seconds,
+                    "durationSource": speech_time.source,
+                    "durationFallbackReason": speech_time.fallback_reason,
+                    } if result is not None else None
+        except Exception as error:
+            await self.record_partial("call_turn", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+            logger.exception("call turn failed session=%s", session_id)
+            return None
+
+    async def _call_summary(self, session_id: str) -> dict | None:
+        if self.calls is None:
+            return None
+        await self.record_partial("call_summary", "attempted")
+        try:
+            result = await self.calls.summary(session_id)
+            await self.record_partial("call_summary", "succeeded")
+            return result
+        except Exception as error:
+            await self.record_partial("call_summary", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+            logger.exception("call summary failed session=%s", session_id)
+            return None
+
+    async def _record_streak(self, session_id: str) -> StreakUpdate | None:
+        await self.record_partial("streak", "attempted")
+        try:
+            result = await self._streaks.record_activity(session_id)
+            await self.record_partial("streak", "succeeded")
+            return result
+        except Exception as error:
+            await self.record_partial("streak", "failed", "timeout" if isinstance(error, TimeoutError) else "internal")
+            logger.exception("streak update failed session=%s", session_id)
+            return None
+
+    async def record_partial(self, feature: str, outcome: str, reason: str = "unknown") -> None:
+        try:
+            await asyncio.wait_for(self._metrics.record_partial(feature, outcome, reason=reason), PARTIAL_METRICS_TIMEOUT_SECONDS)
+        except Exception:
+            logger.exception("failed to record partial feature result feature=%s outcome=%s", feature, outcome)
+
+
+def _should_clarify(result: SttResult) -> bool:
+    return result.no_speech or not result.text.strip()
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)

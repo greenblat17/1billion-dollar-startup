@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app.foundation_client import BackendFailure, FoundationClient
+from app.personalized_roadmap import read_roadmap_tasks
 from test_foundation_http import actor, now
 
 
@@ -43,6 +44,7 @@ async def test_task_lifecycle_http_and_independent_topic_knowledge():
         assert history[0]['previous_state']['lifecycle'] == 'Reopened'
         tasks = await backend.learning_tasks(scope, topic_id=topic['id'], problem_id='grammar_application')
         assert [t['id'] for t in tasks['items']] == [task['id']]
+        assert await read_roadmap_tasks(backend, scope) == [task]
         assert (await backend.topic_knowledge(scope, catalog['version'], topic_id=topic['id']))['items'][0]['status'] == 'Unknown'
         other = await actor(http, root, token, str(time.time_ns()))
         with pytest.raises(BackendFailure, match='not_owned'):

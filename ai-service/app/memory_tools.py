@@ -1,10 +1,9 @@
 """Native memory tools shared by Telegram and server-owned Realtime."""
-import hashlib
-import json
 from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.foundation_client import tool_operation_id
 from app.student_learning_state import personal_key
 
 
@@ -87,5 +86,5 @@ async def execute_memory(backend, scope, request_id, source, name, arguments):
         return await backend.command(scope, uuid4().hex, action, args)
     if not source or args['evidence'] not in source['body']:
         raise ValueError('invalid_evidence')
-    identity = hashlib.sha256(json.dumps([request_id, name, arguments], sort_keys=True).encode()).hexdigest()
+    identity = tool_operation_id(request_id, name, arguments)
     return await backend.command(scope, identity, action, {'sourceId': source['id'], **args})

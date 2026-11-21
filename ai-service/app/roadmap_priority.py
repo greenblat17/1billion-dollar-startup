@@ -5,11 +5,12 @@ Its caller supplies explicit learner decisions and personal prerequisite Task ID
 """
 from __future__ import annotations
 
+from app.personalized_roadmap import LEVELS, read_roadmap_tasks
+
 
 REVIEW_TRIGGERS = {'initial', 'post_lesson_review', 'goal_change', 'learner_request',
                    'task_mastered', 'proposal_accepted'}
 ACTIVE = {'Identified', 'In Progress', 'Reopened'}
-LEVELS = ('A1', 'A2', 'B1', 'B2', 'C1')
 
 
 def prioritize(roadmap: dict, tasks: list[dict], *, trigger: str,
@@ -142,16 +143,7 @@ class RoadmapPriorityService:
                      goal_focus_task_ids: list[str] | None = None) -> dict:
         roadmap = (await self.backend.learning_roadmap(scope))['roadmap']
         priority = await self.backend.learning_roadmap_priority(scope)
-        tasks = []
-        offset = 0
-        while True:
-            page = await self.backend.learning_tasks(scope, offset=offset)
-            tasks.extend(page['items'])
-            offset = page.get('nextOffset')
-            if offset is None:
-                break
-            if len(tasks) > 1000:
-                raise ValueError('learning_task_limit')
+        tasks = await read_roadmap_tasks(self.backend, scope)
         current = (priority.get('priority') or {}).get('document') or {}
         decisions = priority['problemDecisions']
         knowledge = {}

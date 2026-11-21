@@ -32,6 +32,12 @@ class UpdatePersonalContext(UpdateContext):
     facts: list[PersonalFact] = Field(max_length=20)
 
 
+def assessed_content_level(state: dict, skill_id: str) -> str:
+    levels = state['profile']['currentLevels']['speaky']
+    skill_level = levels['skills'][skill_id]['level']
+    return skill_level if skill_level != 'Unknown' else levels['overall']['level']
+
+
 def learning_context(snapshot: dict, budget: int) -> tuple[dict | None, dict | None]:
     """Bound prompt material without changing stored assessments; full evidence remains available through the API."""
     from copy import deepcopy

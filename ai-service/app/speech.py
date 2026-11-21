@@ -4,8 +4,7 @@ from redis.asyncio import Redis
 
 from app.tts import TextToSpeech, TtsAudio
 from app.operational_metrics import telegram_stage
-
-SPEED_CHOICES = (0.8, 0.9, 1.0)
+from app.speech_speed import SPEED_CHOICES, validate_speech_speed
 
 
 class SpeechSpeedStore:
@@ -24,8 +23,7 @@ class SpeechSpeedStore:
         return value if value in SPEED_CHOICES else None
 
     async def set(self, session_id: str, speed: float) -> None:
-        if isinstance(speed, bool) or speed not in SPEED_CHOICES:
-            raise ValueError("unsupported speech speed")
+        validate_speech_speed(speed)
         if self._redis is None:
             self._memory[session_id] = speed
         else:
