@@ -202,6 +202,36 @@ def test_client_report_keeps_only_valid_action_and_server_link(caplog, action, s
     assert 'PRIVATE_' not in caplog.text and 'SECRET_INIT' not in caplog.text
 
 
+@pytest.mark.parametrize(('action', 'result', 'writer', 'reason'), [
+    ('calendar', {'lesson': {}}, 'miniapp_calendar_export', 'calendar_export_failed'),
+    ('audio', {'objects': [{'object_key': 'PRIVATE_OBJECT'}]}, 'miniapp_audio_links', 'audio_signing_failed'),
+])
+def test_miniapp_calendar_and_audio_failures_link_to_one_primary_record(
+        monkeypatch, caplog, action, result, writer, reason):
+    from fastapi.testclient import TestClient
+    from app import speaky_main
+
+    monkeypatch.setenv('SPEAKY_ENV', 'local')
+    monkeypatch.setenv('AI_INTERNAL_TOKEN', 'private-test-token')
+    monkeypatch.setenv('OPENAI_API_KEY', 'private-model-token')
+    monkeypatch.setenv('FOUNDATION_BACKEND_URL', 'http://127.0.0.1:1')
+    monkeypatch.setenv('TRIAL_AUDIO_BUCKET', 'placeholder')
+    monkeypatch.setattr(speaky_main.FoundationClient, '_request', AsyncMock(return_value=result))
+    storage = SimpleNamespace(cleanup=AsyncMock(), link=AsyncMock(side_effect=RuntimeError('PRIVATE_SIGNING')))
+    monkeypatch.setattr(speaky_main, 'TrialAudioStore', lambda *_: storage)
+
+    caplog.set_level(logging.INFO)
+    with TestClient(speaky_main.create_app()) as client:
+        response = client.post('/miniapp/api', json={'action': action, 'initData': 'PRIVATE_INIT'})
+    assert response.status_code == 500
+    [primary, boundary] = [row for row in records(caplog) if row['trace_id'] == response.headers['X-Diagnostic-Trace']]
+    assert (primary['event'], primary['outcome'], primary['reason_code']) == (writer, 'failed', reason)
+    assert boundary['event'] == 'http_failed'
+    assert primary['error_id'] == boundary['error_id'] == response.headers['X-Error-ID']
+    assert 'stack' in primary and 'stack' not in boundary
+    assert 'PRIVATE_' not in caplog.text
+
+
 def test_voice_socket_uses_one_server_trace_through_rejection(caplog):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient

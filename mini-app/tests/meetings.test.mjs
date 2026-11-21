@@ -5,7 +5,7 @@ import {loadModule} from './helpers/load-module.mjs';
 
 test('real agreed regular meetings remain joinable without treating demo as subscription',async()=>{
  const elements=new Map(),diagnostics=[];
- let rejectMeetings=false,demoAttempts=0;
+ let meetingsFailure,emptyMeetings=false,demoAttempts=0;
  const element=()=>({children:[],append(...children){this.children.push(...children);},replaceChildren(){this.children=[];}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const lesson={kind:'regular',starts_at:'2026-11-15T12:00:00Z',timezone:'UTC',status:'scheduled'};
@@ -17,7 +17,10 @@ test('real agreed regular meetings remain joinable without treating demo as subs
    if(url==='/miniapp/diagnostics'){diagnostics.push(body);return {ok:true};}
    if(body.action==='demo_pay'&&++demoAttempts===1)throw Error('UNSAFE_PAYMENT_ERROR');
    if(body.action==='demo_pay')return {ok:true,json:async()=>({success:true})};
-   if(rejectMeetings)throw Error('UNSAFE_MEETINGS_ERROR');
+   if(meetingsFailure==='transport')throw Error('UNSAFE_MEETINGS_ERROR');
+   if(meetingsFailure==='parse')return {ok:true,json:async()=>{throw Error('UNSAFE_MEETINGS_RESPONSE');}};
+   if(meetingsFailure==='render')return {ok:true,json:async()=>({lessons:null})};
+   if(emptyMeetings)return {ok:true,json:async()=>({lessons:[],schedules:[],demoReceipts:[]})};
    return {ok:true,json:async()=>({lessons:[{...lesson,id:'real',launch_mode:'executable'},
    {...lesson,id:'demo',launch_mode:'placeholder'},
    {...lesson,id:'done',launch_mode:'executable',status:'completed'},
@@ -48,11 +51,18 @@ test('real agreed regular meetings remain joinable without treating demo as subs
  await pay.onclick();
  assert.equal(pay.disabled,true);
  assert.equal(pay.textContent,'Тестовая оплата подтверждена');
- rejectMeetings=true;
- await get('retry').onclick();await get('retry').onclick();
+ emptyMeetings=true;
+ await get('retry').onclick();
+ assert.deepEqual(get('meetings').children,[]);
+ assert.match(get('lobby-note').textContent,/Встреч пока нет/);
+ for(const stage of ['transport','parse','render']){
+  meetingsFailure=stage;
+  await get('retry').onclick();
+ }
  assert.deepEqual(diagnostics,[
   {initData:'signed',action:'demo_pay',stage:'transport',code:'request_failed'},
   {initData:'signed',action:'meetings',stage:'transport',code:'request_failed'},
-  {initData:'signed',action:'meetings',stage:'transport',code:'request_failed'},
+  {initData:'signed',action:'meetings',stage:'parse',code:'invalid_response'},
+  {initData:'signed',action:'meetings',stage:'render',code:'render_failed'},
  ]);
 });

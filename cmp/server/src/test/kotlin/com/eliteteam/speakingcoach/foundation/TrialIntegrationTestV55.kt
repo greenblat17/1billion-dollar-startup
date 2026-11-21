@@ -381,13 +381,26 @@ class TrialIntegrationTestV55 {
             val invalid = JsonObject(result + json("topics" to JsonArray(listOf(json(
                 "topicId" to "invented-topic", "status" to "Known", "explanation" to "Invalid ID",
                 "observationRefs" to refs)))))
-            assertEquals("catalog_topic_not_found", assertFailsWith<FoundationFailure> {
-                s.op(operator, "job.apply", json("jobId" to assess.text("id"),
-                    "fence" to assess.number("fence"), "result" to invalid))
-            }.code)
-            assertEquals(prior.number("revision"), s.learningState(operator).number("revision"))
-            assertEquals("succeeded", s.op(operator, "job.apply", json("jobId" to assess.text("id"),
-                "fence" to assess.number("fence"), "result" to result)).text("status"))
+            DiagnosticOutput().use { logs ->
+                assertEquals("catalog_topic_not_found", assertFailsWith<FoundationFailure> {
+                    s.op(operator, "job.apply", json("jobId" to assess.text("id"),
+                        "fence" to assess.number("fence"), "result" to invalid))
+                }.code)
+                assertEquals(prior.number("revision"), s.learningState(operator).number("revision"))
+                assertTrue(logs.events().none { it.text("event") == "trial_assessment_saved" })
+                val apply = json("jobId" to assess.text("id"), "fence" to assess.number("fence"), "result" to result)
+                repeat(2) {
+                    assertEquals("succeeded", s.op(operator, "job.apply", apply, "assessment-apply-once").text("status"))
+                }
+                val saved = logs.events().single { it.text("event") == "trial_assessment_saved" }
+                assertEquals("completed", saved.text("outcome"))
+                assertEquals(l.text("id"), saved.text("lesson_id"))
+                assertEquals(assess.text("id"), saved.text("job_id"))
+                assertEquals(assess.number("fence"), saved.number("fence"))
+                assertEquals(observe.text("id"), saved.text("source_job_id"))
+                assertEquals(s.learningState(operator).number("revision"), saved.number("learning_revision"))
+                assertEquals(2L, saved.number("count"))
+            }
             val state = s.learningState(operator)
             assertEquals("A2", state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("grammar").text("level"))
             assertEquals("Unknown", state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("listening").text("level"))

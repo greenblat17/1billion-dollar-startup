@@ -180,18 +180,41 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             raise HTTPException(400)
         try:
             result = await backend._request('POST', '/trial/access', '', json=payload)
-            if payload['action'] == 'calendar':
-                return calendar_export(result['lesson'])
-            if payload['action'] == 'audio':
-                if audio_store is None:
-                    raise HTTPException(503, 'recording_unavailable')
-                for item in result['objects']:
-                    item['url'] = await audio_store.link(item['object_key'])
-            return result
         except BackendFailure as error:
             raise HTTPException(error.status, error.code, headers={
                 'X-Error-ID': error._diagnostic_error_id,
             } if getattr(error, '_diagnostic_error_id', None) else None) from None
+        if payload['action'] == 'calendar':
+            try:
+                exported = calendar_export(result['lesson'])
+            except Exception as error:
+                event(EventSpec('miniapp_calendar_export', 'trial_api', 'miniapp.calendar', 'export',
+                                'failed', 'The AI service could not generate the lesson calendar.',
+                                'calendar_export_failed', logging.WARNING), error=error)
+                raise
+            event(EventSpec('miniapp_calendar_export', 'trial_api', 'miniapp.calendar', 'export',
+                            'completed', 'The AI service generated the lesson calendar.'))
+            return exported
+        if payload['action'] == 'audio':
+            if audio_store is None:
+                error_id = event(EventSpec('miniapp_audio_links', 'trial_api', 'miniapp.audio', 'sign',
+                                           'failed', 'Audio links are unavailable because storage is unconfigured.',
+                                           'recording_unavailable', logging.WARNING))
+                raise HTTPException(503, 'recording_unavailable',
+                                    headers={'X-Error-ID': error_id} if error_id else None)
+            try:
+                for item in result['objects']:
+                    item['url'] = await audio_store.link(item['object_key'])
+            except Exception as error:
+                event(EventSpec('miniapp_audio_links', 'trial_api', 'miniapp.audio', 'sign',
+                                'failed', 'The AI service could not sign the lesson audio links.',
+                                'audio_signing_failed', logging.WARNING), error=error)
+                raise
+            if result['objects']:
+                event(EventSpec('miniapp_audio_links', 'trial_api', 'miniapp.audio', 'sign',
+                                'completed', 'The AI service signed the lesson audio links.',
+                                fields=frozenset({'count'})), count=len(result['objects']))
+        return result
 
     @app.post('/miniapp/diagnostics')
     async def client_diagnostic(request: Request):

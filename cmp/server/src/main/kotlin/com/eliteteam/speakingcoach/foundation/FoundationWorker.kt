@@ -131,8 +131,9 @@ internal class FoundationWorker(
 
     private suspend fun runJob(job: JsonObject) {
         val kind = job.text("kind")
+        val retention = kind == "retention.prune"
         val fields = mapOf("operation" to kind, "job_kind" to kind)
-        RuntimeDiagnostics.record(Event("foundation_job", kind, "claim", Outcome.STARTED,
+        if (!retention) RuntimeDiagnostics.record(Event("foundation_job", kind, "claim", Outcome.STARTED,
             "Worker claimed a $kind job attempt."), fields + ("job_status" to "running"))
         val execution = service.identity.issueJob(job)
         val started = System.nanoTime()
@@ -140,13 +141,14 @@ internal class FoundationWorker(
         fun attemptFields() = fields + mapOf("duration_ms" to RuntimeDiagnostics.elapsed(started), "renewals" to renewals.toString())
         var stage = "compute"
         try {
-            val result = if (kind == "retention.prune") json()
+            val result = if (retention) json()
                 else kotlinx.coroutines.withTimeout(150_000) { computeWithRenewal(execution, job, renewals) }
             stage = "persist"
             val receipt = service.command(execution, json("version" to 1,
                 "operationId" to "job:${job.text("id")}:${job.number("fence")}:apply",
                 "action" to "job.apply", "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"), "result" to result)))
             val status = receipt.text("status")
+            if (retention && status == "succeeded") return
             val event = if (status == "superseded") Event("foundation_job", kind, stage, Outcome.SUPERSEDED,
                 "Foundation kept its current state because the $kind result was superseded.", "result_superseded")
             else Event("foundation_job", kind, stage, Outcome.COMPLETED, "Foundation saved the $kind job result.")

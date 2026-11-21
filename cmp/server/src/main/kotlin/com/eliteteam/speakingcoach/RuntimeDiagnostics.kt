@@ -50,7 +50,7 @@ internal object RuntimeDiagnostics {
         "count", "renewals", "roadmap_revision", "suppressed_count", "audio_marked_for_purge",
         "trial_events_deleted", "conversation_events_cleared", "inbox_responses_cleared",
         "operation_results_cleared", "memory_candidates_expired", "tutor_summaries_deleted",
-        "jobs_expired", "execution_scopes_deleted")
+        "jobs_expired", "execution_scopes_deleted", "learning_revision")
     private val environment = System.getenv("SPEAKY_ENV")?.takeIf { it in setOf("dev", "prod", "local", "test") } ?: "unknown"
     private val release = System.getenv("SPEAKY_RELEASE")?.takeIf { Regex("[a-f0-9]{7,64}").matches(it) } ?: "unknown"
     private val lost = AtomicLong()

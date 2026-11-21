@@ -167,7 +167,8 @@ internal class FoundationJobs {
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.review" -> PostLessonReview().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
-            "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now, job.text("id"))
+            "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"),
+                inputs, result, now, JobAttemptRef(job.text("id"), job.number("fence")))
             "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now,
                 JobAttemptRef(job.text("id"), job.number("fence")))
             "roadmap.prioritize" -> {

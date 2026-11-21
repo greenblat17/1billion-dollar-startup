@@ -54,15 +54,25 @@ class FoundationIntegrationTest {
                 assertEquals(secret, service.database.transaction(readOnly = true) { c, _ ->
                     c.rows("SELECT body FROM conversation_event WHERE id=?", eventId) { it.getString(1) }.single()
                 })
-                assertEquals(1L, service.op(operator, "retention.prune", json()).number("eventsPruned"))
+                val jobId = service.database.transaction { c, now ->
+                    c.enqueueJob(student, "retention.prune", "retention-fixture", null, json(), now)
+                }
+                val worker = FoundationWorker(service, object : LearningComputer {
+                    override suspend fun compute(scope: String, job: JsonObject): JsonObject =
+                        error("retention must not call a model")
+                })
+                assertTrue(worker.runOnce())
                 assertEquals(0L, service.op(operator, "retention.prune", json()).number("eventsPruned"))
                 val summary = logs.events().single { it.text("event") == "foundation_retention" }
                 assertEquals("retention.prune", summary.text("operation"))
                 assertEquals("commit", summary.text("stage"))
                 assertEquals("completed", summary.text("outcome"))
                 assertEquals("retention_deadline_reached", summary.text("reason_code"))
+                assertEquals(jobId, summary.text("job_id"))
+                assertEquals(1L, summary.number("fence"))
                 assertEquals(1L, summary.number("conversation_events_cleared"))
                 assertEquals(0L, summary.number("trial_events_deleted"))
+                assertTrue(logs.events().none { it.text("event") == "foundation_job" })
                 assertTrue(logs.lines().none { secret in it })
             }
         }
@@ -97,6 +107,46 @@ class FoundationIntegrationTest {
                 assertEquals("failed", service.database.transaction { c, _ ->
                     c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", jobId)!!.text("status")
                 })
+            }
+        }
+    }
+
+    @Test
+    fun claimDistinguishesStaleWorkAndDeferredPreparationFromAnEmptyQueue() = runTest {
+        val clock = MutableClock(Instant.parse("2026-11-21T10:00:00Z"))
+        withStore(clock) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            suspend fun regular(later: Long, launchMode: String) = service.op(operator, "lesson.create", json(
+                "kind" to "regular", "launchMode" to launchMode, "startsAt" to clock.instant().plusSeconds(later).toString(),
+                "durationMinutes" to 15, "timezone" to "UTC"))
+            val original = regular(3_600, "placeholder")
+            val reminder = service.op(operator, "reminder.request", json("lessonId" to original.text("id"),
+                "expectedVersion" to 1, "dueAt" to clock.instant().toString(),
+                "deadline" to clock.instant().plusSeconds(600).toString())).text("jobId")
+            service.op(operator, "lesson.reschedule", json("lessonId" to original.text("id"), "expectedVersion" to 1,
+                "startsAt" to clock.instant().plusSeconds(5_400).toString(), "timezone" to "UTC"))
+            val preparation = regular(7_200, "executable")
+            val prepare = service.database.transaction { c, _ ->
+                c.update("UPDATE lesson SET status='completed' WHERE id=?", original.text("id"))
+                c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE target_id=? AND kind='lesson.prepare'",
+                    preparation.text("id"))!!.text("id")
+            }
+            DiagnosticOutput().use { logs ->
+                repeat(2) {
+                    assertEquals(null, service.op(operator, "job.claim", json("kind" to "notification.reminder")).optionalText("job"))
+                    assertEquals(null, service.op(operator, "job.claim", json("kind" to "lesson.prepare")).optionalText("job"))
+                }
+                val entries = logs.events()
+                assertEquals(listOf("superseded", "deferred"), entries.map { it.text("outcome") })
+                assertEquals(listOf("source_superseded", "pending_evaluation"), entries.map { it.text("reason_code") })
+                assertEquals(listOf(reminder, prepare), entries.map { it.text("job_id") })
+            }
+            service.database.transaction(readOnly = true) { c, now ->
+                val after = c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", prepare)!!
+                assertEquals("queued", after.text("status"))
+                assertEquals(now.plusSeconds(5), Instant.parse(after.text("due_at")))
+                assertEquals("superseded", c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", reminder)!!.text("status"))
             }
         }
     }
@@ -1061,10 +1111,18 @@ class FoundationIntegrationTest {
         withStore(clock) { service ->
             fun envelope(update: Long, message: Long) = json("update_id" to update, "message" to json(
                 "message_id" to message, "chat" to json("id" to 9001, "type" to "private"),
-                "from" to json("id" to 9001), "text" to "Hello", "date" to clock.instant().epochSecond))
+                "from" to json("id" to 9001), "text" to "PRIVATE_INTAKE_TEXT", "date" to clock.instant().epochSecond))
             val one = envelope(1, 1)
-            assertTrue(service.telegramIntake.accept(one))
-            assertTrue(service.telegramIntake.accept(one))
+            DiagnosticOutput().use { logs ->
+                assertTrue(service.telegramIntake.accept(one))
+                assertTrue(service.telegramIntake.accept(one))
+                val records = logs.events()
+                assertEquals(listOf("completed", "replayed"), records.map { it.text("outcome") })
+                assertTrue(records.all { it.text("event") == "telegram_text_intake" && it.text("stage") == "persist" })
+                assertTrue(records.all { it.text("trace_id") == telegramTextTrace(9001, 1) })
+                assertEquals("duplicate_update", records.last().text("reason_code"))
+                assertTrue(logs.lines().none { "PRIVATE_INTAKE_TEXT" in it })
+            }
             service.telegramIntake.accept(envelope(2, 2))
             val recreated = TelegramTextIntake(service.database)
             assertEquals(1L, recreated.claim()!!.number("update_id"))

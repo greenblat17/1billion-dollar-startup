@@ -10,13 +10,13 @@ import kotlinx.serialization.json.JsonObject
 /** Applies a one-time Trial diagnosis through SP-03 writers under the job fence and student lock. */
 internal class TrialAssessment {
     fun apply(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject,
-              result: JsonObject, now: Instant, assessmentJobId: String): Boolean {
+              result: JsonObject, now: Instant, attempt: JobAttemptRef): Boolean {
         result.only("schemaVersion", "catalogVersion", "baseLearningRevision", "observationRefs", "levels", "topics", "coverage")
         if (result.number("schemaVersion") != 1L) reject("invalid_result")
         fun superseded(reason: String, detail: String): Boolean {
             FoundationDatabase.recordAfterCommit(Event("trial_assessment_superseded", "trial.assess", "apply", Outcome.SUPERSEDED,
                 "Foundation did not apply Trial Assessment because $detail.", reason),
-                mapOf("lesson_id" to lessonId, "job_id" to assessmentJobId))
+                mapOf("lesson_id" to lessonId, "job_id" to attempt.id, "fence" to attempt.fence.toString()))
             return false
         }
         val lesson = c.lesson(scope, lessonId)
@@ -151,18 +151,23 @@ internal class TrialAssessment {
                 "component" to "post-trial-assessment", "sources" to sourceArray(refs(item["observationRefs"]))), now)
         }
         val assessed = StudentLearningState().read(c, scope.studentId, now)
+        val learningRevision = assessed.number("revision")
+        FoundationDatabase.recordAfterCommit(Event("trial_assessment_saved", "trial.assess", "apply",
+            Outcome.COMPLETED, "Foundation applied the Trial Assessment."),
+            mapOf("lesson_id" to lessonId, "job_id" to attempt.id, "fence" to attempt.fence.toString(),
+                "source_job_id" to observedJob.text("id"), "learning_revision" to learningRevision.toString(),
+                "count" to active.size.toString()))
         val targetLevel = assessed.obj("profile").text("targetLevel")
         val goal = assessed["goal"] as? JsonObject
         val hasTargetLevel = targetLevel in LearningCatalogModel.levels
         val hasGoal = goal?.obj("content")?.optionalText("value")?.isNotBlank() == true
         if (hasTargetLevel && hasGoal) {
-            val learningRevision = assessed.number("revision")
             val knowledgeDigest = PersonalizedRoadmap().knowledgeDigest(c, scope.studentId, catalogVersion)
             c.enqueueJob(scope.studentId, "roadmap.generate",
                 "$lessonId:${inputs.number("transcriptRevision")}:$learningRevision:$knowledgeDigest:personalized-roadmap-v1", lessonId,
                 json("transcriptRevision" to inputs.number("transcriptRevision"),
                     "learningRevision" to learningRevision, "goalRevision" to goal.number("revision"),
-                    "catalogVersion" to catalogVersion, "knowledgeDigest" to knowledgeDigest), now, sourceJobId = assessmentJobId)
+                    "catalogVersion" to catalogVersion, "knowledgeDigest" to knowledgeDigest), now, sourceJobId = attempt.id)
         } else {
             val (reason, message) = when {
                 !hasTargetLevel && !hasGoal -> "missing_goal_and_target_level" to "the learner's goal and target level are missing"
@@ -171,7 +176,7 @@ internal class TrialAssessment {
             }
             FoundationDatabase.recordAfterCommit(Event("trial_roadmap_decision", "roadmap.generate", "enqueue", Outcome.SKIPPED,
                 "Roadmap generation was skipped because $message.", reason),
-                mapOf("lesson_id" to lessonId, "source_job_id" to assessmentJobId))
+                mapOf("lesson_id" to lessonId, "source_job_id" to attempt.id))
         }
         return true
     }
