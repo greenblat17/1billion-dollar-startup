@@ -86,10 +86,6 @@ on:
         description: Two synthetic tutor requests after DEV readiness (stop on first failure)
         type: boolean
         default: false
-      logging_smoke:
-        description: Verify release and cross-service logging with one rejected synthetic request
-        type: boolean
-        default: false
       diagnose_tutor:
         description: Print only safe AI tutor error codes from recent DEV logs
         type: boolean
@@ -692,7 +688,7 @@ jobs:
       AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
       AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
       AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
-      LOGGING_SMOKE: ${{ inputs.logging_smoke }}
+      LOGGING_SMOKE: ${{ needs.deploy-server.result == 'success' && needs.deploy-ai.result == 'success' }}
     steps:
       - uses: actions/checkout@v5
       - name: Verify artifacts, health, configuration and internal auth
