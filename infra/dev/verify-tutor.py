@@ -20,11 +20,53 @@ def request(url, token=None, payload=None, context=None):
         return response.status, body
 
 
+def logging_record(container, trace, revision, name, reason):
+    logs = subprocess.check_output(['docker', 'logs', '--since', '10m', '--tail', '2000', container],
+                                   stderr=subprocess.STDOUT).decode(errors='replace')
+    for line in reversed(logs.splitlines()):
+        _, marker, body = line.partition('runtime_event ')
+        if not marker or trace not in body:
+            continue
+        try:
+            row = json.loads(body)
+        except ValueError:
+            continue
+        if (isinstance(row, dict) and row.get('trace_id') == trace and row.get('event') == name
+                and row.get('reason_code') == reason and row.get('release') == revision
+                and row.get('schema_version') == 1 and row.get('environment') == 'dev'):
+            error_id = row.get('error_id')
+            if isinstance(error_id, str) and re.fullmatch(r'[a-f0-9]{32}', error_id):
+                return error_id
+    raise RuntimeError('expected_runtime_event_missing')
+
+
+def logging_probe(port, container, revision):
+    try:
+        request('http://127.0.0.1:' + port + '/miniapp/api', payload={'action': 'list', 'initData': ''})
+    except urllib.error.HTTPError as error:
+        if error.code not in (400, 403) or json.load(error).get('detail') != 'invalid_telegram_auth':
+            raise RuntimeError('logging_probe_unexpected_rejection') from None
+        trace = error.headers.get('X-Diagnostic-Trace', '')
+        if not re.fullmatch(r'[a-f0-9]{32}', trace):
+            raise RuntimeError('logging_probe_trace_missing') from None
+    else:
+        raise RuntimeError('logging_probe_accepted_invalid_telegram_auth')
+        response_error_id = error.headers.get('X-Error-ID', '')
+    if logging_record(container, trace, revision, 'backend_failed', 'backend_rejected') != response_error_id:
+        raise RuntimeError('logging_probe_error_id_mismatch')
+    print('logging_probe_trace=' + trace)
+    print('logging_probe_error_id=' + response_error_id)
+
+
 def main():
     component, revision = sys.argv[1:3]
     container = 'speaking-coach' if component == 'cmp' else 'ai-service'
     info = json.loads(subprocess.check_output(['docker', 'inspect', container]))[0]
     env = dict(item.split('=', 1) for item in info['Config']['Env'] if '=' in item)
+    if '--logging-smoke' in sys.argv:
+        if env.get('SPEAKY_ENV') != 'dev' or env.get('SPEAKY_RELEASE') != revision:
+            raise RuntimeError('logging_probe_release_mismatch')
+        print('runtime_release_verified=' + revision)
     print(json.dumps({'component': component, 'verification_ref': revision, 'image': info['Image'],
                       'running': info['State']['Running'], 'restarts': info['RestartCount'], 'oom': info['State']['OOMKilled']}))
     assert info['State']['Running'] and not info['State']['OOMKilled']
@@ -32,14 +74,6 @@ def main():
     logs = subprocess.check_output(['docker', 'logs', '--since', info['State']['StartedAt'], '--until', startup_end, container], stderr=subprocess.STDOUT).decode(errors='replace')
     markers = ['Application started', 'Application startup complete', 'FlywayValidateException', 'Traceback', 'ERROR']
     print('startup_log_markers=' + json.dumps({m: logs.count(m) for m in markers}))
-    for line in logs.splitlines():
-        if 'ERROR' not in line and 'Caused by:' not in line and not re.match(r'^[\w.$]+(?:Exception|Error):', line):
-            continue
-        for value in env.values():
-            if len(value) >= 8:
-                line = line.replace(value, '[REDACTED]')
-        line = re.sub(r'sk-[A-Za-z0-9_-]+|[0-9]{8,12}:[A-Za-z0-9_-]{30,}', '[REDACTED]', line)
-        print('startup_error_redacted=' + line[:700])
     assert 'FlywayValidateException' not in logs
     if component == 'ai':
         port = info['NetworkSettings']['Ports']['8090/tcp'][0]['HostPort']
@@ -90,6 +124,8 @@ print('trial_audio_credentials_and_bucket_read=passed; write_and_erasure=unverif
                 print(line)
         if result.returncode:
             raise RuntimeError('ai_backend_or_trial_readiness_failed')
+        if '--logging-smoke' in sys.argv:
+            logging_probe(port, container, revision)
         return
     if '--mock-billing' in sys.argv:
         expected = {'SPEAKY_BILLING_PROVIDER': 'mock', 'SPEAKY_BILLING_AMOUNT': '100',
@@ -115,6 +151,13 @@ print('trial_audio_credentials_and_bucket_read=passed; write_and_erasure=unverif
         print('dev_bot_username=', json.loads(body).get('result', {}).get('username'))
     if '--smoke' in sys.argv:
         raise RuntimeError('Legacy synthetic smoke is unavailable in SP-00; use scoped integration tests')
+    if '--logging-smoke' in sys.argv:
+        trace, expected_error_id = sys.argv[-2:]
+        if not all(re.fullmatch(r'[a-f0-9]{32}', value) for value in (trace, expected_error_id)):
+            raise RuntimeError('logging_probe_invalid_trace')
+        if logging_record(container, trace, revision, 'foundation_failed', 'invalid_telegram_auth') != expected_error_id:
+            raise RuntimeError('logging_probe_error_id_mismatch')
+        print('cross_service_logging_probe=passed')
 
 
 if __name__ == '__main__':

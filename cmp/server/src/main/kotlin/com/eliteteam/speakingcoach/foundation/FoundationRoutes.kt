@@ -121,6 +121,10 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
             "job_id" to "Job", "notice_id" to "Notice")) {
             RuntimeDiagnostics.ingressId(call.request.header("X-Diagnostic-$header"))?.let { diagnostic[key] = it }
         }
+        for ((key, header) in mapOf("attempt" to "Attempt", "fence" to "Fence")) {
+            call.request.header("X-Diagnostic-$header")?.toLongOrNull()?.takeIf { it in 1L until 1_000_000_000_000L }
+                ?.let { diagnostic[key] = it.toString() }
+        }
     }
     val operationName = when (call.request.path()) {
         "/internal/foundation/v1/commands" -> "foundation_command"
@@ -143,7 +147,6 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
         }
 
         // The command handler logs its own boundaries and aggregates routine audio traffic.
-        if (operationName != "foundation_command") RuntimeDiagnostics.record("http_request", "receive", extra = mapOf("operation" to operationName, "outcome" to "started"))
         if (!authorized) {
             rejectResponse("authorize", "unauthorized", HttpStatusCode.Unauthorized)
             return@withContext
@@ -165,7 +168,8 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
             }
             rejectResponse(if (status == HttpStatusCode.Forbidden || error.code == "invalid_telegram_auth") "authorize" else "validate", error.code, status, error)
         } catch (error: SQLException) {
-            rejectResponse("persist", "storage_unavailable", HttpStatusCode.ServiceUnavailable, error)
+            rejectResponse(if (operationName == "foundation_command") "response" else "persist",
+                "storage_unavailable", HttpStatusCode.ServiceUnavailable, error)
         } catch (error: SerializationException) {
             rejectResponse("validate", "invalid_payload", HttpStatusCode.BadRequest, error)
         } catch (error: IllegalArgumentException) {

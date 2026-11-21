@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 
 import io.ktor.client.plugins.timeout
 import io.ktor.client.HttpClient
@@ -10,6 +12,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,6 +27,8 @@ internal interface LearningComputer {
     suspend fun compute(scope: String, job: JsonObject): JsonObject
 }
 
+private class LeaseRenewalFailure(cause: Exception) : RuntimeException(cause)
+
 internal class HttpLearningComputer(private val http: HttpClient, private val root: String, private val serviceToken: String) : LearningComputer {
     override suspend fun compute(scope: String, job: JsonObject): JsonObject {
         val started = System.nanoTime()
@@ -33,6 +38,8 @@ internal class HttpLearningComputer(private val http: HttpClient, private val ro
             header("X-Diagnostic-Trace", RuntimeDiagnostics.trace(job.text("id")))
             RuntimeDiagnostics.current()["job_id"]?.let { header("X-Diagnostic-Job", it) }
             RuntimeDiagnostics.current()["lesson_id"]?.let { header("X-Diagnostic-Lesson", it) }
+            header("X-Diagnostic-Fence", job.number("fence").toString())
+            header("X-Diagnostic-Attempt", job.number("attempts").toString())
             header("X-Execution-Scope", scope)
             contentType(ContentType.Application.Json)
             setBody(job.toString())
@@ -104,7 +111,8 @@ internal class FoundationWorker(
             val job = claimed["job"]?.takeUnless { it == kotlinx.serialization.json.JsonNull }?.jsonObject ?: continue
             val jobId = job.text("id")
             val context = mutableMapOf("trace_id" to RuntimeDiagnostics.trace(jobId),
-                "job_id" to (RuntimeDiagnostics.ingressId(jobId) ?: RuntimeDiagnostics.trace(jobId)))
+                "job_id" to (RuntimeDiagnostics.ingressId(jobId) ?: RuntimeDiagnostics.trace(jobId)),
+                "attempt" to job.number("attempts").toString(), "fence" to job.number("fence").toString())
             if (job.text("kind").startsWith("lesson.") || job.text("kind").startsWith("trial.") ||
                 job.text("kind") == "roadmap.generate") {
                 RuntimeDiagnostics.ingressId(job.optionalText("target_id"))?.let { context["lesson_id"] = it }
@@ -116,54 +124,70 @@ internal class FoundationWorker(
     }
 
     private suspend fun runJob(job: JsonObject) {
-        val fields = mapOf("operation" to job.text("kind"), "job_kind" to job.text("kind"),
-            "attempt" to job.number("attempts").toString(), "fence" to job.number("fence").toString())
-        RuntimeDiagnostics.record("foundation_job", "claim", extra = fields + ("job_status" to "running"))
+        val kind = job.text("kind")
+        val fields = mapOf("operation" to kind, "job_kind" to kind)
+        RuntimeDiagnostics.record(Event("foundation_job", kind, "claim", Outcome.STARTED,
+            "Worker claimed a $kind job attempt."), fields + ("job_status" to "running"))
         val execution = service.identity.issueJob(job)
         val started = System.nanoTime()
+        val renewals = AtomicInteger()
+        fun attemptFields() = fields + mapOf("duration_ms" to RuntimeDiagnostics.elapsed(started), "renewals" to renewals.toString())
         var stage = "compute"
         try {
-            val result = if (job.text("kind") == "retention.prune") json()
-                else kotlinx.coroutines.withTimeout(150_000) { computeWithRenewal(execution, job, fields) }
+            val result = if (kind == "retention.prune") json()
+                else kotlinx.coroutines.withTimeout(150_000) { computeWithRenewal(execution, job, renewals) }
             stage = "persist"
             val receipt = service.command(execution, json("version" to 1,
                 "operationId" to "job:${job.text("id")}:${job.number("fence")}:apply",
                 "action" to "job.apply", "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"), "result" to result)))
-            RuntimeDiagnostics.record("foundation_job", stage, extra = fields + mapOf(
-                "job_status" to receipt.text("status"), "duration_ms" to RuntimeDiagnostics.elapsed(started)))
+            val status = receipt.text("status")
+            val event = if (status == "superseded") Event("foundation_job", kind, stage, Outcome.SUPERSEDED,
+                "Foundation kept its current state because the $kind result was superseded.", "result_superseded")
+            else Event("foundation_job", kind, stage, Outcome.COMPLETED, "Foundation saved the $kind job result.")
+            RuntimeDiagnostics.record(event, attemptFields() + ("job_status" to status))
         } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
             currentCoroutineContext().ensureActive()
-            RuntimeDiagnostics.record("foundation_job_failed", stage, extra = fields +
-                mapOf("reason_code" to "provider_timeout", "duration_ms" to RuntimeDiagnostics.elapsed(started)))
+            RuntimeDiagnostics.record(Event("foundation_job_failed", kind, stage, Outcome.FAILED,
+                "$kind compute exceeded the worker timeout.", "provider_timeout"), attemptFields())
             fail(execution, job, "provider_timeout", fields)
         } catch (error: CancellationException) {
-            RuntimeDiagnostics.record("foundation_job", stage, extra = fields + ("outcome" to "cancelled"))
+            RuntimeDiagnostics.record(Event("foundation_job", kind, stage, Outcome.CANCELLED,
+                "Worker cancelled the $kind attempt. Its lease remains available for recovery.", "worker_cancelled"), attemptFields())
             throw error // Leave the durable lease for recovery by another worker.
         } catch (error: Exception) {
-            val failure = (error as? FoundationFailure)?.code
+            val cause = if (error is LeaseRenewalFailure) error.cause else error
+            val failure = (cause as? FoundationFailure)?.code
             val code = when (failure) {
                 "budget_exhausted", "handler_unavailable", "source_expired", "invalid_result", "provider_timeout", "missing_action_template" -> failure
                 "invalid_evidence", "insufficient_evidence", "confirmation_required", "invalid_steps", "invalid_reason" -> "invalid_result"
                 else -> "provider_error"
             }
-            RuntimeDiagnostics.record("foundation_job_failed", stage, error, fields + mapOf(
+            val failedStage = if (error is LeaseRenewalFailure) "renew" else stage
+            RuntimeDiagnostics.record("foundation_job_failed", failedStage, error, attemptFields() + mapOf(
                 "outcome" to "failed", "reason_code" to when {
+                    error is LeaseRenewalFailure && failure == "stale_job" -> "lease_lost"
+                    error is LeaseRenewalFailure -> "lease_renewal_failed"
                     error is java.sql.SQLException -> "storage_unavailable"
                     stage == "persist" && error !is FoundationFailure -> "internal_error"
                     else -> code
-                },
-                "duration_ms" to RuntimeDiagnostics.elapsed(started)))
+                }))
             fail(execution, job, code, fields)
         }
     }
 
-    private suspend fun computeWithRenewal(execution: String, job: JsonObject, fields: Map<String, String>): JsonObject = kotlinx.coroutines.coroutineScope {
+    private suspend fun computeWithRenewal(execution: String, job: JsonObject, renewals: AtomicInteger): JsonObject = kotlinx.coroutines.coroutineScope {
         val renewal = launch {
             while (isActive) {
                 delay(20_000)
-                service.command(execution, json("version" to 1, "operationId" to newId(), "action" to "job.renew",
-                    "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"))))
-                RuntimeDiagnostics.record("foundation_job", "renew", extra = fields + ("job_status" to "running"))
+                try {
+                    service.command(execution, json("version" to 1, "operationId" to newId(), "action" to "job.renew",
+                        "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"))))
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    throw LeaseRenewalFailure(error)
+                }
+                renewals.incrementAndGet()
             }
         }
         try {
@@ -179,8 +203,12 @@ internal class FoundationWorker(
         try {
             val receipt = service.command(scope, json("version" to 1, "operationId" to newId(), "action" to "job.fail",
                 "args" to json("jobId" to job.text("id"), "fence" to job.number("fence"), "code" to code)))
-            RuntimeDiagnostics.record("foundation_job", "failure_persisted", extra = fields + mapOf(
-                "job_status" to receipt.text("status"), "reason_code" to code))
+            val status = receipt.text("status")
+            val retry = status == "retry_wait"
+            val message = if (retry) "Foundation saved the failure and scheduled another attempt."
+                else "Foundation saved the terminal job failure."
+            RuntimeDiagnostics.record(Event("foundation_job", job.text("kind"), "failure_persisted",
+                if (retry) Outcome.RETRY_WAIT else Outcome.FAILED, message, code), fields + ("job_status" to status))
         } catch (error: FoundationFailure) {
             RuntimeDiagnostics.record("foundation_job", "failure_persist", error, fields + ("outcome" to "rejected"))
         }

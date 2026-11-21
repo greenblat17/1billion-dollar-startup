@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -131,6 +133,9 @@ internal class PersonalizedRoadmap {
         val roadmap = JsonObject(proposal + ("sequence" to JsonArray(completed)))
         save(c, operator, json("learningRevision" to inputs.number("learningRevision"), "roadmap" to roadmap), now)
         val revision = read(c, scope.studentId).number("revision")
+        FoundationDatabase.recordAfterCommit(Event("trial_roadmap_saved", "roadmap.generate", "persist", Outcome.COMPLETED,
+            "Foundation saved the generated Roadmap revision."),
+            mapOf("lesson_id" to lessonId, "roadmap_revision" to revision.toString()))
         c.enqueueJob(scope.studentId, "roadmap.prioritize", "initial:$revision", null,
             json("roadmapRevision" to revision), now)
         return true

@@ -46,13 +46,14 @@ async def check():
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
                 assert (await client.get('/health')).json()['runtime'] == 'speaky'
                 unauthorized = await client.post('/internal/foundation/compute', json={},
-                    headers={'X-Diagnostic-Trace': 'f' * 32})
+                    headers={'X-Diagnostic-Trace': 'f' * 32, 'X-Diagnostic-Fence': '99', 'X-Diagnostic-Attempt': '99'})
                 assert unauthorized.status_code == 401
                 assert unauthorized.headers['X-Diagnostic-Trace'] != 'f' * 32
                 assert len(unauthorized.headers['X-Error-ID']) == 32
                 malformed = await client.post('/internal/foundation/compute', content='{',
                     headers={'X-Internal-Token': 'local-test', 'X-Execution-Scope': 'private-scope',
-                             'X-Diagnostic-Trace': 'e' * 32, 'X-Diagnostic-Call': 'private-header'})
+                             'X-Diagnostic-Trace': 'e' * 32, 'X-Diagnostic-Call': 'private-header',
+                             'X-Diagnostic-Job': 'd' * 32, 'X-Diagnostic-Fence': '8', 'X-Diagnostic-Attempt': '2'})
                 assert malformed.status_code == 400
                 assert malformed.headers['X-Diagnostic-Trace'] == 'e' * 32
                 assert len(malformed.headers['X-Error-ID']) == len(malformed.headers['X-Request-ID']) == 32
@@ -62,8 +63,15 @@ async def check():
 asyncio.run(check())
 '''
     import os
+    import json
     env = dict(os.environ, AI_INTERNAL_TOKEN='local-test', FOUNDATION_BACKEND_URL='http://127.0.0.1:1',
-               OPENAI_API_KEY='local-test', REDIS_URL='redis://127.0.0.1:1')
+               OPENAI_API_KEY='local-test', REDIS_URL='redis://127.0.0.1:1', LOG_LEVEL='INFO', LOG_FILE='')
     result = subprocess.run([sys.executable, '-c', program], env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "private-scope" not in result.stderr and "private-header" not in result.stderr
+    records = [json.loads(line.partition('runtime_event ')[2]) for line in result.stderr.splitlines()
+               if 'runtime_event ' in line]
+    [denied] = [row for row in records if row.get('http_status') == 401]
+    assert 'fence' not in denied and 'attempt' not in denied
+    [trusted] = [row for row in records if row['trace_id'] == 'e' * 32]
+    assert (trusted['job_id'], trusted['fence'], trusted['attempt']) == ('d' * 32, 8, 2)

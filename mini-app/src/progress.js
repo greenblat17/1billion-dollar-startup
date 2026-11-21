@@ -1,4 +1,4 @@
-import {api,tg} from './api.js';
+import {api,MiniAppApiError,reportDiagnostic,tg} from './api.js';
 import {$,focusScreen,view} from './screen.js';
 
 const progressStates={
@@ -25,7 +25,7 @@ function renderProgressState(status){
 function renderProgress(data){
  $('progress-content').hidden=data.status!=='ready';
  $('progress-footer').hidden=data.status!=='ready';
- renderProgressState(data.status==='ready'?'ready':progressStates[data.status]?data.status:'error');
+ renderProgressState(data.status==='ready'?'ready':Object.hasOwn(progressStates,data.status)?data.status:'error');
  if(data.status!=='ready')return;
  const goal=data.goal?.value||data.goal?.text;
  $('progress-goal').textContent=typeof goal==='string'?goal:'Обсудите вашу цель с Сашей';
@@ -46,10 +46,21 @@ function renderProgress(data){
 }
 export async function showProgress(){
  view('progress');renderProgressState('loading');$('progress-footer').hidden=true;$('progress-content').hidden=true;$('progress-refresh').disabled=true;
- try{renderProgress(await api('progress'));}
+ try{
+  const data=await api('progress');
+  if(data.status==='ready'&&!Array.isArray(data.steps)){
+   throw new MiniAppApiError('connection_lost','parse','invalid_response');
+  }
+  renderProgress(data);
+  if(data.status!=='ready'&&!Object.hasOwn(progressStates,data.status)){
+   reportDiagnostic({action:'progress',stage:'parse',code:'invalid_response'});
+  }
+ }
  catch(error){
-  const authExpired=['invalid_telegram_auth','telegram_auth_expired'].includes(error.message);
-  renderProgressState(authExpired?'auth':'network');
+  const diagnostic=error instanceof MiniAppApiError?error.diagnostic:{stage:'render',code:'render_failed'};
+  reportDiagnostic({action:'progress',...diagnostic});
+  $('progress-content').hidden=true;$('progress-footer').hidden=true;
+  renderProgressState(diagnostic.stage==='auth'?'auth':'network');
  }
  finally{$('progress-refresh').disabled=false;}
 }

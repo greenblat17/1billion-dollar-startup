@@ -684,9 +684,9 @@ Workflow Foundation integration запускает [test-foundation.sh](../../sc
 
 ## Диагностика Speaky
 
-AI и Ktor пишут JSON с одинаковыми полями `timestamp` (UTC), `level`, `service`, `event`,
-`operation`, `stage`, `outcome`, `trace_id`, `request_id`, `error_id`, `duration_ms` и `reason_code`.
-Неизвестные значения имеют `null`. `failure_class` различает ожидаемый отказ, временную ошибку,
+AI и Ktor пишут [общий JSON v1](../../contracts/logging/v1/envelope.json). `message` описывает действие и исход.
+`component`, `environment`, `release` и UTC-время показывают место записи. Поставка передаёт ревизию из checkout.
+Неизвестные необязательные значения имеют `null`. `failure_class` различает ожидаемый отказ, временную ошибку,
 неожиданный сбой и отмену. Он описывает наблюдение, а повторы определяет контракт операции.
 Стек содержит имена кадров и номера строк и остаётся на первом зарегистрированном уровне.
 Успешные записи аудиопакетов, heartbeat и playback не создают отдельные строки.
@@ -697,13 +697,15 @@ AI и Ktor пишут JSON с одинаковыми полями `timestamp` (U
 1. Скопируйте «Код ошибки» с экрана Mini App или `X-Error-ID` из HTTP-ответа. Для принятого HTTP-запроса
    в ответе также есть `X-Diagnostic-Trace` и `X-Request-ID`. Для звонка без ответа сервера возьмите
    UUID `attemptId` из первого WebSocket-сообщения, не копируя остальные поля. Тот же UUID несёт
-   отдельный клиентский отчёт `miniapp_failed`. При полном отсутствии сети отчёт может не дойти.
-2. Найдите строку по `error_id`, затем повторите запрос по её `trace_id`. Для смены WebSocket
+   отдельный клиентский отчёт `miniapp_failed`. Ищите UUID в `client_attempt_id`. При отсутствии сети отчёт может не дойти.
+2. Найдите строку по `error_id`, затем повторите запрос по её `trace_id`. Один сокет сохраняет этот server trace.
+   Для смены WebSocket
    ищите все эпизоды по `lesson_id`, для одного эпизода — по `call_session_id`.
 3. Фоновая работа имеет отдельный trace — первые 32 знака SHA-256 от ID job или уведомления.
    Свяжите урок и worker по `lesson_id`, затем смотрите `job_id` и `fence` для конкретной попытки.
    `failure_persisted` показывает фактический `job_status`: `retry_wait` или `failed`.
    `persist` с `succeeded` или `superseded` появляется после подтверждения транзакции.
+   `renewals` содержит число штатных продлений аренды в итоге попытки. Потеря аренды имеет этап `renew`.
    Для Roadmap ищите `initial_roadmap_delivery`. Для Review — `lesson.review` и `post_lesson_review`
    на передаче сохранённого результата через Foundation snapshot.
 

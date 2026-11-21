@@ -2,12 +2,31 @@
 import asyncio
 from contextlib import asynccontextmanager
 import json
+import logging
+from time import perf_counter
 from urllib.parse import urlencode
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
-from app.diagnostics import diagnostic_context, event, provider_code
+from app.diagnostics import EventSpec, diagnostic_context, event, provider_code
+
+
+_SESSION_STARTED = EventSpec('trial_session', 'realtime_voice', 'trial.voice.session', 'connect', 'started',
+                             'The AI service started opening a realtime voice session.',
+                             fields=frozenset({'transport'}))
+_SESSION_CONNECTED = EventSpec('trial_session', 'realtime_voice', 'trial.voice.session', 'configure', 'completed',
+                               'The realtime voice provider connection was configured.',
+                               fields=frozenset({'transport', 'duration_ms'}))
+_SESSION_FAILURES = {
+    'client_disconnected': 'The client heartbeat expired.',
+    'trial_stage_update_unconfirmed': 'The provider did not confirm the lesson stage update.',
+    'transcription_unconfirmed': 'The provider did not confirm the transcription in time.',
+    'truncation_unconfirmed': 'The provider did not confirm the audio truncation in time.',
+    'playback_unconfirmed': 'The client did not confirm audio playback in time.',
+    'provider_session_limit': 'The voice session reached its provider duration limit.',
+    'realtime_provider_closed': 'The voice provider closed the connection before the session ended.',
+}
 
 class RealtimeProviderError(RuntimeError):
     def __init__(self, payload):
@@ -71,10 +90,15 @@ async def listen_provider(provider, lock, handle_event, is_ended):
 async def run_connection(connector, settings, configure, workers, cleanup, *, lesson_id, episode):
     tasks = []
     with diagnostic_context(lesson_id=lesson_id, call_session_id=episode):
-        event('trial_session', outcome='started', transport='realtime_relay')
+        started = perf_counter()
+        stage = 'connect'
+        event(_SESSION_STARTED, transport='realtime_relay')
         try:
             async with connector(settings) as provider:
+                stage = 'configure'
                 await configure(provider)
+                event(_SESSION_CONNECTED, transport='realtime_relay', duration_ms=int((perf_counter() - started) * 1000))
+                stage = 'realtime'
                 tasks = [asyncio.create_task(worker) for worker in workers()]
                 try:
                     done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -84,12 +108,24 @@ async def run_connection(connector, settings, configure, workers, cleanup, *, le
                     for task in tasks:
                         task.cancel()
                     await asyncio.gather(*tasks, return_exceptions=True)
+        except asyncio.CancelledError:
+            event(EventSpec('trial_session', 'realtime_voice', 'trial.voice.session', stage, 'cancelled',
+                            'The AI service cancelled the realtime voice session.'))
+            raise
         except RealtimeProviderError as error:
-            event('trial_session_failed', error=error, stage='provider', provider='openai',
-                  operation='realtime', reason_code='realtime_provider_error')
+            event(EventSpec('trial_session_failed', 'realtime_voice', 'realtime', 'provider', 'failed',
+                            'The realtime voice provider returned an error.', 'realtime_provider_error',
+                            logging.WARNING, frozenset({'provider', 'duration_ms'})),
+                  error=error, provider='openai', duration_ms=int((perf_counter() - started) * 1000))
             raise
         except Exception as error:
-            event('trial_session_failed', error=error, stage='realtime')
+            reason = str(error) if isinstance(error, (TimeoutError, ConnectionError)) else None
+            message = _SESSION_FAILURES.get(reason)
+            event(EventSpec('trial_session_failed', 'realtime_voice', 'trial.voice.session', stage, 'failed',
+                            message or 'The realtime voice session failed unexpectedly.',
+                            reason if message else 'realtime_session_failed',
+                            logging.WARNING if message else logging.ERROR, frozenset({'duration_ms'})),
+                  error=error, duration_ms=int((perf_counter() - started) * 1000))
             raise
         finally:
             for task in tasks:

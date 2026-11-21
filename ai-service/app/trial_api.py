@@ -1,8 +1,9 @@
 """Public Mini App edge; all admission/business state is delegated to authenticated foundation."""
 import asyncio
+import logging
 from uuid import uuid4
-from app.diagnostics import diagnostic_context, event, opaque_id
-from contextlib import suppress
+from app.diagnostics import EventSpec, diagnostic_context, event, opaque_id
+from contextlib import ExitStack, suppress
 import json
 import ipaddress
 import os
@@ -13,6 +14,131 @@ from fastapi import Header, HTTPException, Request, WebSocket, WebSocketDisconne
 from app.foundation_client import BackendFailure
 from app.realtime_voice.session import RealtimeTrialSession
 from app.lesson_calendar import calendar_export
+
+
+_CLIENT_API_STAGES = {
+    'auth': {'auth_missing', 'auth_rejected'},
+    'transport': {'request_failed'},
+    'parse': {'invalid_response'},
+    'response': {'response_rejected'},
+}
+_CLIENT_VOICE_STAGES = {
+    'connect': {'lesson_unavailable', 'invalid_lesson_time', 'connection_lost', 'reconnecting',
+                'audio_activation_required', 'server_error_observed'},
+    'microphone': {'microphone_missing', 'microphone_denied', 'microphone_busy', 'microphone_failed'},
+    'audio_context': {'audio_context_failed', 'audio_activation_required'},
+    'worklet': {'worklet_failed'},
+    'socket': {'connection_lost', 'server_error_observed', 'reconnecting', 'client_update_required', 'invalid_message'},
+    'protocol': {'client_update_required', 'invalid_message', 'server_error_observed'},
+    'playback': {'playback_failed', 'audio_activation_required'},
+    'buffer': {'buffer_overflow'},
+}
+_LEGACY_VOICE_CODES = {
+    'NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError',
+    'SecurityError', 'AbortError', 'TypeError', 'SyntaxError', 'InvalidStateError',
+    'connection_lost', 'buffer_overflow', 'voice_unavailable', 'trial_not_configured',
+    'invalid_telegram_auth', 'microphone_denied',
+}
+_CLIENT_ACTIONS = {
+    'progress': 'My Progress',
+    'meetings': 'Meetings',
+    'calendar': 'Calendar',
+    'demo_pay': 'Demo payment',
+    'voice': 'Lesson voice',
+}
+_CLIENT_MESSAGES = {
+    'auth_missing': 'requires Telegram authentication data, which the client could not find.',
+    'auth_rejected': 'could not proceed because the server rejected authentication.',
+    'request_failed': 'request failed in transit. The client could not confirm the result.',
+    'invalid_response': 'received a response the client could not read.',
+    'response_rejected': 'received an unsuccessful server response.',
+    'render_failed': 'could not be rendered by the client.',
+    'external_open_failed': 'could not be opened by the client.',
+    'share_cancelled': 'sharing was cancelled.',
+    'share_failed_download_fallback': 'sharing failed. The client tried a download instead.',
+    'download_failed': 'download could not start.',
+    'lesson_unavailable': 'could not start because the lesson was unavailable.',
+    'invalid_lesson_time': 'could not start because the lesson time was invalid.',
+    'microphone_missing': 'could not start because the client could not find a microphone.',
+    'microphone_denied': 'could not start because the microphone permission was denied.',
+    'microphone_busy': 'could not start because the microphone was unavailable.',
+    'microphone_failed': 'could not start because microphone setup failed.',
+    'audio_context_failed': 'could not start because audio initialization failed.',
+    'worklet_failed': 'could not start because the audio processor failed to initialize.',
+    'connection_lost': 'connection was interrupted.',
+    'client_update_required': 'could not start because the server requires an updated client.',
+    'invalid_message': 'received a message the client could not read.',
+    'playback_failed': 'playback failed in the client.',
+    'buffer_overflow': 'stopped because the client audio buffer overflowed.',
+    'server_error_observed': 'received an error from the server.',
+    'reconnecting': 'is reconnecting after a connection change.',
+    'audio_activation_required': 'is waiting for the learner to activate audio.',
+}
+_CLIENT_OUTCOMES = {
+    'share_cancelled': 'cancelled',
+    'share_failed_download_fallback': 'degraded',
+    'reconnecting': 'retried',
+    'audio_activation_required': 'degraded',
+    'auth_missing': 'rejected',
+    'auth_rejected': 'rejected',
+    'request_failed': 'unknown',
+    'response_rejected': 'rejected',
+}
+
+_VOICE_RECEIVED = EventSpec('trial_socket', 'trial_voice', 'trial.voice', 'receive', 'started',
+                            'The lesson voice connection entered the server.')
+_VOICE_ADMITTED = EventSpec('trial_socket', 'trial_voice', 'trial.voice', 'admission', 'completed',
+                            'Foundation admitted the lesson voice connection.',
+                            fields=frozenset({'lesson_id', 'call_session_id'}))
+_VOICE_REJECTIONS = {
+    'request_too_large': 'Lesson voice admission was rejected because the first frame exceeded the size limit.',
+    'client_update_required': 'Lesson voice admission was rejected because the client requested an unsupported protocol.',
+    'invalid_voice_request': 'Lesson voice admission was rejected because the first frame was invalid.',
+    'voice_request_timeout': 'Lesson voice admission was rejected because the first frame timed out.',
+}
+_ROADMAP_PROJECTION_REJECTIONS = {
+    'stale_roadmap': 'The saved roadmap no longer matches the requested revision or learner goal.',
+    'initial_priority_not_ready': 'The initial roadmap has no current priority decision.',
+    'incomplete_roadmap_order': 'The initial roadmap has an incomplete task order.',
+}
+
+
+def _voice_rejected(code):
+    return EventSpec('trial_failed', 'trial_voice', 'trial.voice', 'validate', 'rejected',
+                     _VOICE_REJECTIONS[code], code, logging.WARNING)
+
+
+def _record_client_diagnostic(payload):
+    action, stage, code = payload.get('action'), payload.get('stage'), payload.get('code')
+    if not isinstance(stage, str) or action is not None and not isinstance(action, str):
+        raise HTTPException(400)
+    if action is None:
+        if stage not in _CLIENT_VOICE_STAGES.keys() - {'protocol'}:
+            raise HTTPException(400)
+        action = 'voice'
+        code = code if isinstance(code, str) and code in _LEGACY_VOICE_CODES else 'unknown'
+    else:
+        if action not in _CLIENT_ACTIONS:
+            raise HTTPException(400)
+        codes = _CLIENT_API_STAGES.get(stage, set())
+        if stage == 'render':
+            codes = {'render_failed'}
+        elif stage == 'export' and action == 'calendar':
+            codes = {'external_open_failed', 'share_cancelled', 'share_failed_download_fallback', 'download_failed'}
+        elif action == 'voice' and stage in _CLIENT_VOICE_STAGES:
+            codes = _CLIENT_VOICE_STAGES[stage]
+        if not isinstance(code, str) or code not in codes:
+            raise HTTPException(400)
+    outcome = _CLIENT_OUTCOMES.get(code, 'failed')
+    message = _CLIENT_MESSAGES.get(code, f'failed during {stage.replace("_", " ")} setup.')
+    spec = EventSpec('miniapp_failed', 'miniapp_diagnostics', f'miniapp.{action}', stage, outcome,
+                     f'{_CLIENT_ACTIONS[action]} {message}', code,
+                     logging.INFO if outcome == 'cancelled' else logging.WARNING,
+                     frozenset({'client_code', 'client_attempt_id', 'server_error_id', 'close_code'}))
+    close_code = payload.get('closeCode')
+    event(spec, client_code=code, client_attempt_id=opaque_id(payload.get('attemptId')),
+          server_error_id=opaque_id(payload.get('serverErrorId')),
+          close_code=close_code if type(close_code) is int and 1000 <= close_code <= 4999 else None)
 
 
 def _docker_default_gateway():
@@ -79,17 +205,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             # Reuse Telegram authentication; diagnostics grant no lesson access.
             await backend._request('POST', '/trial/access', '', json={
                 'action': 'list', 'initData': payload['initData']})
-            stage = payload.get('stage')
-            if stage not in {'microphone', 'audio_context', 'worklet', 'socket', 'playback', 'buffer', 'connect'}:
-                raise HTTPException(400)
-            with diagnostic_context(trace_id=opaque_id(payload.get('attemptId'))):
-                event('miniapp_failed', stage=stage,
-                      client_code=payload.get('code') if payload.get('code') in {
-                          'NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError',
-                          'SecurityError', 'AbortError', 'TypeError', 'SyntaxError', 'InvalidStateError',
-                          'connection_lost', 'buffer_overflow', 'voice_unavailable', 'trial_not_configured',
-                          'invalid_telegram_auth', 'microphone_denied'} else 'unknown',
-                      close_code=payload.get('closeCode') if isinstance(payload.get('closeCode'), int) else None)
+            _record_client_diagnostic(payload)
             return {'ok': True}
         except BackendFailure as error:
             raise HTTPException(error.status, error.code, headers={
@@ -101,78 +217,105 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
     @app.websocket('/miniapp/voice')
     async def voice(socket: WebSocket):
         trace_id = uuid4().hex
-        with diagnostic_context(trace_id=trace_id, request_id=uuid4().hex):
-            await socket.accept()
-            admitted = None
-            stage = 'authenticate'
-            event('trial_socket', stage='receive', outcome='started')
+        with diagnostic_context(trace_id=trace_id, request_id=uuid4().hex), ExitStack() as voice_context:
+            stage = 'receive'
+            event(_VOICE_RECEIVED)
             try:
+                await socket.accept()
+                stage = 'authenticate'
                 if not getattr(settings, 'openai_realtime_api_key', None) or audio_store is None:
                     code = 'trial_not_configured'
-                    error_id = event('trial_failed', error_id=uuid4().hex, stage=stage, reason_code=code)
+                    error_id = event(EventSpec(
+                        'trial_failed', 'trial_voice', 'trial.voice', stage, 'failed',
+                        'Lesson voice could not start because its provider or audio archive is unconfigured.',
+                        code, logging.WARNING,
+                    ))
                     await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
                     return
                 # Auth is the first frame, never a query string or a loggable URL.
                 raw = await asyncio.wait_for(socket.receive_text(), 10)
                 if len(raw) > 20000:
-                    event('trial_failed', stage='validate', outcome='rejected', reason_code='request_too_large')
+                    event(_voice_rejected('request_too_large'))
                     return
                 request = json.loads(raw)
                 if not isinstance(request, dict):
                     raise ValueError('invalid_voice_request')
-                trace_id = opaque_id(request.get('attemptId')) or trace_id
-                with diagnostic_context(trace_id=trace_id):
-                    if request.get('protocol') != 'realtime-pcm-v1':
-                        code = 'client_update_required'
-                        error_id = event('trial_failed', error_id=uuid4().hex, stage='validate',
-                                         outcome='rejected', reason_code=code)
-                        await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
+                voice_context.enter_context(diagnostic_context(client_attempt_id=opaque_id(request.get('attemptId'))))
+                if request.get('protocol') != 'realtime-pcm-v1':
+                    code = 'client_update_required'
+                    error_id = event(_voice_rejected(code))
+                    await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
+                    return
+                stage = 'audio_credentials'
+                await asyncio.wait_for(audio_store.check_credentials(), 10)
+                stage = 'admission'
+                admission = {'action': 'open', 'lessonId': request['lessonId'],
+                             'attemptId': request['attemptId']}
+                if 'agentGrant' in request:
+                    peer = socket.client.host if socket.client else ''
+                    peer_kind = _agent_voice_peer_kind(peer)
+                    dev = os.getenv('SPEAKY_ENV') == 'dev'
+                    enabled = os.getenv('AGENT_TEST_ENABLED') == 'true'
+                    token_valid = compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
+                                                 (settings.ai_internal_token or '').encode())
+                    if not (dev and enabled and peer_kind and token_valid) or 'initData' in request:
+                        error_id = event(EventSpec(
+                            'agent_voice_denied', 'trial_voice', 'trial.voice', 'authorize', 'rejected',
+                            'The voice connection failed the agent access policy.', 'not_permitted', logging.WARNING,
+                            frozenset({'dev', 'enabled', 'peer_kind', 'token_valid', 'mixed_auth'}),
+                        ), dev=dev, enabled=enabled, peer_kind=peer_kind or 'other',
+                                         token_valid=token_valid, mixed_auth='initData' in request)
+                        await socket.send_json({'type': 'error', 'code': 'not_permitted', 'errorId': error_id})
                         return
-                    stage = 'audio_credentials'
-                    await asyncio.wait_for(audio_store.check_credentials(), 10)
-                    stage = 'admission'
-                    admission = {'action': 'open', 'lessonId': request['lessonId'],
-                                 'attemptId': request['attemptId']}
-                    if 'agentGrant' in request:
-                        peer = socket.client.host if socket.client else ''
-                        peer_kind = _agent_voice_peer_kind(peer)
-                        dev = os.getenv('SPEAKY_ENV') == 'dev'
-                        enabled = os.getenv('AGENT_TEST_ENABLED') == 'true'
-                        token_valid = compare_digest(socket.headers.get('X-Internal-Token', '').encode(),
-                                                     (settings.ai_internal_token or '').encode())
-                        if not (dev and enabled and peer_kind and token_valid) or 'initData' in request:
-                            error_id = event('agent_voice_denied', error_id=uuid4().hex, stage='authorize',
-                                             reason_code='not_permitted', dev=dev, enabled=enabled,
-                                             peer_kind=peer_kind or 'other', token_valid=token_valid,
-                                             mixed_auth='initData' in request)
-                            await socket.send_json({'type': 'error', 'code': 'not_permitted', 'errorId': error_id})
-                            return
-                        admission['agentGrant'] = request['agentGrant']
-                    else:
-                        admission['initData'] = request['initData']
-                    admitted = await backend._request('POST', '/trial/access', '', json=admission)
-                    event('trial_socket', stage='admission', lesson_id=admitted['lesson']['id'],
-                          call_session_id=admitted.get('callSessionId'))
-                    session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings, model)
-                    stage = 'session'
-                    with diagnostic_context(lesson_id=session.lesson_id, call_session_id=session.episode):
-                        await session.run()
+                    admission['agentGrant'] = request['agentGrant']
+                else:
+                    admission['initData'] = request['initData']
+                admitted = await backend._request('POST', '/trial/access', '', json=admission)
+                voice_context.enter_context(diagnostic_context(
+                    lesson_id=admitted['lesson']['id'], call_session_id=admitted.get('callSessionId'),
+                ))
+                event(_VOICE_ADMITTED, lesson_id=admitted['lesson']['id'],
+                      call_session_id=admitted.get('callSessionId'))
+                session = RealtimeTrialSession(socket, backend, contexts, audio_store, admitted, settings, model)
+                stage = 'session'
+                await session.run()
             except WebSocketDisconnect as error:
-                event('trial_disconnected', trace_id=trace_id, stage=stage, close_code=error.code)
+                event(EventSpec('trial_disconnected', 'trial_voice', 'trial.voice', stage, 'cancelled',
+                                'The client disconnected from the lesson voice socket.', 'client_disconnected',
+                                fields=frozenset({'close_code'})), close_code=error.code)
+            except asyncio.CancelledError:
+                event(EventSpec('trial_socket', 'trial_voice', 'trial.voice', stage, 'cancelled',
+                                'The server cancelled the lesson voice connection.'))
+                raise
             except BackendFailure as error:
-                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id,
-                                 reason_code='backend_failure',
-                                 lesson_id=admitted['lesson']['id'] if admitted else None,
-                                 call_session_id=admitted.get('callSessionId') if admitted else None)
+                if error.code == 'transport_outcome_unknown':
+                    outcome, reason = 'unknown', 'backend_transport_unknown'
+                    message = 'Foundation did not confirm the lesson voice request.'
+                elif 400 <= error.status < 500:
+                    outcome, reason = 'rejected', 'backend_rejected'
+                    message = 'Foundation rejected the lesson voice request.'
+                else:
+                    outcome, reason = 'failed', 'backend_failure'
+                    message = 'Foundation could not process the lesson voice request.'
+                error_id = event(EventSpec('trial_failed', 'trial_voice', 'trial.voice', stage, outcome, message,
+                                           reason, logging.WARNING), error=error)
                 with suppress(Exception):
                     await socket.send_json({'type': 'error', 'code': error.code, 'errorId': error_id})
             except Exception as error:
                 code = ('budget_exhausted' if getattr(error, 'status_code', None) == 402 else
                         'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost')
-                error_id = event('trial_failed', error=error, stage=stage, trace_id=trace_id, reason_code=code,
-                                 outcome='rejected' if stage == 'authenticate' and isinstance(error, ValueError) else 'failed',
-                                 lesson_id=admitted['lesson']['id'] if admitted else None,
-                                 call_session_id=admitted.get('callSessionId') if admitted else None)
+                if stage == 'authenticate' and isinstance(error, (ValueError, TimeoutError)):
+                    reason = 'voice_request_timeout' if isinstance(error, TimeoutError) else 'invalid_voice_request'
+                    error_id = event(_voice_rejected(reason))
+                else:
+                    reasons = {
+                        'budget_exhausted': ('provider_budget_exhausted', 'The voice provider rejected the session because its budget was exhausted.'),
+                        'trial_not_configured': ('audio_credentials_unavailable', 'Audio archive credentials could not be verified for the lesson voice connection.'),
+                        'connection_lost': ('voice_connection_failed', 'The lesson voice connection failed.'),
+                    }
+                    reason, message = reasons[code]
+                    error_id = event(EventSpec('trial_failed', 'trial_voice', 'trial.voice', stage, 'failed',
+                                               message, reason, logging.ERROR), error=error)
                 with suppress(Exception):
                     await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
             finally:
@@ -245,7 +388,16 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
         try:
             reply = await prepare_initial_roadmap(backend, x_execution_scope, revision)
         except ValueError as error:
-            if str(error) in {'stale_roadmap', 'initial_priority_not_ready', 'incomplete_roadmap_order'}:
-                raise HTTPException(409, str(error)) from error
+            code = str(error)
+            if code in _ROADMAP_PROJECTION_REJECTIONS:
+                error_id = event(EventSpec(
+                    'roadmap_projection', 'roadmap_delivery', 'roadmap.project', 'prepare', 'rejected',
+                    _ROADMAP_PROJECTION_REJECTIONS[code], code, logging.INFO,
+                    frozenset({'roadmap_revision'}),
+                ), roadmap_revision=revision)
+                raise HTTPException(409, code, headers={'X-Error-ID': error_id}) from error
             raise
+        event(EventSpec('roadmap_projection', 'roadmap_delivery', 'roadmap.project', 'prepare', 'completed',
+                        'The AI service prepared the initial roadmap text from the saved revision.',
+                        fields=frozenset({'roadmap_revision'})), roadmap_revision=revision)
         return {'reply': reply, 'roadmapRevision': revision}

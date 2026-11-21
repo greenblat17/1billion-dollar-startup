@@ -1,13 +1,16 @@
-import {api,reportDiagnostic,tg} from './api.js';
+import {api,MiniAppApiError,reportDiagnostic,tg} from './api.js';
 import {$,lessonTiming,renderError,renderFailure,setLobbyMode,view} from './screen.js';
 
 let lessonId;
 let ws,ctx,mic,worklet,pinger,ticker,muted=false,closing=false,started=0,cursor=0,current,carry=null;
 let waitingTimer,connectionGeneration=0;
-let attemptId,diagnosticStage='connect',reported=false;
-function reportFailure(code,closeCode){
- if(reported||!tg?.initData)return;reported=true;
- reportDiagnostic(attemptId,diagnosticStage,code,closeCode);
+let attemptId;
+const microphoneErrors=new Map([
+ ['NotAllowedError','microphone_denied'],['SecurityError','microphone_denied'],
+ ['NotFoundError','microphone_missing'],['NotReadableError','microphone_busy'],
+]);
+function reportVoice(diagnostic){
+ reportDiagnostic({action:'voice',attemptId,...diagnostic});
 }
 let capturedFrames=0,sentFrames=0,turnCompletedAt=0;
 function playedMilliseconds(item){return item.segments.reduce((total,segment)=>total+Math.max(0,Math.min(segment.duration,ctx.currentTime-segment.start))*1000,0);}
@@ -31,12 +34,12 @@ function acknowledgePlayback(id,end){
  if(ctx.state!=='running'||remaining>.005){item.timer=setTimeout(()=>acknowledgePlayback(id,end),Math.max(100,remaining*1000));return;}
  playing.delete(id);send({type:'played',id,complete:true,playedMs:item.duration*1000});
 }
-function cleanup(){connectionGeneration++;clearTimeout(waitingTimer);clearInterval(pinger);clearInterval(ticker);stopAudio();worklet?.disconnect();mic?.getTracks().forEach(t=>t.stop());ctx?.close().catch(()=>{});ws?.close();}
+function cleanup(){connectionGeneration++;clearTimeout(waitingTimer);clearInterval(pinger);clearInterval(ticker);stopAudio();worklet?.disconnect();mic?.getTracks().forEach(t=>t.stop());ctx?.close().catch(()=>{});const socket=ws;ws=undefined;socket?.close();}
 function leave(){closing=true;stopAudio();send({type:'end'});cleanup();tg?.close();if(!tg?.initData){renderError('Звонок завершён','Вернитесь в Telegram.');$('error-symbol').hidden=true;}}
-function failure(code,errorId){
+function failure(uiCode,diagnostic){
  if(closing)return;
- reportFailure(code);closing=true;cleanup();
- renderFailure(code,errorId);
+ closing=true;reportVoice(diagnostic);cleanup();
+ renderFailure(uiCode,diagnostic.serverErrorId);
 }
 function renderWaiting(lesson){
  view('lobby');setLobbyMode('waiting');
@@ -48,60 +51,127 @@ function renderWaiting(lesson){
 }
 async function connect(continueFrom=0){
  clearTimeout(waitingTimer);const generation=++connectionGeneration;
- attemptId=crypto.randomUUID();reported=false;diagnosticStage='connect';
+ attemptId=crypto.randomUUID();
+ let setupStage='parse';
  $('mute').disabled=true;
  const joining=performance.now();capturedFrames=0;sentFrames=0;closing=false;muted=false;view('call');$('notice').hidden=false;$('notice').textContent=continueFrom?'Восстанавливаем соединение…':'Подключаемся…';renderMicrophone();
  try{
-  if(!tg?.initData)throw Error('invalid_telegram_auth');
+  if(!tg?.initData){
+   failure('invalid_telegram_auth',{stage:'auth',code:'auth_missing'});
+   return;
+  }
   const status=await api('lesson_status',{lessonId});
   if(generation!==connectionGeneration||closing)return;
   const lesson=status.lesson;
-  if(lesson.launch_mode!=='executable'||!['scheduled','in_progress'].includes(lesson.status))throw Error('lesson_unavailable');
+  if(!lesson||typeof lesson.launch_mode!=='string'||typeof lesson.status!=='string'){
+   failure('connection_lost',{stage:'parse',code:'invalid_response'});
+   return;
+  }
+  if(lesson.launch_mode!=='executable'||!['scheduled','in_progress'].includes(lesson.status)){
+   failure('lesson_unavailable',{stage:'connect',code:'lesson_unavailable'});
+   return;
+  }
   const until=Date.parse(lesson.starts_at)-Date.parse(status.serverNow);
-  if(!Number.isFinite(until))throw Error('connection_lost');
+  if(!Number.isFinite(until)){
+   failure('connection_lost',{stage:'connect',code:'invalid_lesson_time'});
+   return;
+  }
   if(until>0){
+   setupStage='render';
    renderWaiting(lesson);
    waitingTimer=setTimeout(()=>{if(generation===connectionGeneration&&!closing)return connect(continueFrom);},Math.min(until,15000));return;
   }
-  diagnosticStage='microphone';
-  if(!navigator.mediaDevices?.getUserMedia)throw Error('microphone_missing');
+  setupStage='microphone';
+  if(!navigator.mediaDevices?.getUserMedia){
+   failure('microphone_missing',{stage:'microphone',code:'microphone_missing'});
+   return;
+  }
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
   if(generation!==connectionGeneration||closing){stream.getTracks().forEach(t=>t.stop());return;}
   mic=stream;
   mic.getAudioTracks().forEach(track=>{track.enabled=true;});
-  diagnosticStage='audio_context';ctx=new AudioContext();diagnosticStage='worklet';await ctx.audioWorklet.addModule('/miniapp/assets/capture.js');await Promise.race([ctx.resume(),new Promise(resolve=>setTimeout(resolve,700))]);
+  setupStage='audio_context';ctx=new AudioContext();
+  setupStage='worklet';await ctx.audioWorklet.addModule('/miniapp/assets/capture.js');
+  setupStage='audio_context';await Promise.race([ctx.resume(),new Promise(resolve=>setTimeout(resolve,700))]);
   if(ctx.state!=='running'){
+   reportVoice({stage:'audio_context',code:'audio_activation_required'});
    $('notice').replaceChildren();const button=document.createElement('button');button.textContent='Включить звук';$('notice').append(button);
    await new Promise((resolve,reject)=>button.onclick=async()=>{try{await ctx.resume();if(ctx.state==='running')resolve();}catch(error){reject(error);}});
   }
   if(generation!==connectionGeneration||closing)return;
-  diagnosticStage='socket';ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/miniapp/voice');ws.binaryType='arraybuffer';const connection=ws;
-  ws.onopen=()=>send({initData:tg.initData,lessonId,attemptId,protocol:'realtime-pcm-v1'});
-  ws.onclose=event=>{if(ws===connection&&!closing){reportFailure('connection_lost',event.code);failure('connection_lost');}};ws.onerror=()=>{if(ws===connection)failure('connection_lost');};
+  setupStage='socket';ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/miniapp/voice');ws.binaryType='arraybuffer';const connection=ws;
+  ws.onopen=()=>{
+   if(ws!==connection||closing)return;
+   try{send({initData:tg.initData,lessonId,attemptId,protocol:'realtime-pcm-v1'});}
+   catch{failure('connection_lost',{stage:'socket',code:'connection_lost'});}
+  };
+  ws.onclose=event=>{if(ws===connection)failure('connection_lost',{stage:'socket',code:'connection_lost',closeCode:event.code});};
+  ws.onerror=()=>{if(ws===connection)failure('connection_lost',{stage:'socket',code:'connection_lost'});};
   ws.onmessage=async event=>{
-   if(ws!==connection)return;
+   if(ws!==connection||closing)return;
+   if(typeof event.data!=='string'){
+    try{play(event.data);}
+    catch{failure('connection_lost',{stage:'playback',code:'playback_failed'});}
+    return;
+   }
+   let message;
    try{
-   if(typeof event.data!=='string'){play(event.data);return;}
-   const message=JSON.parse(event.data);
+    message=JSON.parse(event.data);
+    if(!message||typeof message.type!=='string')throw Error();
+   }catch{
+    failure('connection_lost',{stage:'protocol',code:'invalid_message'});
+    return;
+   }
+   let messageStage='protocol';
+   try{
    if(message.type==='connected'){
-    if(message.protocol!=='realtime-pcm-v1'||message.inputSampleRate!==24000){failure('client_update_required');return;}
-    $('mute').disabled=false;renderMicrophone();
-    send({type:'metric',name:'join',milliseconds:performance.now()-joining});$('notice').hidden=true;started=message.trialExecution?Date.now()-(message.trialExecution.connectedMs??message.trialExecution.connectedSeconds*1000):(continueFrom||Date.now());ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
+    if(message.protocol!=='realtime-pcm-v1'||message.inputSampleRate!==24000){failure('client_update_required',{stage:'protocol',code:'client_update_required'});return;}
+    messageStage='render';
+    $('mute').disabled=false;renderMicrophone();$('notice').hidden=true;
+    messageStage='socket';
+    send({type:'metric',name:'join',milliseconds:performance.now()-joining});
+    messageStage='protocol';started=message.trialExecution?Date.now()-(message.trialExecution.connectedMs??message.trialExecution.connectedSeconds*1000):(continueFrom||Date.now());ticker=setInterval(()=>{const seconds=Math.floor((Date.now()-started)/1000);$('timer').textContent=String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');},1000);
+    messageStage='worklet';
     const source=ctx.createMediaStreamSource(mic);worklet=new AudioWorkletNode(ctx,'capture');source.connect(worklet);const silent=ctx.createGain();silent.gain.value=0;worklet.connect(silent).connect(ctx.destination);
-    worklet.port.onmessage=e=>{capturedFrames++;if(ws.readyState===WebSocket.OPEN&&!muted){if(ws.bufferedAmount>128000){diagnosticStage='buffer';failure('buffer_overflow');return;}ws.send(e.data);sentFrames++;}};
+    worklet.port.onmessage=e=>{
+     if(ws!==connection||closing)return;
+     capturedFrames++;
+     if(connection.readyState!==WebSocket.OPEN||muted)return;
+     if(connection.bufferedAmount>128000){
+      failure('buffer_overflow',{stage:'buffer',code:'buffer_overflow'});
+      return;
+     }
+     try{connection.send(e.data);sentFrames++;}
+     catch{failure('connection_lost',{stage:'socket',code:'connection_lost'});}
+    };
     pinger=setInterval(()=>{const track=mic?.getAudioTracks()[0];send({type:'ping',audio:{capturedFrames,sentFrames,muted,trackEnabled:track?.enabled===true,trackMuted:track?.muted===true,trackEnded:track?.readyState==='ended',contextRunning:ctx?.state==='running',pageHidden:document.hidden,playing:playing.size}});},5000);
    }else if(message.type==='trial_clock'){started=Date.now()-(message.trialExecution.connectedMs??message.trialExecution.connectedSeconds*1000);
    }else if(message.type==='audio_start'){current=message.id;playing.set(current,{sources:[],segments:[],start:Math.max(cursor,ctx.currentTime+.02),duration:0,timer:null,first:true});}
    else if(message.type==='audio_end'){const item=playing.get(message.id);if(item){const end=cursor;item.timer=setTimeout(()=>acknowledgePlayback(message.id,end),Math.max(0,(end-ctx.currentTime)*1000));}}
    else if(message.type==='user_turn_complete'){turnCompletedAt=performance.now();}
    else if(message.type==='interrupt'){stopAudio();}
-   else if(message.type==='error'){failure(message.code,message.errorId);}
-   else if(message.type==='reconnect'){const callStarted=started;closing=true;cleanup();await connect(callStarted);}
+   else if(message.type==='error'){failure(message.code,{stage:'protocol',code:'server_error_observed',serverErrorId:message.errorId});}
+   else if(message.type==='reconnect'){reportVoice({stage:'socket',code:'reconnecting'});const callStarted=started;closing=true;cleanup();await connect(callStarted);}
    else if(message.type==='ended'&&message.reason==='memory_forgotten'){closing=true;cleanup();renderError('Память обновлена','Сведения удалены. Напишите Саше в Telegram, чтобы продолжить.');$('error-symbol').hidden=true;}
    else if(message.type==='finished'){closing=true;cleanup();tg.close();}
-   }catch(error){diagnosticStage='playback';reportFailure(error.name);failure('connection_lost');}
+   }catch{
+    const code={protocol:'invalid_message',worklet:'worklet_failed',render:'render_failed',socket:'connection_lost'}[messageStage];
+    failure('connection_lost',{stage:messageStage,code});
+   }
   };
- }catch(error){if(generation!==connectionGeneration||closing)return;reportFailure(error.name);failure(({NotAllowedError:'microphone_denied',SecurityError:'microphone_denied',NotFoundError:'microphone_missing',NotReadableError:'microphone_busy'})[error.name]||error.message,error.errorId);}
+ }catch(error){
+  if(generation!==connectionGeneration||closing)return;
+  if(error instanceof MiniAppApiError){
+   failure(error.message,error.diagnostic);
+   return;
+  }
+  const micCode=microphoneErrors.get(error?.name);
+  const setupCode={
+   parse:'invalid_response',render:'render_failed',microphone:micCode||'microphone_failed',
+   audio_context:'audio_context_failed',worklet:'worklet_failed',socket:'connection_lost',
+  }[setupStage];
+  failure(setupStage==='microphone'&&micCode?micCode:'connection_lost',{stage:setupStage,code:setupCode});
+ }
 }
 function play(bytes){
  if(!current||!playing.has(current))return;

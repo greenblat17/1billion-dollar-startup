@@ -86,6 +86,10 @@ on:
         description: Two synthetic tutor requests after DEV readiness (stop on first failure)
         type: boolean
         default: false
+      logging_smoke:
+        description: Verify release and cross-service logging with one rejected synthetic request
+        type: boolean
+        default: false
       diagnose_tutor:
         description: Print only safe AI tutor error codes from recent DEV logs
         type: boolean
@@ -688,6 +692,7 @@ jobs:
       AI_HOST: ${{ secrets.DEV_AI_SERVER_HOST }}
       AI_USER: ${{ secrets.DEV_AI_SERVER_USER }}
       AI_KEY: ${{ secrets.DEV_AI_SERVER_SSH_KEY }}
+      LOGGING_SMOKE: ${{ inputs.logging_smoke }}
     steps:
       - uses: actions/checkout@v5
       - name: Verify artifacts, health, configuration and internal auth
@@ -696,6 +701,10 @@ jobs:
           set -euo pipefail
           smoke_flag=""
           billing_flag=""
+          logging_flag=""
+          logging_trace=""
+          logging_error=""
+          if [ "$LOGGING_SMOKE" = true ]; then logging_flag="--logging-smoke"; fi
           if [ "${{ inputs.billing_mock }}" = true ]; then billing_flag="--mock-billing"; fi
           for component in ai cmp; do
             if [ "$component" = ai ]; then
@@ -709,7 +718,13 @@ jobs:
             printf '%s\n' "$key_body" > "$key"
             ssh -i "$key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
               -o HostKeyAlias="speaky-dev-$component" -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts" \
-              "$target_user@$target_host" "python3 - $component $GITHUB_SHA $smoke_flag $billing_flag" < infra/dev/verify-tutor.py
+              "$target_user@$target_host" "python3 - $component $GITHUB_SHA $smoke_flag $billing_flag $logging_flag $logging_trace $logging_error" \
+              < infra/dev/verify-tutor.py | tee "$RUNNER_TEMP/verify-$component.txt"
+            if [ "$LOGGING_SMOKE" = true ] && [ "$component" = ai ]; then
+              logging_trace=$(sed -n 's/^logging_probe_trace=\([0-9a-f]\{32\}\)$/\1/p' "$RUNNER_TEMP/verify-ai.txt")
+              logging_error=$(sed -n 's/^logging_probe_error_id=\([0-9a-f]\{32\}\)$/\1/p' "$RUNNER_TEMP/verify-ai.txt")
+              [[ "$logging_trace" =~ ^[0-9a-f]{32}$ && "$logging_error" =~ ^[0-9a-f]{32}$ ]]
+            fi
           done
       - name: Inspect safe tutor error codes
         if: ${{ inputs.diagnose_tutor }}

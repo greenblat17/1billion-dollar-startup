@@ -1,6 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.ai.TutorClient
+import com.eliteteam.speakingcoach.DiagnosticOutput
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.request.get
@@ -30,6 +31,39 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class FoundationIntegrationTest {
+    @Test
+    fun committedQueueTransitionsAreVisibleAndEmptyPollsAndRollbackAreQuiet() = runTest {
+        withStore(MutableClock()) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val scope = service.identity.issue(student, "operator")
+            DiagnosticOutput().use { logs ->
+                assertEquals(null, service.op(scope, "job.claim", json()).optionalText("job"))
+                assertTrue(logs.events().isEmpty())
+                assertFailsWith<IllegalStateException> {
+                    service.database.transaction { c, now ->
+                        c.enqueueJob(student, "retention.prune", "rolled-back", null, json(), now)
+                        error("rollback fixture")
+                    }
+                }
+                assertTrue(logs.events().isEmpty())
+                val jobId = service.database.transaction { c, now ->
+                    c.enqueueJob(student, "retention.prune", "expiry", null, json(), now).also { id ->
+                        c.update("UPDATE foundation_job SET deadline=? WHERE id=?", now.minusSeconds(1), id)
+                    }
+                }
+                assertEquals(null, service.op(scope, "job.claim", json()).optionalText("job"))
+                val events = logs.events()
+                assertEquals(listOf("foundation_job_enqueue", "foundation_job_claim_decision"), events.map { it.text("event") })
+                assertEquals(jobId, events.last().text("job_id"))
+                assertEquals("failed", events.last().text("outcome"))
+                assertEquals("source_expired", events.last().text("reason_code"))
+                assertEquals("failed", service.database.transaction { c, _ ->
+                    c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", jobId)!!.text("status")
+                })
+            }
+        }
+    }
+
     private fun introEnvelope(chat: Long, message: Long, text: String, at: Instant) = json(
         "update_id" to (chat * 100 + message), "message" to json("message_id" to message,
             "chat" to json("id" to chat, "type" to "private"), "from" to json("id" to chat),
@@ -846,11 +880,20 @@ class FoundationIntegrationTest {
                     return json("objective" to "practice", "topic" to "work", "strategy" to "guided conversation")
                 }
             })
-            assertTrue(worker.runOnce())
+            val finalLog = DiagnosticOutput().use { logs ->
+                assertTrue(worker.runOnce())
+                val events = logs.events()
+                assertTrue(events.none { it.optionalText("operation") == "job.renew" || it.text("stage") == "renew" })
+                events.single { it.optionalText("event") == "foundation_job" && it.text("stage") == "persist" }
+            }
             assertEquals("ready", service.snapshot(operator, "voice", lesson.text("id")).obj("preparation").text("status"))
             service.database.transaction(readOnly = true) { c, _ ->
                 assertEquals(1L, c.rows("SELECT attempts FROM foundation_job WHERE target_id=?", lesson.text("id")) { it.getLong(1) }.single())
-                assertTrue(c.rows("SELECT count(*) FROM foundation_operation WHERE student_id=? AND action='job.renew'", student) { it.getLong(1) }.single() >= 2)
+                val actualRenewals = c.rows("SELECT count(*) FROM foundation_operation WHERE student_id=? AND action='job.renew'", student) {
+                    it.getLong(1)
+                }.single()
+                assertTrue(actualRenewals >= 2)
+                assertEquals(actualRenewals, finalLog.number("renewals"))
             }
         }
     }

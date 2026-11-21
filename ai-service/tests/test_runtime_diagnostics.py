@@ -1,14 +1,16 @@
 import asyncio
 import json
 import logging
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from pathlib import Path
 
 import httpx
 import openai
 import pytest
 
-from app.diagnostics import context_fields, diagnostic_context, error_fields, event, request_trace
+from app.diagnostics import EventSpec, context_fields, diagnostic_context, error_fields, event, request_trace
 from app.foundation_client import FoundationClient
 from app.trial_providers import KoraTrialTTS
 
@@ -99,9 +101,51 @@ async def test_tts_errors_before_and_during_stream_are_logged(partial, caplog):
     assert 'PRIVATE_INPUT' not in caplog.text
 
 
-def test_diagnostic_export_failure_does_not_raise(monkeypatch):
-    monkeypatch.setattr(logging.Logger, 'log', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('sink down')))
-    assert event('failed', error=ValueError('safe_code'), stage='test')
+def test_diagnostic_export_failure_does_not_raise_and_reports_loss_after_recovery(monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    with monkeypatch.context() as patch:
+        patch.setattr(logging.Logger, 'log',
+                      lambda *a, **k: (_ for _ in ()).throw(RuntimeError('sink down')))
+        assert event('failed', error=ValueError('safe_code'), stage='test')
+    event('recovered')
+    event('next')
+    first, second = records(caplog)
+    assert first['diagnostic_losses'] == 1 and 'diagnostic_losses' not in second
+
+
+def test_checked_event_uses_its_template_and_trusted_runtime_metadata(caplog, monkeypatch):
+    monkeypatch.setenv('SPEAKY_ENV', 'dev')
+    monkeypatch.setenv('SPEAKY_RELEASE', '8e6a272d')
+    caplog.set_level(logging.INFO)
+    spec = EventSpec('roadmap_decision', 'roadmap', 'roadmap.generate', 'plan', 'skipped',
+                     'Roadmap generation was skipped because the learner target level is missing.',
+                     'missing_target_level', fields=frozenset({'duration_ms'}))
+    event(spec, duration_ms=5, outcome='completed', message='PRIVATE_WORDS', release='untrusted',
+          model='PRIVATE_TOKEN')
+    [row] = records(caplog)
+    schema_path = Path(__file__).resolve().parents[2] / 'contracts/logging/v1/envelope.json'
+    schema = json.loads(schema_path.read_text())
+    json_types = {'integer': int, 'string': str, 'null': type(None)}
+    for name in schema['required']:
+        rule, value = schema['properties'][name], row[name]
+        property_types = rule['type']
+        types = property_types if isinstance(property_types, list) else [property_types]
+        assert type(value) in {json_types[kind] for kind in types}, name
+        if 'const' in rule:
+            assert value == rule['const']
+        if 'enum' in rule:
+            assert value in rule['enum']
+        if 'pattern' in rule:
+            assert re.fullmatch(rule['pattern'], value)
+        if 'maxLength' in rule:
+            assert rule['minLength'] <= len(value) <= rule['maxLength']
+    assert (row['schema_version'], row['environment'], row['release']) == (1, 'dev', '8e6a272d')
+    assert type(row['schema_version']) is int
+    assert (row['component'], row['operation'], row['stage']) == ('roadmap', 'roadmap.generate', 'plan')
+    assert row['message'] == spec.message and row['outcome'] == 'skipped'
+    assert row['reason_code'] == 'missing_target_level' and row['duration_ms'] == 5
+    assert row['timestamp'].endswith('Z') and row['level'] == 'INFO'
+    assert 'model' not in row and 'PRIVATE_WORDS' not in caplog.text
 
 
 def test_client_diagnostics_authenticates_and_rejects_free_text(caplog):
@@ -118,10 +162,66 @@ def test_client_diagnostics_authenticates_and_rejects_free_text(caplog):
                                'stage': 'microphone', 'code': 'PRIVATE_WORDS'})
         assert response.status_code == 200
         assert records(caplog)[-1]['client_code'] == 'unknown'
-        assert records(caplog)[-1]['trace_id'] == 'b036917a-1c72-45a4-a483-e085bc075da3'
+        assert records(caplog)[-1]['client_attempt_id'] == 'b036917a-1c72-45a4-a483-e085bc075da3'
+        assert records(caplog)[-1]['trace_id'] != records(caplog)[-1]['client_attempt_id']
         backend._request.side_effect = BackendFailure('invalid_telegram_auth', 403)
         assert client.post('/miniapp/diagnostics', json={'initData': 'bad'}).status_code == 403
     assert 'PRIVATE_WORDS' not in caplog.text and 'SECRET_INIT' not in caplog.text
+
+
+@pytest.mark.parametrize(('action', 'stage', 'code', 'outcome'), [
+    ('progress', 'transport', 'request_failed', 'unknown'),
+    ('meetings', 'parse', 'invalid_response', 'failed'),
+    ('demo_pay', 'response', 'response_rejected', 'rejected'),
+    ('calendar', 'export', 'share_cancelled', 'cancelled'),
+    ('voice', 'render', 'render_failed', 'failed'),
+])
+def test_client_report_keeps_only_valid_action_and_server_link(caplog, action, stage, code, outcome):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.trial_api import install_trial_api
+
+    caplog.set_level(logging.INFO)
+    backend = SimpleNamespace(_request=AsyncMock(return_value={}))
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None, None, None)
+    server_id = 'b' * 32
+    payload = {'initData': 'SECRET_INIT', 'action': action, 'stage': stage, 'code': code,
+               'serverErrorId': server_id, 'message': 'PRIVATE_TRANSCRIPT', 'attemptId': 'PRIVATE_WORDS'}
+    with TestClient(app) as client:
+        assert client.post('/miniapp/diagnostics', json=payload).status_code == 200
+        assert client.post('/miniapp/diagnostics', json=payload | {'code': 'PRIVATE_CODE'}).status_code == 400
+    [row] = records(caplog)
+    assert (row['operation'], row['stage'], row['reason_code'], row['outcome']) == (
+        f'miniapp.{action}', stage, code, outcome)
+    assert row['server_error_id'] == server_id and 'client_attempt_id' not in row
+    assert 'PRIVATE_' not in caplog.text and 'SECRET_INIT' not in caplog.text
+
+
+def test_voice_socket_uses_one_server_trace_through_rejection(caplog):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.trial_api import install_trial_api
+    from app.foundation_client import BackendFailure
+
+    caplog.set_level(logging.INFO)
+    backend = SimpleNamespace(_request=AsyncMock(side_effect=BackendFailure('not_owned', 403)))
+    store = SimpleNamespace(check_credentials=AsyncMock())
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None,
+                      SimpleNamespace(openai_realtime_api_key='configured'), store)
+    attempt_id = 'a' * 32
+    with TestClient(app) as client, client.websocket_connect('/miniapp/voice') as socket:
+        socket.send_json({'protocol': 'realtime-pcm-v1', 'attemptId': attempt_id,
+                          'lessonId': 'lesson', 'initData': 'PRIVATE_INIT'})
+        response = socket.receive_json()
+    [start, finish] = records(caplog)
+    assert start['trace_id'] == finish['trace_id'] != attempt_id
+    assert start['request_id'] == finish['request_id']
+    assert finish['client_attempt_id'] == attempt_id and 'client_attempt_id' not in start
+    assert finish['outcome'] == 'rejected' and finish['reason_code'] == 'backend_rejected'
+    assert finish['error_id'] == response['errorId']
+    assert 'PRIVATE_INIT' not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -182,8 +282,11 @@ def test_nested_runtime_fields_and_correlation_headers_exclude_external_values(c
     assert correlation_headers(httpx.Headers({
         'X-Diagnostic-Trace': allowed, 'X-Diagnostic-Lesson': 'private_name',
         'X-Diagnostic-Call': 'private_token', 'X-Diagnostic-Job': '123456789',
-        'X-Request-ID': 'private_request',
-    })) == {'trace_id': allowed}
+        'X-Request-ID': 'private_request', 'X-Diagnostic-Fence': '1234', 'X-Diagnostic-Attempt': '2',
+    })) == {'trace_id': allowed, 'fence': 1234, 'attempt': 2}
+    assert correlation_headers(httpx.Headers({
+        'X-Diagnostic-Fence': '1000000000000', 'X-Diagnostic-Attempt': '+1',
+    })) == {}
     caplog.set_level(logging.INFO)
     event('schema_check', usage={'input_tokens': 12, 'input_token_details': {
         'audio_tokens': 10, 'cached_tokens': 'private_token', 'body': 'private_transcript'}},

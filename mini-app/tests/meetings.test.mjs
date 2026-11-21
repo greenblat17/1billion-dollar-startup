@@ -4,19 +4,26 @@ import vm from 'node:vm';
 import {loadModule} from './helpers/load-module.mjs';
 
 test('real agreed regular meetings remain joinable without treating demo as subscription',async()=>{
- const elements=new Map();
+ const elements=new Map(),diagnostics=[];
+ let rejectMeetings=false,demoAttempts=0;
  const element=()=>({children:[],append(...children){this.children.push(...children);},replaceChildren(){this.children=[];}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const lesson={kind:'regular',starts_at:'2026-11-15T12:00:00Z',timezone:'UTC',status:'scheduled'};
  const schedule={timezone:'UTC',agreement:{demo:true,localTime:'12:00'}};
- const context=vm.createContext({window:{addEventListener(){}},document:{getElementById:get,createElement:element},
+ const context=vm.createContext({window:{Telegram:{WebApp:{initData:'signed',ready(){},expand(){}}},addEventListener(){}},document:{getElementById:get,createElement:element},
   location:{search:'',origin:'https://test'},URLSearchParams,crypto:{randomUUID:()=> 'test'},
-  fetch:async()=>({ok:true,json:async()=>({lessons:[{...lesson,id:'real',launch_mode:'executable'},
+  fetch:async(url,options)=>{
+   const body=JSON.parse(options.body);
+   if(url==='/miniapp/diagnostics'){diagnostics.push(body);return {ok:true};}
+   if(body.action==='demo_pay'&&++demoAttempts===1)throw Error('UNSAFE_PAYMENT_ERROR');
+   if(body.action==='demo_pay')return {ok:true,json:async()=>({success:true})};
+   if(rejectMeetings)throw Error('UNSAFE_MEETINGS_ERROR');
+   return {ok:true,json:async()=>({lessons:[{...lesson,id:'real',launch_mode:'executable'},
    {...lesson,id:'demo',launch_mode:'placeholder'},
    {...lesson,id:'done',launch_mode:'executable',status:'completed'},
    {...lesson,id:'cancelled',launch_mode:'executable',status:'cancelled'},
    {...lesson,id:'unknown',launch_mode:'executable',status:'unknown'}],schedules:[{...schedule,id:'agreed',agreement:{...schedule.agreement,executable:true}},
-   {...schedule,id:'preliminary'}],demoReceipts:[]})})});
+   {...schedule,id:'preliminary'}],demoReceipts:[]})};}});
  await loadModule(context);
  await new Promise(resolve=>setImmediate(resolve));
  const [real,placeholder,done,cancelled,unknown]=get('meetings').children;
@@ -33,4 +40,19 @@ test('real agreed regular meetings remain joinable without treating demo as subs
  assert.match(agreed.children[1].textContent,/подписка не включается/);
  assert.doesNotMatch(agreed.children[1].textContent,/недоступны/);
  assert.match(preliminary.children[1].textContent,/недоступны/);
+ assert.deepEqual(diagnostics,[]);
+ const pay=agreed.children[2];
+ await pay.onclick();
+ assert.equal(pay.disabled,false);
+ assert.equal(pay.textContent,'Повторить демо-оплату');
+ await pay.onclick();
+ assert.equal(pay.disabled,true);
+ assert.equal(pay.textContent,'Тестовая оплата подтверждена');
+ rejectMeetings=true;
+ await get('retry').onclick();await get('retry').onclick();
+ assert.deepEqual(diagnostics,[
+  {initData:'signed',action:'demo_pay',stage:'transport',code:'request_failed'},
+  {initData:'signed',action:'meetings',stage:'transport',code:'request_failed'},
+  {initData:'signed',action:'meetings',stage:'transport',code:'request_failed'},
+ ]);
 });

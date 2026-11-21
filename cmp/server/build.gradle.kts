@@ -52,6 +52,10 @@ tasks.processResources {
     from(rootProject.layout.projectDirectory.file("../ai-service/app/legacy-speech-speeds-v1.json"))
 }
 
+tasks.processTestResources {
+    from(rootProject.layout.projectDirectory.file("../contracts/logging/v1/envelope.json"))
+}
+
 // Foundation suites require PostgreSQL and run only in foundationIntegrationTest.
 val foundationIntegrationPattern = "**/foundation/*IntegrationTest*.class"
 

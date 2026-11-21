@@ -1,31 +1,49 @@
 """Payload-free operational events. Values from external boundaries need separate validators."""
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
 import logging
 import os
 import re
+from threading import Lock
 import traceback
 from uuid import uuid4
+from typing import Literal
 
 _context = ContextVar('diagnostic_context', default={})
+_loss_lock = Lock()
+_pending_losses = 0
 _ID = re.compile(r'[A-Za-z0-9_.:-]{1,128}\Z')
+_RELEASE = re.compile(r'[0-9a-f]{7,64}')
+_ENVIRONMENTS = {'dev', 'prod', 'local', 'test'}
 _OPAQUE = re.compile(r'[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}')
 _PROVIDER_ID = re.compile(r'(?:req[_-]|request[_-]|gen-|item_|resp_|evt_)[A-Za-z0-9_-]{8,96}')
+
+
+def count_diagnostic_loss() -> None:
+    global _pending_losses
+    with _loss_lock:
+        _pending_losses = min(_pending_losses + 1, 10**12 - 1)
+
+
 _KEYS = {'trace_id', 'request_id', 'lesson_id', 'call_session_id', 'turn_id', 'operation_id',
          'job_id', 'notice_id', 'attempt_id'}
+_LINKS = {'client_attempt_id', 'server_error_id', 'upstream_error_id'}
+_CORRELATION_NUMBERS = {'fence', 'attempt'}
 _LABELS = {
-    *_KEYS, 'operation', 'stage', 'outcome', 'reason', 'reason_code', 'error_code', 'client_code',
+    *_KEYS, 'component', 'operation', 'stage', 'outcome', 'reason', 'reason_code', 'error_code', 'client_code',
     'method', 'route', 'provider', 'model', 'tool', 'transport', 'direction', 'skill', 'event_kind',
     'action_kind', 'source_event_id', 'field', 'rule', 'actualType', 'type', 'schema_name', 'schema_hash',
     'last_input_stage', 'status_reason', 'status_error_code', 'metric', 'peer_kind', 'request_key',
-    'item_id', 'code', 'error_type', 'purpose', 'result', 'source', 'upstream_error_id', 'user_id',
+    'item_id', 'code', 'error_type', 'purpose', 'result', 'source', 'user_id',
     'reference_purpose', 'source_role', 'finish_reason',
 }
 _NUMBERS = {
-    'attempt', 'duration_ms', 'elapsed_ms', 'http_status', 'close_code', 'generation', 'bytes_sent',
+    *_CORRELATION_NUMBERS, 'duration_ms', 'elapsed_ms', 'http_status', 'close_code', 'generation', 'bytes_sent',
+    'roadmap_revision',
     'received_bytes', 'forwarded_bytes', 'received_input_bytes', 'forwarded_input_bytes',
     'pending_playback', 'pending_input_count', 'trailing_silence_ms', 'last_input_forwarded_ms_ago',
     'milliseconds', 'provider_audio_end_ms', 'stop_to_commit_ms', 'commit_to_request_ms',
@@ -36,6 +54,25 @@ _NUMBERS = {
     'pending_playback_count', 'pending_transcriptions', 'rejected_facts', 'rejected_candidates',
     'request_to_audio_ms', 'first_chunk_archive_ms', 'prompt_tokens', 'completion_tokens', 'reasoning_tokens',
 }
+
+Outcome = Literal['started', 'completed', 'failed', 'rejected', 'skipped', 'cancelled', 'unknown',
+                  'degraded', 'incomplete', 'retried', 'replayed', 'superseded']
+_ADVERSE = {'failed', 'rejected', 'unknown', 'degraded', 'incomplete'}
+
+
+@dataclass(frozen=True)
+class EventSpec:
+    """One explicit outcome owned by a runtime component."""
+
+    name: str
+    component: str
+    operation: str
+    stage: str
+    outcome: Outcome
+    message: str
+    reason_code: str | None = None
+    level: int = logging.INFO
+    fields: frozenset[str] = frozenset()
 _FLAGS = {'muted', 'speaking', 'final', 'endpoint', 'dev', 'enabled', 'token_valid',
           'mixed_auth', 'duplicate', 'urlPresent', 'passed', 'ok', 'booking_present', 'response_running', 'valid', 'has_text'}
 _COUNTERS = {
@@ -95,6 +132,9 @@ def context_fields():
 def diagnostic_context(**fields):
     values = context_fields()
     values.update({k: identifier(v) for k, v in fields.items() if k in _KEYS and identifier(v)})
+    values.update({k: opaque_id(v) for k, v in fields.items() if k in _LINKS and opaque_id(v)})
+    values.update({k: v for k, v in fields.items() if k in _CORRELATION_NUMBERS and
+                   type(v) is int and 0 < v < 10**12})
     token = _context.set(values)
     try:
         yield
@@ -103,11 +143,16 @@ def diagnostic_context(**fields):
 
 
 def correlation_headers(headers):
-    return {key: value for key, header in (
+    ids = {key: value for key, header in (
         ('trace_id', 'X-Diagnostic-Trace'), ('lesson_id', 'X-Diagnostic-Lesson'),
         ('call_session_id', 'X-Diagnostic-Call'), ('job_id', 'X-Diagnostic-Job'),
         ('notice_id', 'X-Diagnostic-Notice'),
     ) if (value := opaque_id(headers.get(header)))}
+    for key, header in (('fence', 'X-Diagnostic-Fence'), ('attempt', 'X-Diagnostic-Attempt')):
+        value = headers.get(header)
+        if isinstance(value, str) and re.fullmatch(r'[1-9][0-9]{0,11}', value):
+            ids[key] = int(value)
+    return ids
 
 
 def _upstream_error(raw):
@@ -196,6 +241,8 @@ def _fields(fields):
             safe[key] = value
         elif key in _FLAGS and type(value) is bool:
             safe[key] = value
+        elif key in _LINKS and opaque_id(value):
+            safe[key] = value
         elif key == 'validation' and isinstance(value, list):
             safe[key] = [{'type': item['type'], 'fields': [part for part in item['fields'][:12] if identifier(part)]}
                          for item in value[:12] if isinstance(item, dict) and identifier(item.get('type'))
@@ -245,26 +292,52 @@ def _failure_class(outcome, status, error, reason):
     return None
 
 
-def event(name, *, error=None, marker='runtime_event', logger=None, error_id=None, **fields):
+def event(name: str | EventSpec, *, error=None, marker='runtime_event', logger=None,
+          error_id=None, **fields) -> str | None:
+    global _pending_losses
+    spec = name if isinstance(name, EventSpec) else None
+    name = spec.name if spec else name
     # Reuse an ID across propagation. Only the originating record includes frames.
-    prior = getattr(error, '_diagnostic_error_id', None) or getattr(
-        getattr(error, '__cause__', None), '_diagnostic_error_id', None)
-    failed = fields.get('outcome') in ('failed', 'rejected', 'unknown', 'degraded', 'incomplete') or name.endswith(('_failed', '_rejected', '_denied'))
-    error_id = opaque_id(error_id) or prior or (uuid4().hex if error is not None or failed else None)
+    error_id = opaque_id(error_id)
+    losses = 0
     try:
-        if error is not None:
-            error._diagnostic_error_id = error_id
+        prior = opaque_id(getattr(error, '_diagnostic_error_id', None)) or opaque_id(getattr(
+            getattr(error, '__cause__', None), '_diagnostic_error_id', None))
+        if spec:
+            fields = {k: v for k, v in fields.items() if k in spec.fields}
+            fields.update(component=spec.component, operation=spec.operation, stage=spec.stage, outcome=spec.outcome)
         data = _fields({**context_fields(), **{k: v for k, v in fields.items() if v is not None}})
         outcome = data.get('outcome', 'failed' if error or name.endswith('_failed') else
                            'rejected' if name.endswith(('_rejected', '_denied')) else 'completed')
-        reason = data.get('reason_code') or data.get('error_code') or data.get('reason') or data.get('rule') or data.get('status_reason')
-        if reason is None and (error is not None or failed):
+        failed = outcome in _ADVERSE
+        error_id = error_id or prior or (uuid4().hex if error is not None or failed else None)
+        reason = (spec.reason_code if spec else data.get('reason_code') or data.get('error_code')
+                  or data.get('reason') or data.get('rule') or data.get('status_reason'))
+        if reason is None and (error is not None or failed or outcome == 'skipped'):
             reason = 'unexpected_error' if error is not None else 'operation_failed'
-        level = logging.WARNING if error or outcome in ('failed', 'rejected', 'unknown', 'degraded', 'incomplete') else logging.INFO
+        level = spec.level if spec else logging.WARNING if error or failed else logging.INFO
+        writer = logger or logging.getLogger(__name__)
+        if not writer.isEnabledFor(level):
+            return error_id
         stage = data.get('stage', 'execute')
+        component = data.get('component') or name
+        operation = data.get('operation', name)
+        environment = os.getenv('SPEAKY_ENV')
+        release = os.getenv('SPEAKY_RELEASE', '')
+        if spec:
+            message = spec.message
+        else:
+            operation_label = operation.replace('_', ' ').replace('.', ' ')
+            message = f'{operation_label.capitalize()} {outcome} at {stage.replace("_", " ")}'
+            if reason:
+                message += f' because {reason.replace("_", " ")}'
+            message += '.'
         data.update(timestamp=datetime.now(timezone.utc).isoformat(timespec='milliseconds').replace('+00:00', 'Z'),
-                    level=logging.getLevelName(level), service='ai', event=name,
-                    operation=data.get('operation', name), stage=stage, outcome=outcome,
+                    schema_version=1, level=logging.getLevelName(level), service='ai', component=component,
+                    environment=environment if environment in _ENVIRONMENTS else 'unknown',
+                    release=release if _RELEASE.fullmatch(release) else 'unknown', event=name,
+                    operation=operation, stage=stage, outcome=outcome,
+                    message=message[:280] or 'The operation reported a diagnostic event.',
                     trace_id=data.get('trace_id') or uuid4().hex, request_id=data.get('request_id'),
                     duration_ms=data.get('duration_ms', data.get('elapsed_ms')), reason_code=reason, error_id=error_id)
         if error is not None:
@@ -284,8 +357,19 @@ def event(name, *, error=None, marker='runtime_event', logger=None, error_id=Non
         if marker == 'provider_call':
             for key in ('http_status', 'cost_micro_usd', 'user_id', 'purpose', 'error_code'):
                 data.setdefault(key, None)
-        (logger or logging.getLogger(__name__)).log(level, marker + ' %s', json.dumps(data, ensure_ascii=True))
+        with _loss_lock:
+            losses, _pending_losses = _pending_losses, 0
+        if losses:
+            data['diagnostic_losses'] = losses
+        writer.log(level, marker + ' %s', json.dumps(data, ensure_ascii=True))
     except Exception:
         # Diagnostics must not change the outcome of a committed operation.
-        pass
+        with _loss_lock:
+            _pending_losses = min(_pending_losses + losses + 1, 10**12 - 1)
+    else:
+        if error is not None:
+            try:
+                error._diagnostic_error_id = error_id
+            except Exception:
+                pass
     return error_id

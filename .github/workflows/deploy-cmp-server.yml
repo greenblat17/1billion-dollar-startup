@@ -77,10 +77,11 @@ jobs:
             exit 1
           fi
           printf '%s\n' "$ENV_BODY" > vps-upload/.env
+          sed -i '/^\(SPEAKY_ENV\|SPEAKY_RELEASE\)=/d' vps-upload/.env
+          printf 'SPEAKY_ENV=%s\nSPEAKY_RELEASE=%s\n' "$DESTINATION" "$(git rev-parse HEAD)" >> vps-upload/.env
           if [ "$DESTINATION" = dev ]; then
             tmp=$(mktemp)
-            grep -v -e '^AGENT_TEST_ENABLED=' -e '^SPEAKY_ENV=' vps-upload/.env > "$tmp" || true
-            printf 'SPEAKY_ENV=dev\n' >> "$tmp"
+            grep -v '^AGENT_TEST_ENABLED=' vps-upload/.env > "$tmp" || true
             printf 'AGENT_TEST_ENABLED=%s\n' "$AGENT_TEST" >> "$tmp"
             mv "$tmp" vps-upload/.env
           fi

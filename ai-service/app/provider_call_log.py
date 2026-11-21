@@ -10,7 +10,7 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from app.diagnostics import event
+from app.diagnostics import EventSpec, event
 from app.load_test import load_test_active
 from app.metrics_v2 import client_for, current_session
 from app.operational_metrics import PROVIDER_CALL_METRICS, current_voice_usage
@@ -21,6 +21,11 @@ T = TypeVar("T")
 _hash_key: bytes | None = None
 _TELEGRAM_SESSION = re.compile(r"tg-(?:ChatId\(chatId=)?(-?\d+)\)?\Z")
 _APP_SESSION = re.compile(r"app-([0-9a-fA-F-]{36})-[0-9a-fA-F-]{36}\Z")
+_SHAPE_FIELDS = frozenset({"schema_name", "schema_hash", "max_completion_tokens"})
+_PROVIDER_CALL_FIELDS = _SHAPE_FIELDS | {
+    "source", "user_id", "type", "purpose", "provider", "model", "result",
+    "http_status", "error_code", "cost_micro_usd", "duration_ms",
+}
 
 
 def configure_user_id_hash_key(secret: str) -> None:
@@ -107,12 +112,27 @@ def _emit(
         if voice_usage is not None:
             voice_usage.record(kind, result, cost_micro)
     stage = "response" if error is None or http_status is not None else "transport"
-    event("provider_failed" if result == "error" else "provider_call",
-          marker="provider_call", logger=logger,
-          error=error if result == "error" else None, stage=stage, operation=operation or purpose or kind,
-          outcome={"success": "completed", "error": "failed", "cancelled": "cancelled"}[result],
-          reason_code=("provider_http_error" if http_status else "provider_transport_error") if result == "error" else None,
+    reason = None
+    if result == "cancelled":
+        outcome, message = "cancelled", "The provider request was cancelled."
+    elif result == "success":
+        outcome, message = "completed", "The provider request returned a response."
+    elif http_status is None:
+        outcome, message = "unknown", "The provider request failed before a response could be confirmed."
+        reason = "provider_transport_error"
+    elif 400 <= http_status < 500:
+        outcome, message = "rejected", f"The provider rejected the request with HTTP {http_status}."
+        reason = "provider_http_error"
+    else:
+        outcome, message = "failed", f"The provider request failed with HTTP {http_status}."
+        reason = "provider_http_error"
+    spec = EventSpec("provider_failed" if result == "error" else "provider_call",
+                     "provider_client", operation or purpose or kind, stage, outcome, message, reason,
+                     logging.WARNING if result == "error" else logging.INFO, _PROVIDER_CALL_FIELDS)
+    event(spec, marker="provider_call", logger=logger,
+          error=error if result == "error" else None,
           source="load_test" if is_load_test else client_for(current_session()), user_id=anonymous_user_id(),
           type=kind, purpose=purpose, provider=provider, model=model, result=result, http_status=http_status,
           error_code=type(error).__name__ if error else None, cost_micro_usd=cost_micro,
-          duration_ms=int((time.perf_counter() - started) * 1000), **(shape or {}))
+          duration_ms=int((time.perf_counter() - started) * 1000),
+          **{key: value for key, value in (shape or {}).items() if key in _SHAPE_FIELDS})

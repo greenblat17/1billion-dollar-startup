@@ -25,6 +25,7 @@ on:
       - master
     paths:
       - 'cmp/**'
+      - 'contracts/logging/**'
       - 'ai-service/app/learning-content-action-kinds-v1.json'
       - 'ai-service/app/learning-content-limits-v1.json'
       - 'ai-service/app/legacy-speech-speeds-v1.json'
@@ -36,6 +37,7 @@ on:
   pull_request:
     paths:
       - 'cmp/**'
+      - 'contracts/logging/**'
       - 'ai-service/app/learning-content-action-kinds-v1.json'
       - 'ai-service/app/learning-content-limits-v1.json'
       - 'ai-service/app/legacy-speech-speeds-v1.json'

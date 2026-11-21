@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import java.security.MessageDigest
@@ -59,6 +60,20 @@ internal fun canonical(value: JsonElement): String = when (value) {
 
 /** Every callback is synchronous: a transaction cannot suspend across HTTP or AI calls. */
 internal class FoundationDatabase(url: String, val clock: Clock = Clock.systemUTC()) : AutoCloseable {
+    private class TransactionEvents {
+        val records = mutableListOf<Pair<RuntimeDiagnostics.Event, Map<String, String>>>()
+        var omitted = 0
+    }
+
+    companion object {
+        private val events = ThreadLocal<TransactionEvents>()
+
+        fun recordAfterCommit(event: RuntimeDiagnostics.Event, fields: Map<String, String> = emptyMap()) {
+            val pending = events.get() ?: return
+            if (pending.records.size < 128) pending.records.add(event to fields) else pending.omitted++
+        }
+    }
+
     private val pool = HikariDataSource(HikariConfig().apply {
         jdbcUrl = if (url.startsWith("jdbc:")) url else "jdbc:$url"
         maximumPoolSize = 8
@@ -71,19 +86,27 @@ internal class FoundationDatabase(url: String, val clock: Clock = Clock.systemUT
 
     suspend fun <T> transaction(readOnly: Boolean = false, action: (Connection, Instant) -> T): T =
         withContext(Dispatchers.IO) {
-            pool.connection.use { connection ->
+            val pending = TransactionEvents()
+            val committed = pool.connection.use { connection ->
                 connection.autoCommit = false
                 connection.isReadOnly = readOnly
                 connection.transactionIsolation = if (readOnly) Connection.TRANSACTION_REPEATABLE_READ else Connection.TRANSACTION_READ_COMMITTED
                 try {
+                    events.set(pending)
                     val result = action(connection, clock.instant())
                     connection.commit()
                     result
                 } catch (error: Throwable) {
                     connection.rollback()
                     throw error
+                } finally {
+                    events.remove()
                 }
             }
+            pending.records.forEach { (event, fields) -> RuntimeDiagnostics.record(event, fields) }
+            if (pending.omitted > 0) RuntimeDiagnostics.record("transaction_diagnostics_limited", "commit", extra = mapOf(
+                "count" to pending.omitted.toString(), "outcome" to "failed", "reason_code" to "transaction_log_limit"))
+            committed
         }
 
     override fun close() = pool.close()

@@ -8,12 +8,14 @@ on:
       - master
     paths:
       - 'ai-service/**'
+      - 'contracts/logging/**'
       - 'infra/ai-service/**'
       - 'infra/redis/**'
       - '.github/workflows/ai-service.yml'
   pull_request:
     paths:
       - 'ai-service/**'
+      - 'contracts/logging/**'
       - 'infra/ai-service/**'
       - 'infra/redis/**'
       - '.github/workflows/ai-service.yml'

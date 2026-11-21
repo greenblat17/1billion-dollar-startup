@@ -4,13 +4,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
+import asyncio
 from time import perf_counter
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
-from app.diagnostics import context_fields, diagnostic_context, event, opaque_id, request_trace
+from app.diagnostics import EventSpec, context_fields, diagnostic_context, event, opaque_id, request_trace
 from app.learning_observations import LearningObservation
 from app.learning_content import LearningContentDocument
 
@@ -44,25 +46,36 @@ class FoundationClient:
         started = perf_counter()
         context = context_fields()
         trace_id = context.get('trace_id') or uuid4().hex
-        boundary = {'operation': command or 'foundation_http', 'method': method, 'trace_id': trace_id}
+        operation = command or 'foundation_http'
 
-        def record(stage, **fields):
-            return event('backend_failed' if 'reason_code' in fields else 'backend_request',
-                         **boundary, stage=stage, duration_ms=int((perf_counter() - started) * 1000), **fields)
+        def record(stage, outcome, message, reason=None, **fields):
+            name = 'backend_request' if outcome in ('completed', 'cancelled') else 'backend_failed'
+            spec = EventSpec(name, 'foundation_client', operation, stage, outcome, message, reason,
+                             logging.INFO if name == 'backend_request' else logging.WARNING,
+                             frozenset({'method', 'trace_id', 'duration_ms', 'http_status', 'upstream_error_id'}))
+            return event(spec, method=method, trace_id=trace_id,
+                         duration_ms=int((perf_counter() - started) * 1000), **fields)
 
         try:
             response = await self.http.request(method, self.root + path, headers={
                 'X-Internal-Token': self.service_token, 'X-Execution-Scope': scope,
                 'X-Diagnostic-Trace': trace_id,
-                **{header: context.get(key, '') for key, header in (
+                **{header: str(context[key]) for key, header in (
                     ('lesson_id', 'X-Diagnostic-Lesson'),
                     ('call_session_id', 'X-Diagnostic-Call'), ('job_id', 'X-Diagnostic-Job'),
                     ('notice_id', 'X-Diagnostic-Notice'),
-                )},
+                    ('fence', 'X-Diagnostic-Fence'), ('attempt', 'X-Diagnostic-Attempt'),
+                ) if key in context},
             }, timeout=15, **kwargs)
+        except asyncio.CancelledError:
+            record('transport', 'cancelled', 'The Foundation request was cancelled.')
+            raise
         except httpx.TransportError as error:
             failure = BackendFailure('transport_outcome_unknown', 503)
-            failure._diagnostic_error_id = record('transport', error=error, reason_code=failure.code, http_status=503)
+            failure._diagnostic_error_id = record(
+                'transport', 'unknown', 'The Foundation request failed in transit. Its result is unknown.',
+                failure.code, error=error, http_status=503,
+            )
             # An uncertain write is recovered with its original operation ID, never a new ID.
             raise failure from None
         try:
@@ -71,26 +84,32 @@ class FoundationClient:
                 raise ValueError('invalid_backend_response')
         except ValueError as error:
             failure = BackendFailure('invalid_backend_response', 502)
-            failure._diagnostic_error_id = record('decode', error=error, reason_code=failure.code,
-                                                  http_status=response.status_code)
+            failure._diagnostic_error_id = record(
+                'decode', 'unknown', 'Foundation returned a response the AI service could not read.',
+                failure.code, error=error, http_status=response.status_code,
+            )
             raise failure from None
         if not response.is_success or payload.get('ok') is not True:
             code = payload.get('error')
             upstream_id = opaque_id(response.headers.get('X-Error-ID'))
             failure = BackendFailure(code if isinstance(code, str) else 'backend_unavailable',
                                      response.status_code, upstream_id)
-            failure._diagnostic_error_id = record('response', error=failure,
-                                                  reason_code='backend_rejected' if response.status_code < 500
-                                                  else 'backend_unavailable', error_id=upstream_id,
-                                                  upstream_error_id=upstream_id)
+            rejected = response.status_code < 500
+            failure._diagnostic_error_id = record(
+                'response', 'rejected' if rejected else 'failed',
+                'Foundation rejected the request.' if rejected else 'Foundation could not process the request.',
+                'backend_rejected' if rejected else 'backend_unavailable', error=failure,
+                error_id=upstream_id, upstream_error_id=upstream_id,
+            )
             raise failure
         result = payload.get('result')
         if not isinstance(result, dict):
             failure = BackendFailure('invalid_backend_response', 502)
-            record('validate', error=failure, reason_code=failure.code, http_status=response.status_code)
+            record('validate', 'failed', 'Foundation returned a response without a valid result.',
+                   failure.code, error=failure, http_status=response.status_code)
             raise failure
         if command not in _MEDIA_COMMANDS:
-            record('response', http_status=response.status_code)
+            record('response', 'completed', 'Foundation returned a valid result.', http_status=response.status_code)
         return result
 
     async def _versioned_get(self, path: str, scope: str, *, schema_error: str,

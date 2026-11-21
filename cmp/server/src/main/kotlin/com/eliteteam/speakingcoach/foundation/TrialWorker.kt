@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.telegram.TutorTextRequest
 import com.eliteteam.speakingcoach.telegram.telegramRequestJson
 import com.eliteteam.speakingcoach.telegram.tutorTextParts
@@ -50,14 +52,27 @@ internal class TrialWorker(private val service: FoundationService, private val h
             val lesson = c.document("SELECT to_jsonb(l) FROM lesson l WHERE id=?", current.text("lesson_id"))
             val student = c.document("SELECT to_jsonb(s) FROM student s WHERE id=? AND deleted_at IS NULL AND data_epoch=?", current.text("student_id"), current.number("data_epoch"))
             val connected = c.document("SELECT to_jsonb(s) FROM call_session s WHERE lesson_id=? AND status='connected'", current.text("lesson_id"))
-            if (lesson == null || student == null || connected != null || !noticeApplies(c, current, lesson, now)) {
-                c.update("UPDATE trial_notice SET status='cancelled' WHERE id=?", current.text("id")); return@transaction null
+            val cancellation = when {
+                lesson == null -> "lesson_unavailable"
+                student == null -> "student_revision_changed"
+                connected != null -> "call_active"
+                !noticeApplies(c, current, lesson, now) -> "notice_no_longer_applies"
+                else -> null
+            }
+            if (cancellation != null) {
+                val id = current.text("id")
+                c.update("UPDATE trial_notice SET status='cancelled' WHERE id=?", id)
+                FoundationDatabase.recordAfterCommit(Event("trial_notice", "trial.notice", "claim", Outcome.CANCELLED,
+                    "Foundation cancelled the Trial notice because ${cancellation.replace('_', ' ')}.", cancellation),
+                    mapOf("trace_id" to RuntimeDiagnostics.trace(id), "notice_id" to id, "lesson_id" to current.text("lesson_id"),
+                        "event_kind" to current.text("kind"), "fence" to current.number("fence").toString()))
+                return@transaction null
             }
             c.update("UPDATE trial_notice SET status='generating',lease_until=?,fence=fence+1 WHERE id=?", now.plusSeconds(90), current.text("id"))
             c.document("SELECT to_jsonb(n) FROM trial_notice n WHERE id=?", current.text("id"))
         } ?: return
         RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(notice.text("id")),
-            "notice_id" to notice.text("id"), "lesson_id" to notice.text("lesson_id"))) {
+            "notice_id" to notice.text("id"), "lesson_id" to notice.text("lesson_id"), "fence" to notice.number("fence").toString())) {
             RuntimeDiagnostics.record("trial_notice", "claim", extra = mapOf("outcome" to "started", "event_kind" to notice.text("kind")))
             try {
                 deliverNotice(notice)
@@ -115,17 +130,31 @@ internal class TrialWorker(private val service: FoundationService, private val h
         else json("inline_keyboard" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonArray(listOf(
             json("text" to "Мои встречи", "web_app" to json("url" to miniUrl)))))))
         RuntimeDiagnostics.record("trial_notice", "telegram_request", extra = mapOf("outcome" to "started", "provider" to "telegram"))
-        for (part in tutorTextParts(reply)) {
-            val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
-                contentType(ContentType.Application.Json)
-                setBody(telegramRequestJson.encodeToString(TutorTextRequest(subject.toLong(), part.text, part.entities, markup)))
+        for ((index, part) in tutorTextParts(reply).withIndex()) {
+            val sendFields = mapOf("provider" to "telegram", "part" to index.toString())
+            val (status, sentBody) = try {
+                val sent = http.post("https://api.telegram.org/bot$botToken/sendMessage") {
+                    contentType(ContentType.Application.Json)
+                    setBody(telegramRequestJson.encodeToString(TutorTextRequest(subject.toLong(), part.text, part.entities, markup)))
+                }
+                sent.status.value to sent.bodyAsText()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                RuntimeDiagnostics.record(Event("trial_delivery_failed", "trial.notice", "telegram_request", Outcome.UNKNOWN,
+                    "The Telegram request did not yield a readable response. Trial notice delivery is unknown.",
+                    "telegram_response_unavailable"), sendFields, error)
+                throw error
             }
-            val sentBody = sent.bodyAsText()
-            val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
-            if (!ok) {
-                RuntimeDiagnostics.record("trial_delivery_failed", "telegram_response", extra = mapOf(
-                    "notice_id" to notice.text("id"), "http_status" to sent.status.value.toString(),
-                    "trace_id" to RuntimeDiagnostics.trace(notice.text("id")), "outcome" to "unknown") + RuntimeDiagnostics.httpFields(sent.status.value, sentBody))
+            val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") }.getOrNull()
+            if (ok != "true") {
+                val rejected = ok == "false" && status in 400..499
+                val message = if (rejected) "Telegram rejected this Trial notice part. Foundation left the notice marked unknown."
+                    else "The Telegram response did not confirm Trial notice delivery."
+                RuntimeDiagnostics.record(Event("trial_delivery_failed", "trial.notice", "telegram_response",
+                    if (rejected) Outcome.REJECTED else Outcome.UNKNOWN, message,
+                    if (rejected) "telegram_request_rejected" else "telegram_response_unconfirmed"),
+                    sendFields + RuntimeDiagnostics.httpFields(status, sentBody))
                 return
             }
         }

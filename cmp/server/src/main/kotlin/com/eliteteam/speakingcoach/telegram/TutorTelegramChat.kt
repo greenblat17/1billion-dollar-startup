@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.telegram
 
+import com.eliteteam.speakingcoach.foundation.telegramTextTrace
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
 import com.eliteteam.speakingcoach.ai.TutorClient
 import com.eliteteam.speakingcoach.ai.TutorRequest
@@ -74,8 +75,7 @@ internal data class TutorCardRequest(
 internal class TutorTelegramChat(private val bot: BehaviourContext, private val client: TutorClient) {
 
     suspend fun respond(message: ChatMessage, text: String, at: Instant, start: Boolean = false) =
-        RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(
-            "tg-${telegramChatNumber(message.chat.id)}:message:${message.messageId.long}"))) {
+        RuntimeDiagnostics.withContext(mapOf("trace_id" to telegramTextTrace(telegramChatNumber(message.chat.id), message.messageId.long))) {
             try { respondCurrent(message, text, at, start) }
             catch (error: Exception) {
                 if (error !is CancellationException) RuntimeDiagnostics.record("telegram_turn_failed", "respond_or_deliver", error)

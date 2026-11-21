@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -8,32 +10,46 @@ import kotlinx.serialization.json.JsonObject
 /** Applies a one-time Trial diagnosis through SP-03 writers under the job fence and student lock. */
 internal class TrialAssessment {
     fun apply(c: Connection, scope: ExecutionScope, lessonId: String, inputs: JsonObject,
-              result: JsonObject, now: Instant): Boolean {
+              result: JsonObject, now: Instant, assessmentJobId: String): Boolean {
         result.only("schemaVersion", "catalogVersion", "baseLearningRevision", "observationRefs", "levels", "topics", "coverage")
         if (result.number("schemaVersion") != 1L) reject("invalid_result")
+        fun superseded(reason: String, detail: String): Boolean {
+            FoundationDatabase.recordAfterCommit(Event("trial_assessment_superseded", "trial.assess", "apply", Outcome.SUPERSEDED,
+                "Foundation did not apply Trial Assessment because $detail.", reason),
+                mapOf("lesson_id" to lessonId, "job_id" to assessmentJobId))
+            return false
+        }
         val lesson = c.lesson(scope, lessonId)
-        if (!trialV55(lesson) || lesson.text("status") != "completed" ||
-            lesson.number("transcript_revision") != inputs.number("transcriptRevision")) return false
+        if (!trialV55(lesson) || lesson.text("status") != "completed")
+            return superseded("lesson_state_changed", "the lesson is no longer a completed v5.5 Trial")
+        if (lesson.number("transcript_revision") != inputs.number("transcriptRevision"))
+            return superseded("transcript_revision_changed", "the transcript revision changed")
         val observedJob = c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND id=? AND kind='trial.observe'",
             scope.studentId, inputs.text("observationJobId")) ?: reject("invalid_result")
         if (observedJob.text("status") != "succeeded" || observedJob.text("target_id") != lessonId ||
-            observedJob.obj("input_refs").number("transcriptRevision") != inputs.number("transcriptRevision")) return false
+            observedJob.obj("input_refs").number("transcriptRevision") != inputs.number("transcriptRevision"))
+            return superseded("observation_job_changed", "the source observation job no longer matches")
         val state = StudentLearningState().read(c, scope.studentId, now)
-        if (state.number("revision") != result.number("baseLearningRevision")) return false
+        if (state.number("revision") != result.number("baseLearningRevision"))
+            return superseded("learning_revision_changed", "the learning state revision changed")
         val provenance = state.obj("provenance")
         if (provenance.any { (key, value) -> key.startsWith("currentLevels.speaky.") &&
-                (value as? JsonObject)?.optionalText("component") != "post-trial-assessment" }) return false
-        if (state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("listening").text("level") != "Unknown") return false
+                (value as? JsonObject)?.optionalText("component") != "post-trial-assessment" })
+            return superseded("tutor_levels_replaced", "a newer assessment owns the current levels")
+        if (state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("listening").text("level") != "Unknown")
+            return superseded("listening_level_already_known", "the listening level is already known")
         val catalogVersion = result.text("catalogVersion")
-        if (catalogVersion != inputs.text("catalogVersion")) return false
+        if (catalogVersion != inputs.text("catalogVersion")) return superseded("catalog_version_changed", "the catalog version changed")
         if (c.document("SELECT to_jsonb(r) FROM learning_catalog_release r WHERE version=? AND published_at IS NOT NULL", catalogVersion) == null) reject("catalog_not_published")
         val active = c.documents("""SELECT to_jsonb(o) FROM learning_observation o WHERE o.student_id=? AND o.lesson_id=?
             AND o.status='active' AND o.document->'provenance'->>'component'='trial-observation-extractor'""", scope.studentId, lessonId)
         if (active.size > 200) reject("invalid_result")
-        if (active.any { it.obj("document").text("catalogVersion") != catalogVersion }) return false
+        if (active.any { it.obj("document").text("catalogVersion") != catalogVersion })
+            return superseded("observation_catalog_changed", "the active observations use a different catalog version")
         val actual = active.associate { it.text("id") to it.number("revision") }
         val supplied = refs(result["observationRefs"])
-        if (supplied != actual || supplied.size != active.size) return false
+        if (supplied != actual || supplied.size != active.size)
+            return superseded("observation_revisions_changed", "the active observation references changed")
         val readable = active.associate { row -> row.text("id") to LearningObservations(learningPlanObservationStage).read(c, scope.studentId, row.text("id"), now).obj("observation") }
         val coverage = result.obj("coverage")
         coverage.only("active", "usableWithoutTopic", "uncertain", "nonIndependent")
@@ -137,14 +153,25 @@ internal class TrialAssessment {
         val assessed = StudentLearningState().read(c, scope.studentId, now)
         val targetLevel = assessed.obj("profile").text("targetLevel")
         val goal = assessed["goal"] as? JsonObject
-        if (targetLevel in LearningCatalogModel.levels && goal?.obj("content")?.optionalText("value")?.isNotBlank() == true) {
+        val hasTargetLevel = targetLevel in LearningCatalogModel.levels
+        val hasGoal = goal?.obj("content")?.optionalText("value")?.isNotBlank() == true
+        if (hasTargetLevel && hasGoal) {
             val learningRevision = assessed.number("revision")
             val knowledgeDigest = PersonalizedRoadmap().knowledgeDigest(c, scope.studentId, catalogVersion)
             c.enqueueJob(scope.studentId, "roadmap.generate",
                 "$lessonId:${inputs.number("transcriptRevision")}:$learningRevision:$knowledgeDigest:personalized-roadmap-v1", lessonId,
                 json("transcriptRevision" to inputs.number("transcriptRevision"),
                     "learningRevision" to learningRevision, "goalRevision" to goal.number("revision"),
-                    "catalogVersion" to catalogVersion, "knowledgeDigest" to knowledgeDigest), now)
+                    "catalogVersion" to catalogVersion, "knowledgeDigest" to knowledgeDigest), now, sourceJobId = assessmentJobId)
+        } else {
+            val (reason, message) = when {
+                !hasTargetLevel && !hasGoal -> "missing_goal_and_target_level" to "the learner's goal and target level are missing"
+                !hasGoal -> "missing_goal" to "the learner's goal is missing"
+                else -> "missing_target_level" to "the learner's target level is missing"
+            }
+            FoundationDatabase.recordAfterCommit(Event("trial_roadmap_decision", "roadmap.generate", "enqueue", Outcome.SKIPPED,
+                "Roadmap generation was skipped because $message.", reason),
+                mapOf("lesson_id" to lessonId, "source_job_id" to assessmentJobId))
         }
         return true
     }

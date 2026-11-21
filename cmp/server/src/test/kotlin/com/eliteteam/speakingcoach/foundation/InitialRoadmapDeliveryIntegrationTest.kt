@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.DiagnosticOutput
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -66,9 +67,19 @@ class InitialRoadmapDeliveryIntegrationTest {
                     if (request.url.host == "ai.test") respond("{\"reply\":\"Маршрут\",\"roadmapRevision\":1}", HttpStatusCode.OK)
                     else { failedCalls++; respond("upstream disconnected", HttpStatusCode.BadGateway) }
                 })
-                failing.use {
-                    val worker = InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test")
-                    repeat(3) { worker.tick() }
+                DiagnosticOutput().use { logs ->
+                    failing.use {
+                        val worker = InitialRoadmapDelivery(service, it, "https://ai.test", "internal", "123:test", "https://mini.test")
+                        repeat(3) { worker.tick() }
+                    }
+                    val events = logs.events().filter { it.optionalText("operation") == "roadmap.deliver" }
+                    val unknown = events.single { it.text("outcome") == "unknown" }
+                    assertEquals("telegram_response_unconfirmed", unknown.text("reason_code"))
+                    assertEquals("telegram_response", unknown.text("stage"))
+                    assertEquals(502, unknown.number("http_status").toInt())
+                    assertEquals(1L, unknown.number("roadmap_revision"))
+                    assertTrue(events.none { it.text("stage") == "delivery_persist" })
+                    assertTrue(logs.lines().none { "upstream disconnected" in it })
                 }
                 assertEquals(1, failedCalls)
                 service.database.transaction(readOnly = true) { c, _ ->

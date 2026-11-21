@@ -6,16 +6,19 @@ import {loadModule} from './helpers/load-module.mjs';
 test('joining and reconnecting enable microphone; toggle shows state and action',async()=>{
  const elements=new Map();
  const element=id=>{if(!elements.has(id))elements.set(id,{dataset:{},setAttribute(name,value){this[name]=value;}});return elements.get(id);};
- const track={enabled:false,stop(){this.stopped=true;}},sockets=[];
+ const track={enabled:false,stop(){this.stopped=true;}},sockets=[],worklets=[],intervals=[],diagnostics=[];
+ let attempt=0;
  class Socket{static OPEN=1;constructor(){this.readyState=1;sockets.push(this);}send(){}close(){}}
  class AudioContext{state='running';audioWorklet={addModule:async()=>{}};resume=async()=>{};close=async()=>{};createMediaStreamSource(){return{connect(){}};}createGain(){return{gain:{},connect(){}};}}
- class AudioWorkletNode{disconnect(){}port={postMessage(){}};connect(node){return node;}}
+ class AudioWorkletNode{constructor(){worklets.push(this);}disconnect(){}port={postMessage(){}};connect(node){return node;}}
  const context=vm.createContext({window:{Telegram:{WebApp:{initData:'test',ready(){},expand(){}}},addEventListener(){}},
  document:{getElementById:element},location:{search:'?lesson=test',origin:'https://example.test'},
- fetch:async()=>({ok:true,json:async()=>({serverNow:'2026-11-13T10:00:00Z',lesson:{launch_mode:'executable',status:'scheduled',starts_at:'2026-11-13T10:00:00Z'}})}),
- URLSearchParams,crypto:{randomUUID:()=> 'test'},performance:{now:()=>0},
+ fetch:async(url,options)=>{
+  if(url==='/miniapp/diagnostics'){diagnostics.push(JSON.parse(options.body));return {ok:true};}
+  return {ok:true,json:async()=>({serverNow:'2026-11-13T10:00:00Z',lesson:{launch_mode:'executable',status:'scheduled',starts_at:'2026-11-13T10:00:00Z'}})};},
+ URLSearchParams,crypto:{randomUUID:()=>`00000000-0000-4000-8000-${String(++attempt).padStart(12,'0')}`},performance:{now:()=>0},
  navigator:{mediaDevices:{getUserMedia:async()=>({getAudioTracks:()=>[track],getTracks:()=>[track]})}},
- AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:()=>1,clearInterval(){},setTimeout,clearTimeout});
+ AudioContext,AudioWorkletNode,WebSocket:Socket,setInterval:fn=>intervals.push(fn),clearInterval(){},setTimeout,clearTimeout});
  const call=await loadModule(context,'call.js','\nexport {started,closing};');
  call.bindCallControls();
  await call.startCall('test');
@@ -25,6 +28,9 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(element('mute').disabled,false);
  assert.equal(element('mic-status').textContent,'Микрофон включён — можно говорить');
  assert.equal(element('mic-action').textContent,'Выключить');
+ for(let i=0;i<200;i++)worklets[0].port.onmessage({data:new ArrayBuffer(960)});
+ for(let i=0;i<20;i++)intervals.at(-1)();
+ assert.deepEqual(diagnostics,[]);
  element('mute').onclick();
  assert.equal(track.enabled,false);
  assert.equal(element('mute')['aria-pressed'],'true');
@@ -35,6 +41,11 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  await previous.onmessage({data:JSON.stringify({type:'reconnect'})});
  assert.equal(track.stopped,true);
  assert.equal(sockets.length,2);
+ previous.onclose({code:1006});
+ assert.deepEqual(diagnostics,[{
+  initData:'test',action:'voice',attemptId:'00000000-0000-4000-8000-000000000001',
+  stage:'socket',code:'reconnecting',
+ }]);
  assert.notEqual(sockets.at(-1),previous);
  await sockets.at(-1).onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
  assert.equal(track.enabled,true);
@@ -50,4 +61,14 @@ test('joining and reconnecting enable microphone; toggle shows state and action'
  assert.equal(element('error-title').textContent,'Память обновлена');
  assert.equal(element('retry').hidden,true);
  assert.equal(call.closing,true);
+ assert.equal(diagnostics.length,1);
+ await call.startCall('test');
+ const last=sockets.at(-1);
+ await last.onmessage({data:JSON.stringify({type:'connected',protocol:'realtime-pcm-v1',inputSampleRate:24000})});
+ last.bufferedAmount=128001;
+ for(let i=0;i<200;i++)worklets.at(-1).port.onmessage({data:new ArrayBuffer(960)});
+ assert.deepEqual(diagnostics.slice(1),[{
+  initData:'test',action:'voice',attemptId:'00000000-0000-4000-8000-000000000003',
+  stage:'buffer',code:'buffer_overflow',
+ }]);
 });

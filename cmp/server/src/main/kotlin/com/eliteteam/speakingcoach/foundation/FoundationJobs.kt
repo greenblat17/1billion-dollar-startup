@@ -1,5 +1,7 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import java.sql.Connection
 import java.time.Instant
 import kotlinx.serialization.json.JsonArray
@@ -10,15 +12,32 @@ import kotlinx.serialization.json.jsonObject
 
 internal val jobKinds = setOf("roadmap.prepare", "roadmap.generate", "roadmap.prioritize", "memory.extract", "lesson.evaluate", "lesson.review", "trial.observe", "trial.assess", "lesson.prepare", "lesson.content.prepare", "schedule.materialize", "notification.reminder", "retention.prune")
 
-internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant): String {
+internal fun Connection.enqueueJob(student: String, kind: String, key: String, target: String?, inputs: JsonObject, now: Instant,
+    sourceJobId: String? = null): String {
     if (kind !in jobKinds) reject("unknown_job_kind")
     val id = newId()
-    update(
+    val inserted = update(
         """INSERT INTO foundation_job(id,student_id,data_epoch,kind,dedup_key,target_id,input_refs,due_at,deadline)
            SELECT ?,id,data_epoch,?,?,?,?::jsonb,?,? FROM student WHERE id=? AND deleted_at IS NULL
            ON CONFLICT(student_id,kind,dedup_key) DO NOTHING""", id, kind, key, target, inputs, now, now.plusSeconds(HISTORY_SECONDS), student,
     )
-    return rows("SELECT id FROM foundation_job WHERE student_id=? AND kind=? AND dedup_key=?", student, kind, key) { it.getString(1) }.single()
+    val jobId = rows("SELECT id FROM foundation_job WHERE student_id=? AND kind=? AND dedup_key=?", student, kind, key) { it.getString(1) }.single()
+    val facts = buildMap {
+        put("job_id", jobId)
+        put("job_kind", kind)
+        sourceJobId?.let { put("source_job_id", it) }
+        if (target != null && kind in setOf("trial.observe", "trial.assess", "roadmap.generate", "lesson.review", "lesson.evaluate")) {
+            put("lesson_id", target)
+        }
+    }
+    if (inserted > 0) {
+        FoundationDatabase.recordAfterCommit(Event("foundation_job_enqueue", kind, "enqueue", Outcome.COMPLETED,
+            "Foundation queued $kind."), facts)
+    } else {
+        FoundationDatabase.recordAfterCommit(Event("foundation_job_enqueue", kind, "enqueue", Outcome.REPLAYED,
+            "Foundation reused the existing $kind job.", "job_already_exists"), facts)
+    }
+    return jobId
 }
 
 internal class FoundationJobs {
@@ -27,8 +46,8 @@ internal class FoundationJobs {
         args.only("kind")
         val kind = args.optionalText("kind")
         if (kind != null && kind !in jobKinds) reject("unknown_job_kind")
-        connection.update("UPDATE foundation_job SET status='failed',error_code='source_expired' WHERE student_id=? AND deadline<=? AND status IN ('queued','running','retry_wait')", scope.studentId, now)
-        connection.update("UPDATE foundation_job SET status='failed',error_code='retry_exhausted' WHERE student_id=? AND status='running' AND lease_until<=? AND attempts>=max_attempts", scope.studentId, now)
+        terminateUnclaimable(connection, scope.studentId, now, expired = true)
+        terminateUnclaimable(connection, scope.studentId, now, expired = false)
         val selected = connection.document(
             """SELECT to_jsonb(j) FROM foundation_job j WHERE student_id=? AND data_epoch=? AND deadline>?
                AND (?::text IS NULL OR kind=?) AND attempts<max_attempts AND ((status IN ('queued','retry_wait') AND due_at<=?) OR (status='running' AND lease_until<=?))
@@ -37,6 +56,8 @@ internal class FoundationJobs {
         val id = selected.text("id")
         if (!BackgroundContracts().current(connection, selected)) {
             connection.update("UPDATE foundation_job SET status='superseded' WHERE id=?", id)
+            claimDecision(selected, Outcome.SUPERSEDED, "source_superseded",
+                "Foundation superseded the job because its source is no longer current.")
             return json("job" to null)
         }
         if (selected.text("kind") == "lesson.prepare") {
@@ -45,9 +66,16 @@ internal class FoundationJobs {
             val priorityPending = roadmap != null && connection.document(
                 """SELECT to_jsonb(j) FROM foundation_job j WHERE j.student_id=? AND j.kind='roadmap.prioritize'
                    AND j.status IN ('queued','running','retry_wait') LIMIT 1""", scope.studentId) != null
-            if (connection.pendingEvaluations(scope.studentId, target).isNotEmpty() ||
-                roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed") || priorityPending) {
+            val reason = when {
+                connection.pendingEvaluations(scope.studentId, target).isNotEmpty() -> "pending_evaluation"
+                roadmap?.optionalText("status") in setOf("queued", "running", "retry_wait", "failed") -> "roadmap_not_ready"
+                priorityPending -> "roadmap_priority_pending"
+                else -> null
+            }
+            if (reason != null) {
                 connection.update("UPDATE foundation_job SET due_at=? WHERE id=?", now.plusSeconds(5), id)
+                claimDecision(selected, Outcome.DEFERRED, reason,
+                    "Foundation deferred lesson preparation because ${reason.replace('_', ' ')}.", coalesce = true)
                 return json("job" to null)
             }
         }
@@ -56,6 +84,8 @@ internal class FoundationJobs {
                 id, scope.studentId, selected.text("target_id"), selected.obj("input_refs").number("lessonVersion"), now)
             if (begun == 0) {
                 connection.update("UPDATE foundation_job SET status='failed',error_code='delivery_unknown' WHERE id=?", id)
+                claimDecision(selected, Outcome.UNKNOWN, "delivery_unknown",
+                    "Foundation stopped the reminder job. The earlier delivery outcome is unknown.")
                 return json("job" to null)
             }
         }
@@ -63,6 +93,36 @@ internal class FoundationJobs {
         val job = connection.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", id) ?: reject("not_owned")
         connection.update("INSERT INTO foundation_job_attempt(job_id,fence,started_at) VALUES (?,?,?)", id, job.number("fence"), now)
         return json("job" to job)
+    }
+
+    private fun terminateUnclaimable(connection: Connection, studentId: String, now: Instant, expired: Boolean) {
+        val predicate = if (expired) "deadline<=? AND status IN ('queued','running','retry_wait')"
+            else "lease_until<=? AND status='running' AND attempts>=max_attempts"
+        val reason = if (expired) "source_expired" else "retry_exhausted"
+        val counts = connection.documents("""WITH changed AS (
+            UPDATE foundation_job SET status='failed',error_code=? WHERE student_id=? AND $predicate RETURNING id,kind
+        ) SELECT jsonb_build_object('kind',kind,'count',count(*),'id',CASE WHEN count(*)=1 THEN min(id::text) END)
+            FROM changed GROUP BY kind""", reason, studentId, now)
+        for (group in counts) {
+            val kind = group.text("kind")
+            val message = if (expired) "Foundation failed jobs whose source deadline expired."
+                else "Foundation failed jobs whose lease expired after their final attempt."
+            val fields = buildMap {
+                put("count", group.number("count").toString())
+                put("job_kind", kind)
+                put("job_status", "failed")
+                group.optionalText("id")?.let { put("job_id", it) }
+            }
+            FoundationDatabase.recordAfterCommit(Event("foundation_job_claim_decision", kind, "claim", Outcome.FAILED,
+                message, reason), fields)
+        }
+    }
+
+    private fun claimDecision(job: JsonObject, outcome: Outcome, reason: String, message: String, coalesce: Boolean = false) {
+        val kind = job.text("kind")
+        FoundationDatabase.recordAfterCommit(Event("foundation_job_claim_decision", kind, "claim", outcome, message, reason, coalesce),
+            mapOf("job_id" to job.text("id"), "job_kind" to kind, "attempt" to job.number("attempts").toString(),
+                "fence" to job.number("fence").toString()))
     }
 
     fun fail(connection: Connection, scope: ExecutionScope, args: JsonObject, now: Instant): JsonObject {
@@ -104,7 +164,7 @@ internal class FoundationJobs {
             "lesson.evaluate" -> evaluate(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "lesson.review" -> PostLessonReview().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "trial.observe" -> observeTrial(connection, scope.copy(jobId = job.text("id"), fence = job.number("fence")), target ?: reject("invalid_target"), inputs, result, now)
-            "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
+            "trial.assess" -> TrialAssessment().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now, job.text("id"))
             "roadmap.generate" -> PersonalizedRoadmap().apply(connection, scope, target ?: reject("invalid_target"), inputs, result, now)
             "roadmap.prioritize" -> {
                 val current = PersonalizedRoadmap().read(connection, scope.studentId)

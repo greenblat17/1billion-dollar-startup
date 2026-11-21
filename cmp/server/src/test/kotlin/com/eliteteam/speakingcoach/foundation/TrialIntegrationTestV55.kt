@@ -1,5 +1,6 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.DiagnosticOutput
 import io.ktor.client.engine.mock.respond
 import java.net.URLEncoder
 import java.sql.DriverManager
@@ -312,8 +313,14 @@ class TrialIntegrationTestV55 {
                 "component" to "later-assessment", "sources" to JsonArray(listOf(json(
                     "type" to "event", "id" to source.text("eventId"), "revision" to source.number("sequence"))))))
             assertEquals(1L, updated.number("revision"))
-            assertEquals("superseded", s.op(operator, "job.apply", json("jobId" to assess.text("id"),
-                "fence" to assess.number("fence"), "result" to result)).text("status"))
+            DiagnosticOutput().use { logs ->
+                assertEquals("superseded", s.op(operator, "job.apply", json("jobId" to assess.text("id"),
+                    "fence" to assess.number("fence"), "result" to result)).text("status"))
+                val superseded = logs.events().single { it.text("event") == "trial_assessment_superseded" }
+                assertEquals("learning_revision_changed", superseded.text("reason_code"))
+                assertEquals("superseded", superseded.text("outcome"))
+                assertEquals(assess.text("id"), superseded.text("job_id"))
+            }
             assertEquals("B1", s.learningState(operator).obj("profile").obj("currentLevels").obj("speaky")
                 .obj("skills").obj("grammar").text("level"))
         }
@@ -395,8 +402,13 @@ class TrialIntegrationTestV55 {
                 "sequence" to JsonArray(listOf(candidate)), "taskCount" to 1, "assumptions" to JsonArray(emptyList()),
                 "history" to JsonArray(emptyList()), "scope" to "initial_roadmap", "timeline" to null)
             val roadmapApply = json("jobId" to roadmapJob.text("id"), "fence" to roadmapJob.number("fence"), "result" to proposal)
-            assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
-            assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
+            DiagnosticOutput().use { logs ->
+                assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
+                assertEquals("succeeded", s.op(operator, "job.apply", roadmapApply, "roadmap-apply-once").text("status"))
+                assertEquals(1L, logs.events().single { it.text("event") == "trial_roadmap_saved" }.number("roadmap_revision"))
+                assertEquals(listOf("completed", "replayed"), logs.events().filter { it.text("event") == "backend_command" }
+                    .map { it.text("outcome") })
+            }
             val storedRoadmap = s.learningRoadmap(operator).obj("roadmap").obj("document")
             val taskId = storedRoadmap["sequence"]!!.jsonArray.single().jsonObject.text("taskId")
             assertEquals(0.0, LearningTaskModel.progress(s.learningTask(operator, taskId).obj("task")["progress"]))

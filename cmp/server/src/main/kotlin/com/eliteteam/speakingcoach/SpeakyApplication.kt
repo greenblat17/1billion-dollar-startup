@@ -73,6 +73,13 @@ internal fun Application.speakyModule(config: AppConfig) {
     if (miniUrl.startsWith("https://") && !config.telegramBotToken.isNullOrBlank()) {
         com.eliteteam.speakingcoach.foundation.TrialWorker(foundation, http, config.aiServiceBaseUrl,
             config.aiInternalToken, config.telegramBotToken, miniUrl).launch(scope)
+    } else {
+        val missingToken = config.telegramBotToken.isNullOrBlank()
+        val reason = if (missingToken) "telegram_bot_unconfigured" else "mini_app_url_unconfigured"
+        val message = if (missingToken) "Trial delivery worker was skipped because Telegram is unconfigured."
+            else "Trial delivery worker was skipped because its Mini App URL is unconfigured or invalid."
+        RuntimeDiagnostics.record(RuntimeDiagnostics.Event("trial_worker_configuration", "trial.worker", "startup",
+            RuntimeDiagnostics.Outcome.SKIPPED, message, reason))
     }
     if (config.usesWebhook) {
         val bot = runBlocking { buildSpeakyTelegram(requireNotNull(config.telegramBotToken), tutor, scope) }

@@ -9,8 +9,18 @@ async function screen(data,options={}){
  const element=()=>({children:[],setAttribute(){},append(...children){this.children.push(...children);},replaceChildren(...children){this.children=children;}});
  const get=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
  const context=vm.createContext({window:{Telegram:{WebApp:{initData:'signed',initDataUnsafe:{start_param:options.startParam},ready(){},expand(){}}},addEventListener(){}},
- document:{getElementById:get,createElement:element},location:{search:options.search??'?view=progress&lesson=must-not-open',origin:'https://test'},URLSearchParams,
- crypto:{randomUUID:()=> 'test'},fetch:async(url,request)=>{calls.push({url,body:JSON.parse(request.body)});if(options.fail)throw Error('network');return {ok:!options.authError,json:async()=>options.authError?{detail:'telegram_auth_expired'}:nextData};},
+ document:{getElementById:get,createElement(){if(options.renderError)throw Error('UNSAFE_DOM_ERROR');return element();}},location:{search:options.search??'?view=progress&lesson=must-not-open',origin:'https://test'},URLSearchParams,
+ crypto:{randomUUID:()=> 'test'},fetch:async(url,request)=>{
+  calls.push({url,body:JSON.parse(request.body)});
+  if(url==='/miniapp/diagnostics')throw Error('diagnostics unavailable');
+  if(options.fail)throw Error('UNSAFE_NETWORK_ERROR');
+  return {ok:!options.authError&&!options.responseError,
+   headers:{get:()=>options.errorId},
+   json:async()=>{
+    if(options.parseError)throw Error('UNSAFE_RESPONSE_BODY');
+    return options.authError?{detail:'telegram_auth_expired'}:options.responseError?{detail:'UNSAFE_SERVER_DETAIL'}:nextData;
+   }};
+ },
  navigator:{mediaDevices:{getUserMedia(){throw Error('progress must not request microphone');}}},WebSocket:class{constructor(){throw Error('progress must not open voice');}}});
  await loadModule(context);
  await new Promise(resolve=>setImmediate(resolve));
@@ -36,11 +46,16 @@ test('empty, preparation, insufficient data and failure remain distinct without 
  const {get,calls}=await screen(null,{fail:true});
  assert.match(get('progress-title').textContent,/загрузить прогресс/);
  assert.equal(get('progress-refresh').disabled,false);
- await get('progress-refresh').onclick();assert.equal(calls.length,2);
+ await get('progress-refresh').onclick();
+ assert.deepEqual(calls.filter(call=>call.url==='/miniapp/diagnostics').map(call=>call.body),[
+  {action:'progress',initData:'signed',stage:'transport',code:'request_failed'},
+  {action:'progress',initData:'signed',stage:'transport',code:'request_failed'},
+ ]);
 });
 
  test('expired Telegram auth offers return instead of an ineffective refresh',async()=>{
- const {get}=await screen(null,{authError:true});
+ const {get,calls}=await screen(null,{authError:true});
+ assert.deepEqual(calls.map(call=>call.url),['/miniapp/api']);
  assert.equal(get('progress-refresh').hidden,true);
  assert.equal(get('progress-back').className,'primary-action');
  assert.equal(get('progress-footer').hidden,true);
@@ -63,4 +78,25 @@ test('state presentation returns to the ready roadmap and restores action order'
  assert.equal(get('progress-footer').hidden,false);
  assert.equal(get('progress-back').className,'');
  assert.equal(get('progress-actions').children[0],get('progress-refresh'));
+});
+
+
+test('progress reports parsing, rendering and HTTP rejection as distinct safe observations',async()=>{
+ const errorId='1234567890abcdef1234567890abcdef';
+ const examples=[
+  [null,{parseError:true,errorId},'parse','invalid_response',errorId],
+  [{status:'unknown'},{},'parse','invalid_response',undefined],
+  [{status:'ready'},{},'parse','invalid_response',undefined],
+  [{status:'ready',steps:[{status:'current'}]},{renderError:true},'render','render_failed',undefined],
+  [null,{responseError:true,errorId},'response','response_rejected',errorId],
+  [null,{responseError:true,errorId:'UNSAFE_NON_OPAQUE_ID'},'response','response_rejected',undefined],
+ ];
+ for(const [data,options,stage,code,serverErrorId] of examples){
+  const {get,calls}=await screen(data,options);
+  const diagnostics=calls.filter(call=>call.url==='/miniapp/diagnostics').map(call=>call.body);
+  assert.deepEqual(diagnostics,[{initData:'signed',action:'progress',stage,code,...(serverErrorId?{serverErrorId}:{})}]);
+  assert.equal(get('progress-content').hidden,true);
+  assert.equal(get('progress-footer').hidden,true);
+  assert.equal(get('progress-refresh').disabled,false);
+ }
 });

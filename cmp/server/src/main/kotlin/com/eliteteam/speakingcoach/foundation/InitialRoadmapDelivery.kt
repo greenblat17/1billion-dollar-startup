@@ -1,6 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
 import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.telegram.TutorTextRequest
 import com.eliteteam.speakingcoach.telegram.TutorTextPart
 import com.eliteteam.speakingcoach.telegram.telegramRequestJson
@@ -55,16 +57,18 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             current
         } ?: return
         RuntimeDiagnostics.withContext(mapOf("trace_id" to RuntimeDiagnostics.trace(delivery.text("id")),
-            "delivery_id" to delivery.text("id"), "lesson_id" to delivery.text("lesson_id"))) {
+            "delivery_id" to delivery.text("id"), "lesson_id" to delivery.text("lesson_id"),
+            "roadmap_revision" to delivery.number("roadmap_revision").toString())) {
             try {
                 if (delivery.text("status") == "pending") {
-                    RuntimeDiagnostics.record("initial_roadmap_delivery", "claim", extra = mapOf("outcome" to "started"))
+                    RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "claim", Outcome.STARTED,
+                        "Worker claimed preparation of the initial Roadmap message."))
                     prepare(delivery)
                 } else sendNext(delivery)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                RuntimeDiagnostics.record("initial_roadmap_delivery_failed", "persist", error)
+                RuntimeDiagnostics.record("initial_roadmap_delivery_failed", "worker", error)
                 throw error
             }
         }
@@ -89,13 +93,24 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             retryPreparation(delivery)
             return
         }
-        val body = response.bodyAsText()
+        val body = try {
+            response.bodyAsText()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            RuntimeDiagnostics.record(Event("initial_roadmap_prepare_failed", "roadmap.deliver", "ai_response", Outcome.FAILED,
+                "Worker could not read the AI response while preparing the Roadmap message.", "ai_response_unreadable"), error = error)
+            throw error
+        }
         if (response.status.value == 409) {
-            service.database.transaction { c, _ ->
+            val changed = service.database.transaction { c, _ ->
                 c.lockStudent(student)
                 c.update("UPDATE initial_roadmap_delivery SET status='cancelled',body=NULL,lease_until=NULL WHERE id=? AND status='generating'",
                     delivery.text("id"))
             }
+            if (changed > 0) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_cancel",
+                Outcome.CANCELLED, "Foundation cancelled preparation of the initial Roadmap message after an AI conflict response.",
+                "roadmap_preparation_conflict"), RuntimeDiagnostics.httpFields(409, body, response.headers["X-Error-ID"]))
             return
         }
         val reply = if (response.status.value in 200..299) runCatching {
@@ -124,7 +139,9 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
             c.update("UPDATE initial_roadmap_delivery SET status='pending',lease_until=? WHERE id=? AND status='generating'",
                 now.plusSeconds(delay), delivery.text("id"))
         }
-        if (changed > 0) RuntimeDiagnostics.record("initial_roadmap_delivery", "prepare_retry", extra = mapOf("job_status" to "pending"))
+        if (changed > 0) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "prepare_retry",
+            Outcome.RETRY_WAIT, "Foundation scheduled another attempt to prepare the Roadmap message.", "roadmap_preparation_failed"),
+            mapOf("job_status" to "pending"))
     }
 
     private suspend fun sendNext(delivery: JsonObject) {
@@ -157,15 +174,33 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            RuntimeDiagnostics.record("initial_roadmap_delivery_unknown", "telegram_request", error, partFields + ("outcome" to "unknown"))
+            val timedOut = error is io.ktor.client.plugins.HttpRequestTimeoutException || error is java.net.SocketTimeoutException
+            val reason = if (timedOut) "telegram_request_timeout" else "telegram_transport_error"
+            val message = if (timedOut) "The Telegram request timed out. Roadmap message delivery is unknown."
+                else "The Telegram request failed at the transport boundary. Roadmap message delivery is unknown."
+            RuntimeDiagnostics.record(Event("initial_roadmap_delivery_unknown", "roadmap.deliver", "telegram_request",
+                Outcome.UNKNOWN, message, reason), partFields, error)
             return
         }
-        val sentBody = response.bodyAsText()
-        val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") == "true" }.getOrDefault(false)
-        if (!ok) {
-            RuntimeDiagnostics.record("initial_roadmap_delivery_unknown", "telegram_response", extra = mapOf(
-                "delivery_id" to delivery.text("id"), "http_status" to response.status.value.toString(),
-                "part" to index.toString()) + RuntimeDiagnostics.httpFields(response.status.value, sentBody))
+        val sentBody = try {
+            response.bodyAsText()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            RuntimeDiagnostics.record(Event("initial_roadmap_delivery_unknown", "roadmap.deliver", "telegram_response",
+                Outcome.UNKNOWN, "The Telegram response could not be read. Roadmap message delivery is unknown.", "telegram_response_unreadable"),
+                partFields + ("http_status" to response.status.value.toString()), error)
+            return
+        }
+        val ok = runCatching { foundationJson.parseToJsonElement(sentBody).jsonObject.optionalText("ok") }.getOrNull()
+        if (ok != "true") {
+            val rejected = ok == "false" && response.status.value in 400..499
+            val message = if (rejected) "Telegram rejected the Roadmap message request. Foundation left the delivery marked unknown."
+                else "The Telegram response did not confirm Roadmap message delivery. The outcome is unknown."
+            RuntimeDiagnostics.record(Event("initial_roadmap_delivery_unknown", "roadmap.deliver", "telegram_response",
+                if (rejected) Outcome.REJECTED else Outcome.UNKNOWN, message,
+                if (rejected) "telegram_request_rejected" else "telegram_response_unconfirmed"),
+                partFields + RuntimeDiagnostics.httpFields(response.status.value, sentBody))
             return
         }
         val recorded = service.database.transaction { c, now ->
@@ -178,8 +213,12 @@ internal class InitialRoadmapDelivery(private val service: FoundationService, pr
                 "assistant", parts[index].text, now, now)
             true
         }
-        if (recorded) RuntimeDiagnostics.record("initial_roadmap_delivery", "delivery_persist", extra =
+        if (recorded) RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "delivery_persist",
+            Outcome.COMPLETED, "Telegram accepted the Roadmap message part and Foundation recorded the delivery."),
             partFields + ("job_status" to if (index == parts.lastIndex) "sent" else "ready"))
+        else RuntimeDiagnostics.record(Event("initial_roadmap_delivery", "roadmap.deliver", "delivery_persist",
+            Outcome.SUPERSEDED, "Telegram accepted the Roadmap message part after its delivery state changed.",
+            "delivery_state_changed"), partFields)
     }
 }
 
