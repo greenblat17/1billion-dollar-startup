@@ -26,12 +26,13 @@ _CLIENT_VOICE_STAGES = {
     'connect': {'lesson_unavailable', 'invalid_lesson_time', 'connection_lost', 'reconnecting',
                 'audio_activation_required', 'server_error_observed'},
     'microphone': {'microphone_missing', 'microphone_denied', 'microphone_busy', 'microphone_failed'},
-    'audio_context': {'audio_context_failed', 'audio_activation_required'},
+    'audio_context': {'audio_context_failed', 'audio_activation_required', 'audio_activated'},
     'worklet': {'worklet_failed'},
     'socket': {'connection_lost', 'server_error_observed', 'reconnecting', 'client_update_required', 'invalid_message'},
     'protocol': {'client_update_required', 'invalid_message', 'server_error_observed'},
     'playback': {'playback_failed', 'audio_activation_required'},
     'buffer': {'buffer_overflow'},
+    'close': {'end_queued', 'end_not_sent', 'end_send_failed', 'page_hidden'},
 }
 _LEGACY_VOICE_CODES = {
     'NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError',
@@ -73,12 +74,21 @@ _CLIENT_MESSAGES = {
     'server_error_observed': 'received an error from the server.',
     'reconnecting': 'is reconnecting after a connection change.',
     'audio_activation_required': 'is waiting for the learner to activate audio.',
+    'audio_activated': 'resumed audio after the learner activated it.',
+    'end_queued': 'queued the end request on the client socket. Delivery is unconfirmed.',
+    'end_not_sent': 'closed after an end request with no open socket.',
+    'end_send_failed': 'could not queue the end request on the client socket.',
+    'page_hidden': 'stopped the client lesson attempt when the browser hid the page.',
 }
 _CLIENT_OUTCOMES = {
     'share_cancelled': 'cancelled',
     'share_failed_download_fallback': 'degraded',
     'reconnecting': 'retried',
     'audio_activation_required': 'degraded',
+    'audio_activated': 'completed',
+    'end_queued': 'unknown',
+    'end_not_sent': 'cancelled',
+    'page_hidden': 'cancelled',
     'auth_missing': 'rejected',
     'auth_rejected': 'rejected',
     'request_failed': 'unknown',
@@ -90,6 +100,7 @@ _VOICE_RECEIVED = EventSpec('trial_socket', 'trial_voice', 'trial.voice', 'recei
 _VOICE_ADMITTED = EventSpec('trial_socket', 'trial_voice', 'trial.voice', 'admission', 'completed',
                             'Foundation admitted the lesson voice connection.',
                             fields=frozenset({'lesson_id', 'call_session_id'}))
+_VOICE_FIRST_FRAME_TIMEOUT_SECONDS = 10
 _VOICE_REJECTIONS = {
     'request_too_large': 'Lesson voice admission was rejected because the first frame exceeded the size limit.',
     'client_update_required': 'Lesson voice admission was rejected because the client requested an unsupported protocol.',
@@ -113,7 +124,7 @@ def _record_client_diagnostic(payload):
     if not isinstance(stage, str) or action is not None and not isinstance(action, str):
         raise HTTPException(400)
     if action is None:
-        if stage not in _CLIENT_VOICE_STAGES.keys() - {'protocol'}:
+        if stage not in _CLIENT_VOICE_STAGES.keys() - {'protocol', 'close'}:
             raise HTTPException(400)
         action = 'voice'
         code = code if isinstance(code, str) and code in _LEGACY_VOICE_CODES else 'unknown'
@@ -131,9 +142,12 @@ def _record_client_diagnostic(payload):
             raise HTTPException(400)
     outcome = _CLIENT_OUTCOMES.get(code, 'failed')
     message = _CLIENT_MESSAGES.get(code, f'failed during {stage.replace("_", " ")} setup.')
-    spec = EventSpec('miniapp_failed', 'miniapp_diagnostics', f'miniapp.{action}', stage, outcome,
+    lifecycle = stage == 'close' or code == 'audio_activated'
+    event_name = 'miniapp_voice_lifecycle' if lifecycle else 'miniapp_failed'
+    level = logging.INFO if outcome == 'cancelled' or lifecycle and outcome != 'failed' else logging.WARNING
+    spec = EventSpec(event_name, 'miniapp_diagnostics', f'miniapp.{action}', stage, outcome,
                      f'{_CLIENT_ACTIONS[action]} {message}', code,
-                     logging.INFO if outcome == 'cancelled' else logging.WARNING,
+                     level,
                      frozenset({'client_code', 'client_attempt_id', 'server_error_id', 'close_code'}))
     close_code = payload.get('closeCode')
     event(spec, client_code=code, client_attempt_id=opaque_id(payload.get('attemptId')),
@@ -256,7 +270,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                     await socket.send_json({'type': 'error', 'code': code, 'errorId': error_id})
                     return
                 # Auth is the first frame, never a query string or a loggable URL.
-                raw = await asyncio.wait_for(socket.receive_text(), 10)
+                raw = await asyncio.wait_for(socket.receive_text(), _VOICE_FIRST_FRAME_TIMEOUT_SECONDS)
                 if len(raw) > 20000:
                     event(_voice_rejected('request_too_large'))
                     return
@@ -271,7 +285,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                     return
                 stage = 'audio_credentials'
                 await asyncio.wait_for(audio_store.check_credentials(), 10)
-                stage = 'admission'
+                stage = 'validate'
                 admission = {'action': 'open', 'lessonId': request['lessonId'],
                              'attemptId': request['attemptId']}
                 if 'agentGrant' in request:
@@ -293,6 +307,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
                     admission['agentGrant'] = request['agentGrant']
                 else:
                     admission['initData'] = request['initData']
+                stage = 'admission'
                 admitted = await backend._request('POST', '/trial/access', '', json=admission)
                 voice_context.enter_context(diagnostic_context(
                     lesson_id=admitted['lesson']['id'], call_session_id=admitted.get('callSessionId'),
@@ -327,7 +342,7 @@ def install_trial_api(app, backend, contexts, model, client, settings, audio_sto
             except Exception as error:
                 code = ('budget_exhausted' if getattr(error, 'status_code', None) == 402 else
                         'trial_not_configured' if stage == 'audio_credentials' else 'connection_lost')
-                if stage == 'authenticate' and isinstance(error, (ValueError, TimeoutError)):
+                if stage in ('authenticate', 'validate') and isinstance(error, (ValueError, KeyError, TimeoutError)):
                     reason = 'voice_request_timeout' if isinstance(error, TimeoutError) else 'invalid_voice_request'
                     error_id = event(_voice_rejected(reason))
                 else:

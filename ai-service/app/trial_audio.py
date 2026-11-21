@@ -1,6 +1,7 @@
 """Private audio objects; authoritative ownership and expiry remain in foundation."""
 import asyncio
-from app.diagnostics import event
+import logging
+from app.diagnostics import EventSpec, event
 
 
 class TrialAudioStore:
@@ -44,13 +45,30 @@ class TrialAudioStore:
 
     async def cleanup(self, backend):
         while True:
+            stage = 'list'
+            confirmed = 0
             try:
                 result = await backend._request('POST', '/trial/audio_cleanup', '', json={})
                 for item in result['objects']:
+                    stage = 'delete'
                     await self.delete(item['object_key'])
+                    stage = 'receipt'
                     await backend._request('POST', '/trial/audio_deleted', '', json={'objectKey': item['object_key']})
+                    confirmed += 1
             except asyncio.CancelledError:
                 raise
             except Exception as error:
-                event('trial_audio_cleanup_failed', error=error, stage='retention')
+                reason, message = {
+                    'list': ('cleanup_list_failed', 'The audio cleanup worker could not read the pending objects.'),
+                    'delete': ('cleanup_delete_failed', 'The audio cleanup worker could not delete an expired object.'),
+                    'receipt': ('cleanup_receipt_failed', 'The audio cleanup worker could not confirm deletion in Foundation.'),
+                }[stage]
+                event(EventSpec('trial_audio_cleanup_failed', 'trial_audio', 'trial.audio_cleanup', stage,
+                                'failed', message, reason, logging.WARNING, frozenset({'count'})),
+                      error=error, count=confirmed)
+            else:
+                if confirmed:
+                    event(EventSpec('trial_audio_cleanup', 'trial_audio', 'trial.audio_cleanup', 'receipt',
+                                    'completed', 'Foundation confirmed deletion of expired audio objects.',
+                                    fields=frozenset({'count'})), count=confirmed)
             await asyncio.sleep(60)

@@ -22,6 +22,8 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -33,6 +35,32 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class FoundationIntegrationTest {
+    @Test
+    fun foundationHttpDiagnosticsNameTheRegisteredRouteWithoutLoggingPathValues() = kotlinx.coroutines.runBlocking {
+        withStore(MutableClock()) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            val receipt = "private-receipt-reference"
+            service.op(operator, "lesson.list", json(), receipt)
+            testApplication {
+                application { routing { foundationRoutes(service, "internal-test-token") } }
+                DiagnosticOutput().use { logs ->
+                    val path = "/internal/foundation/v1/operations/$receipt"
+                    assertEquals(HttpStatusCode.Unauthorized, client.get(path).status)
+                    assertEquals(HttpStatusCode.OK, client.get(path) {
+                        header("X-Internal-Token", "internal-test-token")
+                        header("X-Execution-Scope", operator)
+                    }.status)
+                    val entries = logs.events()
+                    assertEquals(listOf("rejected", "completed"), entries.map { it.text("outcome") })
+                    assertTrue(entries.all { it.text("operation") == "foundation_read" })
+                    assertTrue(entries.all { it.text("route_name") == "internal.foundation.v1.operations.param_id" })
+                    assertTrue(logs.lines().none { receipt in it || "internal-test-token" in it || operator in it })
+                }
+            }
+        }
+    }
+
     @Test
     fun retentionReportsOnlyCommittedChangesAndIsQuietOnReplay() = runTest {
         withStore(MutableClock()) { service ->
@@ -107,6 +135,29 @@ class FoundationIntegrationTest {
                 assertEquals("failed", service.database.transaction { c, _ ->
                     c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", jobId)!!.text("status")
                 })
+                val finalAttempt = service.database.transaction { c, now ->
+                    c.enqueueJob(student, "retention.prune", "last-attempt", null, json(), now)
+                }
+                assertEquals(finalAttempt, service.op(scope, "job.claim", json()).obj("job").text("id"))
+                service.database.transaction { c, now ->
+                    c.update("UPDATE foundation_job SET max_attempts=1,lease_until=? WHERE id=?", now.minusSeconds(1), finalAttempt)
+                }
+                repeat(2) { assertEquals(null, service.op(scope, "job.claim", json()).optionalText("job")) }
+                val exhausted = logs.events().single { it.optionalText("reason_code") == "retry_exhausted" }
+                assertEquals("foundation_job_claim_decision", exhausted.text("event"))
+                assertEquals("failed", exhausted.text("outcome"))
+                assertEquals(finalAttempt, exhausted.text("job_id"))
+                assertEquals(1L, exhausted.number("count"))
+                assertEquals("retry_exhausted", service.database.transaction { c, _ ->
+                    c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", finalAttempt)!!.text("error_code")
+                })
+                assertEquals(finalAttempt, service.database.transaction { c, now ->
+                    c.enqueueJob(student, "retention.prune", "last-attempt", null, json(), now)
+                })
+                val replay = logs.events().single { it.optionalText("reason_code") == "job_already_exists" }
+                assertEquals("foundation_job_enqueue", replay.text("event"))
+                assertEquals("replayed", replay.text("outcome"))
+                assertEquals(finalAttempt, replay.text("job_id"))
             }
         }
     }
@@ -147,6 +198,34 @@ class FoundationIntegrationTest {
                 assertEquals("queued", after.text("status"))
                 assertEquals(now.plusSeconds(5), Instant.parse(after.text("due_at")))
                 assertEquals("superseded", c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", reminder)!!.text("status"))
+            }
+            clock.current = clock.current.plusSeconds(5)
+            val roadmap = service.database.transaction { c, now ->
+                c.update("UPDATE lesson SET status='cancelled' WHERE id=?", original.text("id"))
+                c.enqueueJob(student, "roadmap.prepare", "deferred-roadmap", null,
+                    json("goalRevision" to 0, "learningRevision" to 0), now)
+            }
+            DiagnosticOutput().use { logs ->
+                repeat(2) {
+                    assertEquals(null, service.op(operator, "job.claim", json("kind" to "lesson.prepare")).optionalText("job"))
+                }
+                val event = logs.events().single()
+                assertEquals("roadmap_not_ready", event.text("reason_code"))
+                assertEquals(prepare, event.text("job_id"))
+            }
+            clock.current = clock.current.plusSeconds(5)
+            service.database.transaction { c, now ->
+                c.update("UPDATE foundation_job SET status='succeeded' WHERE id=?", roadmap)
+                c.enqueueJob(student, "roadmap.prioritize", "deferred-priority", null, json(), now)
+            }
+            DiagnosticOutput().use { logs ->
+                repeat(2) {
+                    assertEquals(null, service.op(operator, "job.claim", json("kind" to "lesson.prepare")).optionalText("job"))
+                }
+                val event = logs.events().single()
+                assertEquals("roadmap_priority_pending", event.text("reason_code"))
+                assertEquals("deferred", event.text("outcome"))
+                assertEquals(prepare, event.text("job_id"))
             }
         }
     }
@@ -324,8 +403,16 @@ class FoundationIntegrationTest {
                 com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, chat, request.requestId,
                     typing = {}, send = { count++; count.toLong() }, pause = {
                         if (count == after && !interrupted) {
-                            service.telegramIntake.accept(introEnvelope(chat, 2, reply.text, firstAt))
-                            service.telegramIntake.accept(envelope) // replay of start must not undo cancellation
+                            DiagnosticOutput().use { logs ->
+                                service.telegramIntake.accept(introEnvelope(chat, 2, reply.text, firstAt))
+                                service.telegramIntake.accept(envelope) // replay of start must not undo cancellation
+                                val entry = logs.events().single { it.text("event") == "telegram_introduction_superseded" }
+                                assertEquals("superseded", entry.text("outcome"))
+                                assertEquals("newer_learner_message", entry.text("reason_code"))
+                                assertEquals(telegramTextTrace(chat, 1), entry.text("trace_id"))
+                                assertEquals(telegramTextTrace(chat, 2), entry.text("source_trace_id"))
+                                assertTrue(logs.lines().none { reply.text in it })
+                            }
                             assertEquals(null, service.telegramIntake.claim()) // start still owns delivery order
                             interrupted = true
                         }
@@ -407,10 +494,18 @@ class FoundationIntegrationTest {
             assertTrue(bridge.prepareIntroduction(request, 9240, 1))
             var sends = 0
             var typing = 0
-            com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9240, request.requestId,
-                typing = { typing++; error("typing unavailable") },
-                send = { sends++; if (sends == 3) error("send timed out") else sends.toLong() },
-                pause = { clock.current = clock.current.plusMillis(it) })
+            DiagnosticOutput().use { logs ->
+                com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9240, request.requestId,
+                    typing = { typing++; error("typing unavailable") },
+                    send = { sends++; if (sends == 3) error("PRIVATE_SEND_TIMEOUT") else sends.toLong() },
+                    pause = { clock.current = clock.current.plusMillis(it) })
+                val entries = logs.events().filter { it.optionalText("operation") == "telegram.introduction" }
+                assertEquals(listOf("completed", "completed", "unknown"), entries.map { it.text("outcome") })
+                assertEquals(listOf(0L, 1L, 2L), entries.map { it.number("part") })
+                assertTrue(entries.all { it.text("trace_id") == telegramTextTrace(9240, 1) })
+                assertEquals("telegram_delivery_unconfirmed", entries.last().text("reason_code"))
+                assertTrue(logs.lines().none { "PRIVATE_SEND_TIMEOUT" in it })
+            }
             assertEquals(3, sends)
             assertEquals(2, typing)
             assertTrue(FoundationChat(service).prepareIntroduction(request, 9240, 1))
@@ -420,6 +515,29 @@ class FoundationIntegrationTest {
             val scope = service.identity.issue(student, "operator")
             assertEquals(listOf("/start") + TELEGRAM_INTRO_TEXTS.take(2),
                 service.snapshot(scope, "text")["events"]!!.jsonArray.map { it.jsonObject.text("body") })
+        }
+    }
+
+    @Test
+    fun introductionSeparatesExplicitTelegramRefusalFromAnUnconfirmedSend() = runTest {
+        withStore(MutableClock()) { service ->
+            val bridge = FoundationChat(service)
+            val request = introRequest(9241, 1, "/start", service.database.clock.instant())
+            assertTrue(bridge.prepareIntroduction(request, 9241, 1))
+            val refusal = dev.inmo.tgbotapi.bot.exceptions.CommonRequestException(
+                dev.inmo.tgbotapi.types.Response(false, "PRIVATE_REFUSAL", 400, null, null),
+                "PRIVATE_TELEGRAM_BODY", "PRIVATE_TELEGRAM_ERROR", null)
+            DiagnosticOutput().use { logs ->
+                com.eliteteam.speakingcoach.telegram.deliverIntroduction(bridge.introduction, 9241, request.requestId,
+                    typing = { error("unexpected typing") }, send = { throw refusal })
+                val row = logs.events().single()
+                assertEquals("rejected", row.text("outcome"))
+                assertEquals("telegram_request_rejected", row.text("reason_code"))
+                assertEquals("400", row.text("provider_code"))
+                assertEquals(0L, row.number("part"))
+                assertTrue(logs.lines().none { "PRIVATE_" in it })
+            }
+            assertEquals(null, bridge.introduction.next(9241, request.requestId))
         }
     }
 
@@ -435,7 +553,21 @@ class FoundationIntegrationTest {
             val request = introRequest(9250, 2, "/start", Instant.now())
             service.telegramIntake.accept(introEnvelope(9250, 2, "/start", Instant.now()))
             service.telegramIntake.accept(introEnvelope(9250, 3, "Теперь для путешествий", Instant.now()))
-            assertTrue(bridge.prepareIntroduction(request, 9250, 2))
+            DiagnosticOutput().use { logs ->
+                assertTrue(bridge.prepareIntroduction(request, 9250, 2))
+                val entries = logs.events()
+                assertEquals(2, entries.size)
+                val (entry, stopped) = entries
+                assertEquals("telegram_start", entry.text("event"))
+                assertEquals("commit", entry.text("stage"))
+                assertEquals("completed", entry.text("outcome"))
+                assertEquals("profile_reset", entry.text("reason_code"))
+                assertEquals(telegramTextTrace(9250, 2), entry.text("trace_id"))
+                assertEquals("telegram_introduction_superseded", stopped.text("event"))
+                assertEquals(telegramTextTrace(9250, 2), stopped.text("trace_id"))
+                assertEquals(telegramTextTrace(9250, 3), stopped.text("source_trace_id"))
+                assertTrue(logs.lines().none { old in it || "Теперь для путешествий" in it })
+            }
             val fresh = service.identity.resolve("telegram", "9250")
             assertTrue(fresh != old)
             assertEquals("scope_expired", assertFailsWith<FoundationFailure> { service.snapshot(token, "text") }.code)
@@ -452,10 +584,21 @@ class FoundationIntegrationTest {
             }
             // The early answer cancels the new greeting, and a restart never erases it again.
             assertEquals(null, bridge.introduction.next(9250, request.requestId))
-            assertTrue(FoundationChat(service).prepareIntroduction(request, 9250, 2))
-            assertEquals(fresh, service.identity.resolve("telegram", "9250"))
             service.goal(fresh, "travel", 0)
-            assertTrue(bridge.prepareIntroduction(request.copy(requestId="message:1"), 9250, 1))
+            DiagnosticOutput().use { logs ->
+                assertTrue(FoundationChat(service).prepareIntroduction(request, 9250, 2))
+                assertEquals("operation_conflict", assertFailsWith<FoundationFailure> {
+                    bridge.prepareIntroduction(request.copy(text = "PRIVATE_CONFLICTING_TEXT"), 9250, 2)
+                }.code)
+                assertTrue(bridge.prepareIntroduction(request.copy(requestId = "message:1"), 9250, 1))
+                val entries = logs.events()
+                assertEquals(listOf("replayed", "skipped"), entries.map { it.text("outcome") })
+                assertEquals(listOf("start_already_applied", "start_superseded"), entries.map { it.text("reason_code") })
+                assertEquals(listOf(telegramTextTrace(9250, 2), telegramTextTrace(9250, 1)),
+                    entries.map { it.text("trace_id") })
+                assertTrue(logs.lines().none { fresh in it || "PRIVATE_CONFLICTING_TEXT" in it })
+            }
+            assertEquals(fresh, service.identity.resolve("telegram", "9250"))
             assertEquals("travel", service.snapshot(freshToken, "text").obj("goal").obj("content").text("value"))
             service.telegramIntake.accept(introEnvelope(9250, 1, "old delayed text", Instant.now()))
             service.database.transaction(readOnly = true) { c, _ ->
@@ -1137,6 +1280,37 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun telegramIntakeDispatchFailureKeepsThePersistedTraceAndTheClaim() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val entered = CompletableDeferred<Unit>()
+            DiagnosticOutput().use { logs ->
+                service.telegramIntake.accept(json("update_id" to 1, "message" to json(
+                    "message_id" to 7, "chat" to json("id" to 9001, "type" to "private"),
+                    "from" to json("id" to 9001), "text" to "PRIVATE_INTAKE_BODY", "date" to clock.instant().epochSecond)))
+                val worker = service.telegramIntake.launch(this) {
+                    entered.complete(Unit)
+                    error("PRIVATE_DISPATCH_EXCEPTION")
+                }
+                entered.await()
+                worker.cancelAndJoin()
+                val entries = logs.events()
+                assertEquals(2, entries.size)
+                val (stored, failed) = entries
+                assertEquals("telegram_text_intake", stored.text("event"))
+                assertEquals("telegram_text_intake_dispatch_failed", failed.text("event"))
+                assertEquals("intake_dispatch_failed", failed.text("reason_code"))
+                assertEquals(stored.text("trace_id"), failed.text("trace_id"))
+                assertEquals(1L, failed.number("attempt"))
+                assertTrue(logs.lines().none { "PRIVATE_" in it })
+            }
+            assertEquals(null, service.telegramIntake.claim())
+            clock.current = clock.current.plusSeconds(181)
+            assertEquals(7L, service.telegramIntake.claim()!!.number("message_id"))
+        }
+    }
+
+    @Test
     fun uncertainTelegramDeliveryIsNotRetriedBlindly() = runTest {
         withStore { service ->
             val bridge = FoundationChat(service)
@@ -1147,7 +1321,16 @@ class FoundationIntegrationTest {
             val delivery = com.eliteteam.speakingcoach.ai.TutorDelivery(request.sessionId, request.requestId)
             assertTrue(bridge.beginDelivery(delivery))
             assertEquals(false, FoundationChat(service).beginDelivery(delivery))
-            bridge.delivered(delivery.copy(replyMessageId = 42))
+            DiagnosticOutput().use { logs ->
+                repeat(2) { bridge.delivered(delivery.copy(replyMessageId = 42)) }
+                val row = logs.events().single()
+                assertEquals("telegram_tutor_delivery", row.text("event"))
+                assertEquals("telegram.reply", row.text("operation"))
+                assertEquals("receipt", row.text("stage"))
+                assertEquals("completed", row.text("outcome"))
+                assertEquals(telegramTextTrace(9002, 1), row.text("trace_id"))
+                assertTrue(logs.lines().none { "tg-9002" in it })
+            }
             assertEquals(false, bridge.beginDelivery(delivery))
         }
     }

@@ -400,6 +400,12 @@ class TrialIntegrationTestV55 {
                 assertEquals(observe.text("id"), saved.text("source_job_id"))
                 assertEquals(s.learningState(operator).number("revision"), saved.number("learning_revision"))
                 assertEquals(2L, saved.number("count"))
+                val generation = logs.events().single {
+                    it.text("event") == "foundation_job_enqueue" && it.optionalText("job_kind") == "roadmap.generate"
+                }
+                assertEquals("completed", generation.text("outcome"))
+                assertEquals(assess.text("id"), generation.text("source_job_id"))
+                assertEquals(l.text("id"), generation.text("lesson_id"))
             }
             val state = s.learningState(operator)
             assertEquals("A2", state.obj("profile").obj("currentLevels").obj("speaky").obj("skills").obj("grammar").text("level"))

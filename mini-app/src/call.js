@@ -23,7 +23,11 @@ function renderMicrophone(){
  $('mic-status').dataset.muted=String(muted);
  $('mic-status').textContent=$('mute').disabled?'Подключаем микрофон…':muted?'Микрофон выключен — Саша вас не слышит':'Микрофон включён — можно говорить';
 }
-function send(data){if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify(data));}
+function send(data){
+ if(ws?.readyState!==WebSocket.OPEN)return false;
+ ws.send(JSON.stringify(data));
+ return true;
+}
 function stopAudio(report=true){
  for(const [id,item] of playing){for(const source of item.sources){try{source.stop();}catch{}}clearTimeout(item.timer);if(report)send({type:'played',id,complete:false,playedMs:playedMilliseconds(item)});}
  playing.clear();cursor=ctx?.currentTime||0;current=null;carry=null;
@@ -34,8 +38,21 @@ function acknowledgePlayback(id,end){
  if(ctx.state!=='running'||remaining>.005){item.timer=setTimeout(()=>acknowledgePlayback(id,end),Math.max(100,remaining*1000));return;}
  playing.delete(id);send({type:'played',id,complete:true,playedMs:item.duration*1000});
 }
-function cleanup(){connectionGeneration++;clearTimeout(waitingTimer);clearInterval(pinger);clearInterval(ticker);stopAudio();worklet?.disconnect();mic?.getTracks().forEach(t=>t.stop());ctx?.close().catch(()=>{});const socket=ws;ws=undefined;socket?.close();}
-function leave(){closing=true;stopAudio();send({type:'end'});cleanup();tg?.close();if(!tg?.initData){renderError('Звонок завершён','Вернитесь в Telegram.');$('error-symbol').hidden=true;}}
+function stopAudioForClose(){
+ try{stopAudio();}catch{stopAudio(false);}
+}
+function cleanup(){connectionGeneration++;clearTimeout(waitingTimer);clearInterval(pinger);clearInterval(ticker);stopAudioForClose();worklet?.disconnect();mic?.getTracks().forEach(t=>t.stop());ctx?.close().catch(()=>{});const socket=ws;ws=undefined;socket?.close();}
+function leave(){
+ const report=attemptId&&!closing;
+ closing=true;
+ stopAudioForClose();
+ let code='end_not_sent';
+ try{if(send({type:'end'}))code='end_queued';}catch{code='end_send_failed';}
+ if(report)reportVoice({stage:'close',code});
+ cleanup();
+ tg?.close();
+ if(!tg?.initData){renderError('Звонок завершён','Вернитесь в Telegram.');$('error-symbol').hidden=true;}
+}
 function failure(uiCode,diagnostic){
  if(closing)return;
  closing=true;reportVoice(diagnostic);cleanup();
@@ -94,9 +111,11 @@ async function connect(continueFrom=0){
   setupStage='worklet';await ctx.audioWorklet.addModule('/miniapp/assets/capture.js');
   setupStage='audio_context';await Promise.race([ctx.resume(),new Promise(resolve=>setTimeout(resolve,700))]);
   if(ctx.state!=='running'){
+   const audioContext=ctx;
    reportVoice({stage:'audio_context',code:'audio_activation_required'});
    $('notice').replaceChildren();const button=document.createElement('button');button.textContent='Включить звук';$('notice').append(button);
-   await new Promise((resolve,reject)=>button.onclick=async()=>{try{await ctx.resume();if(ctx.state==='running')resolve();}catch(error){reject(error);}});
+   await new Promise((resolve,reject)=>button.onclick=async()=>{try{await audioContext.resume();if(audioContext.state==='running')resolve();}catch(error){reject(error);}});
+   if(generation===connectionGeneration&&!closing)reportVoice({stage:'audio_context',code:'audio_activated'});
   }
   if(generation!==connectionGeneration||closing)return;
   setupStage='socket';ws=new WebSocket(location.origin.replace(/^http/,'ws')+'/miniapp/voice');ws.binaryType='arraybuffer';const connection=ws;
@@ -188,5 +207,10 @@ export function startCall(id){
 export function bindCallControls(){
  $('mute').onclick=()=>{muted=!muted;mic?.getAudioTracks().forEach(t=>t.enabled=!muted);worklet?.port.postMessage({muted});send({type:'mute',value:muted});renderMicrophone();};
  $('end').onclick=leave;
- window.addEventListener('pagehide',()=>{closing=true;cleanup();});
+ window.addEventListener('pagehide',()=>{
+  const report=attemptId&&!closing;
+  closing=true;
+  if(report)reportVoice({stage:'close',code:'page_hidden'});
+  cleanup();
+ });
 }

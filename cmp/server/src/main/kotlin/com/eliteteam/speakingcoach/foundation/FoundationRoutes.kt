@@ -12,11 +12,15 @@ import io.ktor.server.request.receiveText
 import io.ktor.server.request.path
 import io.ktor.server.response.header
 import io.ktor.server.response.respondText
+import io.ktor.server.routing.PathSegmentConstantRouteSelector
+import io.ktor.server.routing.PathSegmentParameterRouteSelector
 import io.ktor.server.routing.Route
+import io.ktor.server.routing.RoutingNode
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.ktor.util.AttributeKey
 import java.security.MessageDigest
 import java.sql.SQLException
 import kotlinx.coroutines.CancellationException
@@ -108,6 +112,20 @@ internal fun Parameters.queryOffset(): Int =
 internal fun Parameters.queryRevision(error: String): Long? =
     this["revision"]?.let { it.toLongOrNull()?.takeIf { revision -> revision > 0 } ?: reject(error) }
 
+private val foundationRouteName = AttributeKey<String>("SpeakyFoundationRouteName")
+
+private fun diagnosticRouteName(route: RoutingNode): String = route.attributes.computeIfAbsent(foundationRouteName) {
+    generateSequence(route) { it.parent }
+        .mapNotNull { node ->
+            when (val segment = node.selector) {
+                is PathSegmentConstantRouteSelector -> segment.value
+                is PathSegmentParameterRouteSelector -> "param_${segment.name}"
+                else -> null
+            }
+        }
+        .toList().asReversed().joinToString(".")
+}
+
 internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
     serviceToken: String,
     requireScope: Boolean = true,
@@ -115,7 +133,8 @@ internal suspend fun io.ktor.server.routing.RoutingContext.foundationResponse(
 ) {
     val supplied = call.request.header("X-Internal-Token").orEmpty()
     val authorized = MessageDigest.isEqual(serviceToken.toByteArray(), supplied.toByteArray())
-    val diagnostic = mutableMapOf("trace_id" to RuntimeDiagnostics.newId(), "request_id" to RuntimeDiagnostics.newId())
+    val diagnostic = mutableMapOf("trace_id" to RuntimeDiagnostics.newId(), "request_id" to RuntimeDiagnostics.newId(),
+        "route_name" to diagnosticRouteName(call.route))
     if (authorized) {
         for ((key, header) in mapOf("trace_id" to "Trace", "lesson_id" to "Lesson", "call_session_id" to "Call",
             "job_id" to "Job", "notice_id" to "Notice")) {

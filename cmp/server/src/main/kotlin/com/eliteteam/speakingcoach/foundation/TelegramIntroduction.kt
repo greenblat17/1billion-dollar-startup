@@ -1,5 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.ai.TutorRequest
 import java.sql.Connection
 import java.time.Duration
@@ -31,8 +34,15 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             c.lockTelegramChat(chat)
             val fingerprint = digest(canonical(json("text" to request.text, "receivedAt" to request.receivedAt)))
             val boundary = c.document("SELECT to_jsonb(r) FROM telegram_start_reset r WHERE chat_id=?", chat)
+            val fields = mapOf("trace_id" to telegramTextTrace(chat, message), "provider" to "telegram")
             if (boundary != null && message <= boundary.number("message_id")) {
-                if (message == boundary.number("message_id") && boundary.text("input_digest") != fingerprint) reject("operation_conflict")
+                val replay = message == boundary.number("message_id")
+                if (replay && boundary.text("input_digest") != fingerprint) reject("operation_conflict")
+                val event = if (replay) Event("telegram_start", "telegram.start", "commit", Outcome.REPLAYED,
+                    "Foundation reused the Telegram start receipt.", "start_already_applied")
+                else Event("telegram_start", "telegram.start", "commit", Outcome.SKIPPED,
+                    "Foundation skipped a delayed Telegram start after a newer start.", "start_superseded")
+                FoundationDatabase.recordAfterCommit(event, fields)
                 return@transaction true
             }
             // Same lock as identity.resolve: no caller can recreate the old identity mid-reset.
@@ -52,10 +62,18 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
             c.appendEvent(student, conversation, request.requestId, "user", request.text,
                 Instant.ofEpochMilli((request.receivedAt * 1000).toLong()), now)
             // A reply can reach durable intake before the start handler even runs.
-            val interrupted = c.rows("SELECT EXISTS(SELECT 1 FROM telegram_text_intake WHERE chat_id=? AND message_id>?)", chat, message) { it.getBoolean(1) }.single()
+            val newerMessage = c.rows("SELECT min(message_id) FROM telegram_text_intake WHERE chat_id=? AND message_id>?", chat, message) {
+                it.getObject(1, Long::class.javaObjectType)
+            }.single()
             c.update("""INSERT INTO telegram_introduction(student_id,chat_id,request_id,message_id,input_digest,data_epoch,status,due_at,expires_at)
                 SELECT id,?,?,?,?,data_epoch,?,?,? FROM student WHERE id=?""", chat, request.requestId, message, fingerprint,
-                if (interrupted) "cancelled" else "active", now.minusMillis(1), now.plusSeconds(7 * 86400), student)
+                if (newerMessage != null) "cancelled" else "active", now.minusMillis(1), now.plusSeconds(7 * 86400), student)
+            val event = if (old == null) Event("telegram_start", "telegram.start", "commit", Outcome.COMPLETED,
+                "Foundation created a profile for the Telegram start.", "identity_created")
+            else Event("telegram_start", "telegram.start", "commit", Outcome.COMPLETED,
+                "Foundation reset the profile and created a new identity for the Telegram start.", "profile_reset")
+            FoundationDatabase.recordAfterCommit(event, fields)
+            newerMessage?.let { recordIntroductionSuperseded(chat, message, it) }
             true
         }
 
@@ -99,11 +117,21 @@ internal class TelegramIntroduction(private val database: FoundationDatabase) {
         c.update("""UPDATE telegram_introduction SET next_part=?,due_at=?,
             status=CASE WHEN status='active' AND ?=4 THEN 'completed' ELSE status END WHERE student_id=?""",
             part + 1, now.plusMillis(introductionPauseMillis(TELEGRAM_INTRO_TEXTS[part])), part + 1, student)
+        FoundationDatabase.recordAfterCommit(Event("telegram_introduction_part", "telegram.introduction", "receipt",
+            Outcome.COMPLETED, "Foundation saved the Telegram confirmation for this introduction part."),
+            mapOf("trace_id" to RuntimeDiagnostics.trace("tg-$chat:$request"), "provider" to "telegram", "part" to part.toString()))
     }
 
     suspend fun uncertain(chat: Long, request: String) = database.transaction { c, _ ->
         c.update("UPDATE telegram_introduction SET status='unknown' WHERE chat_id=? AND request_id=? AND status='active'", chat, request)
     }
+}
+
+internal fun recordIntroductionSuperseded(chat: Long, startMessage: Long, newerMessage: Long) {
+    FoundationDatabase.recordAfterCommit(Event("telegram_introduction_superseded", "telegram.introduction", "commit",
+        Outcome.SUPERSEDED, "Foundation stopped the remaining introduction because a newer learner message arrived.",
+        "newer_learner_message"), mapOf("trace_id" to telegramTextTrace(chat, startMessage),
+        "source_trace_id" to telegramTextTrace(chat, newerMessage), "provider" to "telegram"))
 }
 
 internal fun Connection.lockTelegramChat(chat: Long) {

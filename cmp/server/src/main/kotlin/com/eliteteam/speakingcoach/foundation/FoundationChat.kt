@@ -1,5 +1,8 @@
 package com.eliteteam.speakingcoach.foundation
 
+import com.eliteteam.speakingcoach.RuntimeDiagnostics
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Event
+import com.eliteteam.speakingcoach.RuntimeDiagnostics.Outcome
 import com.eliteteam.speakingcoach.ai.TutorDelivery
 import com.eliteteam.speakingcoach.ai.TutorRequest
 import com.eliteteam.speakingcoach.ai.TutorResponse
@@ -70,13 +73,24 @@ internal class FoundationChat(private val service: FoundationService) {
                 val booking = input.obj("response").obj("booking")
                 if (booking.text("id") != delivery.bookingId || booking.number("version") != delivery.version?.toLong()) reject("version_conflict")
             }
-            connection.update("""INSERT INTO tutor_delivery(student_id,request_id,kind,outcome,message_id,lesson_id,lesson_version)
+            val changed = connection.update("""INSERT INTO tutor_delivery(student_id,request_id,kind,outcome,message_id,lesson_id,lesson_version)
                 VALUES (?,?,?,'sent',?,?,?) ON CONFLICT(student_id,request_id,kind)
-                DO UPDATE SET outcome='sent',message_id=EXCLUDED.message_id,lesson_id=EXCLUDED.lesson_id,lesson_version=EXCLUDED.lesson_version""",
+                DO UPDATE SET outcome='sent',message_id=EXCLUDED.message_id,lesson_id=EXCLUDED.lesson_id,lesson_version=EXCLUDED.lesson_version
+                WHERE (tutor_delivery.outcome,tutor_delivery.message_id,tutor_delivery.lesson_id,tutor_delivery.lesson_version)
+                    IS DISTINCT FROM (EXCLUDED.outcome,EXCLUDED.message_id,EXCLUDED.lesson_id,EXCLUDED.lesson_version)""",
                 student, delivery.requestId, kind, message, delivery.bookingId, delivery.version)
             if (delivery.bookingId != null) connection.update("""INSERT INTO lesson_telegram_card(student_id,lesson_id,message_id,lesson_version,is_widget)
                 VALUES (?,?,?,?,?) ON CONFLICT(lesson_id) DO UPDATE SET message_id=EXCLUDED.message_id,lesson_version=EXCLUDED.lesson_version,is_widget=EXCLUDED.is_widget
                 WHERE lesson_telegram_card.lesson_version<=EXCLUDED.lesson_version""", student, delivery.bookingId, message, delivery.version, delivery.cardIsWidget)
+            if (changed > 0) {
+                val fields = buildMap {
+                    put("trace_id", RuntimeDiagnostics.trace("${delivery.sessionId}:${delivery.requestId}"))
+                    put("provider", "telegram")
+                    RuntimeDiagnostics.ingressId(delivery.bookingId)?.let { put("lesson_id", it) }
+                }
+                FoundationDatabase.recordAfterCommit(Event("telegram_tutor_delivery", "telegram.$kind", "receipt",
+                    Outcome.COMPLETED, "Foundation saved the Telegram delivery receipt for the $kind."), fields)
+            }
         }
     }
 

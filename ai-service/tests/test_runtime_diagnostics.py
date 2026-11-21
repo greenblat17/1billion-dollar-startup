@@ -202,6 +202,41 @@ def test_client_report_keeps_only_valid_action_and_server_link(caplog, action, s
     assert 'PRIVATE_' not in caplog.text and 'SECRET_INIT' not in caplog.text
 
 
+@pytest.mark.parametrize(('stage', 'code', 'outcome', 'level', 'message'), [
+    ('audio_context', 'audio_activated', 'completed', 'INFO',
+     'Lesson voice resumed audio after the learner activated it.'),
+    ('close', 'end_queued', 'unknown', 'INFO',
+     'Lesson voice queued the end request on the client socket. Delivery is unconfirmed.'),
+    ('close', 'end_not_sent', 'cancelled', 'INFO',
+     'Lesson voice closed after an end request with no open socket.'),
+    ('close', 'end_send_failed', 'failed', 'WARNING',
+     'Lesson voice could not queue the end request on the client socket.'),
+    ('close', 'page_hidden', 'cancelled', 'INFO',
+     'Lesson voice stopped the client lesson attempt when the browser hid the page.'),
+])
+def test_voice_lifecycle_report_keeps_only_the_client_observation(caplog, stage, code, outcome, level, message):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.trial_api import install_trial_api
+
+    caplog.set_level(logging.INFO)
+    backend = SimpleNamespace(_request=AsyncMock(return_value={}))
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None, None, None)
+    attempt_id = 'a' * 32
+    payload = {'initData': 'SECRET_INIT', 'action': 'voice', 'stage': stage, 'code': code,
+               'attemptId': attempt_id, 'lessonId': 'PRIVATE_LESSON', 'message': 'PRIVATE_TRANSCRIPT'}
+    with TestClient(app) as client:
+        assert client.post('/miniapp/diagnostics', json=payload).status_code == 200
+        assert client.post('/miniapp/diagnostics', json=payload | {'code': 'PRIVATE_CODE'}).status_code == 400
+    [row] = records(caplog)
+    assert (row['event'], row['operation'], row['stage'], row['reason_code'], row['outcome'], row['level']) == (
+        'miniapp_voice_lifecycle', 'miniapp.voice', stage, code, outcome, level)
+    assert row['message'] == message and row['client_attempt_id'] == attempt_id
+    assert row['trace_id'] != attempt_id and 'lesson_id' not in row
+    assert 'PRIVATE_' not in caplog.text and 'SECRET_INIT' not in caplog.text
+
+
 @pytest.mark.parametrize(('action', 'result', 'writer', 'reason'), [
     ('calendar', {'lesson': {}}, 'miniapp_calendar_export', 'calendar_export_failed'),
     ('audio', {'objects': [{'object_key': 'PRIVATE_OBJECT'}]}, 'miniapp_audio_links', 'audio_signing_failed'),
@@ -229,6 +264,34 @@ def test_miniapp_calendar_and_audio_failures_link_to_one_primary_record(
     assert boundary['event'] == 'http_failed'
     assert primary['error_id'] == boundary['error_id'] == response.headers['X-Error-ID']
     assert 'stack' in primary and 'stack' not in boundary
+    assert 'PRIVATE_' not in caplog.text
+
+
+@pytest.mark.parametrize('configured', [True, False])
+def test_miniapp_audio_links_log_counts_or_unavailable_without_keys(caplog, configured):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.trial_api import install_trial_api
+
+    object_key = 'PRIVATE_OBJECT'
+    signed_url = 'https://recording.invalid/PRIVATE_SIGNED'
+    backend = SimpleNamespace(_request=AsyncMock(return_value={'objects': [{'object_key': object_key}]}))
+    storage = SimpleNamespace(link=AsyncMock(return_value=signed_url)) if configured else None
+    app = FastAPI()
+    install_trial_api(app, backend, None, None, None, None, storage)
+    caplog.set_level(logging.INFO)
+    with TestClient(app) as client:
+        response = client.post('/miniapp/api', json={'action': 'audio', 'initData': 'PRIVATE_INIT'})
+    [row] = records(caplog)
+    assert (row['event'], row['stage']) == ('miniapp_audio_links', 'sign')
+    if configured:
+        assert response.status_code == 200 and response.json()['objects'][0]['url'] == signed_url
+        assert row['outcome'] == 'completed' and row['count'] == 1
+        storage.link.assert_awaited_once_with(object_key)
+    else:
+        assert response.status_code == 503 and response.json()['detail'] == 'recording_unavailable'
+        assert row['outcome'] == 'failed' and row['reason_code'] == 'recording_unavailable'
+        assert row['error_id'] == response.headers['X-Error-ID']
     assert 'PRIVATE_' not in caplog.text
 
 

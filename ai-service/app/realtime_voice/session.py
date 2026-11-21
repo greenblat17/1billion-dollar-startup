@@ -10,7 +10,7 @@ from uuid import uuid4
 import time
 
 
-from app.diagnostics import event, provider_id
+from app.diagnostics import EventSpec, event, provider_id
 from app.trial_journal import TrialJournal, timestamp
 from app.memory_policy import MEMORY_POLICY
 from app.memory_tools import MEMORY_TOOLS
@@ -868,8 +868,10 @@ class RealtimeTrialSession(TrialJournal):
                 'text': text, 'occurredAt': occurred_at}, self.lesson_id,
                 self.active_problem_pairs)
         except InvalidProblemDetection as error:
-            event('learning_observation_analysis_skipped', stage='classify',
-                  reason=str(error), lesson_id=self.lesson_id,
+            event(EventSpec('learning_observation_analysis_skipped', 'realtime_session', 'learning.observation',
+                            'classify', 'skipped', 'The observation classifier returned an invalid result.',
+                            str(error), fields=frozenset({'lesson_id', 'source_event_id'})),
+                  lesson_id=self.lesson_id,
                   source_event_id=saved['eventId'])
             observation = None
         except Exception as error:

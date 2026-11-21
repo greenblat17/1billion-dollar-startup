@@ -1,4 +1,5 @@
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -77,8 +78,11 @@ async def test_observation_write_unknown_outcome_retries_same_receipt_then_repor
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('model_result', ['{"topicId":', '{}'])
-async def test_invalid_problem_analysis_preserves_the_saved_turn_and_continues_voice(model_result):
+@pytest.mark.parametrize(('model_result', 'reason'), [
+    ('{"topicId":', 'invalid_problem_detection_json'),
+    ('{}', 'invalid_problem_detection_shape'),
+])
+async def test_invalid_problem_analysis_preserves_the_saved_turn_and_continues_voice(caplog, model_result, reason):
     s = regular_session()
     s.catalog = CATALOG
     s.model.complete_json.return_value = model_result
@@ -86,6 +90,7 @@ async def test_invalid_problem_analysis_preserves_the_saved_turn_and_continues_v
     s.append = AsyncMock(return_value={'eventId': 'event-1', 'sequence': 4})
     s.maybe_respond = AsyncMock()
 
+    caplog.set_level(logging.INFO)
     await s.provider_event({'type': 'conversation.item.input_audio_transcription.completed',
                             'item_id': 'turn-1', 'transcript': TURN['text']})
 
@@ -94,6 +99,11 @@ async def test_invalid_problem_analysis_preserves_the_saved_turn_and_continues_v
     s.backend.record_learning_observation.assert_not_awaited()
     s.socket.send_json.assert_not_awaited()
     s.maybe_respond.assert_awaited_once()
+    [skipped] = [json.loads(line.message.split('runtime_event ', 1)[1]) for line in caplog.records
+                 if line.message.startswith('runtime_event ') and 'learning_observation_analysis_skipped' in line.message]
+    assert (skipped['operation'], skipped['stage'], skipped['outcome'], skipped['reason_code']) == (
+        'learning.observation', 'classify', 'skipped', reason)
+    assert TURN['text'] not in caplog.text
 
 
 def test_regular_phase_is_guided_by_duration_and_preserves_trial_isolation():

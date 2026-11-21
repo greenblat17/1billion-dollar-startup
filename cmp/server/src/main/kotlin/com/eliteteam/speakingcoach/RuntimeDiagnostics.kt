@@ -43,9 +43,9 @@ internal object RuntimeDiagnostics {
     private val validId = Regex("[A-Za-z0-9_.:-]{1,128}")
     private val opaqueId = Regex("[0-9a-f]{32}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
     private val contextKeys = setOf("trace_id", "request_id", "operation_id", "lesson_id", "call_session_id", "notice_id", "job_id", "delivery_id",
-        "source_job_id", "source_job_fence", "attempt", "fence", "roadmap_revision")
+        "source_job_id", "source_job_fence", "attempt", "fence", "roadmap_revision", "route_name")
     private val labelKeys = contextKeys + setOf("event_kind", "operation", "reason_code", "outcome", "provider",
-        "provider_code", "upstream_error_id", "job_kind", "job_status", "catalog_version")
+        "provider_code", "upstream_error_id", "source_trace_id", "job_kind", "job_status", "catalog_version")
     private val numericKeys = setOf("attempt", "duration_ms", "http_status", "fence", "source_job_fence", "part",
         "count", "renewals", "roadmap_revision", "suppressed_count", "audio_marked_for_purge",
         "trial_events_deleted", "conversation_events_cleared", "inbox_responses_cleared",
