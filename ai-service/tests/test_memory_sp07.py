@@ -1,10 +1,12 @@
 import json
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.context_builder import ContextBuilder
+from app.diagnostics import diagnostic_context
 from app.memory_context import MemorySelector, observation_patterns
 from app.memory_tools import execute_memory
 from app.trial_policy import TrialAnalyzer
@@ -18,6 +20,11 @@ def fact(key, value, **extra):
 def snapshot(facts=(), observations=()):
     return dict(version=1, student=dict(id='s', tutor_id='sasha', tutor_version=1, version=1, data_epoch=1),
                 facts=list(facts), observations=list(observations), events=[], candidates=[{'value': 'hidden inference'}])
+
+
+def context_records(caplog):
+    return [json.loads(record.message.removeprefix('runtime_event ')) for record in caplog.records
+            if record.message.startswith('runtime_event ')]
 
 
 @pytest.mark.asyncio
@@ -36,13 +43,45 @@ async def test_selection_keeps_core_and_restrictions_without_leaking_unrelated_f
 
 
 @pytest.mark.asyncio
-async def test_invalid_selection_preserves_core_and_reports_degraded_selection_without_retry():
+async def test_invalid_selection_preserves_core_and_reports_degraded_selection_without_retry(caplog):
     model = SimpleNamespace(complete_json=AsyncMock(return_value='{"facts":[900],"observations":[]}'))
     backend = SimpleNamespace(snapshot=AsyncMock(return_value=snapshot([fact('name', 'Alex'), fact('work', 'artist')])))
-    ctx = await ContextBuilder(backend, selector=MemorySelector(model)).build('scope', 'voice', 'lesson')
+    with diagnostic_context(trace_id='trace'):
+        ctx = await ContextBuilder(backend, selector=MemorySelector(model)).build('scope', 'voice', 'lesson')
     assert [f['fact_key'] for f in ctx.data['facts']] == ['name']
     assert ctx.data['memorySelection']['status'] == 'unavailable_core_only'
     model.complete_json.assert_awaited_once()
+    [record] = context_records(caplog)
+    assert (record['operation'], record['stage'], record['outcome'], record['reason_code']) == (
+        'context.build', 'selection', 'degraded', 'memory_selector_failed')
+    assert record['trace_id'] == 'trace' and record['purpose'] == 'voice'
+    assert 'artist' not in caplog.text and 'Alex' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_projection_reports_one_limit_event_without_logging_source_content(caplog):
+    caplog.set_level(logging.INFO)
+    data = snapshot([fact('work', 'PRIVATE_FACT' * 100)])
+    data['events'] = [{'id': 'old', 'sequence': 1, 'role': 'user', 'body': 'PRIVATE_HISTORY'},
+                      {'id': 'recent', 'sequence': 2, 'role': 'user', 'body': 'Hi'}]
+    backend = SimpleNamespace(snapshot=AsyncMock(return_value=data))
+    builder = ContextBuilder(backend, history_budget=2, memory_budget=20)
+
+    ctx = await builder.build('scope', 'text')
+
+    assert ctx.truncated and ctx.history == [{'role': 'user', 'content': 'Hi'}]
+    [record] = context_records(caplog)
+    assert (record['event'], record['outcome'], record['reason_code']) == (
+        'context_projection_limited', 'completed', 'context_budget_exceeded')
+    assert record['reasonCodes'] == ['facts', 'history']
+    assert record['projection_counts'] == {'facts': 0, 'observations': 0, 'history': 1, 'roadmap': 0}
+    assert record['error_id'] is None and 'failure_class' not in record
+    assert 'PRIVATE_' not in caplog.text
+
+    caplog.clear()
+    backend.snapshot.return_value = snapshot()
+    assert not (await builder.build('scope', 'text')).truncated
+    assert context_records(caplog) == []
 
 
 def test_repeated_observation_counts_distinct_lessons_and_sources_not_copies():
@@ -97,7 +136,7 @@ async def test_long_lesson_extracts_early_facts_and_reconciles_latest_statement(
 
 
 @pytest.mark.asyncio
-async def test_budget_exhaustion_in_selection_is_not_hidden_by_fallback():
+async def test_budget_exhaustion_in_selection_is_not_hidden_by_fallback(caplog):
     error = RuntimeError('budget exhausted')
     error.status_code = 402
     model = SimpleNamespace(complete_json=AsyncMock(side_effect=error))
@@ -105,3 +144,5 @@ async def test_budget_exhaustion_in_selection_is_not_hidden_by_fallback():
     with pytest.raises(RuntimeError, match='budget exhausted'):
         await ContextBuilder(backend, selector=MemorySelector(model)).build('scope', 'text')
     model.complete_json.assert_awaited_once()
+    [record] = context_records(caplog)
+    assert (record['outcome'], record['reason_code']) == ('failed', 'provider_payment_required')

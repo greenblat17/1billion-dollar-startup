@@ -1,7 +1,10 @@
 """The shipping AI app must not construct legacy stores or background loops."""
+import json
+import os
 import subprocess
 import sys
 
+import pytest
 from uvicorn.importer import import_from_string
 
 from app.config import Settings
@@ -22,6 +25,30 @@ def test_stage1_uses_kora_model_unless_overridden(monkeypatch):
 
 def test_legacy_uvicorn_target_resolves_to_the_same_factory():
     assert import_from_string('app.main:create_app') is import_from_string('app.legacy.main:create_app')
+
+
+@pytest.mark.parametrize('setting,value,reason', [
+    ('FOUNDATION_BACKEND_URL', '', 'foundation_configuration_missing'),
+    ('OPENAI_API_KEY', '', 'openai_configuration_missing'),
+    ('FOUNDATION_BACKEND_CA_FILE', '/private-nonexistent/CONTROL_CA.pem', 'foundation_tls_configuration_failed'),
+])
+def test_shipping_runtime_reports_configuration_failure_before_readiness(setting, value, reason):
+    env = dict(os.environ, AI_INTERNAL_TOKEN='control-internal-token', FOUNDATION_BACKEND_URL='http://127.0.0.1:1',
+               OPENAI_API_KEY='control-openai-key', FOUNDATION_BACKEND_CA_FILE='', LOG_LEVEL='INFO', LOG_FILE='')
+    env[setting] = value
+    result = subprocess.run(
+        [sys.executable, '-c', 'from app.speaky_main import create_app\n'
+         'try:\n    create_app()\nexcept (RuntimeError, OSError, ValueError):\n    raise SystemExit(2)'],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 2, result.stderr
+    [record] = [json.loads(line.partition('runtime_event ')[2]) for line in result.stderr.splitlines()
+                if 'runtime_event ' in line]
+    assert (record['event'], record['stage'], record['outcome'], record['reason_code']) == (
+        'ai_runtime', 'configuration', 'failed', reason)
+    assert len(record['error_id']) == 32
+    for secret in ('control-internal-token', 'control-openai-key', 'CONTROL_CA.pem'):
+        assert secret not in result.stderr
 
 
 def test_runtime_starts_without_redis_and_exposes_only_foundation_routes():
@@ -46,6 +73,7 @@ async def check():
             async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
                 for _ in range(30):
                     assert (await client.get('/health')).json()['runtime'] == 'speaky'
+                assert (await client.get('/health', params={'lessonId': 'private-httpx-query'})).status_code == 200
                 unauthorized = await client.post('/internal/foundation/compute', json={},
                     headers={'X-Diagnostic-Trace': 'f' * 32, 'X-Diagnostic-Fence': '99', 'X-Diagnostic-Attempt': '99'})
                 assert unauthorized.status_code == 401
@@ -63,13 +91,12 @@ async def check():
         assert {route.path for route in app.routes} == {'/health', '/internal/foundation/tutor/turn', '/internal/foundation/compute', '/internal/trial/followup', '/internal/trial/initial-roadmap', '/miniapp/api', '/miniapp/diagnostics', '/miniapp/voice'}
 asyncio.run(check())
 '''
-    import os
-    import json
     env = dict(os.environ, AI_INTERNAL_TOKEN='local-test', FOUNDATION_BACKEND_URL='http://127.0.0.1:1',
                OPENAI_API_KEY='local-test', REDIS_URL='redis://127.0.0.1:1', LOG_LEVEL='INFO', LOG_FILE='')
     result = subprocess.run([sys.executable, '-c', program], env=env, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert "private-scope" not in result.stderr and "private-header" not in result.stderr
+    assert "private-httpx-query" not in result.stderr
     records = [json.loads(line.partition('runtime_event ')[2]) for line in result.stderr.splitlines()
                if 'runtime_event ' in line]
     lifecycle = [(row['stage'], row['outcome']) for row in records if row['event'] == 'ai_runtime']

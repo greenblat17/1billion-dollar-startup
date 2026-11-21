@@ -916,6 +916,58 @@ class FoundationIntegrationTest {
     }
 
     @Test
+    fun workerWithoutBusinessHandlersLinksBothTerminalFailuresToTheirClaim() = runTest {
+        val clock = MutableClock()
+        withStore(clock) { service ->
+            val student = service.identity.resolve("agent_test", newId())
+            val operator = service.identity.issue(student, "operator")
+            val starts = clock.instant().plusSeconds(3600)
+            val schedule = service.op(operator, "schedule.create", json("timezone" to "UTC",
+                "effectiveFrom" to starts.toString(), "agreement" to json("frequency" to "explicit")))
+            val materialization = service.op(operator, "schedule.materialize.request", json(
+                "scheduleId" to schedule.text("id"), "expectedVersion" to 1,
+                "from" to starts.toString(), "until" to starts.plusSeconds(86400).toString()))
+            val lesson = service.op(operator, "lesson.create", json("kind" to "regular", "launchMode" to "placeholder",
+                "startsAt" to starts.toString(), "durationMinutes" to 15, "timezone" to "UTC"))
+            val reminder = service.op(operator, "reminder.request", json("lessonId" to lesson.text("id"),
+                "expectedVersion" to 1, "dueAt" to clock.instant().toString(), "deadline" to starts.toString()))
+            val jobs = mapOf("schedule.materialize" to materialization.text("jobId"),
+                "notification.reminder" to reminder.text("jobId"))
+            val computer = object : LearningComputer {
+                override suspend fun compute(scope: String, job: JsonObject): JsonObject = error("unexpected AI request")
+            }
+
+            DiagnosticOutput().use { logs ->
+                val worker = FoundationWorker(service, computer)
+                repeat(2) { assertTrue(worker.runOnce()) }
+                assertEquals(false, worker.runOnce())
+                val events = logs.events().filter { it.optionalText("job_id") in jobs.values }
+                assertEquals(8, events.size)
+                for ((kind, jobId) in jobs) {
+                    val (claim, failure, commit, persisted) = events.filter { it.text("job_id") == jobId }
+                    assertEquals(listOf("claim", "compute", "job.fail", "failure_persisted"),
+                        listOf(claim, failure, commit, persisted).map { it.text("stage") })
+                    assertEquals(listOf("started", "failed", "completed", "failed"),
+                        listOf(claim, failure, commit, persisted).map { it.text("outcome") })
+                    assertTrue(listOf(claim, failure, persisted).all { it.text("job_kind") == kind && it.number("fence") == 1L })
+                    assertEquals("handler_unavailable", failure.text("reason_code"))
+                    assertEquals(failure.text("error_id"), persisted.text("upstream_error_id"))
+                    assertEquals(claim.text("trace_id"), persisted.text("trace_id"))
+                }
+            }
+            service.database.transaction(readOnly = true) { c, _ ->
+                for (id in jobs.values) {
+                    val job = c.document("SELECT to_jsonb(j) FROM foundation_job j WHERE id=?", id)!!
+                    assertEquals("failed", job.text("status"))
+                    assertEquals("handler_unavailable", job.text("error_code"))
+                }
+                assertEquals("not_sent", c.rows("SELECT outcome FROM reminder_delivery WHERE job_id=?",
+                    reminder.text("jobId")) { it.getString(1) }.single())
+            }
+        }
+    }
+
+    @Test
     fun reminderContractSkipsCancelledLessonsAndNeverResendsUnknownDelivery() = runTest {
         val clock = MutableClock()
         withStore(clock) { service ->

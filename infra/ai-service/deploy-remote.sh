@@ -69,7 +69,7 @@ if ! docker build -t ai-service:next "$BUILD" 2>&1 | tee "$BUILD/build.log"; the
     exit 1
   fi
   stage=cached_image_build
-  printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\nCMD ["uvicorn", "app.speaky_main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8090"]\n' > "$BUILD/Dockerfile.cached"
+  printf 'FROM ai-service:local\nRUN rm -rf /app/app\nCOPY app /app/app\nCMD ["uvicorn", "app.speaky_main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8090", "--no-access-log"]\n' > "$BUILD/Dockerfile.cached"
   docker build -f "$BUILD/Dockerfile.cached" -t ai-service:next "$BUILD"
   log_deploy recovered registry_rate_limited 0 'The AI image was built from the local base image.'
 fi

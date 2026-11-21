@@ -11,7 +11,7 @@ import openai
 import pytest
 
 from app.diagnostics import EventSpec, context_fields, diagnostic_context, error_fields, event, request_trace
-from app.foundation_client import FoundationClient
+from app.foundation_client import BackendFailure, FoundationClient
 from app.trial_providers import KoraTrialTTS
 
 
@@ -73,6 +73,81 @@ async def test_backend_trace_propagates_and_transport_failure_has_stage(caplog):
     assert failed['stage'] == 'transport'
     assert failed['stack']
     assert 'PRIVATE_URL' not in caplog.text and 'SECRET_SCOPE' not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('case,outcome,stage,reason,status', [
+    ('ok', 'completed', 'response', None, 200),
+    ('denied', 'rejected', 'response', 'backend_rejected', 403),
+    ('decode', 'failed', 'decode', 'invalid_backend_response', 200),
+    ('transport', 'failed', 'transport', 'backend_transport_failed', 503),
+])
+async def test_foundation_snapshot_distinguishes_success_from_read_failures(
+        case, outcome, stage, reason, status, caplog):
+    caplog.set_level(logging.INFO, logger='app.diagnostics')
+    upstream_id = 'a' * 32
+
+    def handler(request):
+        assert request.headers['X-Diagnostic-Trace'] == 'trace'
+        if case == 'transport':
+            raise httpx.ReadTimeout('PRIVATE_TIMEOUT', request=request)
+        if case == 'decode':
+            return httpx.Response(200, text='PRIVATE_BODY')
+        if case == 'denied':
+            return httpx.Response(403, json={'error': 'PRIVATE_BODY'}, headers={'X-Error-ID': upstream_id})
+        return httpx.Response(200, json={'ok': True, 'result': {'version': 1, 'textMode': 'PRIVATE_BODY'}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        backend = FoundationClient('http://foundation', 'PRIVATE_TOKEN', http)
+        with diagnostic_context(trace_id='trace'):
+            if case == 'ok':
+                assert (await backend.snapshot('PRIVATE_SCOPE', 'voice', 'PRIVATE_LESSON'))['version'] == 1
+            else:
+                with pytest.raises(BackendFailure):
+                    await backend.snapshot('PRIVATE_SCOPE', 'voice', 'PRIVATE_LESSON')
+
+    [row] = records(caplog)
+    assert (row['route_name'], row['outcome'], row['stage'], row['reason_code'], row['http_status']) == (
+        'foundation_snapshot', outcome, stage, reason, status)
+    assert row['trace_id'] == 'trace'
+    if case == 'denied':
+        assert row['upstream_error_id'] == row['error_id'] == upstream_id
+        assert 'stack' not in row
+    assert 'PRIVATE_' not in json.dumps(row)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('committed', [False, True])
+async def test_foundation_receipt_read_can_reconcile_an_uncertain_write_without_another_send(committed, caplog):
+    caplog.set_level(logging.INFO, logger='app.diagnostics')
+    operation_id = 'PRIVATE_OPERATION'
+    requests = []
+    receipt = {'status': 'completed'} if committed else None
+
+    def handler(request):
+        requests.append(request)
+        if len(requests) == 1:
+            assert request.method == 'POST'
+            raise httpx.ReadTimeout('PRIVATE_TIMEOUT', request=request)
+        assert request.method == 'GET' and request.url.path.endswith('/operations/' + operation_id)
+        return httpx.Response(200, json={'ok': True, 'result': {'result': receipt}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        backend = FoundationClient('http://foundation', 'PRIVATE_TOKEN', http)
+        with diagnostic_context(trace_id='trace'):
+            with pytest.raises(BackendFailure, match='transport_outcome_unknown'):
+                await backend.command('PRIVATE_SCOPE', operation_id, 'lesson.cancel', {})
+            assert await backend.receipt('PRIVATE_SCOPE', operation_id) == receipt
+
+    started, unknown, read = records(caplog)
+    assert started['event'] == 'backend_command' and started['outcome'] == 'started'
+    assert unknown['event'] == 'backend_failed' and unknown['outcome'] == 'unknown'
+    assert read['event'] == 'backend_request' and read['route_name'] == 'foundation_operation_receipt'
+    assert read['receipt_present'] is committed
+    assert {row['operation_id'] for row in (started, unknown, read)} == {request_trace(operation_id)}
+    assert {row['trace_id'] for row in (started, unknown, read)} == {'trace'}
+    assert 'PRIVATE_' not in json.dumps([started, unknown, read])
+    assert len(requests) == 2
 
 
 @pytest.mark.asyncio

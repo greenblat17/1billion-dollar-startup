@@ -42,7 +42,8 @@ class FoundationClient:
         self.service_token = service_token
         self.http = http
 
-    async def _request(self, method: str, path: str, scope: str, *, command: str | None = None, **kwargs) -> dict[str, Any]:
+    async def _request(self, method: str, path: str, scope: str, *, command: str | None = None,
+                       route_name: str | None = None, **kwargs) -> dict[str, Any]:
         started = perf_counter()
         context = context_fields()
         trace_id = context.get('trace_id') or uuid4().hex
@@ -52,8 +53,9 @@ class FoundationClient:
             name = 'backend_request' if outcome in ('completed', 'cancelled') else 'backend_failed'
             spec = EventSpec(name, 'foundation_client', operation, stage, outcome, message, reason,
                              logging.INFO if name == 'backend_request' else logging.WARNING,
-                             frozenset({'method', 'trace_id', 'duration_ms', 'http_status', 'upstream_error_id'}))
-            return event(spec, method=method, trace_id=trace_id,
+                             frozenset({'method', 'route_name', 'trace_id', 'duration_ms',
+                                        'http_status', 'upstream_error_id', 'receipt_present'}))
+            return event(spec, method=method, route_name=route_name, trace_id=trace_id,
                          duration_ms=int((perf_counter() - started) * 1000), **fields)
 
         try:
@@ -72,10 +74,16 @@ class FoundationClient:
             raise
         except httpx.TransportError as error:
             failure = BackendFailure('transport_outcome_unknown', 503)
-            failure._diagnostic_error_id = record(
-                'transport', 'unknown', 'The Foundation request failed in transit. Its result is unknown.',
-                failure.code, error=error, http_status=503,
-            )
+            if method == 'GET':
+                failure._diagnostic_error_id = record(
+                    'transport', 'failed', 'The Foundation read failed in transit.',
+                    'backend_transport_failed', error=error, http_status=503,
+                )
+            else:
+                failure._diagnostic_error_id = record(
+                    'transport', 'unknown', 'The Foundation request failed in transit. Its result is unknown.',
+                    failure.code, error=error, http_status=503,
+                )
             # An uncertain write is recovered with its original operation ID, never a new ID.
             raise failure from None
         try:
@@ -85,7 +93,8 @@ class FoundationClient:
         except ValueError as error:
             failure = BackendFailure('invalid_backend_response', 502)
             failure._diagnostic_error_id = record(
-                'decode', 'unknown', 'Foundation returned a response the AI service could not read.',
+                'decode', 'failed' if method == 'GET' else 'unknown',
+                'Foundation returned a response the AI service could not read.',
                 failure.code, error=error, http_status=response.status_code,
             )
             raise failure from None
@@ -99,7 +108,7 @@ class FoundationClient:
                 'response', 'rejected' if rejected else 'failed',
                 'Foundation rejected the request.' if rejected else 'Foundation could not process the request.',
                 'backend_rejected' if rejected else 'backend_unavailable', error=failure,
-                error_id=upstream_id, upstream_error_id=upstream_id,
+                error_id=upstream_id, upstream_error_id=upstream_id, http_status=response.status_code,
             )
             raise failure
         result = payload.get('result')
@@ -109,7 +118,14 @@ class FoundationClient:
                    failure.code, error=failure, http_status=response.status_code)
             raise failure
         if command not in _MEDIA_COMMANDS:
-            record('response', 'completed', 'Foundation returned a valid result.', http_status=response.status_code)
+            if route_name == 'foundation_operation_receipt':
+                found = result.get('result') is not None
+                record('response', 'completed',
+                       'Foundation returned a saved operation receipt.' if found
+                       else 'Foundation did not return a saved operation receipt.',
+                       http_status=response.status_code, receipt_present=found)
+            else:
+                record('response', 'completed', 'Foundation returned a valid result.', http_status=response.status_code)
         return result
 
     async def _versioned_get(self, path: str, scope: str, *, schema_error: str,
@@ -123,7 +139,7 @@ class FoundationClient:
         params = {'purpose': purpose}
         if lesson_id is not None:
             params['lessonId'] = lesson_id
-        return await self._request('GET', '/snapshot', scope, params=params)
+        return await self._request('GET', '/snapshot', scope, route_name='foundation_snapshot', params=params)
 
     async def catalog(self, *, version: str | None = None, skill: str | None = None,
                       cefr: str | None = None, topic_id: str | None = None) -> dict:
@@ -358,7 +374,9 @@ class FoundationClient:
             return result
 
     async def receipt(self, scope: str, operation_id: str) -> dict | None:
-        return (await self._request('GET', '/operations/' + operation_id, scope)).get('result')
+        with diagnostic_context(operation_id=opaque_id(operation_id) or request_trace(operation_id)):
+            return (await self._request('GET', '/operations/' + operation_id, scope,
+                                        route_name='foundation_operation_receipt')).get('result')
 
     async def jobs(self, scope: str) -> dict:
         return await self._request('GET', '/jobs', scope)

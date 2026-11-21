@@ -74,8 +74,10 @@ class EventSpec:
     level: int = logging.INFO
     fields: frozenset[str] = frozenset()
 _FLAGS = {'muted', 'speaking', 'final', 'endpoint', 'dev', 'enabled', 'token_valid',
-          'mixed_auth', 'duplicate', 'urlPresent', 'passed', 'ok', 'booking_present', 'response_running', 'valid', 'has_text'}
+          'mixed_auth', 'duplicate', 'urlPresent', 'passed', 'ok', 'booking_present', 'receipt_present',
+          'response_running', 'valid', 'has_text'}
 _COUNTERS = {
+    'projection_counts': {'facts', 'observations', 'history', 'roadmap'},
     'usage': {'input_tokens', 'output_tokens', 'total_tokens', 'cached_tokens', 'text_tokens', 'audio_tokens'},
     'client': {'capturedFrames', 'capturedBytes', 'sentFrames', 'sentBytes', 'receivedFrames',
                'receivedBytes', 'playedFrames', 'playbackQueue', 'bufferedAmount', 'underruns',
@@ -280,6 +282,8 @@ def _fields(fields):
 def _failure_class(outcome, status, error, reason):
     if outcome == 'cancelled':
         return 'cancelled'
+    if outcome not in _ADVERSE and error is None and (status is None or status < 400):
+        return None
     if reason == 'internal_error':
         return 'unexpected'
     if (status in (408, 429) or status is not None and status >= 500 or
