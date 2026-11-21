@@ -54,13 +54,38 @@ def confirmed_chain(evidence):
         assessment = jobs.get(generation.get("source_job_id"), {})
         observation = jobs.get(assessment.get("source_job_id"), {})
         if (delivery["status"] == "sent" and delivery["parts"] > 0
-                and delivery["roadmap_source_matches"] and delivery["source_job_fence"] == generation.get("fence")
+                and delivery["source_job_fence"] == generation.get("fence")
                 and generation.get("attempt_outcome") == "succeeded"
                 and all(job.get("kind") == kind and job.get("status") == "succeeded"
                         for job, kind in [(generation, "roadmap.generate"), (assessment, "trial.assess"),
                                           (observation, "trial.observe")])):
             return delivery, generation
     return None
+
+
+def check_roadmap_revision(delivery):
+    trace_id(delivery["id"])
+    query = f"""BEGIN READ ONLY;
+        WITH revisions AS (
+            SELECT student_id, revision, generation_job_id, generation_fence FROM learning_roadmap
+            UNION ALL
+            SELECT student_id, revision, generation_job_id, generation_fence FROM learning_roadmap_history
+        )
+        SELECT EXISTS (
+            SELECT 1 FROM initial_roadmap_delivery d JOIN revisions r
+            ON r.student_id = d.student_id AND r.revision = d.roadmap_revision
+            AND r.generation_job_id = d.source_job_id AND r.generation_fence = d.source_job_fence
+            WHERE d.id = '{delivery["id"]}'
+        );
+        COMMIT;"""
+    result = subprocess.run(
+        ["docker", "exec", "-i", "postgres", "sh", "-c",
+         'exec psql -X -v ON_ERROR_STOP=1 -qAt -U "$POSTGRES_USER" -d "$POSTGRES_DB"'],
+        input=query, capture_output=True, text=True, timeout=20,
+    )
+    if result.returncode or result.stdout.strip() != "t":
+        raise SystemExit("roadmap_revision_source_not_confirmed")
+    print("roadmap_revision_source_confirmed=true", flush=True)
 
 
 def check_runtime(evidence, delivery, generation, at):
@@ -109,6 +134,7 @@ def main(mode, at):
         time.sleep(8)
     if not chain:
         raise SystemExit("roadmap_delivery_evidence_incomplete")
+    check_roadmap_revision(chain[0])
     check_runtime(evidence, *chain, at)
     print("dev_roadmap_acceptance=passed")
 
