@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app.onboarding_score import normalize_shade, overall_progress
+from app.review_score import normalize_shade, overall_progress
 
 logger = logging.getLogger(__name__)
 

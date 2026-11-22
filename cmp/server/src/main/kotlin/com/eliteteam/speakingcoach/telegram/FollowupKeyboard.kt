@@ -10,27 +10,6 @@ internal fun followupKeyboard(action: String, runId: String, stage: String? = nu
                               reminderToken: UUID? = null): InlineKeyboardMarkup {
     return inlineKeyboard {
         when (action) {
-            "begin", "retry", "level", "results", "resume" -> row {
-                val label = when (action) {
-                    "begin" -> "🎙 Let's chat"
-                    "retry" -> "Retry"
-                    "level" -> SEE_RESULTS_BUTTON
-                    "resume" -> if (stage in setOf("start", "invitation", "begin")) "🎙 Let's chat"
-                        else "Continue 🎙"
-                    else -> "📊 View detailed feedback"
-                }
-                dataButton(label, if (action == "resume") "fu:resume:$runId" else "ob:$action:$runId")
-            }
-            "checkpoint" -> {
-                row { dataButton(SEE_RESULTS_BUTTON, "ob:see_results:$runId") }
-                row { dataButton("🎙 Keep talking · 2 min", "ob:keep_talking:$runId") }
-            }
-            "goal" -> {
-                row { dataButton(PRACTICE_5_LABEL, "ob:m5:$runId") }
-                row { dataButton(PRACTICE_10_LABEL, "ob:m10:$runId") }
-                row { dataButton(PRACTICE_15_LABEL, "ob:m15:$runId") }
-                row { dataButton(PRACTICE_SKIP_LABEL, "ob:skip:$runId") }
-            }
             "practice" -> row { dataButton("🎙 Start call",
                 reminderToken?.let { "fu:practice:$it" } ?: "fu:practice") }
         }

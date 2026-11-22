@@ -9,3 +9,7 @@
 __pycache__/
 
 **/bin/
+
+# Standalone Mini App build output
+/mini-app/dist/
+/mini-app/node_modules/

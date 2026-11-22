@@ -72,7 +72,6 @@ data class ClipResultResponse(
     val transcript: String = "",
     val streak: ClipStreakResponse? = null,
     val audioAvailable: Boolean = true,
-    val onboarding: OnboardingStateResponse? = null,
     val call: CallClipResponse? = null,
 )
 
@@ -586,22 +585,7 @@ data class MetricsChat(
 )
 
 @Serializable
-data class OnboardingRequest(
-    val sessionId: String,
-    val requestId: String,
-    val reset: String = "",
-    val runId: String = "",
-    val action: String = "",
-)
-
-@Serializable
-data class LegacyInvitationRequest(val sessionId: String, val action: String)
-
-@Serializable
-data class LegacyInvitationResponse(val ok: Boolean)
-
-@Serializable
-data class OnboardingExample(
+data class ReviewExample(
     val wrong: String = "",
     val better: String = "",
     val explanation: String = "",
@@ -618,15 +602,15 @@ data class VocabularySuggestion(
 )
 
 @Serializable
-data class OnboardingSkill(
+data class ReviewSkill(
     val score: Int? = null,
     val text: String = "",
-    val examples: List<OnboardingExample> = emptyList(),
+    val examples: List<ReviewExample> = emptyList(),
     val suggestions: List<VocabularySuggestion> = emptyList(),
 )
 
 @Serializable
-data class OnboardingFluency(
+data class ReviewFluency(
     val score: Int? = null,
     val text: String = "",
     val paceWpm: Int? = null,
@@ -636,11 +620,11 @@ data class OnboardingFluency(
 )
 
 @Serializable
-data class OnboardingReview(
+data class ConversationReview(
     val levelText: String = "",
-    val grammar: OnboardingSkill = OnboardingSkill(),
-    val vocabulary: OnboardingSkill = OnboardingSkill(),
-    val fluency: OnboardingFluency = OnboardingFluency(),
+    val grammar: ReviewSkill = ReviewSkill(),
+    val vocabulary: ReviewSkill = ReviewSkill(),
+    val fluency: ReviewFluency = ReviewFluency(),
 )
 
 @Serializable
@@ -648,45 +632,6 @@ data class PracticeGoalRequest(
     val sessionId: String,
     val requestId: String,
     val minutes: Int,
-)
-
-@Serializable
-data class OnboardingVoiceAnalyticsResponse(
-    val voiceIndex: Int = 0,
-    val telegramDurationSec: Double = 0.0,
-    val recognizedDurationSec: Double = 0.0,
-    val recordingDurationSec: Double? = null,
-    val durationMethod: String? = null,
-    val durationSource: String? = null,
-    val durationFallbackReason: String? = null,
-    val recognized: Boolean = false,
-    val failureReason: String? = null,
-    val milestones: List<Int> = emptyList(),
-    val completedNow: Boolean = false,
-    val assessmentFailed: Boolean = false,
-    val cefr: String? = null,
-    val overallScore: Int? = null,
-    val scoreAvailable: Boolean = false,
-    val speechBeforeSec: Double? = null,
-    val speechAfterSec: Double? = null,
-)
-
-@Serializable
-data class OnboardingStateResponse(
-    val runId: String = "",
-    val status: String,
-    val legacyUser: Boolean = false,
-    val seconds: Double = 0.0,
-    val cefr: String? = null,
-    val overallScore: Int? = null,
-    val nextBand: String? = null,
-    val pointsToNext: Int? = null,
-    val resultText: String? = null,
-    val retryAvailable: Boolean = false,
-    val react: Boolean = false,
-    val review: OnboardingReview? = null,
-    val analytics: OnboardingVoiceAnalyticsResponse? = null,
-    val phase: String = "initial",
 )
 
 @Serializable
@@ -826,9 +771,9 @@ data class CallReviewResponse(
     val todaySeconds: Double = 0.0,
     val goalSeconds: Double = 0.0,
     val streak: Int = 0,
-    val grammar: OnboardingSkill = OnboardingSkill(),
-    val vocabulary: OnboardingSkill = OnboardingSkill(),
-    val fluency: OnboardingFluency = OnboardingFluency(),
+    val grammar: ReviewSkill = ReviewSkill(),
+    val vocabulary: ReviewSkill = ReviewSkill(),
+    val fluency: ReviewFluency = ReviewFluency(),
 )
 
 

@@ -54,7 +54,6 @@ class PipelineResult:
     timings_ms: dict[str, int]
     corrections: list[Correction]
     streak: StreakUpdate | None = None
-    onboarding: dict | None = None
     call: dict | None = None
     memory_eligible: bool = False
 
@@ -117,12 +116,6 @@ class ClipPipeline:
     @property
     def metrics(self) -> MetricsStore:
         return self._metrics
-
-    async def synthesize_onboarding(self, session_id: str, text: str, *, speed: float | None = None,
-                                    personality: Personality | None = None) -> TtsAudio:
-        route = (ConversationRoute(ConversationMode.ONBOARDING, personality) if personality is not None
-                 else await self.routing.resolve(session_id, ConversationMode.ONBOARDING))
-        return await self.personality.synthesize(session_id, route, SpokenTurn(text), speed=speed)
 
     async def complete_live_notes(self, transcript: str) -> list[Correction]:
         started = time.perf_counter()
@@ -358,16 +351,6 @@ class ClipPipeline:
             call=call,
             memory_eligible=scenario_call is None and not load_test_active(),
         )
-
-    async def record_completed_turn(self, session_id: str, seconds: float, tts_chars: int) -> StreakUpdate | None:
-        if load_test_active():
-            return None
-        await self._metrics.record_turn(session_id, seconds, tts_chars)
-        await self._metrics.record_exchange(session_id)
-        if self._v2 is not None:
-            await self._v2.record_stt(session_id, "onboarding", seconds)
-            await self._v2.record_turn(session_id)
-        return await self._record_streak(session_id)
 
     async def _record_call(self, session_id: str, stt_result: SttResult, speech_time: SpeechTime,
                            reply_text: str, corrections: list[Correction], attempt_id: str | None) -> dict | None:

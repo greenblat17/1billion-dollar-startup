@@ -8,6 +8,11 @@ on:
         required: true
         type: string
 
+      billing_mock:
+        description: DEV-only synthetic billing fixture
+        type: boolean
+        default: false
+
 permissions:
   contents: read
 
@@ -21,6 +26,7 @@ jobs:
       cancel-in-progress: false
     env:
       DESTINATION: ${{ inputs.destination }}
+      BILLING_MOCK: ${{ inputs.billing_mock }}
       PROD_CMP_SERVER_HOST: ${{ secrets.PROD_CMP_SERVER_HOST }}
       PROD_CMP_SERVER_USER: ${{ secrets.PROD_CMP_SERVER_USER }}
       PROD_CMP_SERVER_SSH_KEY: ${{ secrets.PROD_CMP_SERVER_SSH_KEY }}
@@ -71,6 +77,17 @@ jobs:
             printf 'METRICS_PASSWORD=%s\n' "$METRICS_PASSWORD" >> "$tmp"
             mv "$tmp" vps-upload/.env
           fi
+          if [ "$BILLING_MOCK" = true ]; then
+            test "$DESTINATION" = dev || { echo "Mock billing is DEV-only" >&2; exit 1; }
+            python3 - <<'PYMOCK'
+          from pathlib import Path
+          path = Path('vps-upload/.env')
+          fixture = {'SPEAKY_BILLING_PROVIDER': 'mock', 'SPEAKY_BILLING_AMOUNT': '100',
+                     'SPEAKY_BILLING_CURRENCY': 'TEST', 'SPEAKY_BILLING_PERIOD_DAYS': '1'}
+          lines = [line for line in path.read_text().splitlines() if line.partition('=')[0] not in fixture]
+          path.write_text('\n'.join(lines + [f'{key}={value}' for key, value in fixture.items()]) + '\n')
+          PYMOCK
+          fi
           chmod 600 vps-upload/.env
           if [ "$DESTINATION" = prod ]; then
             : "${TELEGRAM_ALERT_BOT_TOKEN:?Missing Telegram alert bot token}"
@@ -104,6 +121,12 @@ jobs:
           install -m 600 /dev/null "$KEY"
           printf '%s\n' "$KEY_BODY" > "$KEY"
           SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes)
+          if [ "$DESTINATION" = dev ]; then
+            SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes
+              -o HostKeyAlias=speaky-dev-cmp -o UserKnownHostsFile="$GITHUB_WORKSPACE/infra/dev/known_hosts")
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker inspect --format "previous_image={{.Image}} started={{.State.StartedAt}}" speaking-coach; docker exec speaking-coach sha256sum /app/server-all.jar || true'
+          fi
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" mkdir -p /opt/speaking-coach/monitoring
           scp "${SSH_OPTS[@]}" \
             vps-upload/server-all.jar \
@@ -117,3 +140,9 @@ jobs:
             "${USER}@${HOST}:/opt/speaking-coach/monitoring/"
           ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
             bash /opt/speaking-coach/deploy-remote.sh
+          if [ "$DESTINATION" = dev ]; then
+            echo "deployed_source_sha=$GITHUB_SHA"
+            sha256sum vps-upload/server-all.jar
+            ssh "${SSH_OPTS[@]}" "${USER}@${HOST}" \
+              'docker exec speaking-coach sha256sum /app/server-all.jar'
+          fi

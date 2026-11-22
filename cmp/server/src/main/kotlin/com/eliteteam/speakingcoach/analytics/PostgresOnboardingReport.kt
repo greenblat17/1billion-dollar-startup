@@ -73,7 +73,7 @@ internal fun Connection.onboardingAggregateReport(now: Instant, filter: Onboardi
     val decisions = selector.query(this, """
         SELECT COUNT(*) AS attempts,
                COUNT(*) FILTER (WHERE completed_at IS NOT NULL) AS result_built,
-               COUNT(*) FILTER (WHERE version <> 'v3' AND practice_setup_at IS NOT NULL) AS goal_shown,
+               COUNT(*) FILTER (WHERE onboarding_version <> 'v3' AND practice_setup_at IS NOT NULL) AS goal_shown,
                COUNT(*) FILTER (WHERE goal_selected_at IS NOT NULL) AS goal_selected,
                COUNT(*) FILTER (WHERE result_delivered_at IS NOT NULL) AS result_delivered,
                COUNT(*) FILTER (WHERE result_delivered_at IS NOT NULL AND score_available = TRUE) AS scored,

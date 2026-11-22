@@ -45,10 +45,18 @@ class OpenAiRealtimeGateway:
         return httpx.AsyncClient(timeout=30.0, transport=self._transport)
 
     async def start_call(self, sdp: str, topic: str, voice: str) -> tuple[str, str | None]:
+        return await self._start(sdp, _instructions(topic), voice)
+
+    async def start_lesson(self, sdp: str, instructions: str, voice: str) -> tuple[str, str | None]:
+        if not instructions.strip() or voice not in VOICES:
+            raise ValueError('invalid_lesson_context')
+        return await self._start(sdp, instructions, voice, log_provider_body=False)
+
+    async def _start(self, sdp: str, instructions: str, voice: str, *, log_provider_body: bool = True) -> tuple[str, str | None]:
         session = {
             "type": "realtime",
             "model": REALTIME_MODEL,
-            "instructions": _instructions(topic),
+            "instructions": instructions,
             "output_modalities": ["audio"],
             "audio": {
                 "input": {
@@ -72,7 +80,7 @@ class OpenAiRealtimeGateway:
                 )
 
         minted = await once_on_retryable(mint)
-        _raise_openai(minted, self._api_key)
+        _raise_openai(minted, self._api_key, include_body=log_provider_body)
         payload = minted.json()
         ephemeral = str(payload.get("value") or payload.get("client_secret", {}).get("value") or "")
         if not ephemeral:
@@ -92,7 +100,7 @@ class OpenAiRealtimeGateway:
                 )
 
         answered = await once_on_retryable(exchange)
-        _raise_openai(answered, self._api_key, ephemeral, sdp_bytes=len(offer.encode("utf-8")))
+        _raise_openai(answered, self._api_key, ephemeral, sdp_bytes=len(offer.encode("utf-8")), include_body=log_provider_body)
         call_id = _call_id(answered.headers.get("location") or answered.headers.get("Location"))
         return answered.text, call_id
 
@@ -105,10 +113,10 @@ def sdp_for_openai(sdp: str) -> str:
     return sdp + "\r\n"
 
 
-def _raise_openai(response: httpx.Response, *secrets: str, sdp_bytes: int | None = None) -> None:
+def _raise_openai(response: httpx.Response, *secrets: str, sdp_bytes: int | None = None, include_body: bool = True) -> None:
     if response.is_success:
         return
-    body = response.text or ""
+    body = (response.text or "") if include_body else "[omitted]"
     for secret in secrets:
         if secret:
             body = body.replace(secret, "[redacted]")

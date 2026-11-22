@@ -1,0 +1,1 @@
+ALTER TABLE lesson_telegram_card ADD COLUMN is_widget BOOLEAN NOT NULL DEFAULT FALSE;

@@ -1,7 +1,7 @@
 package com.eliteteam.speakingcoach.telegram
 
 import com.eliteteam.speakingcoach.ai.CallReviewResponse
-import com.eliteteam.speakingcoach.ai.OnboardingReview
+import com.eliteteam.speakingcoach.ai.ConversationReview
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.replyKeyboard
@@ -57,16 +57,6 @@ private val callSlideActions = setOf("grammar", "vocab", "fluency", "level", "pr
 
 internal fun CallReviewResponse.isNewFullReview(): Boolean = presentationVersion >= 2 && reviewKind == "full"
 
-internal fun callGate(onboardingStatus: String, overallScore: Int?, dailyMinutes: Int?, legacyUser: Boolean = false): String = when (onboardingStatus) {
-    "waiting", "active", "pending" -> "onboarding"
-    "completed" -> if (dailyMinutes == null) "need-goal" else "open"
-    else -> when {
-        (legacyUser || onboardingStatus == "exempt") && overallScore == null -> "legacy"
-        overallScore == null -> "need-onboarding"
-        dailyMinutes == null -> "need-goal"
-        else -> "open"
-    }
-}
 
 internal fun callClockLabel(todaySeconds: Double, goalSeconds: Double): String {
     val elapsed = if (todaySeconds.isFinite() && todaySeconds > 0.0) todaySeconds.toInt() else 0
@@ -168,13 +158,13 @@ internal fun callReviewStart(review: CallReviewResponse): Pair<TextSourcesList, 
         regularln("")
         italic(CALL_INSUFFICIENT_CTA)
     } to null
-    review.isNewFullReview() -> grammarSlide(review.asOnboardingReview()) to "vocab"
+    review.isNewFullReview() -> grammarSlide(review.asConversationReview()) to "vocab"
     else -> levelSlide(review.cefr, review.levelText, review.overallScore,
         review.nextBand, review.pointsToNext) to "grammar"
 }
 
 internal fun callReviewSlide(review: CallReviewResponse, action: String): Pair<TextSourcesList, String> {
-    val wrapped = review.asOnboardingReview()
+    val wrapped = review.asConversationReview()
     return when (action) {
         "grammar" -> grammarSlide(wrapped) to "vocab"
         "vocab" -> vocabularySlide(wrapped) to "fluency"
@@ -218,7 +208,7 @@ internal fun callFinalLevelMessage(review: CallReviewResponse, offerReminder: Bo
     }
 }
 
-internal fun CallReviewResponse.asOnboardingReview(): OnboardingReview =
-    OnboardingReview(levelText, grammar, vocabulary, fluency)
+internal fun CallReviewResponse.asConversationReview(): ConversationReview =
+    ConversationReview(levelText, grammar, vocabulary, fluency)
 
 private fun clock(seconds: Int): String = "%d:%02d".format(seconds / 60, seconds % 60)

@@ -25,7 +25,7 @@ internal fun spokenQuote(text: String): TextSourcesList = buildEntities {
     blockquote { regular(text.trim()) }
 }
 
-internal fun onboardingCorrection(correction: Correction): TextSourcesList {
+internal fun correctionCard(correction: Correction): TextSourcesList {
     return buildEntities {
         if (correction.kind == CorrectionKind.ALTERNATIVE) {
             regularln("Ещё один способ сказать:")
@@ -48,7 +48,7 @@ internal fun coachingEntities(transcript: String, corrections: List<Correction>)
     )
     if (best != null) {
         return buildEntities {
-            addAll(onboardingCorrection(best.correction))
+            addAll(correctionCard(best.correction))
         }
     }
     return buildEntities {

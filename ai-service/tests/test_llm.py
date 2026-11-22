@@ -382,10 +382,10 @@ async def test_none_reasoning_is_sent_only_for_live_corrections():
     assert await model.complete_json("review", "data") == '{"reply":"OK"}'
 
     notes, reply, review = completions.calls
-    assert notes["extra_body"] == {"reasoning": {"effort": "none"}}
+    assert notes["extra_body"] == {"reasoning": {"effort": "none"}, "provider": {"require_parameters": True}}
     assert notes["max_completion_tokens"] == NOTES_MAX_TOKENS
-    assert reply["extra_body"] is None
-    assert review["extra_body"] is None
+    assert reply["extra_body"] == {"provider": {"require_parameters": True}}
+    assert review["extra_body"] == {"provider": {"require_parameters": True}}
 
 
 @pytest.mark.asyncio
@@ -598,3 +598,20 @@ def test_parse_review_orders_grammar_then_vocabulary() -> None:
     parsed = parse_review(raw)
     assert [step["metric"] for step in parsed["steps"]] == ["Grammar", "Vocabulary"]
     assert parsed["steps"][0]["score"] == 78
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [None, 1200])
+async def test_default_has_no_token_cap_but_explicit_limit_is_preserved(limit):
+    from unittest.mock import AsyncMock
+    create = AsyncMock(return_value=SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content='{"ok":true}'))], usage=None))
+    client = SimpleNamespace(base_url="https://openrouter.ai/api/v1", chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    await OpenAiChatModel(client, "default").complete_json("JSON", "data", max_tokens=limit, operation="test")
+    args = create.call_args.kwargs
+    if limit is None:
+        assert "max_completion_tokens" not in args
+        assert "max_tokens" not in args
+    else:
+        assert args["max_completion_tokens"] == limit
+    assert args["extra_body"] == {"provider": {"require_parameters": True}}

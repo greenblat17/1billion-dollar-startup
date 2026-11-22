@@ -142,7 +142,7 @@ jobs:
             artifact: desktop-deb
             path: cmp/app/desktopApp/build/compose/binaries/main/deb/**
             cache-read-only: 'true'
-          - os: macos-14
+          - os: macos-15
             label: macos
             task: packageDmg
             artifact: desktop-dmg

@@ -15,7 +15,7 @@ description: >
 
 Widget lives once in `:app:shared`. Debug it in the same `:app:desktopApp` window (`SandboxHost`), not a second Gradle target and not IDE Preview.
 
-MCP / viewport / `get_logs`: skill `compose-hot-reload`. Annotation install: skill `compose-stability-analyzer`. Screen + ViewModel + Nav3 + Koin: skill `cmp-mvvm`. Theme / fonts: skill `cmp-theme`. Strings: skill `cmp-strings`. Icons: skill `cmp-icons`. Product look: `ai_docs/README.md` then the matching `ai_docs/design/` mockup before building the widget.
+MCP / viewport / `get_logs`: skill `compose-hot-reload`. Annotation install: skill `compose-stability-analyzer`. Screen + ViewModel + Nav3 + Koin: skill `cmp-mvvm`. Theme / fonts: skill `cmp-theme`. Strings: skill `cmp-strings`. Icons: skill `cmp-icons`. Product look: `ai_docs/README.md` and the user-approved design for the task; historical prototype mockups were removed.
 
 Skip: tweak an already-wired screen with no new widget → `App()` + hot-reload MCP only.
 

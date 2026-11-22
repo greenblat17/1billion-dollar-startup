@@ -1,0 +1,16 @@
+# Alternative HTTPS edge on the same Docker network as AI and Mini App.
+# The installed DEV edge uses Caddyfile.dev.example instead.
+location ~ ^/miniapp/(api|diagnostics|voice)$ {
+    client_max_body_size 32k;
+    proxy_pass http://ai-service:8090;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 90s;
+    proxy_send_timeout 90s;
+    proxy_buffering off;
+}
+location = /miniapp { proxy_pass http://mini-app:8080; }
+location = /miniapp/ { proxy_pass http://mini-app:8080; }
+location /miniapp/assets/ { proxy_pass http://mini-app:8080; }

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tests.learner_fixtures import seed_history
 
 import pytest
 import httpx
@@ -121,7 +122,7 @@ async def test_feedback_api_uses_character_saved_on_each_closed_call():
         for character, expected in (("kora_h", "offered"), ("kora_h", "offered"),
                                     ("speaky", "offered"), ("speaky", "offered")):
             if character == "speaky":
-                await app.state.onboarding.store.save("tg-1", {"status": "completed"})
+                await seed_history(app.state.learner_store, "tg-1", {"status": "completed"})
             call_id = await reviewed_call(character)
             response = (await client.post("/internal/calls/feedback", json={
                 "sessionId": "tg-1", "action": "offer", "callId": call_id,
@@ -178,11 +179,11 @@ async def test_historical_rating_only_blocks_mode_when_linked_call_proves_it(red
 @pytest.mark.asyncio
 async def test_onboarding_feedback_api_uses_attempt_and_stops_after_rating():
     app, *_ = build_app()
-    store = app.state.onboarding.store
+    store = app.state.learner_store
     first, second = "1" * 32, "2" * 32
 
     async def completed(run_id):
-        await store.save("tg-1", {"runId": run_id, "status": "completed", "character": "kora_h",
+        await seed_history(store, "tg-1", {"runId": run_id, "status": "completed", "character": "kora_h",
                                   "cefr": "A2", "position": "mid", "review": {"levelText": "A2"},
                                   "turns": [{"receivedAt": time.time(), "transcript": "Hello"}]})
 

@@ -15,7 +15,7 @@ async def test_mode_and_personality_use_shared_free_history_for_telegram():
     history = ConversationHistory(MemoryDialogueStore(40, 86400))
 
     free = await routing.resolve("tg-1", ConversationMode.FREE)
-    onboarding = await routing.resolve("tg-1", ConversationMode.ONBOARDING)
+    onboarding = await routing.resolve("tg-1", ConversationMode.SITUATION)
     situation = await routing.resolve("tg-1", ConversationMode.SITUATION)
 
     assert free.personality == Personality.KORA_H

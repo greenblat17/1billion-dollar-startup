@@ -67,6 +67,12 @@ class Settings:
     kora_tts_voice: str = "Leda"
     kora_h_enabled: bool = False
     kora_h_allowlist: str = ""
+    foundation_backend_url: str | None = None
+    foundation_backend_ca_file: str | None = None
+    trial_audio_bucket: str | None = None
+    trial_s3_endpoint: str | None = None
+    trial_realtime_model: str = "gpt-realtime-2.1"
+    trial_realtime_voice: str = "marin"
 
     @staticmethod
     def from_env() -> Settings:
@@ -88,6 +94,12 @@ class Settings:
             pipeline_timeout_seconds=_float_env("PIPELINE_TIMEOUT_SECONDS", 60),
             log_level=_env("LOG_LEVEL", "INFO") or "INFO",
             ai_internal_token=_env("AI_INTERNAL_TOKEN"),
+            foundation_backend_url=_env("FOUNDATION_BACKEND_URL"),
+            foundation_backend_ca_file=_env("FOUNDATION_BACKEND_CA_FILE"),
+            trial_realtime_model=_env("TRIAL_REALTIME_MODEL", "gpt-realtime-2.1"),
+            trial_realtime_voice=_env("TRIAL_REALTIME_VOICE", "marin"),
+            trial_audio_bucket=_env("TRIAL_AUDIO_BUCKET"),
+            trial_s3_endpoint=_env("TRIAL_S3_ENDPOINT"),
             openai_realtime_api_key=_env("OPENAI_REALTIME_API_KEY"),
             notes_model=_env("NOTES_MODEL", "openai/gpt-5.6-luna") or "openai/gpt-5.6-luna",
             onboarding_review_model=_env("ONBOARDING_REVIEW_MODEL", "openai/gpt-4o-mini"),
