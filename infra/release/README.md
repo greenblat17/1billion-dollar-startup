@@ -13,10 +13,12 @@ comma-separated list of `ktor`, `ai`, and `miniapp`.
 1. Confirm the active DEV runtime family and the Mini App HTTPS address.
 2. Restrict the `deploy-dev-release` environment to `main`. Configure reviewers to
    approve the exact candidate that will run with access to DEV services.
-3. In `deploy-dev-release`, set the environment secrets `SPEAKY_RELEASE_KTOR_HOST`,
-   `SPEAKY_RELEASE_KTOR_USER`, and `SPEAKY_RELEASE_KTOR_SSH_KEY`. Set the
-   corresponding `SPEAKY_RELEASE_AI_*` secrets. Put the verified host keys
-   in `SPEAKY_RELEASE_KNOWN_HOSTS` under `speaky-dev-cmp` and `speaky-dev-ai`.
+3. In `deploy-dev-release`, put the verified host keys in
+   `SPEAKY_RELEASE_KNOWN_HOSTS` under `speaky-dev-cmp` and `speaky-dev-ai`.
+   During the parallel rollout the job can reuse the existing repository
+   `DEV_CMP_SERVER_*` and `DEV_AI_SERVER_*` SSH secrets. Once scoped
+   credentials are available, set `SPEAKY_RELEASE_KTOR_*` and
+   `SPEAKY_RELEASE_AI_*` there. The job uses the scoped values first.
 4. Set environment variables `SPEAKY_RELEASE_RUNTIME_FAMILY` and
    `SPEAKY_RELEASE_MINIAPP_URL`. Use the public HTTPS URL ending in `/miniapp`.
    Set `SPEAKY_RELEASE_ENABLED=true` after the secrets and protections are ready.
