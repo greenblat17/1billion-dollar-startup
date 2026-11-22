@@ -11,9 +11,9 @@ comma-separated list of `ktor`, `ai`, and `miniapp`.
 ## Activate DEV
 
 1. Confirm the active DEV runtime family and the Mini App HTTPS address.
-2. Restrict the `deploy-dev` environment to `main`. Configure reviewers to
+2. Restrict the `deploy-dev-release` environment to `main`. Configure reviewers to
    approve the exact candidate that will run with access to DEV services.
-3. In `deploy-dev`, set the environment secrets `SPEAKY_RELEASE_KTOR_HOST`,
+3. In `deploy-dev-release`, set the environment secrets `SPEAKY_RELEASE_KTOR_HOST`,
    `SPEAKY_RELEASE_KTOR_USER`, and `SPEAKY_RELEASE_KTOR_SSH_KEY`. Set the
    corresponding `SPEAKY_RELEASE_AI_*` secrets. Put the verified host keys
    in `SPEAKY_RELEASE_KNOWN_HOSTS` under `speaky-dev-cmp` and `speaky-dev-ai`.
@@ -21,7 +21,7 @@ comma-separated list of `ktor`, `ai`, and `miniapp`.
    `SPEAKY_RELEASE_MINIAPP_URL`. Use the public HTTPS URL ending in `/miniapp`.
    Set `SPEAKY_RELEASE_ENABLED=true` after the secrets and protections are ready.
 5. Wait for any legacy DEV deployment to finish. Start the first release-ID
-   deployment in its own window. The old workflow uses separate locks.
+   deployment in its own window. The old workflow uses its own environment and locks.
 6. Verify the image IDs and readiness in the workflow summary. Retire the old
    DEV entry point and update the BB caller after validating the new route.
 

@@ -21,7 +21,7 @@ jobs:
   install:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    environment: deploy-${{ inputs.destination }}
+    environment: deploy-dev-release
     env:
       DESTINATION: ${{ inputs.destination }}
       RELEASE_RUN_ID: ${{ inputs.release_run_id }}
