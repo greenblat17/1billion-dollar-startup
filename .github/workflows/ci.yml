@@ -1,0 +1,49 @@
+name: Speaky CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: speaky-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    uses: ./.github/workflows/runtime-checks.yml
+    with:
+      source_sha: ${{ github.sha }}
+
+  release-contract:
+    name: Release contract tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Verify release contract and host installer
+        env:
+          SPEAKY_HOST_DOCKER_TEST_IMAGE: nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+          SPEAKY_HOST_DOCKER_POSTGRES_IMAGE: postgres:16-alpine@sha256:20edbde7749f822887a1a022ad526fde0a47d6b2be9a8364433605cf65099416
+        run: |
+          docker pull "$SPEAKY_HOST_DOCKER_TEST_IMAGE"
+          docker pull "$SPEAKY_HOST_DOCKER_POSTGRES_IMAGE"
+          python3 -m unittest discover -s infra/release -p 'test_*.py'
+
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: [checks, release-contract]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require checks to pass
+        env:
+          RUNTIME_RESULT: ${{ needs.checks.result }}
+          RELEASE_RESULT: ${{ needs.release-contract.result }}
+        run: |
+          echo "Runtime: $RUNTIME_RESULT. Release contract: $RELEASE_RESULT."
+          [[ "$RUNTIME_RESULT" == success && "$RELEASE_RESULT" == success ]]

@@ -1,0 +1,228 @@
+name: Speaky runtime checks
+
+on:
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Full commit SHA to check
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Source and workflow configuration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      runtime_family: ${{ steps.family.outputs.value }}
+    steps:
+      - name: Check out pipeline tools
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: pipeline
+          sparse-checkout: infra/release/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Check out runtime source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - name: Validate source and choose applicable suites
+        id: family
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git -C source rev-parse HEAD)" = "$SOURCE_SHA"
+          family=$(python3 pipeline/infra/release/release.py family source)
+          case "$family" in
+            foundation)
+              test -x source/scripts/test-foundation.sh
+              test -f source/mini-app/Dockerfile
+              ;;
+            legacy)
+              echo "Legacy releases require the Ktor and Python suites."
+              ;;
+            *) exit 1 ;;
+          esac
+          echo "value=$family" >> "$GITHUB_OUTPUT"
+      - name: Check GitHub Actions workflow configuration
+        run: |
+          # actionlint 1.7.12 predates concurrency queues and the 25-input limit.
+          docker run --rm -v "$PWD/source:/repo:ro" --workdir /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
+            -shellcheck='' -pyflakes='' \
+            -ignore '^unexpected key "queue" for "concurrency" section\.' \
+            -ignore '^maximum number of inputs for "workflow_dispatch" event is 10 but (1[1-9]|2[0-5]) inputs are provided\.'
+      - name: Check reviewed catalog release validation
+        working-directory: source
+        run: |
+          if [[ -f infra/dev/test_catalog_release_remote.py ]]; then
+            python3 -m unittest discover -s infra/dev -p test_catalog_release_remote.py
+          fi
+
+  ktor:
+    name: Ktor tests and detekt
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out pipeline Gradle setup
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: pipeline
+          sparse-checkout: .github/actions/setup-cmp/action.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - uses: ./pipeline/.github/actions/setup-cmp
+        with:
+          cache-read-only: 'true'
+      - name: Test Ktor and analyze server and core
+        working-directory: source/cmp
+        run: ./gradlew :server:test :server:detekt :core:detekt
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ktor-checks-${{ github.run_attempt }}
+          path: |
+            source/cmp/server/build/reports/tests/test
+            source/cmp/server/build/reports/detekt
+            source/cmp/core/build/reports/detekt
+          if-no-files-found: ignore
+          retention-days: 1
+
+  python:
+    name: Python tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test Python runtime
+        working-directory: ai-service
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest
+
+  mini-app:
+    name: Mini App tests and HTTP smoke
+    needs: source
+    if: needs.source.outputs.runtime_family == 'foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+      - name: Check edge migration
+        run: python3 -m unittest discover -s infra/miniapp -p 'test_*.py'
+      - name: Test and build Mini App
+        working-directory: mini-app
+        run: |
+          npm test
+          npm run build
+      - name: Verify static server
+        run: |
+          docker build -t mini-app-test mini-app
+          docker run -d --name mini-app-test -p 127.0.0.1:8088:8080 mini-app-test
+          trap 'docker rm -f mini-app-test' EXIT
+          curl --retry 10 --retry-all-errors --retry-delay 1 --max-time 5 -fsS http://127.0.0.1:8088/miniapp > /dev/null
+          curl -fsS http://127.0.0.1:8088/miniapp/assets/app.js > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/miniapp/voice)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/miniapp/assets/missing.js)" = 404
+
+  foundation:
+    name: Foundation PostgreSQL integration
+    needs: source
+    if: needs.source.outputs.runtime_family == 'foundation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: foundation_test
+          POSTGRES_USER: foundation_test
+          POSTGRES_PASSWORD: local_test_only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U foundation_test -d foundation_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5432/foundation_test?user=foundation_test&password=local_test_only
+    steps:
+      - name: Check out pipeline Gradle setup
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: pipeline
+          sparse-checkout: .github/actions/setup-cmp/action.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: source
+          persist-credentials: false
+      - uses: ./pipeline/.github/actions/setup-cmp
+        with:
+          cache-read-only: 'true'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r source/ai-service/requirements-dev.txt
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client-16
+      - name: Check Foundation runtime
+        run: source/scripts/test-foundation.sh
+      - name: Check retained PostgreSQL adapters
+        run: source/scripts/test-foundation.sh
+        env:
+          FOUNDATION_TEST_SUITE: legacy
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: foundation-integration-tests-${{ github.run_attempt }}
+          path: source/cmp/server/build/reports/tests/foundationIntegrationTest
+          if-no-files-found: error
+
+  result:
+    name: Require applicable suites to pass
+    if: ${{ always() }}
+    needs: [source, ktor, python, mini-app, foundation]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check results
+        env:
+          RUNTIME_FAMILY: ${{ needs.source.outputs.runtime_family }}
+          SOURCE_RESULT: ${{ needs.source.result }}
+          KTOR_RESULT: ${{ needs.ktor.result }}
+          PYTHON_RESULT: ${{ needs.python.result }}
+          MINI_APP_RESULT: ${{ needs.mini-app.result }}
+          FOUNDATION_RESULT: ${{ needs.foundation.result }}
+        run: |
+          echo "Runtime: $RUNTIME_FAMILY. Source: $SOURCE_RESULT. Ktor: $KTOR_RESULT. Python: $PYTHON_RESULT. Mini App: $MINI_APP_RESULT. Foundation: $FOUNDATION_RESULT."
+          [[ "$SOURCE_RESULT" == success && "$KTOR_RESULT" == success && "$PYTHON_RESULT" == success ]]
+          case "$RUNTIME_FAMILY" in
+            foundation) [[ "$MINI_APP_RESULT" == success && "$FOUNDATION_RESULT" == success ]] ;;
+            legacy) [[ "$MINI_APP_RESULT" == skipped && "$FOUNDATION_RESULT" == skipped ]] ;;
+            *) exit 1 ;;
+          esac

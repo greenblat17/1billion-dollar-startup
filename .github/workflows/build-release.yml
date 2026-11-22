@@ -1,0 +1,137 @@
+name: Build Speaky release
+run-name: Build Speaky ${{ inputs.source_sha || github.sha }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full commit SHA reachable from a branch of this repository
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+      family: ${{ steps.resolve.outputs.family }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: resolve
+        name: Verify the source commit and runtime family
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git cat-file -t "$SOURCE_SHA")" = commit
+          test -n "$(git for-each-ref --count=1 --contains "$SOURCE_SHA" refs/remotes/origin/)"
+          source_dir="$RUNNER_TEMP/release-source"
+          git worktree add --detach "$source_dir" "$SOURCE_SHA"
+          family=$(python3 infra/release/release.py family "$source_dir")
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "family=$family" >> "$GITHUB_OUTPUT"
+  checks:
+    needs: source
+    uses: ./.github/workflows/runtime-checks.yml
+    with:
+      source_sha: ${{ needs.source.outputs.sha }}
+  build:
+    needs: [source, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      SOURCE_SHA: ${{ needs.source.outputs.sha }}
+      FAMILY: ${{ needs.source.outputs.family }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+          path: release-source
+          persist-credentials: false
+      - uses: ./.github/actions/setup-cmp
+        with:
+          cache-read-only: 'true'
+      - uses: actions/setup-node@v5
+        if: needs.source.outputs.family == 'foundation'
+        with:
+          node-version: '22'
+      - name: Build and package images
+        run: |
+          set -euo pipefail
+          (cd release-source/cmp && ./gradlew :server:buildFatJar)
+          mkdir "$RUNNER_TEMP/ktor-context"
+          cp release-source/infra/server/Dockerfile.runtime "$RUNNER_TEMP/ktor-context/Dockerfile"
+          cp release-source/cmp/server/build/libs/server-all.jar "$RUNNER_TEMP/ktor-context/"
+          build_image() {
+            local component="$1" context="$2" image="speaky-release:$1-$SOURCE_SHA"
+            docker build --platform linux/amd64 --tag "$image" \
+              --label "org.opencontainers.image.revision=$SOURCE_SHA" \
+              --label "io.speaky.runtime-family=$FAMILY" \
+              --label "io.speaky.component=$component" "$context"
+            python3 infra/release/release.py pack "$image" "$RUNNER_TEMP/images/$component"
+          }
+          build_image ktor "$RUNNER_TEMP/ktor-context"
+          build_image ai release-source/ai-service
+          if [ "$FAMILY" = foundation ]; then
+            (cd release-source/mini-app && GITHUB_SHA="$SOURCE_SHA" npm run build)
+            build_image miniapp release-source/mini-app
+          fi
+      - uses: actions/upload-artifact@v6
+        id: ktor
+        with:
+          name: speaky-ktor-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images/ktor/image.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - uses: actions/upload-artifact@v6
+        id: ai
+        with:
+          name: speaky-ai-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images/ai/image.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - uses: actions/upload-artifact@v6
+        if: needs.source.outputs.family == 'foundation'
+        id: miniapp
+        with:
+          name: speaky-miniapp-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/images/miniapp/image.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+      - name: Write the manifest from uploaded artifact IDs
+        env:
+          KTOR_ID: ${{ steps.ktor.outputs.artifact-id }}
+          AI_ID: ${{ steps.ai.outputs.artifact-id }}
+          MINIAPP_ID: ${{ steps.miniapp.outputs.artifact-id }}
+        run: |
+          set -euo pipefail
+          artifacts="ktor=$KTOR_ID ai=$AI_ID"
+          if [ "$FAMILY" = foundation ]; then artifacts="$artifacts miniapp=$MINIAPP_ID"; fi
+          python3 infra/release/release.py manifest "$RUNNER_TEMP/images" \
+            "$RUNNER_TEMP/release.json" "$FAMILY" "$SOURCE_SHA" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$artifacts"
+          printf 'Release run ID: `%s`\n\nSource: `%s`\n\nRuntime: `%s`\n' \
+            "$GITHUB_RUN_ID" "$SOURCE_SHA" "$FAMILY" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: speaky-release-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release.json
+          if-no-files-found: error
+          retention-days: 30
