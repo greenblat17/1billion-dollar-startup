@@ -1,0 +1,30 @@
+name: Redeploy DEV (release ID)
+run-name: DEV release ${{ inputs.release_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Build Speaky release run ID
+        type: string
+        required: true
+      components:
+        description: all or a comma-separated list of ktor, ai, miniapp
+        type: string
+        default: all
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: speaky-deploy-dev
+  queue: max
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-release.yml
+    with:
+      destination: dev
+      release_run_id: ${{ inputs.release_run_id }}
+      components: ${{ inputs.components }}
